@@ -8,154 +8,95 @@
 		</style>
 	</head>
 	<body>
-		<script src="js/three.js"></script>
-		<script src="js/js-colormaps.js"></script>
-		<script src="js/world_controls.js"></script>
-		<script  type="module">
-            import { HTTPStore, openArray, openGroup } from "https://cdn.skypack.dev/zarr";
-            const store = new HTTPStore("https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/nextGEMS/");
+    </body>
+    <script src="js/three.js"></script>
+    <script src="js/js-colormaps.js"></script>
+    <script src="js/world_controls.js"></script>
+    <script src="js/gridlook.js"></script>
+    <script  type="module">
+        import { HTTPStore, openArray, openGroup } from "https://cdn.skypack.dev/zarr";
+        const store = new HTTPStore("https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/nextGEMS/");
 
-            const scene = new THREE.Scene();
-            const center = new THREE.Vector3();
-            const camera = new THREE.PerspectiveCamera( 7.5, window.innerWidth / window.innerHeight, 0.1, 1000 );
+        const scene = new THREE.Scene();
+        const center = new THREE.Vector3();
+        const camera = new THREE.PerspectiveCamera( 7.5, window.innerWidth / window.innerHeight, 0.1, 1000 );
 
-            const renderer = new THREE.WebGLRenderer();
-            renderer.setSize( window.innerWidth, window.innerHeight );
-            document.body.appendChild( renderer.domElement );
+        const renderer = new THREE.WebGLRenderer();
+        renderer.setSize( window.innerWidth, window.innerHeight );
+        document.body.appendChild( renderer.domElement );
 
-            // const geometry = new THREE.BoxGeometry();
-            // const material = new THREE.MeshBasicMaterial( { color: 0x00ff00 } );
-            // const cube = new THREE.Mesh( geometry, material );
-            // scene.add( cube );
+        // const geometry = new THREE.BoxGeometry();
+        // const material = new THREE.MeshBasicMaterial( { color: 0x00ff00 } );
+        // const cube = new THREE.Mesh( geometry, material );
+        // scene.add( cube );
 
-            camera.up = new THREE.Vector3(0, 0, 1);
-            camera.position.x = 30;
-            camera.lookAt(center);
+        camera.up = new THREE.Vector3(0, 0, 1);
+        camera.position.x = 30;
+        camera.lookAt(center);
 
-            async function fetchGrid(grid, plotdata, colormap) {
-                const [voc, vx, vy, vz] = await Promise.all([
-                    grid.getItem("vertex_of_cell").then(a => a.get()),
-                    grid.getItem("cartesian_x_vertices").then(a => a.get()).then(a => a.data),
-                    grid.getItem("cartesian_y_vertices").then(a => a.get()).then(a => a.data),
-                    grid.getItem("cartesian_z_vertices").then(a => a.get()).then(a => a.data)
-                ]);
+        async function fetchGrid(grid, plotdata, colormap) {
+            const [verts, color] = await Promise.all([
+                grid2buffer(grid),
+                data2color_buffer(plotdata, colormap)
+            ]);
 
-                const ncells = voc.shape[1];
+            console.log("verts have nan: " + verts.some(isNaN));
 
-                let verts = new Float32Array(ncells * 3 * 3);
-                let color = new Float32Array(ncells * 3 * 3);
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute( 'position', new THREE.BufferAttribute( verts, 3 ) );
+            geometry.setAttribute( 'color', new THREE.BufferAttribute( color, 3 ) );
 
-                const vs0 = voc.get(0).data;
-                const vs1 = voc.get(1).data;
-                const vs2 = voc.get(2).data;
-                
-                console.log(plotdata);
-
-                const data_min = plotdata.reduce((a, b) => Math.min(a, b));
-                const data_max = plotdata.reduce((a, b) => Math.max(a, b));
-
-                const norm = d => (d - data_min) / (data_max - data_min);
-                
-                for (var i = 0; i < ncells; i++) {
-                    const v0 = vs0[i] - 1; 
-                    const v1 = vs1[i] - 1; 
-                    const v2 = vs2[i] - 1; 
-
-                    verts[9 * i + 0] = vx[v0];
-                    verts[9 * i + 1] = vy[v0];
-                    verts[9 * i + 2] = vz[v0];
-
-                    verts[9 * i + 3] = vx[v1];
-                    verts[9 * i + 4] = vy[v1];
-                    verts[9 * i + 5] = vz[v1];
-
-                    verts[9 * i + 6] = vx[v2];
-                    verts[9 * i + 7] = vy[v2];
-                    verts[9 * i + 8] = vz[v2];
-
-                    const [r, g, b] = interpolated(1 - norm(plotdata[i]), colormap);
-
-                    color[9 * i + 0] = r;
-                    color[9 * i + 1] = g;
-                    color[9 * i + 2] = b;
-
-                    color[9 * i + 3] = r;
-                    color[9 * i + 4] = g;
-                    color[9 * i + 5] = b;
-
-                    color[9 * i + 6] = r;
-                    color[9 * i + 7] = g;
-                    color[9 * i + 8] = b;
-                }
-                console.log(color);
-                console.log("has nan: " + verts.some(isNaN));
-
-                const geometry = new THREE.BufferGeometry();
-                geometry.setAttribute( 'position', new THREE.BufferAttribute( verts, 3 ) );
-                geometry.setAttribute( 'color', new THREE.BufferAttribute( color, 3 ) );
-
-                console.log("sphere: " + geometry.computeBoundingSphere());
-                console.log(geometry.computeBoundingBox());
-                const material = new THREE.MeshBasicMaterial( { side: THREE.DoubleSide, vertexColors: THREE.VertexColors } );
-                const mesh = new THREE.Mesh( geometry, material );
-                scene.add(mesh);
-
-                redraw();
-
-                //function animate() {
-                //    requestAnimationFrame( animate );
-                //    // mesh.rotation.x += 0.01;
-                //    // mesh.rotation.y += 0.01;
-                //    renderer.render( scene, camera );
-                //}
-                //animate();
-            }
-
-            console.log(cm_data);
-            async function getData() {
-                console.log("fetching");
-                const grid = await openGroup(store, "grids/ICON_R02B06.zarr", "r");
-                const data = await openGroup(store, "nextGEMS_ICON_3d_prw_R02B06.zarr", "r");
-                const prw = (await (await data.getItem("prw")).get(1)).data
-                await fetchGrid(grid, prw, cm_data["turbo"]["colors"]);
-                console.log("done");
-            }
-        
-            getData();
-
-
-            function render() {
-                renderer.render(scene, camera);
-            }
-
-            var frameId = 0;
-            function redraw() {
-                cancelAnimationFrame(frameId);
-                frameId = requestAnimationFrame(render);
-            }
-
-            attachControls(renderer, camera, center, redraw);
-
-            function onWindowResize() {
-
-				const aspect = window.innerWidth / window.innerHeight;
-
-				camera.aspect = aspect;
-				camera.updateProjectionMatrix();
-
-				//cameraOrtho.left = cameraOrtho.bottom * aspect;
-				//cameraOrtho.right = cameraOrtho.top * aspect;
-				//cameraOrtho.updateProjectionMatrix();
-
-				renderer.setSize( window.innerWidth, window.innerHeight );
-
-				render();
-
-			}
+            const material = new THREE.MeshBasicMaterial( { side: THREE.DoubleSide, vertexColors: THREE.VertexColors } );
+            const mesh = new THREE.Mesh( geometry, material );
+            scene.add(mesh);
 
             redraw();
-            window.addEventListener( 'resize', onWindowResize );
+        }
 
-		</script>
-	</body>
+        console.log(cm_data);
+        async function getData() {
+            console.log("fetching");
+            const grid = await openGroup(store, "grids/ICON_R02B06.zarr", "r");
+            const data = await openGroup(store, "nextGEMS_ICON_3d_prw_R02B06.zarr", "r");
+            const prw = data.getItem("prw").then(d => d.get(1))
+            await fetchGrid(grid, prw, "turbo_r");
+            console.log("done");
+        }
+    
+        getData();
+
+
+        function render() {
+            renderer.render(scene, camera);
+        }
+
+        var frameId = 0;
+        function redraw() {
+            cancelAnimationFrame(frameId);
+            frameId = requestAnimationFrame(render);
+        }
+
+        attachControls(renderer, camera, center, redraw);
+
+        function onWindowResize() {
+
+            const aspect = window.innerWidth / window.innerHeight;
+
+            camera.aspect = aspect;
+            camera.updateProjectionMatrix();
+
+            //cameraOrtho.left = cameraOrtho.bottom * aspect;
+            //cameraOrtho.right = cameraOrtho.top * aspect;
+            //cameraOrtho.updateProjectionMatrix();
+
+            renderer.setSize( window.innerWidth, window.innerHeight );
+
+            render();
+
+        }
+
+        redraw();
+        window.addEventListener( 'resize', onWindowResize );
+
+    </script>
 </html>
