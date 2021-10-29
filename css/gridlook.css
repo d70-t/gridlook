@@ -1,5 +1,6 @@
 .gl_controls {
     position: absolute;
+    width: 25rem;
 }
 
 .gl_controls .panel-block {
