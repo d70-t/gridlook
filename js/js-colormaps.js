@@ -212,6 +212,7 @@ function evaluate_cmap(x, name, reverse) {
 }
 
 function interpolated(x, colors) {
+  if (isNaN(x)) return [0, 0, 0];
   x = Math.min(Math.max(x, 0), 1);
   let lo = Math.floor(x * (colors.length - 1));
   let hi = Math.min(lo + 1, colors.length - 1);
