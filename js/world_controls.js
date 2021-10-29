@@ -61,8 +61,9 @@ var Controls = (function(Controls) {
 
 function attachControls(renderer, camera, center, redraw) {
 	function drag(deltaX, deltaY) {
-		var radPerPixel = (Math.PI / 450),
-		    deltaPhi = radPerPixel * deltaX,
+		let radPerPixel = (Math.PI / 450);
+        radPerPixel *= Math.min(2, camera.position.distanceTo(center) / 30);
+		var deltaPhi = radPerPixel * deltaX,
 		    deltaTheta = radPerPixel * deltaY,
 		    pos = camera.position.sub(center),
 		    radius = pos.length(),
@@ -84,8 +85,10 @@ function attachControls(renderer, camera, center, redraw) {
 	}
 
 	function zoomIn() {
-		camera.position.sub(center).multiplyScalar(0.95).add(center);
-		redraw();
+        if (camera.position.distanceTo(center) > 1.2 / 0.95) {
+            camera.position.sub(center).multiplyScalar(0.95).add(center);
+            redraw();
+        }
 	}
 
 	function zoomOut() {
