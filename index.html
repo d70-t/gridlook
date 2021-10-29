@@ -6,9 +6,27 @@
 		<style>
 			body { margin: 0; }
 		</style>
+        <link rel="stylesheet" href="css/bulma.min.css">
+        <link rel="stylesheet" href="css/gridlook.css">
 	</head>
 	<body>
+        <nav class="panel gl_controls" id="main_controls">
+          <p class="panel-heading">
+          {{ model_info.varname }}
+          </p>
+          <div class="panel-block">
+            <p class="control">
+            time: {{ time_index }} / {{ model_info.time_range.end }}
+            <input class="input"
+                   type="range"
+                   v-bind:min="model_info.time_range.start"
+                   v-bind:max="model_info.time_range.end"
+                   v-model.number="time_index">
+            </p>
+          </div>
+        </nav>
     </body>
+    <script src="https://unpkg.com/vue@next"></script>
     <script src="js/three.js"></script>
     <script src="js/js-colormaps.js"></script>
     <script src="js/world_controls.js"></script>
@@ -30,9 +48,36 @@
         // const cube = new THREE.Mesh( geometry, material );
         // scene.add( cube );
 
+        const model_info = {
+            varname: "prw",
+            time_range: {
+                start: 0,
+                end: 1
+            }
+        }
+
+        const MainControls = {
+          data() {
+            return {
+              time_index: 1,
+              model_info: model_info,
+            }
+          },
+          watch: {
+            time_index() {
+                console.log("time: " + this.time_index);
+                updateData(this.time_index);
+            }
+          }
+        }
+
+        const main_controls = Vue.createApp(MainControls).mount('#main_controls');
+
         camera.up = new THREE.Vector3(0, 0, 1);
         camera.position.x = 30;
         camera.lookAt(center);
+
+        const geometry = new THREE.BufferGeometry();
 
         async function fetchGrid(grid, plotdata, colormap) {
             const [verts, color] = await Promise.all([
@@ -42,7 +87,6 @@
 
             console.log("verts have nan: " + verts.some(isNaN));
 
-            const geometry = new THREE.BufferGeometry();
             geometry.setAttribute( 'position', new THREE.BufferAttribute( verts, 3 ) );
             geometry.setAttribute( 'color', new THREE.BufferAttribute( color, 3 ) );
 
@@ -54,13 +98,24 @@
         }
 
         console.log(cm_data);
+
+        let grid;
+        let datavar;
         async function getData() {
             console.log("fetching");
-            const grid = await openGroup(store, "grids/ICON_R02B06.zarr", "r");
-            const data = await openGroup(store, "nextGEMS_ICON_3d_prw_R02B06.zarr", "r");
-            const prw = data.getItem("prw").then(d => d.get(1))
-            await fetchGrid(grid, prw, "turbo_r");
+            grid = await openGroup(store, "grids/ICON_R02B06.zarr", "r");
+            datavar = await openGroup(store, "nextGEMS_ICON_3d_prw_R02B06.zarr", "r").then(ds => ds.getItem(model_info.varname));
+            console.log(datavar.shape);
+            main_controls.model_info.time_range.end = datavar.shape[0] - 1;
+            await fetchGrid(grid, datavar.get(1), "turbo_r");
             console.log("done");
+        }
+
+        async function updateData(time_index) {
+            const color = await data2color_buffer(datavar.get(time_index), "turbo_r")
+            geometry.setAttribute( 'color', new THREE.BufferAttribute( color, 3 ) );
+
+            redraw();
         }
     
         getData();

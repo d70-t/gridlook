@@ -1,0 +1,7 @@
+.gl_controls {
+    position: absolute;
+}
+
+.gl_controls .panel-block {
+    background-color: white;
+}
