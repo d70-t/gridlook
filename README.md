@@ -8,6 +8,6 @@ When deployed, this website will do CORS requests towards the DKRZ swift server.
 According to [the docs](https://docs.openstack.org/swift/latest/cors.html) this is possible using container metadata.
 Using the `swift` tool, you can set the required configuration using:
 ```
-swift post nextGEMS -m "X-Container-Meta-Access-Control-Allow-Origin:https://tobi.pages.gwdg.de"
+swift post nextGEMS -m "X-Container-Meta-Access-Control-Allow-Origin:*"
 ```
 for the `nextGEMS` container.
