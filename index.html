@@ -98,18 +98,13 @@
             redraw();
         }
 
-        console.log(cm_data);
-
         let grid;
         let datavar;
         async function getData() {
-            console.log("fetching");
             grid = await openGroup(store, "grids/ICON_R02B06.zarr", "r");
             datavar = await openGroup(store, "nextGEMS_ICON_3d_prw_R02B06.zarr", "r").then(ds => ds.getItem(model_info.varname));
-            console.log(datavar.shape);
             main_controls.model_info.time_range.end = datavar.shape[0] - 1;
             await fetchGrid(grid, datavar.get(1), "turbo_r");
-            console.log("done");
             main_controls.current_time_index = 1;
         }
 
