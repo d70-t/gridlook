@@ -25,6 +25,11 @@
             currently shown: {{ current_time_index }}
             </p>
           </div>
+          <div class="panel-block">
+            <p class="control">
+            <input type="checkbox" v-model="enable_coastlines" id="enable_coastlines"></input><label for="enable_coastlines">coastlines</label>
+            </p>
+          </div>
         </nav>
     </body>
     <script src="https://unpkg.com/vue@next"></script>
@@ -32,6 +37,7 @@
     <script src="js/js-colormaps.js"></script>
     <script src="js/world_controls.js"></script>
     <script src="js/gridlook.js"></script>
+    <script src="js/geojson.js"></script>
     <script  type="module">
         import { HTTPStore, openArray, openGroup } from "https://cdn.skypack.dev/zarr";
         const store = new HTTPStore("https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/nextGEMS/");
@@ -63,12 +69,21 @@
               time_index: 1,
               model_info: model_info,
               current_time_index: 1,
+              enable_coastlines: true,
             }
           },
           watch: {
             time_index() {
                 updateData(this.time_index);
-            }
+            },
+            enable_coastlines() {
+                if (this.enable_coastlines) {
+                    scene.add(coast);
+                } else {
+                    scene.remove(coast);
+                }
+                render();
+            },
           }
         }
 
@@ -108,6 +123,18 @@
             main_controls.current_time_index = 1;
         }
 
+        let coast = undefined;
+        async function getCoastlines() {
+            const coastlines = await fetch("static/ne_50m_coastline.geojson").then(r => r.json());
+            console.log(coastlines);
+            const geometry = geojson2geometry(coastlines, 1.001);
+            const material = new THREE.LineBasicMaterial( { color: "#ffffff" } );
+            coast = new THREE.LineSegments( geometry, material );
+            coast.name = "coastlines";
+            scene.add(coast);
+            redraw();
+        }
+
         async function _updateData(time_index) {
             const color = await data2color_buffer(datavar.get(time_index), "turbo_r")
             geometry.setAttribute( 'color', new THREE.BufferAttribute( color, 3 ) );
@@ -130,6 +157,7 @@
         }
     
         getData();
+        getCoastlines();
 
 
         function render() {
