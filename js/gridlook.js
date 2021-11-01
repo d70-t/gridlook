@@ -73,3 +73,18 @@ async function data2color_buffer(data, colormap) {
 
     return color;
 }
+
+function snapshot(canvas_id, render) {
+    canvas = document.getElementById(canvas_id);
+    render();
+    canvas.toBlob(function(blob) {
+        let link = document.createElement('a');
+        link.download = 'gridlook.png';
+
+        link.href = URL.createObjectURL(blob);
+        link.click();
+
+        // delete the internal blob reference, to let the browser clear memory from it
+        URL.revokeObjectURL(link.href);
+    }, 'image/png');
+}

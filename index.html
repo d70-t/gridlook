@@ -29,8 +29,13 @@
             <p class="control">
             <input type="checkbox" v-model="enable_coastlines" id="enable_coastlines"></input><label for="enable_coastlines">coastlines</label>
             </p>
+            <p class="control">
+            <button v-on:click="snapshot('globe')">Snapshot</button>
+            </p>
           </div>
         </nav>
+        <canvas id="globe">
+        </canvas>
     </body>
     <script src="https://unpkg.com/vue@next"></script>
     <script src="js/three.js"></script>
@@ -46,9 +51,9 @@
         const center = new THREE.Vector3();
         const camera = new THREE.PerspectiveCamera( 7.5, window.innerWidth / window.innerHeight, 0.1, 1000 );
 
-        const renderer = new THREE.WebGLRenderer();
+        const globe_canvas = document.getElementById("globe");
+        const renderer = new THREE.WebGLRenderer({canvas: globe_canvas});
         renderer.setSize( window.innerWidth, window.innerHeight );
-        document.body.appendChild( renderer.domElement );
 
         // const geometry = new THREE.BoxGeometry();
         // const material = new THREE.MeshBasicMaterial( { color: 0x00ff00 } );
@@ -84,6 +89,11 @@
                 }
                 render();
             },
+          },
+          methods: {
+            snapshot(canvas_id) {
+                snapshot(canvas_id, render);
+            }
           }
         }
 
