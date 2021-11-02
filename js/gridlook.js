@@ -40,8 +40,13 @@ async function data2color_buffer(data, colormap) {
     const ncells = data.shape[0];
     const plotdata = await data.data
 
-    const data_min = plotdata.reduce((a, b) => Math.min(a, b));
-    const data_max = plotdata.reduce((a, b) => Math.max(a, b));
+    let data_min = Number.POSITIVE_INFINITY;
+    let data_max = Number.NEGATIVE_INFINITY;
+    for (var i = 0; i < ncells; i++) {
+        const v = plotdata[i];
+        if (v < data_min) data_min = v;
+        if (v > data_max) data_max = v;
+    }
 
     let norm;
     if (colormap.endsWith('_r')) {
