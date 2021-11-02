@@ -123,13 +123,15 @@
             redraw();
         }
 
+        const gridIndexer = await make_grid_indexer(await openGroup(store, "grids/ICON_R02B03.zarr", "r"));
+
         let grid;
         let datavar;
         async function getData() {
             grid = await openGroup(store, "grids/ICON_R02B06.zarr", "r");
             datavar = await openGroup(store, "nextGEMS_ICON_3d_prw_R02B06.zarr", "r").then(ds => ds.getItem(model_info.varname));
             main_controls.model_info.time_range.end = datavar.shape[0] - 1;
-            await fetchGrid(grid, datavar.get(1), "turbo_r");
+            await fetchGrid(grid, datavar.getRaw(1), "turbo_r");
             main_controls.current_time_index = 1;
         }
 
@@ -146,7 +148,7 @@
         }
 
         async function _updateData(time_index) {
-            const color = await data2color_buffer(datavar.get(time_index), "turbo_r")
+            const color = await data2color_buffer(datavar.getRaw(time_index), "turbo_r")
             geometry.setAttribute( 'color', new THREE.BufferAttribute( color, 3 ) );
 
             redraw();
