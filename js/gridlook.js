@@ -15,9 +15,17 @@ async function grid2buffer(grid) {
     const vs2 = voc.get(2).data;
 
     for (var i = 0; i < ncells; i++) {
-        const v0 = vs0[i] - 1; 
-        const v1 = vs1[i] - 1; 
-        const v2 = vs2[i] - 1; 
+        let v0 = vs0[i] - 1;
+        let v1 = vs1[i] - 1;
+        let v2 = vs2[i] - 1;
+
+        const a = new THREE.Vector3(vx[v0], vy[v0], vz[v0]);
+        const b = new THREE.Vector3(vx[v1], vy[v1], vz[v1]);
+        const c = new THREE.Vector3(vx[v2], vy[v2], vz[v2]);
+
+        if (b.sub(a).cross(c.sub(a)).dot(a.add(b).add(c)) < 0) {
+            [v1, v2] = [v2, v1];
+        }
 
         verts[9 * i + 0] = vx[v0];
         verts[9 * i + 1] = vy[v0];
