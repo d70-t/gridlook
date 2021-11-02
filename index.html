@@ -106,17 +106,18 @@
         const geometry = new THREE.BufferGeometry();
 
         async function fetchGrid(grid, plotdata, colormap) {
-            const [verts, color] = await Promise.all([
+            const [verts, values] = await Promise.all([
                 grid2buffer(grid),
-                data2color_buffer(plotdata, colormap)
+                data2value_buffer(plotdata)
             ]);
 
             console.log("verts have nan: " + verts.some(isNaN));
 
             geometry.setAttribute( 'position', new THREE.BufferAttribute( verts, 3 ) );
-            geometry.setAttribute( 'color', new THREE.BufferAttribute( color, 3 ) );
+            geometry.setAttribute( 'data_value', new THREE.BufferAttribute( values, 1 ) );
 
-            const material = new THREE.MeshBasicMaterial( { side: THREE.DoubleSide, vertexColors: THREE.VertexColors } );
+            //const material = new THREE.MeshBasicMaterial( { side: THREE.DoubleSide, vertexColors: THREE.VertexColors } );
+            const material = make_colormap_material("turbo", 1.0, -1.0);
             const mesh = new THREE.Mesh( geometry, material );
             scene.add(mesh);
 
@@ -146,8 +147,8 @@
         }
 
         async function _updateData(time_index) {
-            const color = await data2color_buffer(datavar.getRaw(time_index), "turbo_r")
-            geometry.setAttribute( 'color', new THREE.BufferAttribute( color, 3 ) );
+            const values = await data2value_buffer(datavar.getRaw(time_index))
+            geometry.setAttribute( 'data_value', new THREE.BufferAttribute( values, 1 ) );
 
             redraw();
             main_controls.current_time_index = time_index;
