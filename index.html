@@ -117,7 +117,7 @@
             geometry.setAttribute( 'data_value', new THREE.BufferAttribute( values, 1 ) );
 
             //const material = new THREE.MeshBasicMaterial( { side: THREE.DoubleSide, vertexColors: THREE.VertexColors } );
-            const material = make_colormap_material();
+            const material = make_colormap_material("turbo", 1.0, -1.0);
             const mesh = new THREE.Mesh( geometry, material );
             scene.add(mesh);
 
