@@ -140,6 +140,8 @@ function make_colormap_material(colormap="turbo", add_offset=0.0, scale_factor=1
         }
         `;
 
+    // credits: https://www.shadertoy.com/view/3lBXR3
+    //          https://github.com/mzucker/fit_colormaps
     const fragmentShader = `
         vec3 viridis(float t) {
 
