@@ -123,8 +123,6 @@
             redraw();
         }
 
-        const gridIndexer = await make_grid_indexer(await openGroup(store, "grids/ICON_R02B03.zarr", "r"));
-
         let grid;
         let datavar;
         async function getData() {
