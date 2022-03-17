@@ -33,7 +33,7 @@
                    v-bind:min="model_info.time_range.start"
                    v-bind:max="model_info.time_range.end"
                    v-model.number="time_index">
-            currently shown: {{ current_time_index }}
+            currently shown: {{ current_var_name }} @ {{ current_time_index }}
             </p>
           </div>
           <div class="panel-block">
@@ -75,6 +75,7 @@
         const model_info = {
             title: datasources.name,
             vars: Object.keys(datasources.levels[0].datasources),
+            default_var: datasources.default_var,
             colormaps: Object.keys(available_colormaps),
             time_range: {
                 start: 0,
@@ -88,8 +89,9 @@
               time_index: 1,
               model_info: model_info,
               current_time_index: 1,
+              current_var_name: "-",
               enable_coastlines: true,
-              varname: model_info.vars[0],
+              varname: model_info.default_var || model_info.vars[0],
               colormap: "turbo",
               invert_colormap: true,
               view: {},
@@ -176,10 +178,12 @@
 
         async function getData() {
             grid = await openGroup(store, datasources.levels[0].grid.dataset, "r");
-            const datavar = await getDataVar(main_controls.varname);
+            const varname = main_controls.varname;
+            const datavar = await getDataVar(varname);
             main_controls.model_info.time_range.end = datavar.shape[0] - 1;
             await fetchGrid(grid, datavar.getRaw(1), "turbo_r");
             main_controls.current_time_index = 1;
+            main_controls.current_var_name = varname;
         }
 
         let coast = undefined;
@@ -203,16 +207,22 @@
 
             redraw();
             main_controls.current_time_index = time_index;
+            main_controls.current_var_name = varname;
             if (next_time_index == time_index) next_time_index = undefined;
+            if (next_var_name == varname) next_var_name = undefined;
         }
 
         let next_time_index = undefined;
+        let next_var_name = undefined;
         async function updateData(time_index, varname, force=false) {
-            const run_now = force || next_time_index === undefined;
-            if (!force) next_time_index = time_index;
+            const run_now = force || next_time_index === undefined || next_var_name === undefined;
+            if (!force) {
+                next_time_index = time_index;
+                next_var_name = varname;
+            }
             if (run_now) {
                 await _updateData(time_index, varname);
-                if (next_time_index !== undefined) {
+                if (next_time_index !== undefined || next_var_name !== undefined) {
                     updateData(next_time_index, varname, true);
                 }
             }

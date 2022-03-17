@@ -1,5 +1,6 @@
 {
-    "name": "dpp0066",
+    "name": "dpp0066 - 2d_ml @ R02B06",
+    "default_var": "rlds",
     "levels": [
         {
             "name": "R02B06",
@@ -16,11 +17,51 @@
                 "dataset": "grids/ICON_R02B06.zarr"
             },
             "datasources": {
+                "clivi": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "cllvi": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "clt": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "pr": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "prlr": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "prls": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "prw": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
                 "ps": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
                     "dataset": "R02B06/2d_ml.zarr"
                 },
                 "psl": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "qgvi": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "qrvi": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "qsvi": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
                     "dataset": "R02B06/2d_ml.zarr"
                 },
@@ -69,6 +110,14 @@
                     "dataset": "R02B06/2d_ml.zarr"
                 },
                 "rsutcs": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "sic": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "sit": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
                     "dataset": "R02B06/2d_ml.zarr"
                 },
