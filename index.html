@@ -75,7 +75,7 @@
         const model_info = {
             title: datasources.name,
             vars: Object.keys(datasources.levels[0].datasources),
-            colormaps: ["viridis", "plasma", "magma", "inferno", "turbo"],
+            colormaps: Object.keys(available_colormaps),
             time_range: {
                 start: 0,
                 end: 1
@@ -219,7 +219,14 @@
         }
 
         async function updateColormap() {
-            main_mesh.material = get_colormap_material();
+            main_mesh.material.uniforms.colormap.value = available_colormaps[main_controls.colormap];
+            if (main_controls.invert_colormap) {
+                main_mesh.material.uniforms.add_offset.value = 1.0;
+                main_mesh.material.uniforms.scale_factor.value = -1.0;
+            } else {
+                main_mesh.material.uniforms.add_offset.value = 0.0;
+                main_mesh.material.uniforms.scale_factor.value = 1.0;
+            }
             redraw();
         }
     

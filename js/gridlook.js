@@ -128,6 +128,17 @@ function snapshot(canvas_id, render) {
     }, 'image/png');
 }
 
+
+const available_colormaps = {
+    viridis: 0,
+    plasma: 1,
+    magma: 2,
+    inferno: 3,
+    turbo: 4,
+    Blues: 5,
+    coolwarm: 6,
+};
+
 function make_colormap_material(colormap="turbo", add_offset=0.0, scale_factor=1.0) {
     const vertexShader = `
         attribute float data_value;
@@ -213,6 +224,34 @@ function make_colormap_material(colormap="turbo", add_offset=0.0, scale_factor=1
 
         }
 
+        vec3 Blues(float t) {    
+                                                                                                  
+            const vec3 coeffs0 = vec3(0.9786010101212481, 0.9875444398085995, 0.9995488674928417);    
+            const vec3 coeffs1 = vec3(-1.413783133703736, -0.6613965253505383, -0.2551967459427577);    
+            const vec3 coeffs2 = vec3(8.196156393822546, 1.537863247504115, 0.3908546698678254);    
+            const vec3 coeffs3 = vec3(-37.00985967929134, -4.714620284418913, -2.794839680508977);    
+            const vec3 coeffs4 = vec3(66.47062932522077, 4.252799105471284, 4.973946475421295);    
+            const vec3 coeffs5 = vec3(-53.98400061794709, -0.9317365997486859, -3.342587866202619);    
+            const vec3 coeffs6 = vec3(16.80709019184263, -0.2875407176076939, 0.4316330565156698);    
+                                                                                                     
+            return coeffs0+t*(coeffs1+t*(coeffs2+t*(coeffs3+t*(coeffs4+t*(coeffs5+t*coeffs6)))));    
+             
+        }
+
+        vec3 coolwarm(float t) { 
+                                                                                                          
+            const vec3 coeffs0 = vec3(0.2284927239464558, 0.2890337657614808, 0.7544508730405812);    
+            const vec3 coeffs1 = vec3(1.209148543573963, 2.308782797929739, 1.565018051709207);         
+            const vec3 coeffs2 = vec3(0.09440683758290924, -7.335911877741697, -1.889871770155974); 
+            const vec3 coeffs3 = vec3(2.267155723842107, 32.60337423142011, -1.604197978482374);      
+            const vec3 coeffs4 = vec3(-5.211327179232611, -75.84718811546922, -3.80065988450061);  
+            const vec3 coeffs5 = vec3(1.4422071109688, 74.23835765282, 9.761545722360259);             
+            const vec3 coeffs6 = vec3(0.6730757561376177, -26.24251233104311, -4.645203112066666);    
+                                                                                                     
+            return coeffs0+t*(coeffs1+t*(coeffs2+t*(coeffs3+t*(coeffs4+t*(coeffs5+t*coeffs6)))));    
+             
+        }
+
         varying float v_value;
         uniform float add_offset;
         uniform float scale_factor;
@@ -230,23 +269,19 @@ function make_colormap_material(colormap="turbo", add_offset=0.0, scale_factor=1
               gl_FragColor.rgb = inferno(add_offset + scale_factor * v_value);
           } else if (colormap == 4) {
               gl_FragColor.rgb = turbo(add_offset + scale_factor * v_value);
+          } else if (colormap == 5) {
+              gl_FragColor.rgb = Blues(add_offset + scale_factor * v_value);
+          } else if (colormap == 6) {
+              gl_FragColor.rgb = coolwarm(add_offset + scale_factor * v_value);
           }
         }
         `;
-
-    const colormaps = {
-        viridis: 0,
-        plasma: 1,
-        magma: 2,
-        inferno: 3,
-        turbo: 4,
-    };
 
     const material = new THREE.ShaderMaterial({
         uniforms: {
             add_offset: { value: add_offset },
             scale_factor: { value: scale_factor },
-            colormap: { value: colormaps[colormap] },
+            colormap: { value: available_colormaps[colormap] },
         },
 
         vertexShader,
