@@ -29,6 +29,22 @@
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
                     "dataset": "R02B06/2d_ml.zarr"
                 },
+                "cptgzvi": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "evspsbl": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "hfls": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "hfss": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
                 "pr": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
                     "dataset": "R02B06/2d_ml.zarr"
@@ -113,6 +129,10 @@
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
                     "dataset": "R02B06/2d_ml.zarr"
                 },
+                "sfcwind": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
                 "sic": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
                     "dataset": "R02B06/2d_ml.zarr"
@@ -122,6 +142,26 @@
                     "dataset": "R02B06/2d_ml.zarr"
                 },
                 "ts": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "tas": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "tauu": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "tauv": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "uas": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "vas": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
                     "dataset": "R02B06/2d_ml.zarr"
                 }
