@@ -1,0 +1,82 @@
+{
+    "name": "dpp0066",
+    "levels": [
+        {
+            "name": "R02B06",
+            "ref_size": 40000,
+            "chunking_hints": {
+                "cell": {
+                    "level": null,
+                    "items_per_chunk": 327680,
+                    "chunk_count": 1
+                }
+            },
+            "grid": {
+                "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/nextGEMS/",
+                "dataset": "grids/ICON_R02B06.zarr"
+            },
+            "datasources": {
+                "ps": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "psl": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "rlds": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "rldscs": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "rlus": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "rlut": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "rlutcs": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "rsds": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "rsdscs": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "rsdt": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "rsus": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "rsuscs": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "rsut": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "rsutcs": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                },
+                "ts": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                    "dataset": "R02B06/2d_ml.zarr"
+                }
+            }
+        }
+    ]
+}

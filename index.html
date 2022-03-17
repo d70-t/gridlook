@@ -12,8 +12,19 @@
 	<body>
         <nav class="panel gl_controls" id="main_controls">
           <p class="panel-heading">
-          {{ model_info.varname }}
+          {{ model_info.title }}
           </p>
+          <div class="panel-block">
+            <select class="form-control" v-model="varname">
+              <option v-for="varname in model_info.vars" :value="varname" :key="varname">{{ varname }}</option>
+            </select>
+            &nbsp;
+            <select class="form-control" v-model="colormap">
+              <option v-for="cm in model_info.colormaps" :value="cm" :key="cm">{{ cm }}</option>
+            </select>
+            &nbsp;
+            <input type="checkbox" v-model="invert_colormap" id="invert_colormap"></input><label for="invert_colormap">invert</label>
+          </div>
           <div class="panel-block">
             <p class="control">
             time: {{ time_index }} / {{ model_info.time_range.end }}
@@ -45,7 +56,6 @@
     <script src="js/geojson.js"></script>
     <script  type="module">
         import { HTTPStore, openArray, openGroup } from "https://cdn.skypack.dev/zarr";
-        const store = new HTTPStore("https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/nextGEMS/");
 
         const scene = new THREE.Scene();
         const center = new THREE.Vector3();
@@ -55,13 +65,17 @@
         const renderer = new THREE.WebGLRenderer({canvas: globe_canvas});
         renderer.setSize( window.innerWidth, window.innerHeight );
 
-        // const geometry = new THREE.BoxGeometry();
-        // const material = new THREE.MeshBasicMaterial( { color: 0x00ff00 } );
-        // const cube = new THREE.Mesh( geometry, material );
-        // scene.add( cube );
+        //const datasources = await fetch("static/index_R02B06.json").then(r => r.json());
+        //const datasources = await fetch("static/index_multires.json").then(r => r.json());
+        const datasources = await fetch("static/index_mr_dpp0066.json").then(r => r.json());
+        console.log(datasources);
+        const store = new HTTPStore(datasources.levels[0].grid.store);
+
 
         const model_info = {
-            varname: "prw",
+            title: datasources.name,
+            vars: Object.keys(datasources.levels[0].datasources),
+            colormaps: ["viridis", "plasma", "magma", "inferno", "turbo"],
             time_range: {
                 start: 0,
                 end: 1
@@ -75,11 +89,24 @@
               model_info: model_info,
               current_time_index: 1,
               enable_coastlines: true,
+              varname: model_info.vars[0],
+              colormap: "turbo",
+              invert_colormap: true,
+              view: {},
             }
           },
           watch: {
             time_index() {
-                updateData(this.time_index);
+                updateData(this.time_index, this.varname);
+            },
+            varname() {
+                updateData(this.time_index, this.varname);
+            },
+            colormap() {
+                updateColormap();
+            },
+            invert_colormap() {
+                updateColormap();
             },
             enable_coastlines() {
                 if (this.enable_coastlines) {
@@ -105,6 +132,16 @@
 
         const geometry = new THREE.BufferGeometry();
 
+        function get_colormap_material() {
+            if (main_controls.invert_colormap) {
+                return make_colormap_material(main_controls.colormap, 1.0, -1.0);
+            } else {
+                return make_colormap_material(main_controls.colormap, 0.0, 1.0);
+            }
+        }
+
+        let main_mesh;
+
         async function fetchGrid(grid, plotdata, colormap) {
             const [verts, values] = await Promise.all([
                 grid2buffer(grid),
@@ -117,18 +154,29 @@
             geometry.setAttribute( 'data_value', new THREE.BufferAttribute( values, 1 ) );
 
             //const material = new THREE.MeshBasicMaterial( { side: THREE.DoubleSide, vertexColors: THREE.VertexColors } );
-            const material = make_colormap_material("turbo", 1.0, -1.0);
-            const mesh = new THREE.Mesh( geometry, material );
-            scene.add(mesh);
+            const material = get_colormap_material();
+            main_mesh = new THREE.Mesh( geometry, material );
+            scene.add(main_mesh);
 
             redraw();
         }
 
         let grid;
-        let datavar;
+        let datavars = {};
+
+        async function getDataVar(varname) {
+            if (datavars[varname] === undefined) {
+                console.log("fetching " + varname);
+                const datasource = datasources.levels[0].datasources[varname];
+                const datastore = new HTTPStore(datasource.store);
+                datavars[varname] = await openGroup(datastore, datasource.dataset, "r").then(ds => ds.getItem(varname));
+            }
+            return datavars[varname];
+        }
+
         async function getData() {
-            grid = await openGroup(store, "grids/ICON_R02B06.zarr", "r");
-            datavar = await openGroup(store, "nextGEMS_ICON_3d_prw_R02B06.zarr", "r").then(ds => ds.getItem(model_info.varname));
+            grid = await openGroup(store, datasources.levels[0].grid.dataset, "r");
+            const datavar = await getDataVar(main_controls.varname);
             main_controls.model_info.time_range.end = datavar.shape[0] - 1;
             await fetchGrid(grid, datavar.getRaw(1), "turbo_r");
             main_controls.current_time_index = 1;
@@ -146,7 +194,10 @@
             redraw();
         }
 
-        async function _updateData(time_index) {
+        async function _updateData(time_index, varname) {
+            console.log(varname);
+            const datavar = await getDataVar(varname);
+            console.log(datavar);
             const values = await data2value_buffer(datavar.getRaw(time_index))
             geometry.setAttribute( 'data_value', new THREE.BufferAttribute( values, 1 ) );
 
@@ -156,15 +207,20 @@
         }
 
         let next_time_index = undefined;
-        async function updateData(time_index, force=false) {
+        async function updateData(time_index, varname, force=false) {
             const run_now = force || next_time_index === undefined;
             if (!force) next_time_index = time_index;
             if (run_now) {
-                await _updateData(time_index);
+                await _updateData(time_index, varname);
                 if (next_time_index !== undefined) {
-                    updateData(next_time_index, true);
+                    updateData(next_time_index, varname, true);
                 }
             }
+        }
+
+        async function updateColormap() {
+            main_mesh.material = get_colormap_material();
+            redraw();
         }
     
         getData();
