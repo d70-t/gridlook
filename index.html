@@ -209,22 +209,21 @@
             redraw();
             main_controls.current_time_index = time_index;
             main_controls.current_var_name = varname;
-            if (next_time_index == time_index) next_time_index = undefined;
-            if (next_var_name == varname) next_var_name = undefined;
+            if (next_time_index == time_index && next_var_name == varname) next_time_index = undefined;
         }
 
         let next_time_index = undefined;
         let next_var_name = undefined;
         async function updateData(time_index, varname, force=false) {
-            const run_now = force || next_time_index === undefined || next_var_name === undefined;
+            const run_now = force || next_time_index === undefined;
             if (!force) {
                 next_time_index = time_index;
                 next_var_name = varname;
             }
             if (run_now) {
                 await _updateData(time_index, varname);
-                if (next_time_index !== undefined || next_var_name !== undefined) {
-                    updateData(next_time_index, varname, true);
+                if (next_time_index !== undefined) {
+                    updateData(next_time_index, next_var_name, true);
                 }
             }
         }
