@@ -33,7 +33,8 @@
                    v-bind:min="model_info.time_range.start"
                    v-bind:max="model_info.time_range.end"
                    v-model.number="time_index">
-            currently shown: {{ current_var_name }} @ {{ current_time_index }}
+            currently shown: {{ current_var_name }} @ {{ current_time_index }} <br/>
+            {{ current_var_attrs.long_name }} / {{ current_var_attrs.units }}
             </p>
           </div>
           <div class="panel-block">
@@ -91,6 +92,7 @@
               model_info: model_info,
               current_time_index: 1,
               current_var_name: "-",
+              current_var_attrs: {},
               enable_coastlines: true,
               varname: model_info.default_var || model_info.vars[0],
               colormap: "turbo",
@@ -174,6 +176,7 @@
                 const datastore = new HTTPStore(datasource.store);
                 datavars[varname] = await openGroup(datastore, datasource.dataset, "r").then(ds => ds.getItem(varname));
             }
+            console.log(datavars[varname]);
             return datavars[varname];
         }
 
@@ -183,6 +186,7 @@
             const datavar = await getDataVar(varname);
             main_controls.model_info.time_range.end = datavar.shape[0] - 1;
             await fetchGrid(grid, datavar.getRaw(1), "turbo_r");
+            main_controls.current_var_attrs = await datavar.attrs.asObject();
             main_controls.current_time_index = 1;
             main_controls.current_var_name = varname;
         }
@@ -207,6 +211,7 @@
             geometry.setAttribute( 'data_value', new THREE.BufferAttribute( values, 1 ) );
 
             redraw();
+            main_controls.current_var_attrs = await datavar.attrs.asObject();
             main_controls.current_time_index = time_index;
             main_controls.current_var_name = varname;
             if (next_time_index == time_index && next_var_name == varname) next_time_index = undefined;
