@@ -27,7 +27,11 @@
                 },
                 "clt": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": 0,
+                        "high": 1
+                    }
                 },
                 "cptgzvi": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
@@ -47,27 +51,51 @@
                 },
                 "pr": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": 0,
+                        "high": 0.005
+                    }
                 },
                 "prlr": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": 0,
+                        "high": 0.0005
+                    }
                 },
                 "prls": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": 0,
+                        "high": 0.0005
+                    }
                 },
                 "prw": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": 0,
+                        "high": 70
+                    }
                 },
                 "ps": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": 50000,
+                        "high": 105000
+                    }
                 },
                 "psl": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": 95000,
+                        "high": 105000
+                    }
                 },
                 "qgvi": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
@@ -111,7 +139,11 @@
                 },
                 "rsdt": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": 0,
+                        "high": 1500
+                    }
                 },
                 "rsus": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
@@ -135,7 +167,11 @@
                 },
                 "sic": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": 0,
+                        "high": 1
+                    }
                 },
                 "sit": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
@@ -143,11 +179,19 @@
                 },
                 "ts": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": 260,
+                        "high": 310
+                    }
                 },
                 "tas": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": 260,
+                        "high": 310
+                    }
                 },
                 "tauu": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",

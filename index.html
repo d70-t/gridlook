@@ -16,7 +16,7 @@
           </p>
           <div class="panel-block">
             <select class="form-control" v-model="varname">
-              <option v-for="varname in model_info.vars" :value="varname" :key="varname">{{ varname }}</option>
+              <option v-for="varname in Object.keys(model_info.vars)" :value="varname" :key="varname">{{ varname }}</option>
             </select>
             &nbsp;
             <select class="form-control" v-model="colormap">
@@ -36,6 +36,28 @@
             currently shown: {{ current_var_name }} @ {{ current_time_index }} <br/>
             {{ current_var_attrs.long_name }} / {{ current_var_attrs.units }}
             </p>
+          </div>
+          <div class="panel-block">
+            <table>
+                <tr>
+                    <th>range</th><th>low</th><th>high</th>
+                </tr>
+                <tr>
+                    <td><input type="radio" id="data_bounds" value="data" v-model="picked_bounds" /><label for="data_bounds">data</label></td>
+                    <td>{{ Number(data_bounds.low).toPrecision(4) }}</td>
+                    <td>{{ Number(data_bounds.high).toPrecision(4) }}</td>
+                </tr>
+                <tr>
+                    <td><input type="radio" id="default_bounds" value="default" v-model="picked_bounds" /><label for="default_bounds">default</label></td>
+                    <td>{{ Number(default_bounds.low).toPrecision(2) }}</td>
+                    <td>{{ Number(default_bounds.high).toPrecision(2) }}</td>
+                </tr>
+                <tr>
+                    <td><input type="radio" id="user_bounds" value="user" v-model="picked_bounds" /><label for="user_bounds">user</label></td>
+                    <td><input size="10" v-model.number="user_bounds_low"/></td>
+                    <td><input size="10" v-model.number="user_bounds_high"/></td>
+                </tr>
+            </table>
           </div>
           <div class="panel-block">
             <p class="control">
@@ -76,7 +98,7 @@
 
         const model_info = {
             title: datasources.name,
-            vars: Object.keys(datasources.levels[0].datasources),
+            vars: datasources.levels[0].datasources,
             default_var: datasources.default_var,
             colormaps: Object.keys(available_colormaps),
             time_range: {
@@ -94,9 +116,14 @@
               current_var_name: "-",
               current_var_attrs: {},
               enable_coastlines: true,
-              varname: model_info.default_var || model_info.vars[0],
+              varname: model_info.default_var || Object.keys(model_info.vars)[0],
               colormap: "turbo",
               invert_colormap: true,
+              data_bounds: {low: undefined, high: undefined},
+              default_bounds: {low: undefined, high: undefined},
+              user_bounds_low: undefined,
+              user_bounds_high: undefined,
+              picked_bounds: "data",
               view: {},
             }
           },
@@ -106,11 +133,28 @@
             },
             varname() {
                 updateData(this.time_index, this.varname);
+                const varinfo = this.model_info.vars[this.varname];
+                this.default_bounds = varinfo.default_range || {low: undefined, high: undefined};
             },
             colormap() {
                 updateColormap();
             },
             invert_colormap() {
+                updateColormap();
+            },
+            picked_bounds() {
+                updateColormap();
+            },
+            data_bounds() {
+                updateColormap();
+            },
+            default_bounds() {
+                updateColormap();
+            },
+            user_bounds_low() {
+                updateColormap();
+            },
+            user_bounds_high() {
                 updateColormap();
             },
             enable_coastlines() {
@@ -125,6 +169,19 @@
           methods: {
             snapshot(canvas_id) {
                 snapshot(canvas_id, render);
+            }
+          },
+          computed: {
+            bounds() {
+              if (this.picked_bounds == "data") {
+                return this.data_bounds;
+              }
+              else if (this.picked_bounds == "default") {
+                return this.default_bounds;
+              }
+              else if (this.picked_bounds == "user") {
+                return {low: this.user_bounds_low, high: this.user_bounds_high};
+              }
             }
           }
         }
@@ -157,7 +214,9 @@
             console.log("verts have nan: " + verts.some(isNaN));
 
             geometry.setAttribute( 'position', new THREE.BufferAttribute( verts, 3 ) );
-            geometry.setAttribute( 'data_value', new THREE.BufferAttribute( values, 1 ) );
+            geometry.setAttribute( 'data_value', new THREE.BufferAttribute( values.data_values, 1 ) );
+
+            main_controls.data_bounds = {low: values.data_min, high: values.data_max};
 
             //const material = new THREE.MeshBasicMaterial( { side: THREE.DoubleSide, vertexColors: THREE.VertexColors } );
             const material = get_colormap_material();
@@ -168,8 +227,9 @@
             const lut_geometry = make_lut_geometry();
             lut_mesh = new THREE.Mesh( lut_geometry, lut_material );
             scene.add(lut_mesh);
+            updateColormap();
 
-            redraw();
+            // redraw();  // done by updateColormap, may not be optimal
         }
 
         let grid;
@@ -214,7 +274,8 @@
             const datavar = await getDataVar(varname);
             console.log(datavar);
             const values = await data2value_buffer(datavar.getRaw(time_index))
-            geometry.setAttribute( 'data_value', new THREE.BufferAttribute( values, 1 ) );
+            geometry.setAttribute( 'data_value', new THREE.BufferAttribute( values.data_values, 1 ) );
+            main_controls.data_bounds = {low: values.data_min, high: values.data_max};
 
             redraw();
             main_controls.current_var_attrs = await datavar.attrs.asObject();
@@ -240,15 +301,36 @@
         }
 
         async function updateColormap() {
+            const low = main_controls.bounds.low;
+            const high = main_controls.bounds.high;
+
+            let data_add_offset;
+            let data_scale_factor;
+            let lut_add_offset;
+            let lut_scale_factor;
+
+            if (main_controls.invert_colormap) {
+                data_scale_factor = -1. / (high - low);
+                data_add_offset = -high * data_scale_factor;
+                lut_add_offset = 1.;
+                lut_scale_factor = -1.;
+            } else {
+                data_scale_factor = 1. / (high - low);
+                data_add_offset = -low * data_scale_factor;
+                lut_add_offset = 0.;
+                lut_scale_factor = 1.;
+            }
+
             [main_mesh, lut_mesh].map(mesh => {
                 mesh.material.uniforms.colormap.value = available_colormaps[main_controls.colormap];
-                if (main_controls.invert_colormap) {
-                    mesh.material.uniforms.add_offset.value = 1.0;
-                    mesh.material.uniforms.scale_factor.value = -1.0;
-                } else {
-                    mesh.material.uniforms.add_offset.value = 0.0;
-                    mesh.material.uniforms.scale_factor.value = 1.0;
-                }
+            });
+            [main_mesh].map(mesh => {
+                mesh.material.uniforms.add_offset.value = data_add_offset;
+                mesh.material.uniforms.scale_factor.value = data_scale_factor;
+            });
+            [lut_mesh].map(mesh => {
+                mesh.material.uniforms.add_offset.value = lut_add_offset;
+                mesh.material.uniforms.scale_factor.value = lut_scale_factor;
             });
             redraw();
         }

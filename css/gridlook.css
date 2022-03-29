@@ -6,3 +6,11 @@
 .gl_controls .panel-block {
     background-color: white;
 }
+
+.gl_controls td {
+    padding: 0 3px;
+}
+
+.gl_controls input {
+    margin-right: 3px;
+}

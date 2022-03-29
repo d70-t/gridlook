@@ -56,17 +56,15 @@ async function data2value_buffer(data) {
         if (v > data_max) data_max = v;
     }
 
-    const norm = d => (d - data_min) / (data_max - data_min);
-
     let data_values = new Float32Array(ncells * 3);
 
     for (var i = 0; i < ncells; i++) {
-        const v = norm(plotdata[i]);
+        const v = plotdata[i];
         data_values[3 * i + 0] = v;
         data_values[3 * i + 1] = v;
         data_values[3 * i + 2] = v;
     }
-    return data_values;
+    return {data_values, data_min, data_max};
 }
 
 async function data2color_buffer(data, colormap) {
