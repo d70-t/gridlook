@@ -59,21 +59,9 @@ const available_colormaps = {
     tarn: 57,
 };
 
-function make_colormap_material(colormap="turbo", add_offset=0.0, scale_factor=1.0) {
-    const vertexShader = `
-        attribute float data_value;
-
-        varying float v_value;
-
-        void main() {
-          v_value = data_value;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
-        }
-        `;
-
-    // credits: https://www.shadertoy.com/view/3lBXR3
-    //          https://github.com/mzucker/fit_colormaps
-    const fragmentShader = `
+// credits: https://www.shadertoy.com/view/3lBXR3
+//          https://github.com/mzucker/fit_colormaps
+const colormapFragmentShader = `
 vec3 inferno(float t) {
 
     const vec3 coeffs0 = vec3(0.0002135429892708984, 0.001634827339221268, -0.0371299084800798);
@@ -1014,6 +1002,31 @@ void main() {
     }
 }`;
 
+
+const dataOnMeshVertexShader = `
+    attribute float data_value;
+
+    varying float v_value;
+
+    void main() {
+      v_value = data_value;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+    }
+    `;
+
+const dataOnScreenMeshVertexShader = `
+    attribute float data_value;
+
+    varying float v_value;
+
+    void main() {
+      v_value = data_value;
+      gl_Position = vec4(position,1.0);
+    }
+    `;
+
+
+function make_colormap_material(colormap="turbo", add_offset=0.0, scale_factor=1.0) {
     const material = new THREE.ShaderMaterial({
         uniforms: {
             add_offset: { value: add_offset },
@@ -1021,8 +1034,30 @@ void main() {
             colormap: { value: available_colormaps[colormap] },
         },
 
-        vertexShader,
-        fragmentShader
+        vertexShader: dataOnMeshVertexShader,
+        fragmentShader: colormapFragmentShader
     });
     return material;
+}
+
+
+function make_lut_material(colormap="turbo", add_offset, scale_factor) {
+    const material = new THREE.ShaderMaterial({
+        uniforms: {
+            add_offset: { value: add_offset },
+            scale_factor: { value: scale_factor },
+            colormap: { value: available_colormaps[colormap] },
+        },
+
+        vertexShader: dataOnScreenMeshVertexShader,
+        fragmentShader: colormapFragmentShader
+    });
+    return material;
+}
+
+
+function make_lut_geometry() {
+    geometry = new THREE.PlaneGeometry( .1, 1).translate(.95, 0, 0);
+    geometry.setAttribute( 'data_value', new THREE.BufferAttribute( Float32Array.from([1, 1, 0, 0]), 1 ) );
+    return geometry;
 }

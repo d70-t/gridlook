@@ -146,6 +146,7 @@
         }
 
         let main_mesh;
+        let lut_mesh;
 
         async function fetchGrid(grid, plotdata, colormap) {
             const [verts, values] = await Promise.all([
@@ -162,6 +163,11 @@
             const material = get_colormap_material();
             main_mesh = new THREE.Mesh( geometry, material );
             scene.add(main_mesh);
+
+            const lut_material = make_lut_material(main_controls.colormap, 1., -1.0);
+            const lut_geometry = make_lut_geometry();
+            lut_mesh = new THREE.Mesh( lut_geometry, lut_material );
+            scene.add(lut_mesh);
 
             redraw();
         }
@@ -234,14 +240,16 @@
         }
 
         async function updateColormap() {
-            main_mesh.material.uniforms.colormap.value = available_colormaps[main_controls.colormap];
-            if (main_controls.invert_colormap) {
-                main_mesh.material.uniforms.add_offset.value = 1.0;
-                main_mesh.material.uniforms.scale_factor.value = -1.0;
-            } else {
-                main_mesh.material.uniforms.add_offset.value = 0.0;
-                main_mesh.material.uniforms.scale_factor.value = 1.0;
-            }
+            [main_mesh, lut_mesh].map(mesh => {
+                mesh.material.uniforms.colormap.value = available_colormaps[main_controls.colormap];
+                if (main_controls.invert_colormap) {
+                    mesh.material.uniforms.add_offset.value = 1.0;
+                    mesh.material.uniforms.scale_factor.value = -1.0;
+                } else {
+                    mesh.material.uniforms.add_offset.value = 0.0;
+                    mesh.material.uniforms.scale_factor.value = 1.0;
+                }
+            });
             redraw();
         }
     
