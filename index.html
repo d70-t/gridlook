@@ -8,13 +8,19 @@
 		</style>
         <link rel="stylesheet" href="css/bulma.min.css">
         <link rel="stylesheet" href="css/gridlook.css">
+        <link href="static/fontawesome-free-6.1.1-web/css/all.css" rel="stylesheet">
 	</head>
 	<body>
         <nav class="panel gl_controls" id="main_controls">
-          <p class="panel-heading">
+          <div class="panel-heading" style="display: flex; justify-content: space-between;">
+          <div>
           {{ model_info.title }}
-          </p>
-          <div class="panel-block">
+          </div>
+          <div>
+              <i class="fa-solid" :class="{'fa-angle-down': menu_collapsed, 'fa-angle-up': !menu_collapsed}" @click="toggle_collapsed"></i>
+          </div>
+          </div>
+          <div class="panel-block" :class="{'is-invisible': menu_collapsed}">
             <select class="form-control" v-model="varname">
               <option v-for="varname in Object.keys(model_info.vars)" :value="varname" :key="varname">{{ varname }}</option>
             </select>
@@ -25,7 +31,7 @@
             &nbsp;
             <input type="checkbox" v-model="invert_colormap" id="invert_colormap"></input><label for="invert_colormap">invert</label>
           </div>
-          <div class="panel-block">
+          <div class="panel-block" :class="{'is-invisible': menu_collapsed}">
             <p class="control">
             time: {{ time_index }} / {{ model_info.time_range.end }}
             <input class="input"
@@ -37,7 +43,7 @@
             {{ current_var_attrs.long_name }} / {{ current_var_attrs.units }}
             </p>
           </div>
-          <div class="panel-block">
+          <div class="panel-block" :class="{'is-invisible': menu_collapsed}">
             <table>
                 <tr>
                     <th>range</th><th>low</th><th>high</th>
@@ -59,7 +65,7 @@
                 </tr>
             </table>
           </div>
-          <div class="panel-block">
+          <div class="panel-block" :class="{'is-invisible': menu_collapsed}">
             <p class="control">
             <input type="checkbox" v-model="enable_coastlines" id="enable_coastlines"></input><label for="enable_coastlines">coastlines</label>
             </p>
@@ -110,6 +116,7 @@
         const MainControls = {
           data() {
             return {
+              menu_collapsed: false,
               time_index: 1,
               model_info: model_info,
               current_time_index: 1,
@@ -169,6 +176,9 @@
           methods: {
             snapshot(canvas_id) {
                 snapshot(canvas_id, render);
+            },
+            toggle_collapsed() {
+                this.menu_collapsed = !this.menu_collapsed;
             }
           },
           computed: {
