@@ -86,6 +86,7 @@
     <script src="js/geojson.js"></script>
     <script  type="module">
         import { HTTPStore, openArray, openGroup } from "https://cdn.skypack.dev/zarr";
+        async function run() {
 
         const scene = new THREE.Scene();
         const center = new THREE.Vector3();
@@ -380,6 +381,8 @@
 
         redraw();
         window.addEventListener( 'resize', onWindowResize );
+        };
+        run();
 
     </script>
 </html>
