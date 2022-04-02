@@ -1,3 +1,5 @@
+html, body {margin: 0; height: 100%; overflow: hidden}
+
 .gl_controls {
     position: absolute;
     width: 25rem;
