@@ -21,7 +21,7 @@
               <i class="fa-solid" :class="{'fa-angle-down': menu_collapsed, 'fa-angle-up': !menu_collapsed}" @click="toggle_collapsed"></i>
           </div>
           </div>
-          <div class="panel-block" :class="{'is-invisible': menu_collapsed}">
+          <div class="panel-block" :class="{'is-hidden': menu_collapsed}">
             <select class="form-control" v-model="varname">
               <option v-for="varname in Object.keys(model_info.vars)" :value="varname" :key="varname">{{ varname }}</option>
             </select>
@@ -32,7 +32,7 @@
             &nbsp;
             <input type="checkbox" v-model="invert_colormap" id="invert_colormap"></input><label for="invert_colormap">invert</label>
           </div>
-          <div class="panel-block" :class="{'is-invisible': menu_collapsed}">
+          <div class="panel-block" :class="{'is-hidden': menu_collapsed}">
             <p class="control">
             time: {{ time_index }} / {{ model_info.time_range.end }}
             <input class="input"
@@ -44,7 +44,7 @@
             {{ current_var_attrs.long_name }} / {{ current_var_attrs.units }}
             </p>
           </div>
-          <div class="panel-block" :class="{'is-invisible': menu_collapsed}">
+          <div class="panel-block" :class="{'is-hidden': menu_collapsed}">
             <table>
                 <tr>
                     <th>range</th><th>low</th><th>high</th>
@@ -66,7 +66,7 @@
                 </tr>
             </table>
           </div>
-          <div class="panel-block" :class="{'is-invisible': menu_collapsed}">
+          <div class="panel-block" :class="{'is-hidden': menu_collapsed}">
             <p class="control">
             <input type="checkbox" v-model="enable_coastlines" id="enable_coastlines"></input><label for="enable_coastlines">coastlines</label>
             </p>
