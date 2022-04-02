@@ -11,7 +11,7 @@ var Controls = (function(Controls) {
 
 		function mouseWheelHandler(e) {
 			e = window.event || e;
-			var delta = Math.max(-1, Math.min(1, (e.wheelDelta || -e.detail)));
+			const delta = Math.max(-1, Math.min(1, (e.wheelDelta || -e.detail)));
 
 			if (delta < 0 && zoomOut) {
 				zoomOut(delta);
@@ -55,6 +55,62 @@ var Controls = (function(Controls) {
 		domObject.addEventListener("mousedown", mouseDownHandler);
 		domObject.addEventListener("mousemove", mouseMoveHandler);
 		domObject.addEventListener("mouseup", mouseUpHandler);
+    };
+
+	Controls.addTouchHandler = function (domObject, drag, rescale) {
+        var currentTouches = [];
+
+		function touchStartHandler(e) {
+            e.preventDefault();
+            currentTouches = e.targetTouches;
+        }
+
+		function touchMoveHandler(e) {
+            e.preventDefault();
+            if (currentTouches.length != e.targetTouches.length) {
+                return;
+            }
+
+            if (currentTouches.length == 1) {
+                const start = currentTouches[0];
+                const end = e.targetTouches[0];
+                if (drag) {
+                    drag(end.clientX - start.clientX, end.clientY - start.clientY);
+                }
+            }
+
+            if (currentTouches.length == 2) {
+                const touchDistance = (start, end) => {
+                    return Math.sqrt(Math.pow(end.clientX - start.clientX, 2) + Math.pow(end.clientY - start.clientY, 2));
+                }
+                const lastDistance = touchDistance(currentTouches[0], currentTouches[1]);
+                const thisDistance = touchDistance(e.targetTouches[0], e.targetTouches[1]);
+
+                const frameSize = Math.sqrt(Math.pow(domObject.width, 2) + Math.pow(domObject.height, 2));
+                const scale = lastDistance / thisDistance;
+
+                if(rescale) {
+                    rescale(scale);
+                }
+            }
+
+            currentTouches = e.targetTouches;
+        }
+
+		function touchEndHandler(e) {
+            e.preventDefault();
+            currentTouches = e.targetTouches;
+        }
+
+		function touchCancelHandler(e) {
+            e.preventDefault();
+            currentTouches = e.targetTouches;
+        }
+
+		domObject.addEventListener("touchstart", touchStartHandler);
+		domObject.addEventListener("touchmove", touchMoveHandler);
+		domObject.addEventListener("touchend", touchEndHandler);
+		domObject.addEventListener("touchcancel", touchCancelHandler);
 	};
 	return Controls;
 }(Controls || {}));
@@ -84,17 +140,25 @@ function attachControls(renderer, camera, center, redraw) {
 		redraw();
 	}
 
-	function zoomIn() {
+    function rescale(scale) {
+        if (camera.position.distanceTo(center) > 1.2 / scale) {
+            camera.position.sub(center).multiplyScalar(scale).add(center);
+            redraw();
+        }
+    }
+
+	function zoomIn(delta) {
         if (camera.position.distanceTo(center) > 1.2 / 0.95) {
             camera.position.sub(center).multiplyScalar(0.95).add(center);
             redraw();
         }
 	}
 
-	function zoomOut() {
+	function zoomOut(delta) {
 		camera.position.sub(center).multiplyScalar(1.05).add(center);
 		redraw();
 	}
 
 	Controls.addMouseHandler(renderer.domElement, drag, zoomIn, zoomOut);
+	Controls.addTouchHandler(renderer.domElement, drag, rescale);
 }
