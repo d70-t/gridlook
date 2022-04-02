@@ -75,7 +75,7 @@ var Controls = (function(Controls) {
                 const start = currentTouches[0];
                 const end = e.targetTouches[0];
                 if (drag) {
-                    drag(end.clientX - start.clientX, end.clientY - start.clientY);
+                    drag((end.clientX - start.clientX) / 2, (end.clientY - start.clientY) / 2);
                 }
             }
 
@@ -87,7 +87,7 @@ var Controls = (function(Controls) {
                 const thisDistance = touchDistance(e.targetTouches[0], e.targetTouches[1]);
 
                 const frameSize = Math.sqrt(Math.pow(domObject.width, 2) + Math.pow(domObject.height, 2));
-                const scale = lastDistance / thisDistance;
+                const scale = Math.sqrt(lastDistance / thisDistance);
 
                 if(rescale) {
                     rescale(scale);
