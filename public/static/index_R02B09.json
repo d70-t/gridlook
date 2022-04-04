@@ -1,0 +1,5 @@
+{
+    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/nextGEMS/",
+    "grid": "grids/ICON_R02B09.zarr",
+    "data": "nextGEMS_ICON_3d_prw.zarr"
+}

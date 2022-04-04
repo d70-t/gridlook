@@ -1,0 +1,88 @@
+{
+    "levels": [
+        {
+            "name": "R02B06",
+            "ref_size": 40000,
+            "chunking_hints": {
+                "cell": {
+                    "level": null,
+                    "items_per_chunk": 327680,
+                    "chunk_count": 1
+                }
+            },
+            "grid": {
+                "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/nextGEMS/",
+                "dataset": "grids/ICON_R02B06.zarr"
+            },
+            "datasources": {
+                "prw": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/nextGEMS/",
+                    "dataset": "nextGEMS_ICON_3d_prw_R02B06.zarr"
+                }
+            }
+        },
+        {
+            "name": "R02B07",
+            "ref_size": 20000,
+            "chunking_hints": {
+                "cell": {
+                    "level": -2,
+                    "items_per_chunk": 262144,
+                    "chunk_count": 5
+                }
+            },
+            "grid": {
+                "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/nextGEMS/",
+                "dataset": "grids/ICON_R02B07.zarr"
+            },
+            "datasources": {
+                "prw": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/nextGEMS/",
+                    "dataset": "nextGEMS_ICON_3d_prw_R02B07.zarr"
+                }
+            }
+        },
+        {
+            "name": "R02B08",
+            "ref_size": 10000,
+            "chunking_hints": {
+                "cell": {
+                    "level": -1,
+                    "items_per_chunk": 262144,
+                    "chunk_count": 20
+                }
+            },
+            "grid": {
+                "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/nextGEMS/",
+                "dataset": "grids/ICON_R02B08.zarr"
+            },
+            "datasources": {
+                "prw": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/nextGEMS/",
+                    "dataset": "nextGEMS_ICON_3d_prw_R02B08.zarr"
+                }
+            }
+        },
+        {
+            "name": "R02B09",
+            "ref_size": 5000,
+            "chunking_hints": {
+                "cell": {
+                    "level": 0,
+                    "items_per_chunk": 262144,
+                    "chunk_count": 20
+                }
+            },
+            "grid": {
+                "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/nextGEMS/",
+                "dataset": "grids/ICON_R02B09.zarr"
+            },
+            "datasources": {
+                "prw": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/nextGEMS/",
+                    "dataset": "nextGEMS_ICON_3d_prw.zarr"
+                }
+            }
+        }
+    ]
+}

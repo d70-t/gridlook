@@ -9,8 +9,11 @@
     "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix --ignore-path .gitignore"
   },
   "dependencies": {
+    "bulma": "^0.9.3",
+    "three": "^0.139.2",
     "vue": "^3.2.31",
-    "vue-router": "^4.0.14"
+    "vue-router": "^4.0.14",
+    "zarr": "^0.5.1"
   },
   "devDependencies": {
     "@rushstack/eslint-patch": "^1.1.0",
