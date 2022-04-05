@@ -1,0 +1,51 @@
+{
+    "name": "EUREC4A DOM01 sfc",
+    "default_var": "t_2m",
+    "levels": [
+        {
+            "name": "DOM01",
+            "ref_size": 40000,
+            "chunking_hints": {
+                "cell": {
+                    "level": null,
+                    "items_per_chunk": 327680,
+                    "chunk_count": 1
+                }
+            },
+            "grid": {
+                "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/grids/",
+                "dataset": "EUREC4A_PR1250m_DOM01.zarr"
+            },
+            "datasources": {
+                "lhfl_s": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/EUREC4A_DOM01_sfc/",
+                    "dataset": "EUREC4A_DOM01_surface.zarr"
+                },
+                "qv_2m": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/EUREC4A_DOM01_sfc/",
+                    "dataset": "EUREC4A_DOM01_surface.zarr"
+                },
+                "t_2m": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/EUREC4A_DOM01_sfc/",
+                    "dataset": "EUREC4A_DOM01_surface.zarr"
+                },
+                "t_seasfc": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/EUREC4A_DOM01_sfc/",
+                    "dataset": "EUREC4A_DOM01_surface.zarr"
+                },
+                "tot_prec": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/EUREC4A_DOM01_sfc/",
+                    "dataset": "EUREC4A_DOM01_surface.zarr"
+                },
+                "tqi_dia": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/EUREC4A_DOM01_sfc/",
+                    "dataset": "EUREC4A_DOM01_surface.zarr"
+                },
+                "tqv_dia": {
+                    "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/EUREC4A_DOM01_sfc/",
+                    "dataset": "EUREC4A_DOM01_surface.zarr"
+                }
+            }
+        }
+    ]
+}
