@@ -1,6 +1,13 @@
 build site:
   image: node:17
   stage: build
+  cache:
+    key:
+      files:
+        - package-lock.json
+      prefix: npm
+    paths:
+      - node_modules/
   script:
     - npm install --progress=false
     - npm run build
