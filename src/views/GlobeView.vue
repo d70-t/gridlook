@@ -53,6 +53,11 @@ export default {
                 this.datasources = datasources;
             }
         },
+        makeSnapshot() {
+            if(this.$refs.globe) {
+                this.$refs.globe.makeSnapshot();
+            }
+        },
     },
     watch: {
         src() {
@@ -64,7 +69,7 @@ export default {
 
 <template>
   <main>
-    <GlobeControls :modelInfo="modelInfo" :varinfo="varinfo" @selection="updateSelection"/>
+    <GlobeControls :modelInfo="modelInfo" :varinfo="varinfo" @selection="updateSelection" @on-snapshot="makeSnapshot" />
     <Globe :datasources="datasources"
            :varname="selection.varname"
            :timeIndex="selection.timeIndex"
@@ -72,7 +77,8 @@ export default {
            :invert-colormap="selection.invertColormap"
            :varbounds="selection.bounds"
            :enable-coastlines="selection.enableCoastlines"
-           @varinfo="updateVarinfo"/>
+           @varinfo="updateVarinfo"
+           ref="globe"/>
   </main>
 </template>
 

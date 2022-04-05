@@ -1,7 +1,7 @@
 <script lang="ts">
     export default {
       props: ["modelInfo", "varinfo"],
-      emits: ["selection"],
+      emits: ["selection", "onSnapshot"],
       data() {
         console.log(this.modelInfo);
         return {
@@ -171,7 +171,7 @@
         <input type="checkbox" v-model="enable_coastlines" id="enable_coastlines"/><label for="enable_coastlines">coastlines</label>
         </p>
         <p class="control">
-        <button v-on:click="snapshot('globe')">Snapshot</button>
+        <button @click="() => $emit('onSnapshot')">Snapshot</button>
         </p>
       </div>
     </nav>

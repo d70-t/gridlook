@@ -240,6 +240,21 @@
                     this.redraw();
                 }
             },
+
+            makeSnapshot() {
+                const canvas = this.$refs.canvas;
+                this.render();
+                canvas.toBlob((blob) => {
+                    let link = document.createElement('a');
+                    link.download = 'gridlook.png';
+
+                    link.href = URL.createObjectURL(blob);
+                    link.click();
+
+                    // delete the internal blob reference, to let the browser clear memory from it
+                    URL.revokeObjectURL(link.href);
+                }, 'image/png');
+            },
         },
     };
 </script>
