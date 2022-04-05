@@ -1,4 +1,4 @@
-<script lang="ts">
+<script>
     import * as THREE from 'three';
     import { HTTPStore, openArray, openGroup } from "zarr";
     import { attachControls } from "./js/world_controls.js";

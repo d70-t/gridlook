@@ -1,4 +1,4 @@
-<script lang="ts">
+<script>
     export default {
       props: ["modelInfo", "varinfo"],
       emits: ["selection", "onSnapshot"],

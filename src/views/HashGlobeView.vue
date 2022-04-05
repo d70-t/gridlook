@@ -1,8 +1,8 @@
-<script setup lang="ts">
+<script setup>
 import GlobeView from './GlobeView.vue'
 </script>
 
-<script lang="ts">
+<script>
 export default {
     data() {
         return {

@@ -1,10 +1,10 @@
-<script setup lang="ts">
+<script setup>
 import Globe from '@/components/Globe.vue'
 import GlobeControls from '@/components/GlobeControls.vue'
 import { available_colormaps } from "@/components/js/colormap_shaders.js";
 </script>
 
-<script lang="ts">
+<script>
 export default {
     props: ["src"],
     data() {
