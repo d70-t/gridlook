@@ -15,8 +15,8 @@
                 update_count: 0,
                 updating_data: false,
                 frameId: 0,
-                lastWidth: undefined,
-                lastHeight: undefined,
+                width: undefined,
+                height: undefined,
             };
         },
         created() {
@@ -203,10 +203,13 @@
                 } else {
                     this.scene.add(await this.getCoastlines());
                 }
-                this.render();
+                this.redraw();
             },
 
             render() {
+                if (this.width !== undefined &&  this.height !== undefined) {
+                    this.renderer.setSize(this.width, this.height);
+                }
                 this.renderer.render(this.scene, this.camera);
                 this.resize_observer.observe(this.$refs.box);
             },
@@ -222,15 +225,14 @@
                 console.log("resize", this.$refs.box);
                 const {width, height} = this.$refs.box.getBoundingClientRect();
                 console.log("box", width, height);
-                if (width !== this.lastWidth || height !== this.lastHeight) {
+                if (width !== this.width || height !== this.height) {
                     this.resize_observer.unobserve(this.$refs.box);
                     const aspect = width / height;
                     this.camera.aspect = aspect;
                     this.camera.updateProjectionMatrix();
-                    this.renderer.setSize( width, height);
-                    this.render();
-                    this.lastWidth = width;
-                    this.lastHeight = height;
+                    this.width = width;
+                    this.height = height;
+                    this.redraw();
                 }
             },
         },
