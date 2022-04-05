@@ -62,3 +62,9 @@ export default {
            @varinfo="updateVarinfo"/>
   </main>
 </template>
+
+<style>
+main {
+    overflow: hidden;
+}
+</style>

@@ -15,6 +15,8 @@
                 update_count: 0,
                 updating_data: false,
                 frameId: 0,
+                lastWidth: undefined,
+                lastHeight: undefined,
             };
         },
         created() {
@@ -23,8 +25,12 @@
         mounted() {
             this.init();
             attachControls(this.renderer, this.camera, this.center, this.redraw);
-            this.redraw();
-            window.addEventListener( 'resize', this.onWindowResize );
+            this.resize_observer = new ResizeObserver(this.onCanvasResize);
+            this.resize_observer.observe(this.$refs.box);
+            this.onCanvasResize();
+        },
+        unmounted() {
+            this.resize_observer.unobserve(this.$refs.box);
         },
         watch: {
             datasources() {
@@ -66,7 +72,6 @@
                 this.camera = new THREE.PerspectiveCamera( 7.5, window.innerWidth / window.innerHeight, 0.1, 1000 );
                 console.log("canvas", this.$refs.canvas);
                 this.renderer = new THREE.WebGLRenderer({canvas: this.$refs.canvas});
-                this.renderer.setSize( window.innerWidth, window.innerHeight );
 
                 this.camera.up = new THREE.Vector3(0, 0, 1);
                 this.camera.position.x = 30;
@@ -203,6 +208,7 @@
 
             render() {
                 this.renderer.render(this.scene, this.camera);
+                this.resize_observer.observe(this.$refs.box);
             },
 
             redraw() {
@@ -211,18 +217,44 @@
                 this.frameId = requestAnimationFrame(this.render);
             },
 
-            onWindowResize() {
-                const aspect = window.innerWidth / window.innerHeight;
-                this.camera.aspect = aspect;
-                this.camera.updateProjectionMatrix();
-                this.renderer.setSize( window.innerWidth, window.innerHeight );
-                this.render();
+            onCanvasResize(entries) {
+                console.log(entries);
+                console.log("resize", this.$refs.box);
+                const {width, height} = this.$refs.box.getBoundingClientRect();
+                console.log("box", width, height);
+                if (width !== this.lastWidth || height !== this.lastHeight) {
+                    this.resize_observer.unobserve(this.$refs.box);
+                    const aspect = width / height;
+                    this.camera.aspect = aspect;
+                    this.camera.updateProjectionMatrix();
+                    this.renderer.setSize( width, height);
+                    this.render();
+                    this.lastWidth = width;
+                    this.lastHeight = height;
+                }
             },
         },
     };
 </script>
 
 <template>
-    <canvas ref="canvas">
-    </canvas>
+    <div class="globe_box" ref="box">
+        <canvas class="globe_canvas" ref="canvas">
+        </canvas>
+    </div>
 </template>
+
+<style>
+div.globe_box {
+    height: 100%;
+    width: 100%;
+    padding: 0;
+    margin: 0;
+    overflow: hidden;
+    display: flex;
+}
+div.globe_canvas {
+    padding: 0;
+    margin: 0;
+}
+</style>
