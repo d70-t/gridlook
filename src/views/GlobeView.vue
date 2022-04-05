@@ -6,6 +6,7 @@ import { available_colormaps } from "@/components/js/colormap_shaders.js";
 
 <script lang="ts">
 export default {
+    props: ["src"],
     data() {
         return {
             datasources: undefined,
@@ -17,8 +18,8 @@ export default {
             varinfo: undefined,
         }
     },
-    async mounted() {
-        this.datasources = await fetch("static/index_mr_dpp0066.json").then(r => r.json());
+    mounted() {
+        this.updateSrc();
     },
     computed: {
             modelInfo() {
@@ -45,6 +46,18 @@ export default {
         updateVarinfo(info) {
             this.varinfo = info;
         },
+        async updateSrc() {
+            const src = this.src;
+            const datasources = await fetch(this.src).then(r => r.json());
+            if (src == this.src) {
+                this.datasources = datasources;
+            }
+        },
+    },
+    watch: {
+        src() {
+            this.updateSrc();
+        }
     }
 }
 </script>

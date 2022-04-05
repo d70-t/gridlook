@@ -1,6 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import HomeView from '../views/HomeView.vue'
-import GlobeView from '../views/GlobeView.vue'
+import HashGlobeView from '../views/HashGlobeView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -8,7 +7,7 @@ const router = createRouter({
     {
       path: '/',
       name: 'home',
-      component: GlobeView
+      component: HashGlobeView,
     },
     {
       path: '/about',
