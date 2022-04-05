@@ -1,0 +1,20 @@
+build site:
+  image: node:17
+  stage: build
+  script:
+    - npm install --progress=false
+    - npm run build
+  artifacts:
+    expire_in: 1 week
+    paths:
+      - dist
+
+pages:
+  image: alpine
+  only:
+    - main
+  script:
+    - mv dist public
+  artifacts:
+    paths:
+      - public
