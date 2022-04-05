@@ -32,7 +32,7 @@
             this.resize_observer.observe(this.$refs.box);
             this.onCanvasResize();
         },
-        unmounted() {
+        beforeUnmount() {
             this.resize_observer.unobserve(this.$refs.box);
         },
         watch: {
@@ -211,7 +211,9 @@
                     this.renderer.setSize(this.width, this.height);
                 }
                 this.renderer.render(this.scene, this.camera);
-                this.resize_observer.observe(this.$refs.box);
+                if (this.$refs.box) {
+                    this.resize_observer.observe(this.$refs.box);
+                }
             },
 
             redraw() {
@@ -221,6 +223,9 @@
             },
 
             onCanvasResize(entries) {
+                if(!this.$refs.box) {
+                    return;
+                }
                 console.log(entries);
                 console.log("resize", this.$refs.box);
                 const {width, height} = this.$refs.box.getBoundingClientRect();
