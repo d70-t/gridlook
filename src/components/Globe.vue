@@ -20,6 +20,9 @@
             };
         },
         created() {
+            const geometry = new THREE.BufferGeometry();
+            const material = this.colormapMaterial;
+            this.main_mesh = new THREE.Mesh( geometry, material );
             this.datasourceUpdate();
         },
         mounted() {
@@ -77,9 +80,6 @@
                 this.camera.position.x = 30;
                 this.camera.lookAt(this.center);
 
-                const geometry = new THREE.BufferGeometry();
-                const material = this.colormapMaterial;
-                this.main_mesh = new THREE.Mesh( geometry, material );
                 this.scene.add(this.main_mesh);
                 this.coast = undefined;
                 this.updateCoastlines();
