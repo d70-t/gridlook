@@ -5,7 +5,7 @@
 <script>
     export default {
       props: ["modelInfo", "varinfo"],
-      emits: ["selection", "onSnapshot"],
+      emits: ["selection", "onSnapshot", "onExample"],
       data() {
         console.log(this.modelInfo);
         return {
@@ -198,6 +198,7 @@
         </p>
         <p class="control">
         <button @click="() => $emit('onSnapshot')">Snapshot</button>
+        <button @click="() => $emit('onExample')">copy Python example to clipboard</button>
         </p>
       </div>
     </nav>

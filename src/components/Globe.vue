@@ -6,6 +6,8 @@
     import { make_colormap_material, available_colormaps } from "./js/colormap_shaders.js";
     import { geojson2geometry } from "./js/geojson.js";
 
+    import { datashader_example } from "./js/example_formatters.js";
+
     export default {
         props: ["datasources", "colormap", "invertColormap", "varname", "timeIndex", "varbounds", "enableCoastlines"],
         emits: ["varinfo"],
@@ -65,7 +67,21 @@
                 } else {
                     return make_colormap_material(this.colormap, 0.0, 1.0);
                 }
-            }
+            },
+            gridsource() {
+                if (this.datasources) {
+                    return this.datasources.levels[0].grid;
+                } else {
+                    return undefined;
+                }
+            },
+            datasource() {
+                if (this.datasources) {
+                    return this.datasources.levels[0].datasources[this.varname];
+                } else {
+                    return undefined;
+                }
+            },
         },
         methods: {
             init() {
@@ -91,8 +107,8 @@
                 }
             },
             async fetchGrid() {
-                const store = new HTTPStore(this.datasources.levels[0].grid.store);
-                const grid = await openGroup(store, this.datasources.levels[0].grid.dataset, "r");
+                const store = new HTTPStore(this.gridsource.store);
+                const grid = await openGroup(store, this.gridsource.dataset, "r");
                 const verts = await grid2buffer(grid);
                 console.log("verts have nan: " + verts.some(isNaN));
                 console.log("verts", verts);
@@ -245,6 +261,17 @@
                     // delete the internal blob reference, to let the browser clear memory from it
                     URL.revokeObjectURL(link.href);
                 }, 'image/png');
+            },
+            copyPythonExample() {
+                const example = datashader_example({camera_positon: this.camera.position,
+                                                    datasrc: this.datasource.store + this.datasource.dataset,
+                                                    gridsrc: this.gridsource.store + this.gridsource.dataset,
+                                                    varname: this.varname,
+                                                    timeIndex: this.timeIndex,
+                                                    varbounds: this.varbounds,
+                                                    colormap: this.colormap,
+                                                    invertColormap: this.invertColormap});
+                 navigator.clipboard.writeText(example);
             },
         },
     };

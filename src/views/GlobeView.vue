@@ -58,6 +58,11 @@ export default {
                 this.$refs.globe.makeSnapshot();
             }
         },
+        makeExample() {
+            if(this.$refs.globe) {
+                this.$refs.globe.copyPythonExample();
+            }
+        },
     },
     watch: {
         src() {
@@ -69,7 +74,7 @@ export default {
 
 <template>
   <main>
-    <GlobeControls :modelInfo="modelInfo" :varinfo="varinfo" @selection="updateSelection" @on-snapshot="makeSnapshot" />
+    <GlobeControls :modelInfo="modelInfo" :varinfo="varinfo" @selection="updateSelection" @on-snapshot="makeSnapshot" @on-example="makeExample"/>
     <Globe :datasources="datasources"
            :varname="selection.varname"
            :timeIndex="selection.timeIndex"
