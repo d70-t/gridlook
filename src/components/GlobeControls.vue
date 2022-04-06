@@ -3,7 +3,8 @@
 </script>
 
 <script>
-    export default {
+    import { defineComponent } from 'vue';
+    export default defineComponent({
       props: ["modelInfo", "varinfo"],
       emits: ["selection", "onSnapshot", "onExample"],
       data() {
@@ -120,7 +121,7 @@
             }
         },
       }
-  }
+  })
 </script>
 
 <template>
