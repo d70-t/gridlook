@@ -178,7 +178,7 @@
                     <select class="form-control" v-model="colormap">
                       <option v-for="cm in modelInfo.colormaps" :value="cm" :key="cm">{{ cm }}</option>
                     </select>
-                </td><td colspan="2"><ColorBar class="hcolormap" :colormap="this.colormap" :invertColormap="this.invert_colormap" orientation="horizontal" /></td>
+                </td><td colspan="2"><ColorBar class="hcolormap" :colormap="colormap" :invertColormap="invert_colormap" orientation="horizontal" /></td>
             </tr>
             <tr>
                 <td>
