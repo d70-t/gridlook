@@ -6,6 +6,32 @@ function norm(a) {
     return Math.sqrt(a.map(v => v*v).reduce((acc, v) => acc + v, 0));
 }
 
+const cmocean_colormaps = [
+    "coolwarm",
+    "bwr",
+    "seismic",
+    "thermal",
+    "haline",
+    "solar",
+    "ice",
+    "gray",
+    "deep",
+    "dense",
+    "algae",
+    "matter",
+    "turbid",
+    "speed",
+    "amp",
+    "tempo",
+    "rain",
+    "phase",
+    "balance",
+    "delta",
+    "curl",
+    "diff",
+    "tarn",
+];
+
 export function datashader_example(config) {
     const central_longitude = rad2deg(Math.atan2(config.camera_positon.y, config.camera_positon.x))
     const central_latitude = rad2deg(Math.atan2(config.camera_positon.z, Math.sqrt(Math.pow(config.camera_positon.x, 2) + Math.pow(config.camera_positon.y, 2))))
@@ -14,6 +40,14 @@ export function datashader_example(config) {
     let colormap = config.colormap;
     if (config.invertColormap) {
         colormap = colormap + "_r";
+    }
+
+    let extra_imports = "";
+    if (cmocean_colormaps.includes(config.colormap)) {
+        extra_imports = extra_imports + "import cmocean";
+        colormap = "cmocean.cm." + colormap;
+    } else {
+        colormap ="\"" + colormap + "\"";
     }
     return `
 import xarray as xr
@@ -26,6 +60,7 @@ from datashader.mpl_ext import dsshow
 
 import cartopy.crs as ccrs
 import cartopy.feature as cf
+${extra_imports}
 
 data = xr.open_zarr("${config.datasrc}")
 grid = xr.open_zarr("${config.gridsrc}")
@@ -36,7 +71,7 @@ satellite_height = ${satellite_height}
 
 vmin = ${config.varbounds.low}
 vmax = ${config.varbounds.high}
-cmap = "${colormap}"
+cmap = ${colormap}
 
 variable = data["${config.varname}"].isel(time=${config.timeIndex})
 
