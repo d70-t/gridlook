@@ -109,8 +109,13 @@
                     if (datasource === undefined) {
                         return undefined;
                     }
-                    const datastore = new HTTPStore(datasource.store);
-                    this.datavars[varname] = await openGroup(datastore, datasource.dataset, "r").then(ds => ds.getItem(varname));
+                    try {
+                        const datastore = new HTTPStore(datasource.store);
+                        this.datavars[varname] = await openGroup(datastore, datasource.dataset, "r").then(ds => ds.getItem(varname));
+                    } catch (error) {
+                        console.log("WARNING, couldn't fetch variable " + varname + " from store: " + datasource.store + " and dataset: " + datasource.dataset);
+                        return undefined;
+                    }
                 }
                 return this.datavars[varname];
             },
