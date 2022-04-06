@@ -152,34 +152,20 @@
                 const low = this.varbounds.low;
                 const high = this.varbounds.high;
 
-                let data_add_offset;
-                let data_scale_factor;
-                let lut_add_offset;
-                let lut_scale_factor;
+                let add_offset;
+                let scale_factor;
 
                 if (this.invertColormap) {
-                    data_scale_factor = -1. / (high - low);
-                    data_add_offset = -high * data_scale_factor;
-                    lut_add_offset = 1.;
-                    lut_scale_factor = -1.;
+                    scale_factor = -1. / (high - low);
+                    add_offset = -high * scale_factor;
                 } else {
-                    data_scale_factor = 1. / (high - low);
-                    data_add_offset = -low * data_scale_factor;
-                    lut_add_offset = 0.;
-                    lut_scale_factor = 1.;
+                    scale_factor = 1. / (high - low);
+                    add_offset = -low * scale_factor;
                 }
 
-                [this.main_mesh /*, lut_mesh */].map(mesh => {
-                    mesh.material.uniforms.colormap.value = available_colormaps[this.colormap];
-                });
-                [this.main_mesh].map(mesh => {
-                    mesh.material.uniforms.add_offset.value = data_add_offset;
-                    mesh.material.uniforms.scale_factor.value = data_scale_factor;
-                });
-                [/*lut_mesh*/].map(mesh => {
-                    mesh.material.uniforms.add_offset.value = lut_add_offset;
-                    mesh.material.uniforms.scale_factor.value = lut_scale_factor;
-                });
+                this.main_mesh.material.uniforms.colormap.value = available_colormaps[this.colormap];
+                this.main_mesh.material.uniforms.add_offset.value = add_offset;
+                this.main_mesh.material.uniforms.scale_factor.value = scale_factor;
                 this.redraw();
             },
 

@@ -1,3 +1,7 @@
+<script setup>
+    import ColorBar from '@/components/ColorBar.vue';
+</script>
+
 <script>
     export default {
       props: ["modelInfo", "varinfo"],
@@ -139,12 +143,6 @@
         <select class="form-control" v-model="varname">
           <option v-for="varname in Object.keys(modelInfo.vars)" :value="varname" :key="varname">{{ varname }}</option>
         </select>
-        &nbsp;
-        <select class="form-control" v-model="colormap">
-          <option v-for="cm in modelInfo.colormaps" :value="cm" :key="cm">{{ cm }}</option>
-        </select>
-        &nbsp;
-        <input type="checkbox" v-model="invert_colormap" id="invert_colormap"/><label for="invert_colormap">invert</label>
       </div>
       <div class="panel-block" :class="{'is-hidden': menu_collapsed}" v-if="modelInfo">
         <p class="control">
@@ -161,22 +159,36 @@
       <div class="panel-block" :class="{'is-hidden': menu_collapsed}" v-if="modelInfo">
         <table>
             <tr>
-                <th>range</th><th>low</th><th>high</th>
+                <th>range</th><th>low</th><th class="right">high</th>
             </tr>
             <tr>
                 <td><input type="radio" id="data_bounds" value="data" v-model="picked_bounds" /><label for="data_bounds">data</label></td>
                 <td>{{ Number(data_bounds.low).toPrecision(4) }}</td>
-                <td>{{ Number(data_bounds.high).toPrecision(4) }}</td>
+                <td class="right">{{ Number(data_bounds.high).toPrecision(4) }}</td>
             </tr>
             <tr>
                 <td><input type="radio" id="default_bounds" value="default" v-model="picked_bounds" /><label for="default_bounds">default</label></td>
                 <td>{{ Number(default_bounds.low).toPrecision(2) }}</td>
-                <td>{{ Number(default_bounds.high).toPrecision(2) }}</td>
+                <td class="right">{{ Number(default_bounds.high).toPrecision(2) }}</td>
             </tr>
             <tr>
                 <td><input type="radio" id="user_bounds" value="user" v-model="picked_bounds" /><label for="user_bounds">user</label></td>
                 <td><input size="10" v-model.number="user_bounds_low"/></td>
-                <td><input size="10" v-model.number="user_bounds_high"/></td>
+                <td class="right"><input size="10" v-model.number="user_bounds_high"/></td>
+            </tr>
+            <tr>
+                <td>
+                    <select class="form-control" v-model="colormap">
+                      <option v-for="cm in modelInfo.colormaps" :value="cm" :key="cm">{{ cm }}</option>
+                    </select>
+                </td><td colspan="2"><ColorBar class="hcolormap" :colormap="this.colormap" :invertColormap="this.invert_colormap" orientation="horizontal" /></td>
+            </tr>
+            <tr>
+                <td>
+                    <input type="checkbox" v-model="invert_colormap" id="invert_colormap"/><label for="invert_colormap">invert</label>
+                </td>
+                <td></td>
+                <td></td>
             </tr>
         </table>
       </div>
@@ -190,3 +202,16 @@
       </div>
     </nav>
 </template>
+
+<style>
+table tr td.right, table tr th.right {
+    text-align: right;
+}
+
+.hcolormap {
+    width: 15em;
+    height: 1.5em;
+    max-height: 1.5em;
+    overflow: hidden;
+}
+</style>
