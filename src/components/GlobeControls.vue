@@ -51,9 +51,6 @@
         }
       },
       methods: {
-        snapshot(canvas_id) {
-            snapshot(canvas_id, render);
-        },
         toggle_collapsed() {
             this.menu_collapsed = !this.menu_collapsed;
         },
