@@ -104,6 +104,20 @@
                 return "-";
             }
         },
+        current_var_longname() {
+            if (this.varinfo && this.varinfo.attrs && this.varinfo.attrs.long_name) {
+                return this.varinfo.attrs.long_name;
+            } else {
+                return "-";
+            }
+        },
+        current_var_units() {
+            if (this.varinfo && this.varinfo.attrs && this.varinfo.attrs.units) {
+                return this.varinfo.attrs.units;
+            } else {
+                return "-";
+            }
+        },
       }
   }
 </script>
@@ -141,7 +155,7 @@
                v-bind:max="time_range.end"
                v-model.number="time_index"/>
         currently shown: {{ current_var_name }} @ {{ current_time_index }} <br/>
-        {{ current_var_attrs.long_name }} / {{ current_var_attrs.units }}
+        {{ current_var_longname }} / {{ current_var_units }}
         </p>
       </div>
       <div class="panel-block" :class="{'is-hidden': menu_collapsed}" v-if="modelInfo">
