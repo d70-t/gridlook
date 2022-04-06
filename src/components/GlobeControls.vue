@@ -1,8 +1,5 @@
-<script setup>
-    import ColorBar from '@/components/ColorBar.vue';
-</script>
-
 <script>
+    import ColorBar from '@/components/ColorBar.vue';
     export default {
       props: ["modelInfo", "varinfo"],
       emits: ["selection", "onSnapshot", "onExample"],
