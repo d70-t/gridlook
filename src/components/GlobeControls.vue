@@ -99,6 +99,13 @@
                 return undefined;
             }
         },
+        current_time_value() {
+            if (this.varinfo && this.varinfo.timeinfo) {
+                return this.varinfo.timeinfo.current;
+            } else {
+                return undefined;
+            }
+        },
         current_var_name() {
             if (this.varinfo && this.varinfo.varname) {
                 return this.varinfo.varname;
@@ -151,6 +158,7 @@
                v-bind:max="time_range.end"
                v-model.number="time_index"/>
         currently shown: {{ current_var_name }} @ {{ current_time_index }} <br/>
+        <span v-if="current_time_value">{{ current_time_value.format() }}<br/></span>
         {{ current_var_longname }} / {{ current_var_units }}
         </p>
       </div>

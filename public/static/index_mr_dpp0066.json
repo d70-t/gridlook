@@ -16,6 +16,10 @@
                 "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/nextGEMS/",
                 "dataset": "grids/ICON_R02B06.zarr"
             },
+            "time": {
+                "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
+                "dataset": "R02B06/2d_ml.zarr"
+            },
             "datasources": {
                 "clivi": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",

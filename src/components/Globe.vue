@@ -5,6 +5,7 @@
     import { grid2buffer, data2value_buffer } from "./js/gridlook.js";
     import { make_colormap_material, available_colormaps } from "./js/colormap_shaders.js";
     import { geojson2geometry } from "./js/geojson.js";
+    import { decode_time } from "./js/time_handling.js";
 
     import { datashader_example } from "./js/example_formatters.js";
 
@@ -101,6 +102,7 @@
                 this.updateCoastlines();
             },
             datasourceUpdate() {
+                this.datavars = {};
                 if (this.datasources !== undefined) {
                     this.fetchGrid();
                     this.getData();
@@ -135,6 +137,24 @@
                 }
                 return this.datavars[varname];
             },
+            async getTimeVar() {
+                const varname = "_time";
+                if (this.datavars[varname] === undefined) {
+                    console.log("fetching " + varname);
+                    const datasource = this.datasources.levels[0].time;
+                    if (datasource === undefined) {
+                        return undefined;
+                    }
+                    try {
+                        const datastore = new HTTPStore(datasource.store);
+                        this.datavars[varname] = await openGroup(datastore, datasource.dataset, "r").then(ds => ds.getItem("time"));
+                    } catch (error) {
+                        console.log("WARNING, couldn't fetch variable " + "time" + " from store: " + datasource.store + " and dataset: " + datasource.dataset);
+                        return undefined;
+                    }
+                }
+                return this.datavars[varname];
+            },
             async getData() {
                 this.update_count += 1;
                 const update_count = this.update_count;
@@ -145,7 +165,16 @@
                     
                 const varname = this.varname;
                 const time_index = this.timeIndex;
-                const datavar = await this.getDataVar(varname);
+                const [timevar, datavar] = await Promise.all([this.getTimeVar(), this.getDataVar(varname)]);
+                let timeinfo = {};
+                if (timevar !== undefined) {
+                    const [timeattrs, timevalues] = await Promise.all([timevar.attrs.asObject(), timevar.getRaw().then(t => t.data)]);
+                    timeinfo = {
+                        "attrs": timeattrs,
+                        "values": timevalues,
+                        "current": decode_time(timevalues[time_index], timeattrs),
+                    };
+                }
                 if (datavar !== undefined) {
                     const data_buffer = await data2value_buffer(datavar.getRaw(time_index));
                     console.log("data buffer", data_buffer);
@@ -153,6 +182,7 @@
                     this.publishVarinfo({
                         attrs: await datavar.attrs.asObject(),
                         time_index,
+                        timeinfo,
                         varname,
                         time_range: {start: 0, end: datavar.shape[0] - 1},
                         bounds: {low: data_buffer.data_min, high: data_buffer.data_max},
