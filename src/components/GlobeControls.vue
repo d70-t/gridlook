@@ -191,17 +191,17 @@
             <tr>
                 <th>range</th><th>low</th><th class="right">high</th>
             </tr>
-            <tr :class="{'active': this.active_bounds === 'data'}">
+            <tr :class="{'active': active_bounds === 'data'}">
                 <td><input type="radio" id="data_bounds" value="data" v-model="picked_bounds" /><label for="data_bounds">data</label></td>
                 <td>{{ Number(data_bounds.low).toPrecision(4) }}</td>
                 <td class="right">{{ Number(data_bounds.high).toPrecision(4) }}</td>
             </tr>
-            <tr :class="{'active': this.active_bounds === 'default'}">
+            <tr :class="{'active': active_bounds === 'default'}">
                 <td><input type="radio" id="default_bounds" value="default" v-model="picked_bounds" /><label for="default_bounds">default</label></td>
                 <td>{{ Number(default_bounds.low).toPrecision(2) }}</td>
                 <td class="right">{{ Number(default_bounds.high).toPrecision(2) }}</td>
             </tr>
-            <tr :class="{'active': this.active_bounds === 'user'}">
+            <tr :class="{'active': active_bounds === 'user'}">
                 <td><input type="radio" id="user_bounds" value="user" v-model="picked_bounds" /><label for="user_bounds">user</label></td>
                 <td><input size="10" v-model.number="user_bounds_low"/></td>
                 <td class="right"><input size="10" v-model.number="user_bounds_high"/></td>
