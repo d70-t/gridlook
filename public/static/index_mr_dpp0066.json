@@ -23,11 +23,27 @@
             "datasources": {
                 "clivi": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": 0,
+                        "high": 0.5
+                    },
+                    "default_colormap": {
+                        "name": "ice",
+                        "inverted": false
+                    }
                 },
                 "cllvi": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": 0,
+                        "high": 2
+                    },
+                    "default_colormap": {
+                        "name": "ice",
+                        "inverted": false
+                    }
                 },
                 "clt": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
@@ -35,23 +51,59 @@
                     "default_range": {
                         "low": 0,
                         "high": 1
+                    },
+                    "default_colormap": {
+                        "name": "gray",
+                        "inverted": false
                     }
                 },
                 "cptgzvi": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": 1500000000,
+                        "high": 3500000000
+                    },
+                    "default_colormap": {
+                        "name": "haline",
+                        "inverted": false
+                    }
                 },
                 "evspsbl": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": -0.00035,
+                        "high": 0.00035
+                    },
+                    "default_colormap": {
+                        "name": "balance",
+                        "inverted": true
+                    }
                 },
                 "hfls": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": -700,
+                        "high": 700
+                    },
+                    "default_colormap": {
+                        "name": "balance",
+                        "inverted": true
+                    }
                 },
                 "hfss": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": -700,
+                        "high": 700
+                    },
+                    "default_colormap": {
+                        "name": "balance",
+                        "inverted": true
+                    }
                 },
                 "pr": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
@@ -59,6 +111,10 @@
                     "default_range": {
                         "low": 0,
                         "high": 0.005
+                    },
+                    "default_colormap": {
+                        "name": "turbo",
+                        "inverted": false
                     }
                 },
                 "prlr": {
@@ -66,7 +122,11 @@
                     "dataset": "R02B06/2d_ml.zarr",
                     "default_range": {
                         "low": 0,
-                        "high": 0.0005
+                        "high": 0.005
+                    },
+                    "default_colormap": {
+                        "name": "turbo",
+                        "inverted": false
                     }
                 },
                 "prls": {
@@ -74,7 +134,11 @@
                     "dataset": "R02B06/2d_ml.zarr",
                     "default_range": {
                         "low": 0,
-                        "high": 0.0005
+                        "high": 0.001
+                    },
+                    "default_colormap": {
+                        "name": "turbo",
+                        "inverted": false
                     }
                 },
                 "prw": {
@@ -85,7 +149,7 @@
                         "high": 70
                     },
                     "default_colormap": {
-                        "name": "turbo",
+                        "name": "cividis",
                         "inverted": true
                     }
                 },
@@ -95,6 +159,10 @@
                     "default_range": {
                         "low": 50000,
                         "high": 105000
+                    },
+                    "default_colormap": {
+                        "name": "turbo",
+                        "inverted": true
                     }
                 },
                 "psl": {
@@ -103,75 +171,208 @@
                     "default_range": {
                         "low": 95000,
                         "high": 105000
+                    },
+                    "default_colormap": {
+                        "name": "turbo",
+                        "inverted": true
                     }
                 },
                 "qgvi": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": 0,
+                        "high": 4
+                    },
+                    "default_colormap": {
+                        "name": "turbo",
+                        "inverted": false
+                    }
                 },
                 "qrvi": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": 0,
+                        "high": 4
+                    },
+                    "default_colormap": {
+                        "name": "turbo",
+                        "inverted": false
+                    }
+
                 },
                 "qsvi": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": 0,
+                        "high": 4
+                    },
+                    "default_colormap": {
+                        "name": "turbo",
+                        "inverted": false
+                    }
                 },
                 "rlds": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": 0,
+                        "high": 600
+                    },
+                    "default_colormap": {
+                        "name": "thermal",
+                        "inverted": false
+                    }
+
                 },
                 "rldscs": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": 0,
+                        "high": 600
+                    },
+                    "default_colormap": {
+                        "name": "thermal",
+                        "inverted": false
+                    }
+
                 },
                 "rlus": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": 0,
+                        "high": 600
+                    },
+                    "default_colormap": {
+                        "name": "thermal",
+                        "inverted": false
+                    }
+
                 },
                 "rlut": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": 0,
+                        "high": 600
+                    },
+                    "default_colormap": {
+                        "name": "thermal",
+                        "inverted": false
+                    }
+
                 },
                 "rlutcs": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": 0,
+                        "high": 600
+                    },
+                    "default_colormap": {
+                        "name": "thermal",
+                        "inverted": false
+                    }
                 },
                 "rsds": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": 0,
+                        "high": 1400
+                    },
+                    "default_colormap": {
+                        "name": "thermal",
+                        "inverted": false
+                    }
                 },
                 "rsdscs": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": 0,
+                        "high": 1400
+                    },
+                    "default_colormap": {
+                        "name": "thermal",
+                        "inverted": false
+                    }
                 },
                 "rsdt": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
                     "dataset": "R02B06/2d_ml.zarr",
                     "default_range": {
                         "low": 0,
-                        "high": 1500
+                        "high": 1400
+                    },
+                    "default_colormap": {
+                        "name": "thermal",
+                        "inverted": false
                     }
                 },
                 "rsus": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": 0,
+                        "high": 800
+                    },
+                    "default_colormap": {
+                        "name": "thermal",
+                        "inverted": false
+                    }
                 },
                 "rsuscs": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": 0,
+                        "high": 800
+                    },
+                    "default_colormap": {
+                        "name": "thermal",
+                        "inverted": false
+                    }
                 },
                 "rsut": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": 0,
+                        "high": 800
+                    },
+                    "default_colormap": {
+                        "name": "thermal",
+                        "inverted": false
+                    }
                 },
                 "rsutcs": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": 0,
+                        "high": 800
+                    },
+                    "default_colormap": {
+                        "name": "thermal",
+                        "inverted": false
+                    }
                 },
                 "sfcwind": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": 0,
+                        "high": 25
+                    },
+                    "default_colormap": {
+                        "name": "haline",
+                        "inverted": false
+                    }
                 },
                 "sic": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
@@ -188,6 +389,10 @@
                 "sit": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
                     "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": 0,
+                        "high": 3
+                    },
                     "default_colormap": {
                         "name": "ice",
                         "inverted": false
@@ -219,21 +424,37 @@
                 },
                 "tauu": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": -1.5,
+                        "high": 1.5
+                    },
+                    "default_colormap": {
+                        "name": "balance",
+                        "inverted": false
+                    }
                 },
                 "tauv": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": -1.5,
+                        "high": 1.5
+                    },
+                    "default_colormap": {
+                        "name": "balance",
+                        "inverted": false
+                    }
                 },
                 "uas": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
                     "dataset": "R02B06/2d_ml.zarr",
                     "default_range": {
-                        "low": -15,
-                        "high": 15
+                        "low": -20,
+                        "high": 20
                     },
                     "default_colormap": {
-                        "name": "RdBu",
+                        "name": "balance",
                         "inverted": false
                     }
                 },
@@ -241,11 +462,11 @@
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
                     "dataset": "R02B06/2d_ml.zarr",
                     "default_range": {
-                        "low": -15,
-                        "high": 15
+                        "low": -20,
+                        "high": 20
                     },
                     "default_colormap": {
-                        "name": "RdBu",
+                        "name": "balance",
                         "inverted": false
                     }
                 }
