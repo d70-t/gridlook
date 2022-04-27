@@ -83,6 +83,10 @@
                     "default_range": {
                         "low": 0,
                         "high": 70
+                    },
+                    "default_colormap": {
+                        "name": "turbo",
+                        "inverted": true
                     }
                 },
                 "ps": {
@@ -175,11 +179,19 @@
                     "default_range": {
                         "low": 0,
                         "high": 1
+                    },
+                    "default_colormap": {
+                        "name": "ice",
+                        "inverted": false
                     }
                 },
                 "sit": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_colormap": {
+                        "name": "ice",
+                        "inverted": false
+                    }
                 },
                 "ts": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
@@ -187,6 +199,10 @@
                     "default_range": {
                         "low": 260,
                         "high": 310
+                    },
+                    "default_colormap": {
+                        "name": "thermal",
+                        "inverted": false
                     }
                 },
                 "tas": {
@@ -195,6 +211,10 @@
                     "default_range": {
                         "low": 260,
                         "high": 310
+                    },
+                    "default_colormap": {
+                        "name": "thermal",
+                        "inverted": false
                     }
                 },
                 "tauu": {
@@ -207,11 +227,27 @@
                 },
                 "uas": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": -15,
+                        "high": 15
+                    },
+                    "default_colormap": {
+                        "name": "RdBu",
+                        "inverted": false
+                    }
                 },
                 "vas": {
                     "store": "https://swift.dkrz.de/v1/dkrz_948e7d4bbfbb445fbff5315fc433e36a/dpp0066/",
-                    "dataset": "R02B06/2d_ml.zarr"
+                    "dataset": "R02B06/2d_ml.zarr",
+                    "default_range": {
+                        "low": -15,
+                        "high": 15
+                    },
+                    "default_colormap": {
+                        "name": "RdBu",
+                        "inverted": false
+                    }
                 }
             }
         }

@@ -17,6 +17,7 @@
           varname: "-",
           colormap: "turbo",
           invert_colormap: true,
+          auto_colormap: true,
           default_bounds: {low: undefined, high: undefined},
           user_bounds_low: undefined,
           user_bounds_high: undefined,
@@ -31,6 +32,7 @@
         varname() {
             const varinfo = this.modelInfo.vars[this.varname];
             this.default_bounds = varinfo.default_range || {low: undefined, high: undefined};
+            this.setDefaultColormap();
             this.publish();
         },
         colormap() {
@@ -49,6 +51,10 @@
             if (this.modelInfo.vars[this.varname] === undefined) {
                 this.varname = this.modelInfo.default_var || Object.keys(this.modelInfo.vars)[0];
             }
+            this.setDefaultColormap();
+        },
+        auto_colormap() {
+            this.setDefaultColormap();
         }
       },
       methods: {
@@ -64,6 +70,13 @@
                 invertColormap: this.invert_colormap,
                 enableCoastlines: this.enable_coastlines,
             });
+        },
+        setDefaultColormap() {
+            const defaultColormap = this.modelInfo.vars[this.varname].default_colormap;
+            if(this.auto_colormap && defaultColormap !== undefined) {
+                this.invert_colormap = defaultColormap.inverted || false;
+                this.colormap = defaultColormap.name;
+            }
         }
       },
       computed: {
@@ -210,7 +223,9 @@
                     <input type="checkbox" v-model="invert_colormap" id="invert_colormap"/><label for="invert_colormap">invert</label>
                 </td>
                 <td></td>
-                <td></td>
+                <td>
+                    <input type="checkbox" v-model="auto_colormap" id="auto_colormap"/><label for="auto_colormap">auto</label>
+                </td>
             </tr>
         </table>
       </div>
