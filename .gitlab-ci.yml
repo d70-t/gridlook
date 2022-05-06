@@ -15,6 +15,9 @@ build site:
     expire_in: 1 week
     paths:
       - dist
+  environment:
+    name: review/$CI_COMMIT_REF_NAME
+    url: https://$CI_PROJECT_NAMESPACE.pages.gwdg.de/-/$CI_PROJECT_NAME/-/jobs/$CI_JOB_ID/artifacts/dist/index.html
 
 pages:
   image: alpine

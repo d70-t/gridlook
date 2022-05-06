@@ -17,10 +17,11 @@
           varname: "-",
           colormap: "turbo",
           invert_colormap: true,
+          auto_colormap: true,
           default_bounds: {low: undefined, high: undefined},
           user_bounds_low: undefined,
           user_bounds_high: undefined,
-          picked_bounds: "data",
+          picked_bounds: "auto",
           view: {},
         }
       },
@@ -31,6 +32,7 @@
         varname() {
             const varinfo = this.modelInfo.vars[this.varname];
             this.default_bounds = varinfo.default_range || {low: undefined, high: undefined};
+            this.setDefaultColormap();
             this.publish();
         },
         colormap() {
@@ -49,6 +51,10 @@
             if (this.modelInfo.vars[this.varname] === undefined) {
                 this.varname = this.modelInfo.default_var || Object.keys(this.modelInfo.vars)[0];
             }
+            this.setDefaultColormap();
+        },
+        auto_colormap() {
+            this.setDefaultColormap();
         }
       },
       methods: {
@@ -64,17 +70,35 @@
                 invertColormap: this.invert_colormap,
                 enableCoastlines: this.enable_coastlines,
             });
+        },
+        setDefaultColormap() {
+            const defaultColormap = this.modelInfo.vars[this.varname].default_colormap;
+            if(this.auto_colormap && defaultColormap !== undefined) {
+                this.invert_colormap = defaultColormap.inverted || false;
+                this.colormap = defaultColormap.name;
+            }
         }
       },
       computed: {
+        active_bounds() {
+          if (this.picked_bounds == "auto") {
+            if (this.default_bounds.low !== undefined && this.default_bounds.high !== undefined) {
+                return "default";
+            } else {
+                return "data";
+            }
+          } else {
+            return this.picked_bounds;
+          }
+        },
         bounds() {
-          if (this.picked_bounds == "data") {
+          if (this.active_bounds == "data") {
             return this.data_bounds;
           }
-          else if (this.picked_bounds == "default") {
+          else if (this.active_bounds == "default") {
             return this.default_bounds;
           }
-          else if (this.picked_bounds == "user") {
+          else if (this.active_bounds == "user") {
             return {low: this.user_bounds_low, high: this.user_bounds_high};
           }
         },
@@ -167,20 +191,25 @@
             <tr>
                 <th>range</th><th>low</th><th class="right">high</th>
             </tr>
-            <tr>
+            <tr :class="{'active': active_bounds === 'data'}">
                 <td><input type="radio" id="data_bounds" value="data" v-model="picked_bounds" /><label for="data_bounds">data</label></td>
                 <td>{{ Number(data_bounds.low).toPrecision(4) }}</td>
                 <td class="right">{{ Number(data_bounds.high).toPrecision(4) }}</td>
             </tr>
-            <tr>
+            <tr :class="{'active': active_bounds === 'default'}">
                 <td><input type="radio" id="default_bounds" value="default" v-model="picked_bounds" /><label for="default_bounds">default</label></td>
                 <td>{{ Number(default_bounds.low).toPrecision(2) }}</td>
                 <td class="right">{{ Number(default_bounds.high).toPrecision(2) }}</td>
             </tr>
-            <tr>
+            <tr :class="{'active': active_bounds === 'user'}">
                 <td><input type="radio" id="user_bounds" value="user" v-model="picked_bounds" /><label for="user_bounds">user</label></td>
                 <td><input size="10" v-model.number="user_bounds_low"/></td>
                 <td class="right"><input size="10" v-model.number="user_bounds_high"/></td>
+            </tr>
+            <tr>
+                <td><input type="radio" id="auto_bounds" value="auto" v-model="picked_bounds" /><label for="auto_bounds">auto</label></td>
+                <td></td>
+                <td class="right"></td>
             </tr>
             <tr>
                 <td>
@@ -194,7 +223,9 @@
                     <input type="checkbox" v-model="invert_colormap" id="invert_colormap"/><label for="invert_colormap">invert</label>
                 </td>
                 <td></td>
-                <td></td>
+                <td>
+                    <input type="checkbox" v-model="auto_colormap" id="auto_colormap"/><label for="auto_colormap">auto</label>
+                </td>
             </tr>
         </table>
       </div>
@@ -213,6 +244,10 @@
 <style>
 table tr td.right, table tr th.right {
     text-align: right;
+}
+
+table tr.active {
+    background-color: lightgreen;
 }
 
 .hcolormap {
