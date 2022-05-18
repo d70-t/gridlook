@@ -175,7 +175,10 @@
       </div>
       <div class="panel-block" :class="{'is-hidden': menu_collapsed}" v-if="modelInfo">
         <p class="control">
-        time: {{ time_index }} / {{ time_range.end }}
+        time: <input
+               type="text"
+               v-model.number="time_index"
+               style="width: 8em;"/> / {{ time_range.end }}
         <input class="input"
                type="range"
                v-bind:min="time_range.start"
