@@ -1,6 +1,6 @@
 <script setup lang="ts">
 //import { RouterLink, RouterView } from 'vue-router'
-import HashGlobeView from '@/views/HashGlobeView.vue';
+import HashGlobeView from "@/views/HashGlobeView.vue";
 </script>
 
 <template>
@@ -17,5 +17,5 @@ import HashGlobeView from '@/views/HashGlobeView.vue';
 </template>
 
 <style>
-@import '@/assets/base.css';
+@import "@/assets/base.css";
 </style>
