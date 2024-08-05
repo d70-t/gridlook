@@ -1,3 +1,15 @@
+stages:
+  - lint
+  - build
+  - deploy
+
+lint:
+  image: node:17
+  stage: lint
+  script:
+    - npm install --progress=false
+    - npm run lint
+
 build site:
   image: node:17
   stage: build
