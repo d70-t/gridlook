@@ -328,7 +328,6 @@ export default {
       cancelAnimationFrame(this.frameId);
       this.orbitControls.update();
       this.frameId = requestAnimationFrame(this.render);
-      this.render();
     },
 
     animationLoop() {
