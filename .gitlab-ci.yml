@@ -4,14 +4,14 @@ stages:
   - deploy
 
 lint:
-  image: node:17
+  image: node:20
   stage: lint
   script:
     - npm install --progress=false
     - npm run lint
 
 build site:
-  image: node:17
+  image: node:20
   stage: build
   cache:
     key:

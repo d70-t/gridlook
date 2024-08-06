@@ -1,64 +1,64 @@
-import * as THREE from 'three';
+import * as THREE from "three";
 
-export const available_colormaps = {    
-    inferno: 0,
-    magma: 1,
-    plasma: 2,
-    viridis: 3,
-    turbo: 4,
-    hsluv: 5,
-    hpluv: 6,
-    cividis: 7,
-    Greys: 8,
-    Purples: 9,
-    Blues: 10,
-    Greens: 11,
-    Oranges: 12,
-    Reds: 13,
-    YlOrBr: 14,
-    YlOrRd: 15,
-    OrRd: 16,
-    PuRd: 17,
-    RdPu: 18,
-    BuPu: 19,
-    GnBu: 20,
-    PuBu: 21,
-    YlGnBu: 22,
-    PuBuGn: 23,
-    BuGn: 24,
-    YlGn: 25,
-    PiYG: 26,
-    PRGn: 27,
-    BrBG: 28,
-    PuOr: 29,
-    RdGy: 30,
-    RdBu: 31,
-    RdYlBu: 32,
-    RdYlGn: 33,
-    Spectral: 34,
-    coolwarm: 35,
-    bwr: 36,
-    seismic: 37,
-    thermal: 38,
-    haline: 39,
-    solar: 40,
-    ice: 41,
-    gray: 42,
-    deep: 43,
-    dense: 44,
-    algae: 45,
-    matter: 46,
-    turbid: 47,
-    speed: 48,
-    amp: 49,
-    tempo: 50,
-    rain: 51,
-    phase: 52,
-    balance: 53,
-    delta: 54,
-    curl: 55,
-    diff: 56,
-    tarn: 57,
+export const available_colormaps = {
+  inferno: 0,
+  magma: 1,
+  plasma: 2,
+  viridis: 3,
+  turbo: 4,
+  hsluv: 5,
+  hpluv: 6,
+  cividis: 7,
+  Greys: 8,
+  Purples: 9,
+  Blues: 10,
+  Greens: 11,
+  Oranges: 12,
+  Reds: 13,
+  YlOrBr: 14,
+  YlOrRd: 15,
+  OrRd: 16,
+  PuRd: 17,
+  RdPu: 18,
+  BuPu: 19,
+  GnBu: 20,
+  PuBu: 21,
+  YlGnBu: 22,
+  PuBuGn: 23,
+  BuGn: 24,
+  YlGn: 25,
+  PiYG: 26,
+  PRGn: 27,
+  BrBG: 28,
+  PuOr: 29,
+  RdGy: 30,
+  RdBu: 31,
+  RdYlBu: 32,
+  RdYlGn: 33,
+  Spectral: 34,
+  coolwarm: 35,
+  bwr: 36,
+  seismic: 37,
+  thermal: 38,
+  haline: 39,
+  solar: 40,
+  ice: 41,
+  gray: 42,
+  deep: 43,
+  dense: 44,
+  algae: 45,
+  matter: 46,
+  turbid: 47,
+  speed: 48,
+  amp: 49,
+  tempo: 50,
+  rain: 51,
+  phase: 52,
+  balance: 53,
+  delta: 54,
+  curl: 55,
+  diff: 56,
+  tarn: 57,
 };
 
 // credits: https://www.shadertoy.com/view/3lBXR3
@@ -1005,7 +1005,6 @@ void main() {
     }
 }`;
 
-
 const dataOnMeshVertexShader = `
     attribute float data_value;
 
@@ -1028,39 +1027,47 @@ const dataOnScreenMeshVertexShader = `
     }
     `;
 
+export function make_colormap_material(
+  colormap = "turbo",
+  add_offset = 0.0,
+  scale_factor = 1.0
+) {
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      add_offset: { value: add_offset },
+      scale_factor: { value: scale_factor },
+      colormap: { value: available_colormaps[colormap] },
+    },
 
-export function make_colormap_material(colormap="turbo", add_offset=0.0, scale_factor=1.0) {
-    const material = new THREE.ShaderMaterial({
-        uniforms: {
-            add_offset: { value: add_offset },
-            scale_factor: { value: scale_factor },
-            colormap: { value: available_colormaps[colormap] },
-        },
-
-        vertexShader: dataOnMeshVertexShader,
-        fragmentShader: colormapFragmentShader
-    });
-    return material;
+    vertexShader: dataOnMeshVertexShader,
+    fragmentShader: colormapFragmentShader,
+  });
+  return material;
 }
 
+export function make_lut_material(
+  colormap = "turbo",
+  add_offset,
+  scale_factor
+) {
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      add_offset: { value: add_offset },
+      scale_factor: { value: scale_factor },
+      colormap: { value: available_colormaps[colormap] },
+    },
 
-export function make_lut_material(colormap="turbo", add_offset, scale_factor) {
-    const material = new THREE.ShaderMaterial({
-        uniforms: {
-            add_offset: { value: add_offset },
-            scale_factor: { value: scale_factor },
-            colormap: { value: available_colormaps[colormap] },
-        },
-
-        vertexShader: dataOnScreenMeshVertexShader,
-        fragmentShader: colormapFragmentShader
-    });
-    return material;
+    vertexShader: dataOnScreenMeshVertexShader,
+    fragmentShader: colormapFragmentShader,
+  });
+  return material;
 }
-
 
 export function make_lut_geometry() {
-    geometry = new THREE.PlaneGeometry( .1, 1).translate(.95, 0, 0);
-    geometry.setAttribute( 'data_value', new THREE.BufferAttribute( Float32Array.from([1, 1, 0, 0]), 1 ) );
-    return geometry;
+  geometry = new THREE.PlaneGeometry(0.1, 1).translate(0.95, 0, 0);
+  geometry.setAttribute(
+    "data_value",
+    new THREE.BufferAttribute(Float32Array.from([1, 1, 0, 0]), 1)
+  );
+  return geometry;
 }

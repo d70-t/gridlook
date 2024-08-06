@@ -1,14 +1,14 @@
-<script>
+<script type="ts">
 import * as THREE from "three";
 import { HTTPStore, openGroup } from "zarr";
-import { attachControls } from "./js/world_controls.js";
 import { grid2buffer, data2value_buffer } from "./js/gridlook.js";
 import {
   make_colormap_material,
   available_colormaps,
 } from "./js/colormap_shaders.js";
-import { geojson2geometry } from "./js/geojson.js";
-import { decode_time } from "./js/time_handling.js";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { geojson2geometry } from "./utils/geojson.ts";
+import { decodeTime } from "./utils/timeHandling.ts";
 
 import { datashader_example } from "./js/example_formatters.js";
 
@@ -40,8 +40,26 @@ export default {
     this.datasourceUpdate();
   },
   mounted() {
+    this.mouseDown = false;
+    this.$refs.canvas.addEventListener("mousedown", () => {
+      this.mouseDown = true;
+      this.animationLoop();
+    });
+    this.$refs.canvas.addEventListener("wheel", () => {
+      this.mouseDown = true;
+      this.animationLoop();
+    });
+    this.$refs.canvas.addEventListener("mouseup", () => {
+      this.mouseDown = false;
+    });
+
     this.init();
-    attachControls(this.renderer, this.camera, this.center, this.redraw);
+    const orbitControls = new OrbitControls(
+      this.camera,
+      this.renderer.domElement
+    );
+    this.orbitControls = orbitControls;
+    this.orbitControls.update();
     this.resize_observer = new ResizeObserver(this.onCanvasResize);
     this.resize_observer.observe(this.$refs.box);
     this.onCanvasResize();
@@ -219,7 +237,7 @@ export default {
         timeinfo = {
           attrs: timeattrs,
           values: timevalues,
-          current: decode_time(timevalues[time_index], timeattrs),
+          current: decodeTime(timevalues[time_index], timeattrs),
         };
       }
       if (datavar !== undefined) {
@@ -307,9 +325,18 @@ export default {
     },
 
     redraw() {
-      console.log("redrawing");
       cancelAnimationFrame(this.frameId);
+      this.orbitControls.update();
       this.frameId = requestAnimationFrame(this.render);
+    },
+
+    animationLoop() {
+      if (this.mouseDown) {
+        cancelAnimationFrame(this.frameId);
+        this.frameId = requestAnimationFrame(this.animationLoop);
+      }
+      this.orbitControls.update();
+      this.render();
     },
 
     onCanvasResize(entries) {

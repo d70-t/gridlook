@@ -1,30 +1,47 @@
-<script>
+<script lang="ts">
+import { defineComponent } from "vue";
+import type { PropType } from "vue";
 import * as THREE from "three";
 import {
   make_lut_material,
   available_colormaps,
 } from "./js/colormap_shaders.js";
 
-export default {
+type TColorMapData = {
+  lutMesh: THREE.Mesh;
+  resizeObserver: ResizeObserver;
+  scene: THREE.Scene;
+  renderer: THREE.WebGLRenderer;
+  camera: THREE.PerspectiveCamera;
+  width?: number;
+  height?: number;
+  vertexValues: Float32Array;
+  frameId: number;
+};
+
+export default defineComponent({
   props: {
     orientation: {
-      type: String,
+      type: String as PropType<"vertical" | "horizontal">,
       default: "vertical",
-      validator(value) {
+      validator(value: string) {
         return ["vertical", "horizontal"].includes(value);
       },
     },
     colormap: {
-      type: String,
+      type: String as PropType<keyof typeof available_colormaps>,
       default: "turbo",
-      validator(value) {
+      validator(value: string) {
         return Object.keys(available_colormaps).includes(value);
       },
     },
     invertColormap: {
-      type: Boolean,
+      type: Boolean as PropType<boolean>,
       default: false,
     },
+  },
+  data() {
+    return {} as TColorMapData;
   },
   created() {
     const lut_material = this.lutMaterial;
@@ -33,12 +50,12 @@ export default {
       "data_value",
       new THREE.BufferAttribute(this.vertexValues, 1)
     );
-    this.lut_mesh = new THREE.Mesh(lut_geometry, lut_material);
+    this.lutMesh = new THREE.Mesh(lut_geometry, lut_material);
   },
   mounted() {
     this.init();
-    this.resize_observer = new ResizeObserver(this.onCanvasResize);
-    this.resize_observer.observe(this.$refs.box);
+    this.resizeObserver = new ResizeObserver(this.onCanvasResize);
+    this.resizeObserver.observe(this.$refs.box as Element);
     this.onCanvasResize();
   },
   computed: {
@@ -69,7 +86,7 @@ export default {
   },
   watch: {
     vertexValues() {
-      this.lut_mesh.geometry.setAttribute(
+      this.lutMesh.geometry.setAttribute(
         "data_value",
         new THREE.BufferAttribute(this.vertexValues, 1)
       );
@@ -85,11 +102,13 @@ export default {
     init() {
       // from: https://stackoverflow.com/a/65732553
       this.scene = new THREE.Scene();
-      this.renderer = new THREE.WebGLRenderer({ canvas: this.$refs.canvas });
+      this.renderer = new THREE.WebGLRenderer({
+        canvas: this.$refs.canvas as HTMLCanvasElement,
+      });
       if (this.width !== undefined && this.height !== undefined) {
         this.renderer.setSize(this.width, this.height);
       }
-      this.scene.add(this.lut_mesh);
+      this.scene.add(this.lutMesh);
 
       this.camera = new THREE.PerspectiveCamera(
         7.5,
@@ -105,7 +124,7 @@ export default {
       }
       this.renderer.render(this.scene, this.camera);
       if (this.$refs.box) {
-        this.resize_observer.observe(this.$refs.box);
+        this.resizeObserver.observe(this.$refs.box as Element);
       }
     },
 
@@ -119,10 +138,10 @@ export default {
       if (!this.$refs.box) {
         return;
       }
-      const { width, height } = this.$refs.box.getBoundingClientRect();
-      console.log(this.width, this.height, width, height);
+      const box = this.$refs.box as Element;
+      const { width, height } = box.getBoundingClientRect();
       if (width !== this.width || height !== this.height) {
-        this.resize_observer.unobserve(this.$refs.box);
+        this.resizeObserver.unobserve(box);
         const aspect = width / height;
         this.camera.aspect = aspect;
         this.camera.updateProjectionMatrix();
@@ -133,14 +152,15 @@ export default {
     },
 
     updateColormap() {
-      this.lut_mesh.material.uniforms.colormap.value =
+      let shaderMaterial = this.lutMesh.material as THREE.ShaderMaterial;
+      shaderMaterial.uniforms.colormap.value =
         available_colormaps[this.colormap];
-      this.lut_mesh.material.uniforms.add_offset.value = this.addOffset;
-      this.lut_mesh.material.uniforms.scale_factor.value = this.scaleFactor;
+      shaderMaterial.uniforms.add_offset.value = this.addOffset;
+      shaderMaterial.uniforms.scale_factor.value = this.scaleFactor;
       this.redraw();
     },
   },
-};
+});
 </script>
 
 <template>
