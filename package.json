@@ -2,35 +2,39 @@
   "name": "gridlook",
   "version": "0.0.0",
   "scripts": {
-    "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build",
+    "dev": "vite --port 3000",
+    "build": "vue-tsc -b && vite build",
     "preview": "vite preview --port 5050",
     "typecheck": "vue-tsc --noEmit",
     "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts",
     "lint:fix": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix"
   },
+  "type": "module",
   "dependencies": {
     "@fortawesome/fontawesome-free": "^6.1.1",
     "bulma": "^0.9.3",
     "dayjs": "^1.11.1",
-    "three": "^0.139.2",
-    "vue": "^3.2.31",
-    "vue-router": "^4.0.14",
-    "zarr": "^0.5.1"
+    "three": "^0.167",
+    "vue": "^3.4",
+    "vue-router": "^4.4",
+    "zarr": "^0.6.3"
   },
   "devDependencies": {
-    "@rushstack/eslint-patch": "^1.1.0",
-    "@types/node": "^16.11.26",
-    "@vitejs/plugin-vue": "^2.3.1",
-    "@vitejs/plugin-vue-jsx": "^1.3.9",
+    "@types/node": "^18",
+    "@types/three": "0.167.1",
+    "@types/geojson": "7946.0.14",
+    "@vitejs/plugin-vue": "^5.1.2",
     "@vue/eslint-config-prettier": "^7.0.0",
     "@vue/eslint-config-typescript": "^10.0.0",
-    "@vue/tsconfig": "^0.1.3",
     "eslint": "^8.5.0",
     "eslint-plugin-vue": "^8.2.0",
     "prettier": "^2.5.1",
-    "typescript": "~4.6.3",
-    "vite": "^2.9.1",
-    "vue-tsc": "^0.33.9"
+    "typescript": "^5.5.3",
+    "vite": "^5.3.5",
+    "vue-tsc": "^2.0.29",
+    "@vue/tsconfig": "0.5.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
