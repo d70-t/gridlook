@@ -63,6 +63,11 @@ export default {
         this.$refs.globe.copyPythonExample();
       }
     },
+    toggleRotate() {
+      if (this.$refs.globe) {
+        this.$refs.globe.toggleRotate();
+      }
+    },
   },
   watch: {
     src() {
@@ -80,6 +85,7 @@ export default {
       @selection="updateSelection"
       @on-snapshot="makeSnapshot"
       @on-example="makeExample"
+      @on-rotate="toggleRotate"
     />
     <Globe
       :datasources="datasources"

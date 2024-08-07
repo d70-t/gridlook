@@ -129,7 +129,6 @@ export default defineComponent({
     },
 
     redraw() {
-      console.log("redrawing colorbar");
       cancelAnimationFrame(this.frameId);
       this.frameId = requestAnimationFrame(this.render);
     },
