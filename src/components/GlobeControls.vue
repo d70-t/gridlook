@@ -6,7 +6,7 @@ import ColorBar from "@/components/ColorBar.vue";
 import { defineComponent } from "vue";
 export default defineComponent({
   props: ["modelInfo", "varinfo"],
-  emits: ["selection", "onSnapshot", "onExample"],
+  emits: ["selection", "onSnapshot", "onExample", "onRotate"],
   data() {
     console.log(this.modelInfo);
     return {
@@ -168,7 +168,7 @@ export default defineComponent({
       class="panel-heading"
       style="display: flex; justify-content: space-between"
     >
-      <div v-if="modelInfo">
+      <div class="text-wrap" v-if="modelInfo">
         {{ modelInfo.title }}
       </div>
       <div v-else>no data available</div>
@@ -183,44 +183,64 @@ export default defineComponent({
         ></i>
       </div>
     </div>
+
     <div
       class="panel-block"
       :class="{ 'is-hidden': menu_collapsed }"
       v-if="modelInfo"
     >
-      <select class="form-control" v-model="varname">
-        <option
-          v-for="varname in Object.keys(modelInfo.vars)"
-          :value="varname"
-          :key="varname"
-        >
-          {{ varname }}
-        </option>
-      </select>
+      <div class="select is-fullwidth">
+        <select class="form-control" v-model="varname">
+          <option
+            v-for="varname in Object.keys(modelInfo.vars)"
+            :value="varname"
+            :key="varname"
+          >
+            {{ varname }}
+          </option>
+        </select>
+      </div>
     </div>
     <div
       class="panel-block"
       :class="{ 'is-hidden': menu_collapsed }"
       v-if="modelInfo"
     >
-      <p class="control">
-        time:
-        <input type="text" v-model.number="time_index" style="width: 8em" /> /
-        {{ time_range.end }}
+      <div class="control">
+        <div class="mb-2 w-100 is-flex is-justify-content-space-between">
+          <div class="my-2">Time:</div>
+          <div class="is-flex">
+            <input
+              class="input"
+              type="number"
+              v-model.number="time_index"
+              style="width: 8em"
+            />
+            <div class="my-2">/ {{ time_range.end }}</div>
+          </div>
+        </div>
         <input
-          class="input"
+          class="w-100"
           type="range"
           v-bind:min="time_range.start"
           v-bind:max="time_range.end"
           v-model.number="time_index"
         />
-        currently shown: {{ current_var_name }} @ {{ current_time_index }}
-        <br />
-        <span v-if="current_time_value"
-          >{{ current_time_value.format() }}<br
-        /></span>
-        {{ current_var_longname }} / {{ current_var_units }}
-      </p>
+        <div class="w-100 is-flex is-justify-content-space-between">
+          <div>Currently shown:</div>
+          <div class="has-text-right">
+            {{ current_var_name }} @ {{ current_time_index }}
+            <br />
+            <span v-if="current_time_value">
+              {{ current_time_value.format() }}
+            </span>
+            <br />
+          </div>
+        </div>
+        <div class="has-text-right">
+          {{ current_var_longname }} / {{ current_var_units }}
+        </div>
+      </div>
     </div>
     <div
       class="panel-block"
@@ -260,7 +280,7 @@ export default defineComponent({
           </td>
         </tr>
         <tr :class="{ active: active_bounds === 'user' }">
-          <td>
+          <td class="py-2">
             <input
               type="radio"
               id="user_bounds"
@@ -268,14 +288,17 @@ export default defineComponent({
               v-model="picked_bounds"
             /><label for="user_bounds">user</label>
           </td>
-          <td><input size="10" v-model.number="user_bounds_low" /></td>
-          <td class="right">
-            <input size="10" v-model.number="user_bounds_high" />
+          <td class="py-1">
+            <input size="10" class="input" v-model.number="user_bounds_low" />
+          </td>
+          <td class="right py-1">
+            <input size="10" class="input" v-model.number="user_bounds_high" />
           </td>
         </tr>
         <tr>
           <td>
             <input
+              class="mb-3"
               type="radio"
               id="auto_bounds"
               value="auto"
@@ -285,15 +308,17 @@ export default defineComponent({
           <td></td>
           <td class="right"></td>
         </tr>
-        <tr>
+        <tr class="py-2">
           <td>
-            <select class="form-control" v-model="colormap">
-              <option v-for="cm in modelInfo.colormaps" :value="cm" :key="cm">
-                {{ cm }}
-              </option>
-            </select>
+            <div class="select">
+              <select class="form-control" v-model="colormap">
+                <option v-for="cm in modelInfo.colormaps" :value="cm" :key="cm">
+                  {{ cm }}
+                </option>
+              </select>
+            </div>
           </td>
-          <td colspan="2">
+          <td colspan="2" class="py-2">
             <ColorBar
               class="hcolormap"
               :colormap="colormap"
@@ -334,9 +359,24 @@ export default defineComponent({
         /><label for="enable_coastlines">coastlines</label>
       </p>
       <p class="control">
-        <button @click="() => $emit('onSnapshot')">Snapshot</button>
-        <button @click="() => $emit('onExample')">
-          copy Python example to clipboard
+        <button class="button" @click="() => $emit('onRotate')">
+          <i class="fa-solid fa-rotate mr-1"></i>
+          Toggle Rotation
+        </button>
+      </p>
+    </div>
+    <div
+      class="panel-block"
+      :class="{ 'is-hidden': menu_collapsed }"
+      v-if="modelInfo"
+    >
+      <p class="control">
+        <button class="button mb-2" @click="() => $emit('onSnapshot')">
+          <i class="fa-solid fa-image mr-1"></i> Snapshot
+        </button>
+        <button class="button" @click="() => $emit('onExample')">
+          <i class="fa-solid fa-clipboard mr-1"></i>
+          Copy Python example to clipboard
         </button>
       </p>
     </div>

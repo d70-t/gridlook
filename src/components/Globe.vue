@@ -1,4 +1,4 @@
-<script type="ts">
+<script>
 import * as THREE from "three";
 import { HTTPStore, openGroup } from "zarr";
 import { grid2buffer, data2value_buffer } from "./js/gridlook.js";
@@ -325,18 +325,21 @@ export default {
     },
 
     redraw() {
+      if (this.orbitControls.autoRotate) {
+        return;
+      }
       cancelAnimationFrame(this.frameId);
       this.orbitControls.update();
       this.frameId = requestAnimationFrame(this.render);
     },
 
     animationLoop() {
-      if (this.mouseDown) {
+      if (this.mouseDown || this.orbitControls.autoRotate) {
         cancelAnimationFrame(this.frameId);
         this.frameId = requestAnimationFrame(this.animationLoop);
+        this.orbitControls.update();
+        this.render();
       }
-      this.orbitControls.update();
-      this.render();
     },
 
     onCanvasResize(entries) {
@@ -384,6 +387,11 @@ export default {
         invertColormap: this.invertColormap,
       });
       navigator.clipboard.writeText(example);
+    },
+
+    toggleRotate() {
+      this.orbitControls.autoRotate = !this.orbitControls.autoRotate;
+      this.animationLoop();
     },
   },
 };
