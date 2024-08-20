@@ -1,6 +1,6 @@
 <script setup>
 import ColorBar from "@/components/ColorBar.vue";
-import { computed, defineComponent, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { useGlobeControlStore } from "./store/store.js";
 import { storeToRefs } from "pinia";
 
@@ -8,10 +8,8 @@ const props = defineProps(["modelInfo", "varinfo"]);
 const emit = defineEmits(["selection", "onSnapshot", "onExample", "onRotate"]);
 
 const store = useGlobeControlStore();
-
+const { timeIndexSlider } = storeToRefs(store);
 const menuCollapsed = ref(false);
-const time_index = ref(1);
-const current_var_attrs = ref({});
 const varname = ref("-");
 const colormap = ref("turbo");
 const invert_colormap = ref(true);
@@ -20,7 +18,6 @@ const default_bounds = ref({ low: undefined, high: undefined });
 const user_bounds_low = ref(undefined);
 const user_bounds_high = ref(undefined);
 const picked_bounds = ref("auto");
-const view = ref({});
 
 const active_bounds = computed(() => {
   if (picked_bounds.value == "auto") {
@@ -69,8 +66,8 @@ const time_range = computed(() => {
 });
 
 const current_time_index = computed(() => {
-  if (props.varinfo && props.varinfo.time_index) {
-    return props.varinfo.time_index;
+  if (store.timeIndex) {
+    return store.timeIndex;
   } else {
     return undefined;
   }
@@ -107,11 +104,6 @@ const current_var_units = computed(() => {
     return "-";
   }
 });
-
-watch(
-  () => time_index.value,
-  () => publish()
-);
 
 watch(
   () => varname.value,
@@ -167,7 +159,7 @@ const publish = () => {
   emit("selection", {
     bounds: bounds.value,
     varname: varname.value,
-    timeIndex: time_index.value,
+    timeIndex: timeIndexSlider.value,
     colormap: colormap.value,
     invertColormap: invert_colormap.value,
   });
@@ -232,7 +224,7 @@ const setDefaultColormap = () => {
             <input
               class="input"
               type="number"
-              v-model.number="time_index"
+              v-model.number="timeIndexSlider"
               style="width: 8em"
             />
             <div class="my-2">/ {{ time_range.end }}</div>
@@ -243,7 +235,7 @@ const setDefaultColormap = () => {
           type="range"
           v-bind:min="time_range.start"
           v-bind:max="time_range.end"
-          v-model.number="time_index"
+          v-model.number="timeIndexSlider"
         />
         <div class="w-100 is-flex is-justify-content-space-between">
           <div>Currently shown:</div>

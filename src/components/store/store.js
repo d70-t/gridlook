@@ -2,7 +2,7 @@ import { defineStore } from "pinia";
 
 export const useGlobeControlStore = defineStore("globeControl", {
   state: () => {
-    return { showCoastLines: true };
+    return { showCoastLines: true, timeIndexSlider: 1, timeIndex: 1 };
   },
   actions: {
     toggleCoastLines() {

@@ -14,7 +14,6 @@ const globe = ref(null);
 const datasources = ref(undefined);
 const selection = ref({
   varname: "rlut",
-  timeIndex: 0,
 });
 const varinfo = ref(undefined);
 
@@ -40,7 +39,6 @@ const updateSelection = (s) => {
 };
 
 const updateVarinfo = (info) => {
-  console.log("updateVarInfo");
   varinfo.value = info;
 };
 
@@ -170,7 +168,6 @@ export default {
     <Globe
       :datasources="datasources"
       :varname="selection.varname"
-      :timeIndex="selection.timeIndex"
       :colormap="selection.colormap"
       :invert-colormap="selection.invertColormap"
       :varbounds="selection.bounds"

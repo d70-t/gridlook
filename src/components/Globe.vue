@@ -43,14 +43,13 @@ import { useGlobeControlStore } from "./store/store.js";
 import { storeToRefs } from "pinia";
 
 const store = useGlobeControlStore();
-const { showCoastLines } = storeToRefs(store);
+const { showCoastLines, timeIndexSlider, timeIndex } = storeToRefs(store);
 
 const props = defineProps([
   "datasources",
   "colormap",
   "invertColormap",
   "varname",
-  "timeIndex",
   "varbounds",
 ]);
 
@@ -84,7 +83,7 @@ watch(
 );
 
 watch(
-  () => props.timeIndex,
+  () => timeIndexSlider.value,
   () => {
     getData();
   }
@@ -287,7 +286,7 @@ async function getData() {
   updating_data.value = true;
 
   const localVarname = props.varname;
-  const time_index = props.timeIndex;
+  const currentTimeIndexSliderValue = timeIndexSlider.value;
   const [timevar, datavar] = await Promise.all([
     getTimeVar(),
     getDataVar(localVarname),
@@ -301,11 +300,13 @@ async function getData() {
     timeinfo = {
       attrs: timeattrs,
       values: timevalues,
-      current: decodeTime(timevalues[time_index], timeattrs),
+      current: decodeTime(timevalues[currentTimeIndexSliderValue], timeattrs),
     };
   }
   if (datavar !== undefined) {
-    const data_buffer = await data2value_buffer(datavar.getRaw(time_index));
+    const data_buffer = await data2value_buffer(
+      datavar.getRaw(currentTimeIndexSliderValue)
+    );
     console.log("data buffer", data_buffer);
     main_mesh.geometry.setAttribute(
       "data_value",
@@ -313,13 +314,13 @@ async function getData() {
     );
     publishVarinfo({
       attrs: await datavar.attrs.asObject(),
-      time_index,
       timeinfo,
       localVarname,
       time_range: { start: 0, end: datavar.shape[0] - 1 },
       bounds: { low: data_buffer.data_min, high: data_buffer.data_max },
     });
     redraw();
+    timeIndex.value = currentTimeIndexSliderValue;
   }
   updating_data.value = false;
   if (update_count.value != local_update_count) {
@@ -372,7 +373,7 @@ function copyPythonExample() {
     datasrc: datasource.value.store + datasource.value.dataset,
     gridsrc: gridsource.value.store + gridsource.value.dataset,
     varname: props.varname,
-    timeIndex: props.timeIndex,
+    timeIndex: timeIndex.value,
     varbounds: props.varbounds,
     colormap: props.colormap,
     invertColormap: props.invertColormap,
