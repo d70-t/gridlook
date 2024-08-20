@@ -389,10 +389,10 @@ function toggleRotate() {
 function animationLoop() {
   if (mouseDown || orbitControls.autoRotate) {
     cancelAnimationFrame(frameId.value);
-    frameId.value = requestAnimationFrame(animationLoop);
-    orbitControls.update();
-    render();
   }
+  frameId.value = requestAnimationFrame(animationLoop);
+  orbitControls.update();
+  render();
 }
 
 function onCanvasResize() {
