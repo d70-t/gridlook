@@ -45,60 +45,27 @@ const bounds = computed(() => {
 });
 
 const data_bounds = computed(() => {
-  if (props.varinfo && props.varinfo.bounds) {
-    console.log("data_bounds1", props.varinfo);
-    return props.varinfo.bounds;
-  } else {
-    return { low: undefined, high: undefined };
-  }
+  return props.varinfo?.bounds ?? {};
 });
 
 const time_range = computed(() => {
-  if (props.varinfo && props.varinfo.time_range) {
-    return props.varinfo.time_range;
-  } else {
-    return { start: 0, end: 1 };
-  }
-});
-
-const current_time_index = computed(() => {
-  if (store.timeIndex) {
-    return store.timeIndex;
-  } else {
-    return undefined;
-  }
+  return props.varinfo?.time_range ?? { start: 0, end: 1 };
 });
 
 const current_time_value = computed(() => {
-  if (props.varinfo && props.varinfo.timeinfo) {
-    return props.varinfo.timeinfo.current;
-  } else {
-    return undefined;
-  }
+  return props.varinfo?.timeinfo?.current;
 });
 
 const current_var_name = computed(() => {
-  if (store.varname) {
-    return store.varname;
-  } else {
-    return "-";
-  }
+  return store.varname ?? "-";
 });
 
 const current_var_longname = computed(() => {
-  if (props.varinfo && props.varinfo.attrs && props.varinfo.attrs.long_name) {
-    return props.varinfo.attrs.long_name;
-  } else {
-    return "-";
-  }
+  return props.varinfo?.attrs?.long_name ?? "-";
 });
 
 const current_var_units = computed(() => {
-  if (props.varinfo && props.varinfo.attrs && props.varinfo.attrs.units) {
-    return props.varinfo.attrs.units;
-  } else {
-    return "-";
-  }
+  return props.varinfo?.attrs?.units ?? "-";
 });
 
 watch(
@@ -107,7 +74,7 @@ watch(
     const varinfo = props.modelInfo.vars[varnameSelector.value];
     console.log("varinfo", varinfo, varnameSelector);
     console.log(props.modelInfo.vars);
-    default_bounds.value = varinfo.default_range || {
+    default_bounds.value = varinfo.default_range ?? {
       low: undefined,
       high: undefined,
     };
@@ -233,9 +200,13 @@ const setDefaultColormap = () => {
           v-model.number="timeIndexSlider"
         />
         <div class="w-100 is-flex is-justify-content-space-between">
-          <div>Currently shown:</div>
+          <div>
+            Currently shown:<span
+              :class="{ loader: store.loading === true }"
+            ></span>
+          </div>
           <div class="has-text-right">
-            {{ current_var_name }} @ {{ current_time_index }}
+            {{ current_var_name }} @ {{ store.timeIndex }}
             <br />
             <span v-if="current_time_value">
               {{ current_time_value.format() }}
