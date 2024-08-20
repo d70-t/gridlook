@@ -8,9 +8,8 @@ const props = defineProps(["modelInfo", "varinfo"]);
 const emit = defineEmits(["selection", "onSnapshot", "onExample", "onRotate"]);
 
 const store = useGlobeControlStore();
-const { timeIndexSlider } = storeToRefs(store);
+const { timeIndexSlider, varnameSelector } = storeToRefs(store);
 const menuCollapsed = ref(false);
-const varname = ref("-");
 const colormap = ref("turbo");
 const invert_colormap = ref(true);
 const auto_colormap = ref(true);
@@ -25,14 +24,11 @@ const active_bounds = computed(() => {
       default_bounds.value.low !== undefined &&
       default_bounds.value.high !== undefined
     ) {
-      console.log("FOO1", default_bounds.value);
       return "default";
     } else {
-      console.log("FOO2");
       return "data";
     }
   } else {
-    console.log("FOO3");
     return picked_bounds.value;
   }
 });
@@ -82,8 +78,8 @@ const current_time_value = computed(() => {
 });
 
 const current_var_name = computed(() => {
-  if (props.varinfo && props.varinfo.varname) {
-    return props.varinfo.varname;
+  if (store.varname) {
+    return store.varname;
   } else {
     return "-";
   }
@@ -106,10 +102,10 @@ const current_var_units = computed(() => {
 });
 
 watch(
-  () => varname.value,
+  () => varnameSelector.value,
   () => {
-    const varinfo = props.modelInfo.vars[varname.value];
-    console.log("varinfo", varinfo, varname);
+    const varinfo = props.modelInfo.vars[varnameSelector.value];
+    console.log("varinfo", varinfo, varnameSelector);
     console.log(props.modelInfo.vars);
     default_bounds.value = varinfo.default_range || {
       low: undefined,
@@ -138,8 +134,8 @@ watch(
 watch(
   () => props.modelInfo,
   () => {
-    if (props.modelInfo.vars[varname.value] === undefined) {
-      varname.value =
+    if (props.modelInfo.vars[varnameSelector.value] === undefined) {
+      varnameSelector.value =
         props.modelInfo.default_var || Object.keys(props.modelInfo.vars)[0];
     }
     setDefaultColormap();
@@ -158,14 +154,13 @@ function toggleMenu() {
 const publish = () => {
   emit("selection", {
     bounds: bounds.value,
-    varname: varname.value,
-    timeIndex: timeIndexSlider.value,
     colormap: colormap.value,
     invertColormap: invert_colormap.value,
   });
 };
 const setDefaultColormap = () => {
-  const defaultColormap = props.modelInfo.vars[varname.value].default_colormap;
+  const defaultColormap =
+    props.modelInfo.vars[varnameSelector.value].default_colormap;
   if (auto_colormap.value && defaultColormap !== undefined) {
     invert_colormap.value = defaultColormap.inverted || false;
     colormap.value = defaultColormap.name;
@@ -201,7 +196,7 @@ const setDefaultColormap = () => {
       v-if="modelInfo"
     >
       <div class="select is-fullwidth">
-        <select class="form-control" v-model="varname">
+        <select class="form-control" v-model="varnameSelector">
           <option
             v-for="varname in Object.keys(modelInfo.vars)"
             :value="varname"

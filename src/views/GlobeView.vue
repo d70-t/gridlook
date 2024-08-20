@@ -12,9 +12,7 @@ const props = defineProps({
 const globe = ref(null);
 
 const datasources = ref(undefined);
-const selection = ref({
-  varname: "rlut",
-});
+const selection = ref({});
 const varinfo = ref(undefined);
 
 const modelInfo = computed(() => {
@@ -167,7 +165,6 @@ export default {
     />
     <Globe
       :datasources="datasources"
-      :varname="selection.varname"
       :colormap="selection.colormap"
       :invert-colormap="selection.invertColormap"
       :varbounds="selection.bounds"

@@ -43,13 +43,13 @@ import { useGlobeControlStore } from "./store/store.js";
 import { storeToRefs } from "pinia";
 
 const store = useGlobeControlStore();
-const { showCoastLines, timeIndexSlider, timeIndex } = storeToRefs(store);
+const { showCoastLines, timeIndexSlider, timeIndex, varnameSelector, varname } =
+  storeToRefs(store);
 
 const props = defineProps([
   "datasources",
   "colormap",
   "invertColormap",
-  "varname",
   "varbounds",
 ]);
 
@@ -76,7 +76,7 @@ let canvas = ref();
 let box = ref();
 
 watch(
-  () => props.varname,
+  () => varnameSelector.value,
   () => {
     getData();
   }
@@ -142,7 +142,7 @@ const gridsource = computed(() => {
 
 const datasource = computed(() => {
   if (props.datasources) {
-    return props.datasources.levels[0].datasources[props.varname];
+    return props.datasources.levels[0].datasources[varnameSelector.value];
   } else {
     return undefined;
   }
@@ -196,25 +196,25 @@ async function fetchGrid() {
   redraw();
 }
 
-async function getDataVar(varname) {
-  if (datavars.value[varname] === undefined) {
-    console.log("fetching " + varname);
-    const localDatasource = props.datasources.levels[0].datasources[varname];
+async function getDataVar(myVarname) {
+  if (datavars.value[myVarname] === undefined) {
+    console.log("fetching " + myVarname);
+    const localDatasource = props.datasources.levels[0].datasources[myVarname];
     if (datasource.value === undefined) {
       return undefined;
     }
     try {
       const datastore = new HTTPStore(localDatasource.store);
-      datavars.value[varname] = await openGroup(
+      datavars.value[myVarname] = await openGroup(
         datastore,
         localDatasource.dataset,
         "r"
-      ).then((ds) => ds.getItem(varname));
+      ).then((ds) => ds.getItem(myVarname));
     } catch (error) {
       console.log(error);
       console.log(
         "WARNING, couldn't fetch variable " +
-          varname +
+          myVarname +
           " from store: " +
           localDatasource.store +
           " and dataset: " +
@@ -223,7 +223,7 @@ async function getDataVar(varname) {
       return undefined;
     }
   }
-  return datavars.value[varname];
+  return datavars.value[myVarname];
 }
 
 function updateColormap() {
@@ -285,7 +285,7 @@ async function getData() {
   }
   updating_data.value = true;
 
-  const localVarname = props.varname;
+  const localVarname = varnameSelector.value;
   const currentTimeIndexSliderValue = timeIndexSlider.value;
   const [timevar, datavar] = await Promise.all([
     getTimeVar(),
@@ -315,12 +315,12 @@ async function getData() {
     publishVarinfo({
       attrs: await datavar.attrs.asObject(),
       timeinfo,
-      localVarname,
       time_range: { start: 0, end: datavar.shape[0] - 1 },
       bounds: { low: data_buffer.data_min, high: data_buffer.data_max },
     });
     redraw();
     timeIndex.value = currentTimeIndexSliderValue;
+    varname.value = localVarname;
   }
   updating_data.value = false;
   if (update_count.value != local_update_count) {
