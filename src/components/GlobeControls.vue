@@ -1,19 +1,424 @@
 <script setup>
 import ColorBar from "@/components/ColorBar.vue";
+import { computed, defineComponent, ref, watch } from "vue";
+import { useGlobeControlStore } from "./store/store.js";
+import { storeToRefs } from "pinia";
+
+const props = defineProps(["modelInfo", "varinfo"]);
+const emit = defineEmits(["selection", "onSnapshot", "onExample", "onRotate"]);
+
+const store = useGlobeControlStore();
+
+const menuCollapsed = ref(false);
+const time_index = ref(1);
+const current_var_attrs = ref({});
+const varname = ref("-");
+const colormap = ref("turbo");
+const invert_colormap = ref(true);
+const auto_colormap = ref(true);
+const default_bounds = ref({ low: undefined, high: undefined });
+const user_bounds_low = ref(undefined);
+const user_bounds_high = ref(undefined);
+const picked_bounds = ref("auto");
+const view = ref({});
+
+const active_bounds = computed(() => {
+  if (picked_bounds.value == "auto") {
+    if (
+      default_bounds.value.low !== undefined &&
+      default_bounds.value.high !== undefined
+    ) {
+      console.log("FOO1", default_bounds.value);
+      return "default";
+    } else {
+      console.log("FOO2");
+      return "data";
+    }
+  } else {
+    console.log("FOO3");
+    return picked_bounds.value;
+  }
+});
+
+const bounds = computed(() => {
+  if (active_bounds.value == "data") {
+    return data_bounds;
+  } else if (active_bounds.value == "default") {
+    return default_bounds;
+  } else if (active_bounds.value == "user") {
+    return { low: user_bounds_low.value, high: user_bounds_high.value };
+  }
+  return undefined;
+});
+
+const data_bounds = computed(() => {
+  if (props.varinfo && props.varinfo.bounds) {
+    console.log("data_bounds1", props.varinfo);
+    return props.varinfo.bounds;
+  } else {
+    return { low: undefined, high: undefined };
+  }
+});
+
+const time_range = computed(() => {
+  if (props.varinfo && props.varinfo.time_range) {
+    return props.varinfo.time_range;
+  } else {
+    return { start: 0, end: 1 };
+  }
+});
+
+const current_time_index = computed(() => {
+  if (props.varinfo && props.varinfo.time_index) {
+    return props.varinfo.time_index;
+  } else {
+    return undefined;
+  }
+});
+
+const current_time_value = computed(() => {
+  if (props.varinfo && props.varinfo.timeinfo) {
+    return props.varinfo.timeinfo.current;
+  } else {
+    return undefined;
+  }
+});
+
+const current_var_name = computed(() => {
+  if (props.varinfo && props.varinfo.varname) {
+    return props.varinfo.varname;
+  } else {
+    return "-";
+  }
+});
+
+const current_var_longname = computed(() => {
+  if (props.varinfo && props.varinfo.attrs && props.varinfo.attrs.long_name) {
+    return props.varinfo.attrs.long_name;
+  } else {
+    return "-";
+  }
+});
+
+const current_var_units = computed(() => {
+  if (props.varinfo && props.varinfo.attrs && props.varinfo.attrs.units) {
+    return props.varinfo.attrs.units;
+  } else {
+    return "-";
+  }
+});
+
+watch(
+  () => time_index.value,
+  () => publish()
+);
+
+watch(
+  () => varname.value,
+  () => {
+    const varinfo = props.modelInfo.vars[varname.value];
+    console.log("varinfo", varinfo, varname);
+    console.log(props.modelInfo.vars);
+    default_bounds.value = varinfo.default_range || {
+      low: undefined,
+      high: undefined,
+    };
+    setDefaultColormap();
+    publish();
+  }
+);
+
+watch(
+  () => colormap.value,
+  () => publish()
+);
+
+watch(
+  () => invert_colormap.value,
+  () => publish()
+);
+
+watch(
+  () => bounds.value,
+  () => publish()
+);
+
+watch(
+  () => props.modelInfo,
+  () => {
+    if (props.modelInfo.vars[varname.value] === undefined) {
+      varname.value =
+        props.modelInfo.default_var || Object.keys(props.modelInfo.vars)[0];
+    }
+    setDefaultColormap();
+  }
+);
+
+watch(
+  () => auto_colormap,
+  () => setDefaultColormap()
+);
+
+function toggleMenu() {
+  menuCollapsed.value = !menuCollapsed.value;
+}
+
+const publish = () => {
+  emit("selection", {
+    bounds: bounds.value,
+    varname: varname.value,
+    timeIndex: time_index.value,
+    colormap: colormap.value,
+    invertColormap: invert_colormap.value,
+  });
+};
+const setDefaultColormap = () => {
+  const defaultColormap = props.modelInfo.vars[varname.value].default_colormap;
+  if (auto_colormap.value && defaultColormap !== undefined) {
+    invert_colormap.value = defaultColormap.inverted || false;
+    colormap.value = defaultColormap.name;
+  }
+};
 </script>
 
+<template>
+  <nav class="panel gl_controls" id="main_controls">
+    <div
+      class="panel-heading"
+      style="display: flex; justify-content: space-between"
+    >
+      <div class="text-wrap" v-if="modelInfo">
+        {{ modelInfo.title }}
+      </div>
+      <div v-else>no data available</div>
+      <div>
+        <i
+          class="fa-solid"
+          :class="{
+            'fa-angle-down': menuCollapsed,
+            'fa-angle-up': !menuCollapsed,
+          }"
+          @click="toggleMenu"
+        ></i>
+      </div>
+    </div>
+
+    <div
+      class="panel-block"
+      :class="{ 'is-hidden': menuCollapsed }"
+      v-if="modelInfo"
+    >
+      <div class="select is-fullwidth">
+        <select class="form-control" v-model="varname">
+          <option
+            v-for="varname in Object.keys(modelInfo.vars)"
+            :value="varname"
+            :key="varname"
+          >
+            {{ varname }}
+          </option>
+        </select>
+      </div>
+    </div>
+    <div
+      class="panel-block"
+      :class="{ 'is-hidden': menuCollapsed }"
+      v-if="modelInfo"
+    >
+      <div class="control">
+        <div class="mb-2 w-100 is-flex is-justify-content-space-between">
+          <div class="my-2">Time:</div>
+          <div class="is-flex">
+            <input
+              class="input"
+              type="number"
+              v-model.number="time_index"
+              style="width: 8em"
+            />
+            <div class="my-2">/ {{ time_range.end }}</div>
+          </div>
+        </div>
+        <input
+          class="w-100"
+          type="range"
+          v-bind:min="time_range.start"
+          v-bind:max="time_range.end"
+          v-model.number="time_index"
+        />
+        <div class="w-100 is-flex is-justify-content-space-between">
+          <div>Currently shown:</div>
+          <div class="has-text-right">
+            {{ current_var_name }} @ {{ current_time_index }}
+            <br />
+            <span v-if="current_time_value">
+              {{ current_time_value.format() }}
+            </span>
+            <br />
+          </div>
+        </div>
+        <div class="has-text-right">
+          {{ current_var_longname }} / {{ current_var_units }}
+        </div>
+      </div>
+    </div>
+    <div
+      class="panel-block"
+      :class="{ 'is-hidden': menuCollapsed }"
+      v-if="modelInfo"
+    >
+      <table>
+        <tr>
+          <th>range</th>
+          <th>low</th>
+          <th class="right">high</th>
+        </tr>
+        <tr :class="{ active: active_bounds === 'data' }">
+          <td>
+            <input
+              type="radio"
+              id="data_bounds"
+              value="data"
+              v-model="picked_bounds"
+            /><label for="data_bounds">data</label>
+          </td>
+          <td>{{ Number(data_bounds.low).toPrecision(4) }}</td>
+          <td class="right">{{ Number(data_bounds.high).toPrecision(4) }}</td>
+        </tr>
+        <tr :class="{ active: active_bounds === 'default' }">
+          <td>
+            <input
+              type="radio"
+              id="default_bounds"
+              value="default"
+              v-model="picked_bounds"
+            /><label for="default_bounds">default</label>
+          </td>
+          <td>{{ Number(default_bounds.low).toPrecision(2) }}</td>
+          <td class="right">
+            {{ Number(default_bounds.high).toPrecision(2) }}
+          </td>
+        </tr>
+        <tr :class="{ active: active_bounds === 'user' }">
+          <td class="py-2">
+            <input
+              type="radio"
+              id="user_bounds"
+              value="user"
+              v-model="picked_bounds"
+            /><label for="user_bounds">user</label>
+          </td>
+          <td class="py-1">
+            <input size="10" class="input" v-model.number="user_bounds_low" />
+          </td>
+          <td class="right py-1">
+            <input size="10" class="input" v-model.number="user_bounds_high" />
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <input
+              class="mb-3"
+              type="radio"
+              id="auto_bounds"
+              value="auto"
+              v-model="picked_bounds"
+            /><label for="auto_bounds">auto</label>
+          </td>
+          <td></td>
+          <td class="right"></td>
+        </tr>
+        <tr class="py-2">
+          <td>
+            <div class="select">
+              <select class="form-control" v-model="colormap">
+                <option v-for="cm in modelInfo.colormaps" :value="cm" :key="cm">
+                  {{ cm }}
+                </option>
+              </select>
+            </div>
+          </td>
+          <td colspan="2" class="py-2">
+            <ColorBar
+              class="hcolormap"
+              :colormap="colormap"
+              :invertColormap="invert_colormap"
+              orientation="horizontal"
+            />
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <input
+              type="checkbox"
+              v-model="invert_colormap"
+              id="invert_colormap"
+            /><label for="invert_colormap">invert</label>
+          </td>
+          <td></td>
+          <td>
+            <input
+              type="checkbox"
+              v-model="auto_colormap"
+              id="auto_colormap"
+            /><label for="auto_colormap">auto</label>
+          </td>
+        </tr>
+      </table>
+    </div>
+    <div
+      class="panel-block"
+      :class="{ 'is-hidden': menuCollapsed }"
+      v-if="modelInfo"
+    >
+      <p class="control">
+        <input
+          type="checkbox"
+          :checked="store.showCoastLines"
+          @change="store.toggleCoastLines"
+          id="enable_coastlines"
+        /><label for="enable_coastlines">coastlines</label>
+      </p>
+      <p class="control">
+        <button class="button" @click="() => $emit('onRotate')">
+          <i class="fa-solid fa-rotate mr-1"></i>
+          Toggle Rotation
+        </button>
+      </p>
+    </div>
+    <div
+      class="panel-block"
+      :class="{ 'is-hidden': menuCollapsed }"
+      v-if="modelInfo"
+    >
+      <p class="control">
+        <button class="button mb-2" @click="() => $emit('onSnapshot')">
+          <i class="fa-solid fa-image mr-1"></i> Snapshot
+        </button>
+        <button class="button" @click="() => $emit('onExample')">
+          <i class="fa-solid fa-clipboard mr-1"></i>
+          Copy Python example to clipboard
+        </button>
+      </p>
+    </div>
+  </nav>
+</template>
+<!--
 <script>
-import { defineComponent } from "vue";
 export default defineComponent({
   props: ["modelInfo", "varinfo"],
   emits: ["selection", "onSnapshot", "onExample", "onRotate"],
+  setup() {
+    const store = useGlobeControlStore();
+
+    const { showCoastLines } = storeToRefs(store);
+    return { showCoastLines };
+  },
   data() {
     console.log(this.modelInfo);
     return {
       menu_collapsed: false,
       time_index: 1,
       current_var_attrs: {},
-      enable_coastlines: true,
       varname: "-",
       colormap: "turbo",
       invert_colormap: true,
@@ -45,9 +450,6 @@ export default defineComponent({
       this.publish();
     },
     bounds() {
-      this.publish();
-    },
-    enable_coastlines() {
       this.publish();
     },
     modelInfo() {
@@ -354,7 +756,7 @@ export default defineComponent({
       <p class="control">
         <input
           type="checkbox"
-          v-model="enable_coastlines"
+          v-model="showCoastLines"
           id="enable_coastlines"
         /><label for="enable_coastlines">coastlines</label>
       </p>
@@ -382,6 +784,7 @@ export default defineComponent({
     </div>
   </nav>
 </template>
+-->
 
 <style>
 table tr td.right,

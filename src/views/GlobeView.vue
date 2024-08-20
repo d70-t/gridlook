@@ -2,8 +2,88 @@
 import Globe from "@/components/Globe.vue";
 import GlobeControls from "@/components/GlobeControls.vue";
 import { available_colormaps } from "@/components/js/colormap_shaders.js";
-</script>
 
+import { ref, computed, watch, onMounted } from "vue";
+
+const props = defineProps({
+  src: String,
+});
+
+const globe = ref(null);
+
+const datasources = ref(undefined);
+const selection = ref({
+  varname: "rlut",
+  timeIndex: 0,
+});
+const varinfo = ref(undefined);
+
+const modelInfo = computed(() => {
+  if (datasources.value === undefined) {
+    return undefined;
+  } else {
+    return {
+      title: datasources.value.name,
+      vars: datasources.value.levels[0].datasources,
+      default_var: datasources.value.default_var,
+      colormaps: Object.keys(available_colormaps),
+      time_range: {
+        start: 0,
+        end: 1,
+      },
+    };
+  }
+});
+
+const updateSelection = (s) => {
+  selection.value = s;
+};
+
+const updateVarinfo = (info) => {
+  console.log("updateVarInfo");
+  varinfo.value = info;
+};
+
+const updateSrc = async () => {
+  console.log("updateSrc");
+  const src = props.src;
+  const datasourcesResponse = await fetch(src).then((r) => r.json());
+  if (src === props.src) {
+    datasources.value = datasourcesResponse;
+  }
+};
+
+const makeSnapshot = () => {
+  if (globe.value) {
+    globe.value.makeSnapshot();
+  }
+};
+
+const makeExample = () => {
+  if (globe.value) {
+    globe.value.copyPythonExample();
+  }
+};
+
+const toggleRotate = () => {
+  if (globe.value) {
+    globe.value.toggleRotate();
+  }
+};
+
+watch(
+  () => props.src,
+  () => {
+    console.log("watchSource");
+    updateSrc();
+  }
+);
+
+onMounted(() => {
+  updateSrc();
+});
+</script>
+<!--
 <script>
 export default {
   props: ["src"],
@@ -76,7 +156,7 @@ export default {
   },
 };
 </script>
-
+ -->
 <template>
   <main>
     <GlobeControls
@@ -94,7 +174,6 @@ export default {
       :colormap="selection.colormap"
       :invert-colormap="selection.invertColormap"
       :varbounds="selection.bounds"
-      :enable-coastlines="selection.enableCoastlines"
       @varinfo="updateVarinfo"
       ref="globe"
     />
