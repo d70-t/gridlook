@@ -8,11 +8,18 @@ export const useGlobeControlStore = defineStore("globeControl", {
       timeIndex: 1,
       varnameSelector: "-",
       varname: "-",
+      loading: false,
     };
   },
   actions: {
     toggleCoastLines() {
       this.showCoastLines = !this.showCoastLines;
+    },
+    startLoading() {
+      this.loading = true;
+    },
+    stopLoading() {
+      this.loading = false;
     },
   },
 });

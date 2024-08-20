@@ -278,53 +278,58 @@ async function getTimeVar() {
   return datavars.value[varname];
 }
 async function getData() {
-  update_count.value += 1;
-  const local_update_count = update_count.value;
-  if (updating_data.value) {
-    return;
-  }
-  updating_data.value = true;
+  store.startLoading();
+  try {
+    update_count.value += 1;
+    const local_update_count = update_count.value;
+    if (updating_data.value) {
+      return;
+    }
+    updating_data.value = true;
 
-  const localVarname = varnameSelector.value;
-  const currentTimeIndexSliderValue = timeIndexSlider.value;
-  const [timevar, datavar] = await Promise.all([
-    getTimeVar(),
-    getDataVar(localVarname),
-  ]);
-  let timeinfo = {};
-  if (timevar !== undefined) {
-    const [timeattrs, timevalues] = await Promise.all([
-      timevar.attrs.asObject(),
-      timevar.getRaw().then((t) => t.data),
+    const localVarname = varnameSelector.value;
+    const currentTimeIndexSliderValue = timeIndexSlider.value;
+    const [timevar, datavar] = await Promise.all([
+      getTimeVar(),
+      getDataVar(localVarname),
     ]);
-    timeinfo = {
-      attrs: timeattrs,
-      values: timevalues,
-      current: decodeTime(timevalues[currentTimeIndexSliderValue], timeattrs),
-    };
-  }
-  if (datavar !== undefined) {
-    const data_buffer = await data2value_buffer(
-      datavar.getRaw(currentTimeIndexSliderValue)
-    );
-    console.log("data buffer", data_buffer);
-    main_mesh.geometry.setAttribute(
-      "data_value",
-      new THREE.BufferAttribute(data_buffer.data_values, 1)
-    );
-    publishVarinfo({
-      attrs: await datavar.attrs.asObject(),
-      timeinfo,
-      time_range: { start: 0, end: datavar.shape[0] - 1 },
-      bounds: { low: data_buffer.data_min, high: data_buffer.data_max },
-    });
-    redraw();
-    timeIndex.value = currentTimeIndexSliderValue;
-    varname.value = localVarname;
-  }
-  updating_data.value = false;
-  if (update_count.value != local_update_count) {
-    await getData();
+    let timeinfo = {};
+    if (timevar !== undefined) {
+      const [timeattrs, timevalues] = await Promise.all([
+        timevar.attrs.asObject(),
+        timevar.getRaw().then((t) => t.data),
+      ]);
+      timeinfo = {
+        attrs: timeattrs,
+        values: timevalues,
+        current: decodeTime(timevalues[currentTimeIndexSliderValue], timeattrs),
+      };
+    }
+    if (datavar !== undefined) {
+      const data_buffer = await data2value_buffer(
+        datavar.getRaw(currentTimeIndexSliderValue)
+      );
+      console.log("data buffer", data_buffer);
+      main_mesh.geometry.setAttribute(
+        "data_value",
+        new THREE.BufferAttribute(data_buffer.data_values, 1)
+      );
+      publishVarinfo({
+        attrs: await datavar.attrs.asObject(),
+        timeinfo,
+        time_range: { start: 0, end: datavar.shape[0] - 1 },
+        bounds: { low: data_buffer.data_min, high: data_buffer.data_max },
+      });
+      redraw();
+      timeIndex.value = currentTimeIndexSliderValue;
+      varname.value = localVarname;
+    }
+    updating_data.value = false;
+    if (update_count.value != local_update_count) {
+      await getData();
+    }
+  } finally {
+    store.stopLoading();
   }
 }
 
