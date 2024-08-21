@@ -300,7 +300,6 @@ const setDefaultColormap = () => {
               class="hcolormap"
               :colormap="colormap"
               :invertColormap="invert_colormap"
-              orientation="horizontal"
             />
           </td>
         </tr>
