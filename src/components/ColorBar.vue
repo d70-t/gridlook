@@ -43,21 +43,6 @@ export default defineComponent({
   data() {
     return {} as TColorMapData;
   },
-  created() {
-    const lut_material = this.lutMaterial;
-    const lut_geometry = new THREE.PlaneGeometry(2, 2);
-    lut_geometry.setAttribute(
-      "data_value",
-      new THREE.BufferAttribute(this.vertexValues, 1)
-    );
-    this.lutMesh = new THREE.Mesh(lut_geometry, lut_material);
-  },
-  mounted() {
-    this.init();
-    this.resizeObserver = new ResizeObserver(this.onCanvasResize);
-    this.resizeObserver.observe(this.$refs.box as Element);
-    this.onCanvasResize();
-  },
   computed: {
     addOffset() {
       if (this.invertColormap) {
@@ -97,6 +82,21 @@ export default defineComponent({
     invertColormap() {
       this.updateColormap();
     },
+  },
+  created() {
+    const lut_material = this.lutMaterial;
+    const lut_geometry = new THREE.PlaneGeometry(2, 2);
+    lut_geometry.setAttribute(
+      "data_value",
+      new THREE.BufferAttribute(this.vertexValues, 1)
+    );
+    this.lutMesh = new THREE.Mesh(lut_geometry, lut_material);
+  },
+  mounted() {
+    this.init();
+    this.resizeObserver = new ResizeObserver(this.onCanvasResize);
+    this.resizeObserver.observe(this.$refs.box as Element);
+    this.onCanvasResize();
   },
   methods: {
     init() {
@@ -163,8 +163,8 @@ export default defineComponent({
 </script>
 
 <template>
-  <div class="colorbar_box" ref="box">
-    <canvas class="colorbar_canvas" ref="canvas"> </canvas>
+  <div ref="box" class="colorbar_box">
+    <canvas ref="canvas" class="colorbar_canvas"> </canvas>
   </div>
 </template>
 

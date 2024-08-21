@@ -136,12 +136,12 @@ const setDefaultColormap = () => {
 </script>
 
 <template>
-  <nav class="panel gl_controls" id="main_controls">
+  <nav id="main_controls" class="panel gl_controls">
     <div
       class="panel-heading"
       style="display: flex; justify-content: space-between"
     >
-      <div class="text-wrap" v-if="modelInfo">
+      <div v-if="modelInfo" class="text-wrap">
         {{ modelInfo.title }}
       </div>
       <div v-else>no data available</div>
@@ -158,16 +158,16 @@ const setDefaultColormap = () => {
     </div>
 
     <div
+      v-if="modelInfo"
       class="panel-block"
       :class="{ 'is-hidden': menuCollapsed }"
-      v-if="modelInfo"
     >
       <div class="select is-fullwidth">
-        <select class="form-control" v-model="varnameSelector">
+        <select v-model="varnameSelector" class="form-control">
           <option
             v-for="varname in Object.keys(modelInfo.vars)"
-            :value="varname"
             :key="varname"
+            :value="varname"
           >
             {{ varname }}
           </option>
@@ -175,29 +175,29 @@ const setDefaultColormap = () => {
       </div>
     </div>
     <div
+      v-if="modelInfo"
       class="panel-block"
       :class="{ 'is-hidden': menuCollapsed }"
-      v-if="modelInfo"
     >
       <div class="control">
         <div class="mb-2 w-100 is-flex is-justify-content-space-between">
           <div class="my-2">Time:</div>
           <div class="is-flex">
             <input
+              v-model.number="timeIndexSlider"
               class="input"
               type="number"
-              v-model.number="timeIndexSlider"
               style="width: 8em"
             />
             <div class="my-2">/ {{ time_range.end }}</div>
           </div>
         </div>
         <input
+          v-model.number="timeIndexSlider"
           class="w-100"
           type="range"
-          v-bind:min="time_range.start"
-          v-bind:max="time_range.end"
-          v-model.number="timeIndexSlider"
+          :min="time_range.start"
+          :max="time_range.end"
         />
         <div class="w-100 is-flex is-justify-content-space-between">
           <div>
@@ -220,9 +220,9 @@ const setDefaultColormap = () => {
       </div>
     </div>
     <div
+      v-if="modelInfo"
       class="panel-block"
       :class="{ 'is-hidden': menuCollapsed }"
-      v-if="modelInfo"
     >
       <table>
         <tr>
@@ -233,10 +233,10 @@ const setDefaultColormap = () => {
         <tr :class="{ active: active_bounds === 'data' }">
           <td>
             <input
-              type="radio"
               id="data_bounds"
-              value="data"
               v-model="picked_bounds"
+              type="radio"
+              value="data"
             /><label for="data_bounds">data</label>
           </td>
           <td>{{ Number(data_bounds.low).toPrecision(4) }}</td>
@@ -245,10 +245,10 @@ const setDefaultColormap = () => {
         <tr :class="{ active: active_bounds === 'default' }">
           <td>
             <input
-              type="radio"
               id="default_bounds"
-              value="default"
               v-model="picked_bounds"
+              type="radio"
+              value="default"
             /><label for="default_bounds">default</label>
           </td>
           <td>{{ Number(default_bounds.low).toPrecision(2) }}</td>
@@ -259,27 +259,27 @@ const setDefaultColormap = () => {
         <tr :class="{ active: active_bounds === 'user' }">
           <td class="py-2">
             <input
-              type="radio"
               id="user_bounds"
-              value="user"
               v-model="picked_bounds"
+              type="radio"
+              value="user"
             /><label for="user_bounds">user</label>
           </td>
           <td class="py-1">
-            <input size="10" class="input" v-model.number="user_bounds_low" />
+            <input v-model.number="user_bounds_low" size="10" class="input" />
           </td>
           <td class="right py-1">
-            <input size="10" class="input" v-model.number="user_bounds_high" />
+            <input v-model.number="user_bounds_high" size="10" class="input" />
           </td>
         </tr>
         <tr>
           <td>
             <input
+              id="auto_bounds"
+              v-model="picked_bounds"
               class="mb-3"
               type="radio"
-              id="auto_bounds"
               value="auto"
-              v-model="picked_bounds"
             /><label for="auto_bounds">auto</label>
           </td>
           <td></td>
@@ -288,8 +288,8 @@ const setDefaultColormap = () => {
         <tr class="py-2">
           <td>
             <div class="select">
-              <select class="form-control" v-model="colormap">
-                <option v-for="cm in modelInfo.colormaps" :value="cm" :key="cm">
+              <select v-model="colormap" class="form-control">
+                <option v-for="cm in modelInfo.colormaps" :key="cm" :value="cm">
                   {{ cm }}
                 </option>
               </select>
@@ -307,52 +307,56 @@ const setDefaultColormap = () => {
         <tr>
           <td>
             <input
-              type="checkbox"
-              v-model="invert_colormap"
               id="invert_colormap"
+              v-model="invert_colormap"
+              type="checkbox"
             /><label for="invert_colormap">invert</label>
           </td>
           <td></td>
           <td>
             <input
-              type="checkbox"
-              v-model="auto_colormap"
               id="auto_colormap"
+              v-model="auto_colormap"
+              type="checkbox"
             /><label for="auto_colormap">auto</label>
           </td>
         </tr>
       </table>
     </div>
     <div
+      v-if="modelInfo"
       class="panel-block"
       :class="{ 'is-hidden': menuCollapsed }"
-      v-if="modelInfo"
     >
       <p class="control">
         <input
+          id="enable_coastlines"
           type="checkbox"
           :checked="store.showCoastLines"
           @change="store.toggleCoastLines"
-          id="enable_coastlines"
         /><label for="enable_coastlines">coastlines</label>
       </p>
       <p class="control">
-        <button class="button" @click="() => $emit('onRotate')">
+        <button class="button" type="button" @click="() => $emit('onRotate')">
           <i class="fa-solid fa-rotate mr-1"></i>
           Toggle Rotation
         </button>
       </p>
     </div>
     <div
+      v-if="modelInfo"
       class="panel-block"
       :class="{ 'is-hidden': menuCollapsed }"
-      v-if="modelInfo"
     >
       <p class="control">
-        <button class="button mb-2" @click="() => $emit('onSnapshot')">
+        <button
+          class="button mb-2"
+          type="button"
+          @click="() => $emit('onSnapshot')"
+        >
           <i class="fa-solid fa-image mr-1"></i> Snapshot
         </button>
-        <button class="button" @click="() => $emit('onExample')">
+        <button class="button" type="button" @click="() => $emit('onExample')">
           <i class="fa-solid fa-clipboard mr-1"></i>
           Copy Python example to clipboard
         </button>

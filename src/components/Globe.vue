@@ -1,18 +1,3 @@
-<style>
-div.globe_box {
-  height: 100%;
-  width: 100%;
-  padding: 0;
-  margin: 0;
-  overflow: hidden;
-  display: flex;
-}
-div.globe_canvas {
-  padding: 0;
-  margin: 0;
-}
-</style>
-
 <script setup>
 import * as THREE from "three";
 import { HTTPStore, openGroup } from "zarr";
@@ -35,16 +20,11 @@ import {
   onMounted,
   watch,
   onBeforeUnmount,
-  onRenderTriggered,
   defineExpose,
 } from "vue";
 
 import { useGlobeControlStore } from "./store/store.js";
 import { storeToRefs } from "pinia";
-
-const store = useGlobeControlStore();
-const { showCoastLines, timeIndexSlider, timeIndex, varnameSelector, varname } =
-  storeToRefs(store);
 
 const props = defineProps([
   "datasources",
@@ -52,8 +32,10 @@ const props = defineProps([
   "invertColormap",
   "varbounds",
 ]);
-
 const emit = defineEmits(["varinfo"]);
+const store = useGlobeControlStore();
+const { showCoastLines, timeIndexSlider, timeIndex, varnameSelector, varname } =
+  storeToRefs(store);
 
 const datavars = ref({});
 const update_count = ref(0);
@@ -148,11 +130,11 @@ const datasource = computed(() => {
   }
 });
 
-function datasourceUpdate() {
+async function datasourceUpdate() {
   datavars.value = {};
   if (props.datasources !== undefined) {
-    fetchGrid();
-    getData();
+    await fetchGrid();
+    await getData();
   }
 }
 
@@ -167,6 +149,7 @@ function render() {
 }
 
 function publishVarinfo(info) {
+  console.log("publish var info", info);
   emit("varinfo", info);
 }
 
@@ -263,7 +246,8 @@ async function getTimeVar() {
         datasource.dataset,
         "r"
       ).then((ds) => ds.getItem("time"));
-    } catch (error) {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    } catch (_) {
       console.log(
         "WARNING, couldn't fetch variable " +
           "time" +
@@ -441,11 +425,11 @@ function init() {
   updateCoastlines();
 }
 
-onBeforeMount(() => {
+onBeforeMount(async () => {
   const geometry = new THREE.BufferGeometry();
   const material = colormapMaterial.value;
   main_mesh = new THREE.Mesh(geometry, material);
-  datasourceUpdate();
+  await datasourceUpdate();
 });
 
 onMounted(() => {
@@ -461,16 +445,14 @@ onMounted(() => {
   canvas.value.addEventListener("mouseup", () => {
     mouseDown = false;
   });
-
+  canvas.value.addEventListener("mousedown", () => {
+    mouseDown = true;
+    animationLoop();
+  });
   init();
   resize_observer = new ResizeObserver(onCanvasResize);
   resize_observer.observe(box.value);
   onCanvasResize();
-});
-
-onRenderTriggered(() => {
-  console.log("updateCoastLines");
-  updateCoastlines();
 });
 
 onBeforeUnmount(() => {
@@ -481,7 +463,22 @@ defineExpose({ makeSnapshot, copyPythonExample, toggleRotate });
 </script>
 
 <template>
-  <div class="globe_box" ref="box">
-    <canvas class="globe_canvas" ref="canvas"> </canvas>
+  <div ref="box" class="globe_box">
+    <canvas ref="canvas" class="globe_canvas"> </canvas>
   </div>
 </template>
+
+<style>
+div.globe_box {
+  height: 100%;
+  width: 100%;
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+  display: flex;
+}
+div.globe_canvas {
+  padding: 0;
+  margin: 0;
+}
+</style>

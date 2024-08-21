@@ -79,6 +79,7 @@ onMounted(() => {
   updateSrc();
 });
 </script>
+
 <!--
 <script>
 export default {
@@ -164,12 +165,12 @@ export default {
       @on-rotate="toggleRotate"
     />
     <Globe
+      ref="globe"
       :datasources="datasources"
       :colormap="selection.colormap"
-      :invert-colormap="selection.invertColormap"
+      :invertColormap="selection.invertColormap"
       :varbounds="selection.bounds"
       @varinfo="updateVarinfo"
-      ref="globe"
     />
   </main>
 </template>
