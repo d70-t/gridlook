@@ -1,19 +1,38 @@
-<script setup>
+<script lang="ts" setup>
 import Globe from "@/components/Globe.vue";
 import GlobeControls from "@/components/GlobeControls.vue";
 import { available_colormaps } from "@/components/js/colormap_shaders.js";
 
-import { ref, computed, watch, onMounted } from "vue";
+import { ref, computed, watch, onMounted, type Ref } from "vue";
 
-const props = defineProps({
-  src: String,
-});
+type TSelection = {
+  colormap: keyof typeof available_colormaps;
+  invertColormap: boolean;
+  varname: string;
+  bounds: { high?: number; low?: number };
+};
 
-const globe = ref(null);
+type TVarInfo = {
+  timeinfo: { current: number; values: Int32Array };
+  time_range: { start: number; end: number };
+  bounds: { high?: number; low?: number };
+};
 
-const datasources = ref(undefined);
-const selection = ref({});
-const varinfo = ref(undefined);
+type TSources = {
+  name: string;
+  default_var: string;
+  levels: {
+    name: string;
+    datasources: object;
+  }[];
+};
+
+const props = defineProps<{ src: string }>();
+const globe: Ref<typeof Globe | null> = ref(null);
+
+const datasources: Ref<TSources | undefined> = ref(undefined);
+const selection: Ref<Partial<TSelection>> = ref({});
+const varinfo: Ref<TVarInfo | undefined> = ref(undefined);
 
 const modelInfo = computed(() => {
   if (datasources.value === undefined) {
@@ -32,18 +51,19 @@ const modelInfo = computed(() => {
   }
 });
 
-const updateSelection = (s) => {
+const updateSelection = (s: TSelection) => {
+  console.log("UPDATE selection", s);
   selection.value = s;
 };
 
-const updateVarinfo = (info) => {
+const updateVarinfo = (info: TVarInfo) => {
   varinfo.value = info;
 };
 
 const updateSrc = async () => {
-  console.log("updateSrc");
   const src = props.src;
   const datasourcesResponse = await fetch(src).then((r) => r.json());
+  console.log("updateSrc", datasourcesResponse, src);
   if (src === props.src) {
     datasources.value = datasourcesResponse;
   }
@@ -80,84 +100,10 @@ onMounted(() => {
 });
 </script>
 
-<!--
-<script>
-export default {
-  props: ["src"],
-  data() {
-    return {
-      datasources: undefined,
-      timeIndex: 0,
-      selection: {
-        varname: "rlut",
-        timeIndex: 0,
-      },
-      varinfo: undefined,
-    };
-  },
-  mounted() {
-    this.updateSrc();
-  },
-  computed: {
-    modelInfo() {
-      if (this.datasources === undefined) {
-        return undefined;
-      } else {
-        return {
-          title: this.datasources.name,
-          vars: this.datasources.levels[0].datasources,
-          default_var: this.datasources.default_var,
-          colormaps: Object.keys(available_colormaps),
-          time_range: {
-            start: 0,
-            end: 1,
-          },
-        };
-      }
-    },
-  },
-  methods: {
-    updateSelection(s) {
-      this.selection = s;
-    },
-    updateVarinfo(info) {
-      this.varinfo = info;
-    },
-    async updateSrc() {
-      const src = this.src;
-      const datasources = await fetch(this.src).then((r) => r.json());
-      if (src == this.src) {
-        this.datasources = datasources;
-      }
-    },
-    makeSnapshot() {
-      if (this.$refs.globe) {
-        this.$refs.globe.makeSnapshot();
-      }
-    },
-    makeExample() {
-      if (this.$refs.globe) {
-        this.$refs.globe.copyPythonExample();
-      }
-    },
-    toggleRotate() {
-      if (this.$refs.globe) {
-        this.$refs.globe.toggleRotate();
-      }
-    },
-  },
-  watch: {
-    src() {
-      this.updateSrc();
-    },
-  },
-};
-</script>
- -->
 <template>
   <main>
     <GlobeControls
-      :modelInfo="modelInfo"
+      :model-info="modelInfo"
       :varinfo="varinfo"
       @selection="updateSelection"
       @on-snapshot="makeSnapshot"
@@ -168,7 +114,7 @@ export default {
       ref="globe"
       :datasources="datasources"
       :colormap="selection.colormap"
-      :invertColormap="selection.invertColormap"
+      :invert-colormap="selection.invertColormap"
       :varbounds="selection.bounds"
       @varinfo="updateVarinfo"
     />
