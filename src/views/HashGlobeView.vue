@@ -1,28 +1,20 @@
 <script setup>
+import { ref, onMounted } from "vue";
 import GlobeView from "./GlobeView.vue";
-</script>
+const defaultSrc = ref("static/index_mr_dpp0066.json");
+const src = ref("static/index_mr_dpp0066.json");
 
-<script>
-export default {
-  data() {
-    return {
-      default_src: "static/index_mr_dpp0066.json",
-      src: "static/index_mr_dpp0066.json",
-    };
-  },
-  mounted() {
-    window.addEventListener("hashchange", this.onHashChange);
-    this.onHashChange();
-  },
-  methods: {
-    onHashChange() {
-      if (location.hash.length > 1) {
-        this.src = location.hash.slice(1, location.hash.length);
-      } else {
-        this.src = this.default_src;
-      }
-    },
-  },
+onMounted(() => {
+  window.addEventListener("hashchange", onHashChange);
+  onHashChange();
+});
+
+const onHashChange = () => {
+  if (location.hash.length > 1) {
+    src.value = location.hash.slice(1, location.hash.length);
+  } else {
+    src.value = defaultSrc.value;
+  }
 };
 </script>
 
