@@ -1,21 +1,35 @@
-<script setup>
+<script lang="ts" setup>
 import ColorBar from "@/components/ColorBar.vue";
-import { computed, ref, watch } from "vue";
+import { computed, ref, watch, type Ref } from "vue";
 import { useGlobeControlStore } from "./store/store.js";
 import { storeToRefs } from "pinia";
+import type {
+  TColorMap,
+  TModelInfo,
+  TBounds,
+  TVarInfo,
+  TSelection,
+} from "../types/GlobeTypes.js";
 
-const props = defineProps(["modelInfo", "varinfo"]);
-const emit = defineEmits(["selection", "onSnapshot", "onExample", "onRotate"]);
+const props = defineProps<{ varinfo?: TVarInfo; modelInfo?: TModelInfo }>();
+
+// const emit = defineEmits(["selection", "onSnapshot", "onExample", "onRotate"]);
+const emit = defineEmits<{
+  selection: [TSelection];
+  onSnapshot: [];
+  onExample: [];
+  onRotate: [];
+}>();
 
 const store = useGlobeControlStore();
 const { timeIndexSlider, varnameSelector } = storeToRefs(store);
-const menuCollapsed = ref(false);
-const colormap = ref("turbo");
-const invert_colormap = ref(true);
-const auto_colormap = ref(true);
-const default_bounds = ref({ low: undefined, high: undefined });
-const user_bounds_low = ref(undefined);
-const user_bounds_high = ref(undefined);
+const menuCollapsed: Ref<boolean> = ref(false);
+const colormap: Ref<TColorMap> = ref("turbo");
+const invert_colormap: Ref<boolean> = ref(true);
+const auto_colormap: Ref<boolean> = ref(true);
+const default_bounds: Ref<TBounds> = ref({});
+const user_bounds_low: Ref<number | undefined> = ref(undefined);
+const user_bounds_high: Ref<number | undefined> = ref(undefined);
 const picked_bounds = ref("auto");
 
 const active_bounds = computed(() => {
@@ -53,6 +67,7 @@ const time_range = computed(() => {
 });
 
 const current_time_value = computed(() => {
+  console.log("CURRENt_TIME VALUE", props.varinfo?.timeinfo?.current);
   return props.varinfo?.timeinfo?.current;
 });
 
@@ -71,13 +86,10 @@ const current_var_units = computed(() => {
 watch(
   () => varnameSelector.value,
   () => {
-    const varinfo = props.modelInfo.vars[varnameSelector.value];
+    const varinfo = props.modelInfo!.vars[varnameSelector.value];
     console.log("varinfo", varinfo, varnameSelector);
-    console.log(props.modelInfo.vars);
-    default_bounds.value = varinfo.default_range ?? {
-      low: undefined,
-      high: undefined,
-    };
+    console.log(props.modelInfo!.vars);
+    default_bounds.value = varinfo.default_range ?? {};
     setDefaultColormap();
     publish();
   }
@@ -101,9 +113,9 @@ watch(
 watch(
   () => props.modelInfo,
   () => {
-    if (props.modelInfo.vars[varnameSelector.value] === undefined) {
+    if (props.modelInfo?.vars[varnameSelector.value] === undefined) {
       varnameSelector.value =
-        props.modelInfo.default_var || Object.keys(props.modelInfo.vars)[0];
+        props.modelInfo?.default_var ?? Object.keys(props.modelInfo!.vars)[0];
     }
     setDefaultColormap();
   }
@@ -120,14 +132,15 @@ function toggleMenu() {
 
 const publish = () => {
   emit("selection", {
-    bounds: bounds.value,
+    bounds: bounds.value as TBounds,
     colormap: colormap.value,
     invertColormap: invert_colormap.value,
+    varname: "", // FIXME: Wieso fehlte das ohne typescript
   });
 };
 const setDefaultColormap = () => {
   const defaultColormap =
-    props.modelInfo.vars[varnameSelector.value].default_colormap;
+    props.modelInfo?.vars[varnameSelector.value].default_colormap;
   if (auto_colormap.value && defaultColormap !== undefined) {
     invert_colormap.value = defaultColormap.inverted || false;
     colormap.value = defaultColormap.name;
@@ -299,7 +312,7 @@ const setDefaultColormap = () => {
             <ColorBar
               class="hcolormap"
               :colormap="colormap"
-              :invertColormap="invert_colormap"
+              :invert-colormap="invert_colormap"
             />
           </td>
         </tr>
