@@ -1,11 +1,12 @@
 import type { Dayjs } from "dayjs";
 import type { available_colormaps } from "../components/js/colormap_shaders";
 
+type EmptyObj = Record<PropertyKey, never>;
+
 export type TColorMap = keyof typeof available_colormaps;
 export type TSelection = {
   colormap: TColorMap;
   invertColormap: boolean;
-  varname: string;
   bounds: TBounds;
 };
 
@@ -35,7 +36,7 @@ export type TModelInfo = {
   time_range: { start: number; end: number };
 };
 
-export type TBounds = { low?: number; high?: number };
+export type TBounds = EmptyObj | { low: number; high: number };
 
 export type TSources = {
   name: string;

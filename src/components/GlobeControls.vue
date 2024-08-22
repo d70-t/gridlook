@@ -135,9 +135,9 @@ const publish = () => {
     bounds: bounds.value as TBounds,
     colormap: colormap.value,
     invertColormap: invert_colormap.value,
-    varname: "", // FIXME: Wieso fehlte das ohne typescript
   });
 };
+
 const setDefaultColormap = () => {
   const defaultColormap =
     props.modelInfo?.vars[varnameSelector.value].default_colormap;
