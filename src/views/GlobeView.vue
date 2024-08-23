@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import Globe from "@/components/Globe.vue";
 import GlobeControls from "@/components/GlobeControls.vue";
-import { available_colormaps } from "@/components/js/colormap_shaders.js";
+import { availableColormaps } from "@/components/utils/colormap_shaders.js";
 
 import { ref, computed, watch, onMounted, type Ref } from "vue";
 import type {
@@ -27,7 +27,7 @@ const modelInfo = computed(() => {
       title: datasources.value.name,
       vars: datasources.value.levels[0].datasources,
       default_var: datasources.value.default_var,
-      colormaps: Object.keys(available_colormaps),
+      colormaps: Object.keys(availableColormaps),
       time_range: {
         start: 0,
         end: 1,

@@ -1,10 +1,10 @@
 import type { Dayjs } from "dayjs";
-import type { available_colormaps } from "../components/js/colormap_shaders.js";
+import type { availableColormaps } from "../components/utils/colormap_shaders.ts";
 import type { UserAttributes } from "zarr/types/types.js";
 
 export type EmptyObj = Record<PropertyKey, never>;
 
-export type TColorMap = keyof typeof available_colormaps;
+export type TColorMap = keyof typeof availableColormaps;
 export type TSelection = {
   colormap: TColorMap;
   invertColormap: boolean;

@@ -3,13 +3,13 @@ import { ref, computed, onMounted, watch } from "vue";
 import type { Ref } from "vue";
 import * as THREE from "three";
 import {
-  make_lut_material,
-  available_colormaps,
-} from "./js/colormap_shaders.js";
+  makeLutMaterial,
+  availableColormaps,
+} from "./utils/colormap_shaders.ts";
 
 const props = withDefaults(
   defineProps<{
-    colormap: keyof typeof available_colormaps;
+    colormap: keyof typeof availableColormaps;
     invertColormap: boolean;
   }>(),
   {
@@ -48,7 +48,7 @@ const scaleFactor = computed(() => {
 });
 
 const lutMaterial = computed(() => {
-  return make_lut_material(props.colormap, addOffset.value, scaleFactor.value);
+  return makeLutMaterial(props.colormap, addOffset.value, scaleFactor.value);
 });
 
 // const vertexValues = computed(() => {
@@ -146,7 +146,7 @@ function onCanvasResize(/*entries*/) {
 
 function updateColormap() {
   let shaderMaterial = lutMesh?.material as THREE.ShaderMaterial;
-  shaderMaterial.uniforms.colormap.value = available_colormaps[props.colormap];
+  shaderMaterial.uniforms.colormap.value = availableColormaps[props.colormap];
   shaderMaterial.uniforms.add_offset.value = addOffset.value;
   shaderMaterial.uniforms.scale_factor.value = scaleFactor.value;
   console.log("update colormap");

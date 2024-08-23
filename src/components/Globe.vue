@@ -1,33 +1,29 @@
 <script lang="ts" setup>
 import * as THREE from "three";
-import { Group, HTTPStore, openGroup, ZarrArray } from "zarr";
-import { grid2buffer, data2value_buffer } from "./js/gridlook.js";
+import { HTTPStore, openGroup, ZarrArray } from "zarr";
+import { grid2buffer, data2valueBuffer } from "./utils/gridlook.ts";
 import {
-  make_colormap_material,
-  available_colormaps,
-} from "./js/colormap_shaders.js";
+  makeColormapMaterial,
+  availableColormaps,
+} from "./utils/colormap_shaders.ts";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 import { geojson2geometry } from "./utils/geojson.ts";
 import { decodeTime } from "./utils/timeHandling.ts";
 
-import { datashader_example } from "./js/example_formatters.js";
+import { datashaderExample } from "./utils/example_formatters.ts";
 import {
   computed,
   onBeforeMount,
   ref,
-  defineEmits,
-  defineProps,
   onMounted,
   watch,
   onBeforeUnmount,
-  defineExpose,
   type Ref,
 } from "vue";
 
 import { useGlobeControlStore } from "./store/store.js";
 import { storeToRefs } from "pinia";
 import type {
-  EmptyObj,
   TBounds,
   TColorMap,
   TSources,
@@ -41,32 +37,27 @@ const props = defineProps<{
   colormap?: TColorMap;
   invertColormap?: boolean;
 }>();
-// [
-//   "datasources",
-//   "colormap",
-//   "invertColormap",
-//   "varbounds",
-// ]);
+
 const emit = defineEmits<{ varinfo: [TVarInfo] }>();
 const store = useGlobeControlStore();
 const { showCoastLines, timeIndexSlider, timeIndex, varnameSelector, varname } =
   storeToRefs(store);
 
 const datavars: Ref<Record<string, ZarrArray<RequestInit>>> = ref({});
-const update_count = ref(0);
-const updating_data = ref(false);
+const updateCount = ref(0);
+const updatingData = ref(false);
 const frameId = ref(0);
 const width: Ref<number | undefined> = ref(undefined);
 const height: Ref<number | undefined> = ref(undefined);
 
 let center = undefined;
-let main_mesh: THREE.Mesh | undefined = undefined;
+let mainMesh: THREE.Mesh | undefined = undefined;
 let coast: THREE.LineSegments | undefined = undefined;
 let scene: THREE.Scene | undefined = undefined;
 let camera: THREE.PerspectiveCamera | undefined = undefined;
 let renderer: THREE.Renderer | undefined = undefined;
 let orbitControls: OrbitControls | undefined = undefined;
-let resize_observer: ResizeObserver | undefined = undefined;
+let resizeObserver: ResizeObserver | undefined = undefined;
 let mouseDown = false;
 
 let canvas: Ref<HTMLCanvasElement | undefined> = ref();
@@ -123,9 +114,9 @@ watch(
 
 const colormapMaterial = computed(() => {
   if (props.invertColormap) {
-    return make_colormap_material(props.colormap, 1.0, -1.0);
+    return makeColormapMaterial(props.colormap, 1.0, -1.0);
   } else {
-    return make_colormap_material(props.colormap, 0.0, 1.0);
+    return makeColormapMaterial(props.colormap, 0.0, 1.0);
   }
 });
 
@@ -160,7 +151,7 @@ function render() {
   }
   myRenderer.render(scene!, camera!);
   if (box.value) {
-    resize_observer!.observe(box.value);
+    resizeObserver!.observe(box.value);
   }
 }
 
@@ -182,7 +173,7 @@ async function fetchGrid() {
   const store = new HTTPStore(gridsource.value!.store);
   const grid = await openGroup(store, gridsource?.value?.dataset, "r");
   const verts = await grid2buffer(grid);
-  const myMesh = main_mesh as THREE.Mesh;
+  const myMesh = mainMesh as THREE.Mesh;
   myMesh.geometry.setAttribute("position", new THREE.BufferAttribute(verts, 3));
   myMesh.geometry.attributes.position.needsUpdate = true;
   myMesh.geometry.computeBoundingBox();
@@ -225,21 +216,21 @@ function updateColormap() {
   const low = props.varbounds?.low as number;
   const high = props.varbounds?.high as number;
 
-  let add_offset;
-  let scale_factor;
+  let addOffset: number;
+  let scaleFactor: number;
 
   if (props.invertColormap) {
-    scale_factor = -1 / (high - low);
-    add_offset = -high * scale_factor;
+    scaleFactor = -1 / (high - low);
+    addOffset = -high * scaleFactor;
   } else {
-    scale_factor = 1 / (high - low);
-    add_offset = -low * scale_factor;
+    scaleFactor = 1 / (high - low);
+    addOffset = -low * scaleFactor;
   }
-  const myMesh = main_mesh as THREE.Mesh;
+  const myMesh = mainMesh as THREE.Mesh;
   const material = myMesh.material as THREE.ShaderMaterial;
-  material.uniforms.colormap.value = available_colormaps[props.colormap!];
-  material.uniforms.add_offset.value = add_offset;
-  material.uniforms.scale_factor.value = scale_factor;
+  material.uniforms.colormap.value = availableColormaps[props.colormap!];
+  material.uniforms.add_offset.value = addOffset;
+  material.uniforms.scale_factor.value = scaleFactor;
   redraw();
 }
 
@@ -275,12 +266,12 @@ async function getTimeVar() {
 async function getData() {
   store.startLoading();
   try {
-    update_count.value += 1;
-    const local_update_count = update_count.value;
-    if (updating_data.value) {
+    updateCount.value += 1;
+    const myUpdatecount = updateCount.value;
+    if (updatingData.value) {
       return;
     }
-    updating_data.value = true;
+    updatingData.value = true;
 
     const localVarname = varnameSelector.value;
     const currentTimeIndexSliderValue = timeIndexSlider.value;
@@ -304,26 +295,26 @@ async function getData() {
       };
     }
     if (datavar !== undefined) {
-      const data_buffer = await data2value_buffer(
-        datavar.getRaw(currentTimeIndexSliderValue)
-      );
-      console.log("data buffer", data_buffer);
-      main_mesh?.geometry.setAttribute(
+      const rawData = (await datavar.getRaw(
+        currentTimeIndexSliderValue
+      )) as RawArray;
+      const dataBuffer = data2valueBuffer(rawData);
+      mainMesh?.geometry.setAttribute(
         "data_value",
-        new THREE.BufferAttribute(data_buffer.data_values, 1)
+        new THREE.BufferAttribute(dataBuffer.data_values, 1)
       );
       publishVarinfo({
         attrs: await datavar.attrs.asObject(),
         timeinfo,
         time_range: { start: 0, end: datavar.shape[0] - 1 },
-        bounds: { low: data_buffer.data_min, high: data_buffer.data_max },
+        bounds: { low: dataBuffer.data_min, high: dataBuffer.data_max },
       });
       redraw();
       timeIndex.value = currentTimeIndexSliderValue;
       varname.value = localVarname;
     }
-    updating_data.value = false;
-    if (update_count.value != local_update_count) {
+    updatingData.value = false;
+    if (updateCount.value != myUpdatecount) {
       await getData();
     }
   } finally {
@@ -370,14 +361,14 @@ function makeSnapshot() {
 }
 
 function copyPythonExample() {
-  const example = datashader_example({
-    camera_positon: camera!.position,
+  const example = datashaderExample({
+    cameraPosition: camera!.position,
     datasrc: datasource.value!.store + datasource.value!.dataset,
     gridsrc: gridsource.value!.store + gridsource.value!.dataset,
     varname: varname.value,
     timeIndex: timeIndex.value,
-    varbounds: props.varbounds,
-    colormap: props.colormap,
+    varbounds: props.varbounds!,
+    colormap: props.colormap!,
     invertColormap: props.invertColormap,
   });
   navigator.clipboard.writeText(example);
@@ -404,7 +395,7 @@ function onCanvasResize() {
   const { width: boxWidth, height: boxHeight } =
     box.value.getBoundingClientRect();
   if (boxWidth !== width.value || boxHeight !== height.value) {
-    resize_observer?.unobserve(box.value);
+    resizeObserver?.unobserve(box.value);
     const aspect = boxWidth / boxHeight;
     camera!.aspect = aspect;
     camera!.updateProjectionMatrix();
@@ -430,7 +421,7 @@ function init() {
   camera.position.x = 30;
   camera.lookAt(center);
 
-  scene.add(main_mesh as THREE.Mesh);
+  scene.add(mainMesh as THREE.Mesh);
 
   orbitControls = new OrbitControls(camera, renderer.domElement);
   orbitControls.update();
@@ -441,7 +432,7 @@ function init() {
 onBeforeMount(async () => {
   const geometry = new THREE.BufferGeometry();
   const material = colormapMaterial.value;
-  main_mesh = new THREE.Mesh(geometry, material);
+  mainMesh = new THREE.Mesh(geometry, material);
   await datasourceUpdate();
 });
 
@@ -464,13 +455,13 @@ onMounted(() => {
     animationLoop();
   });
   init();
-  resize_observer = new ResizeObserver(onCanvasResize);
-  resize_observer?.observe(box.value!);
+  resizeObserver = new ResizeObserver(onCanvasResize);
+  resizeObserver?.observe(box.value!);
   onCanvasResize();
 });
 
 onBeforeUnmount(() => {
-  resize_observer?.unobserve(box.value!);
+  resizeObserver?.unobserve(box.value!);
 });
 
 defineExpose({ makeSnapshot, copyPythonExample, toggleRotate });
