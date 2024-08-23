@@ -5,12 +5,12 @@ import { grid2buffer, data2valueBuffer } from "./utils/gridlook.ts";
 import {
   makeColormapMaterial,
   availableColormaps,
-} from "./utils/colormap_shaders.ts";
+} from "./utils/colormapShaders.ts";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 import { geojson2geometry } from "./utils/geojson.ts";
 import { decodeTime } from "./utils/timeHandling.ts";
 
-import { datashaderExample } from "./utils/example_formatters.ts";
+import { datashaderExample } from "./utils/exampleFormatters.ts";
 import {
   computed,
   onBeforeMount,
@@ -61,7 +61,7 @@ let resizeObserver: ResizeObserver | undefined = undefined;
 let mouseDown = false;
 
 let canvas: Ref<HTMLCanvasElement | undefined> = ref();
-let box: Ref<Element | undefined> = ref();
+let box: Ref<HTMLDivElement | undefined> = ref();
 
 watch(
   () => varnameSelector.value,
@@ -229,8 +229,8 @@ function updateColormap() {
   const myMesh = mainMesh as THREE.Mesh;
   const material = myMesh.material as THREE.ShaderMaterial;
   material.uniforms.colormap.value = availableColormaps[props.colormap!];
-  material.uniforms.add_offset.value = addOffset;
-  material.uniforms.scale_factor.value = scaleFactor;
+  material.uniforms.addOffset.value = addOffset;
+  material.uniforms.scaleFactor.value = scaleFactor;
   redraw();
 }
 
@@ -301,20 +301,20 @@ async function getData() {
       const dataBuffer = data2valueBuffer(rawData);
       mainMesh?.geometry.setAttribute(
         "data_value",
-        new THREE.BufferAttribute(dataBuffer.data_values, 1)
+        new THREE.BufferAttribute(dataBuffer.dataValues, 1)
       );
       publishVarinfo({
         attrs: await datavar.attrs.asObject(),
         timeinfo,
-        time_range: { start: 0, end: datavar.shape[0] - 1 },
-        bounds: { low: dataBuffer.data_min, high: dataBuffer.data_max },
+        timeRange: { start: 0, end: datavar.shape[0] - 1 },
+        bounds: { low: dataBuffer.dataMin, high: dataBuffer.dataMax },
       });
       redraw();
       timeIndex.value = currentTimeIndexSliderValue;
       varname.value = localVarname;
     }
     updatingData.value = false;
-    if (updateCount.value != myUpdatecount) {
+    if (updateCount.value !== myUpdatecount) {
       await getData();
     }
   } finally {

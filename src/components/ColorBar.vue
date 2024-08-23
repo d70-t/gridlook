@@ -5,7 +5,7 @@ import * as THREE from "three";
 import {
   makeLutMaterial,
   availableColormaps,
-} from "./utils/colormap_shaders.ts";
+} from "./utils/colormapShaders.ts";
 
 const props = withDefaults(
   defineProps<{
@@ -18,18 +18,18 @@ const props = withDefaults(
   }
 );
 
-const box: Ref<Element | undefined> = ref(undefined);
-const canvas: Ref<Element | undefined> = ref(undefined);
+const box: Ref<HTMLDivElement | undefined> = ref(undefined);
+const canvas: Ref<HTMLCanvasElement | undefined> = ref(undefined);
 
-let width: number | undefined = undefined;
-let height: number | undefined = undefined;
+let width: number | undefined;
+let height: number | undefined;
 let frameId: number = 0;
 
-let lutMesh: THREE.Mesh | undefined = undefined;
-let resizeObserver: ResizeObserver | undefined = undefined;
-let scene: THREE.Scene | undefined = undefined;
-let renderer: THREE.WebGLRenderer | undefined = undefined;
-let camera: THREE.PerspectiveCamera | undefined = undefined;
+let lutMesh: THREE.Mesh | undefined;
+let resizeObserver: ResizeObserver | undefined;
+let scene: THREE.Scene | undefined;
+let renderer: THREE.WebGLRenderer | undefined;
+let camera: THREE.PerspectiveCamera | undefined;
 
 const addOffset = computed(() => {
   if (props.invertColormap) {
@@ -51,25 +51,6 @@ const lutMaterial = computed(() => {
   return makeLutMaterial(props.colormap, addOffset.value, scaleFactor.value);
 });
 
-// const vertexValues = computed(() => {
-//   if (props.orientation === "vertical") {
-//     return Float32Array.from([1, 1, 0, 0]);
-//   } else {
-//     return Float32Array.from([0, 1, 0, 1]);
-//   }
-// });
-
-// watch(
-//   () => vertexValues.value,
-
-//   () => {
-//     console.log("VERTEX VALUES");
-//     lutMesh?.geometry.setAttribute(
-//       "data_value",
-//       new THREE.BufferAttribute(vertexValues.value, 1)
-//     );
-//   }
-// );
 watch(
   () => props.colormap,
   () => {
@@ -91,12 +72,12 @@ onMounted(() => {
 });
 
 function init() {
-  const lut_geometry = new THREE.PlaneGeometry(2, 2);
-  lut_geometry.setAttribute(
+  const lutGeometry = new THREE.PlaneGeometry(2, 2);
+  lutGeometry.setAttribute(
     "data_value",
     new THREE.BufferAttribute(Float32Array.from([0, 1, 0, 1]), 1)
   );
-  lutMesh = new THREE.Mesh(lut_geometry, lutMaterial.value);
+  lutMesh = new THREE.Mesh(lutGeometry, lutMaterial.value);
   // from: https://stackoverflow.com/a/65732553
   scene = new THREE.Scene();
   renderer = new THREE.WebGLRenderer({
@@ -147,8 +128,8 @@ function onCanvasResize(/*entries*/) {
 function updateColormap() {
   let shaderMaterial = lutMesh?.material as THREE.ShaderMaterial;
   shaderMaterial.uniforms.colormap.value = availableColormaps[props.colormap];
-  shaderMaterial.uniforms.add_offset.value = addOffset.value;
-  shaderMaterial.uniforms.scale_factor.value = scaleFactor.value;
+  shaderMaterial.uniforms.addOffset.value = addOffset.value;
+  shaderMaterial.uniforms.scaleFactor.value = scaleFactor.value;
   console.log("update colormap");
   redraw();
 }

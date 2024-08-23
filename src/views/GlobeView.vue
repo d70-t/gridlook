@@ -1,11 +1,11 @@
 <script lang="ts" setup>
 import Globe from "@/components/Globe.vue";
 import GlobeControls from "@/components/GlobeControls.vue";
-import { availableColormaps } from "@/components/utils/colormap_shaders.js";
+import { availableColormaps } from "@/components/utils/colormapShaders.js";
 
 import { ref, computed, watch, onMounted, type Ref } from "vue";
 import type {
-  TModelInfo,
+  TColorMap,
   TSelection,
   TSources,
   TVarInfo,
@@ -22,17 +22,16 @@ const modelInfo = computed(() => {
   if (datasources.value === undefined) {
     return undefined;
   } else {
-    console.log("VARS, SOURCES", datasources.value.levels[0]);
     return {
       title: datasources.value.name,
       vars: datasources.value.levels[0].datasources,
-      default_var: datasources.value.default_var,
-      colormaps: Object.keys(availableColormaps),
-      time_range: {
+      defaultVar: datasources.value.default_var,
+      colormaps: Object.keys(availableColormaps) as TColorMap[],
+      timeRange: {
         start: 0,
         end: 1,
       },
-    } as TModelInfo;
+    };
   }
 });
 

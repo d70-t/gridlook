@@ -1,10 +1,13 @@
 import type { Dayjs } from "dayjs";
-import type { availableColormaps } from "../components/utils/colormap_shaders.ts";
+import type { availableColormaps } from "../components/utils/colormapShaders.ts";
 import type { UserAttributes } from "zarr/types/types.js";
 
 export type EmptyObj = Record<PropertyKey, never>;
 
 export type TColorMap = keyof typeof availableColormaps;
+
+export type TBounds = EmptyObj | { low: number; high: number };
+
 export type TSelection = {
   colormap: TColorMap;
   invertColormap: boolean;
@@ -13,7 +16,7 @@ export type TSelection = {
 
 export type TVarInfo = {
   timeinfo: EmptyObj | { current: Dayjs; values: Int32Array };
-  time_range: { start: number; end: number };
+  timeRange: { start: number; end: number };
   bounds: TBounds;
   attrs: UserAttributes; //{ long_name: string; units: string };
 };
@@ -24,6 +27,7 @@ export type TModelInfo = {
     {
       dataset: string;
       default_colormap: {
+        // external resource, we keep the kebab-case here...
         name: TColorMap;
         inverted: boolean;
       };
@@ -31,13 +35,21 @@ export type TModelInfo = {
       store: string;
     }
   >;
-  default_var: string;
+  defaultVar: string;
   title: string;
   colormaps: TColorMap[];
-  time_range: { start: number; end: number };
+  timeRange: { start: number; end: number };
 };
 
-export type TBounds = EmptyObj | { low: number; high: number };
+export type TDataSource = {
+  dataset: string;
+  default_colormap: {
+    name: TColorMap;
+    inverted: boolean;
+  };
+  default_range: TBounds;
+  store: string;
+};
 
 export type TSources = {
   name: string;
@@ -54,14 +66,4 @@ export type TSources = {
     };
     datasources: Record<string, TDataSource>;
   }[];
-};
-
-export type TDataSource = {
-  dataset: string;
-  default_colormap: {
-    name: TColorMap;
-    inverted: boolean;
-  };
-  default_range: TBounds;
-  store: string;
 };

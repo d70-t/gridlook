@@ -1,6 +1,7 @@
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
 import type { UserAttributes } from "zarr/types/types";
+
 dayjs.extend(utc);
 
 export function decodeTime(value: number, attrs: UserAttributes) {

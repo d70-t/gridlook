@@ -80,23 +80,23 @@ export function data2valueBuffer(data: RawArray) {
   const ncells = awaitedData.shape[0];
   const plotdata = awaitedData.data;
 
-  let data_min = Number.POSITIVE_INFINITY;
-  let data_max = Number.NEGATIVE_INFINITY;
+  let dataMin = Number.POSITIVE_INFINITY;
+  let dataMax = Number.NEGATIVE_INFINITY;
   for (let i = 0; i < ncells; i++) {
     const v = plotdata[i];
-    if (v < data_min) data_min = v;
-    if (v > data_max) data_max = v;
+    if (v < dataMin) dataMin = v;
+    if (v > dataMax) dataMax = v;
   }
 
-  const data_values = new Float32Array(ncells * 3);
+  const dataValues = new Float32Array(ncells * 3);
 
   for (let i = 0; i < ncells; i++) {
     const v = plotdata[i];
-    data_values[3 * i + 0] = v;
-    data_values[3 * i + 1] = v;
-    data_values[3 * i + 2] = v;
+    dataValues[3 * i + 0] = v;
+    dataValues[3 * i + 1] = v;
+    dataValues[3 * i + 2] = v;
   }
-  return { data_values, data_min, data_max };
+  return { dataValues: dataValues, dataMin: dataMin, dataMax: dataMax };
 }
 
 /*
