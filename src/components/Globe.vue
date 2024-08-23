@@ -1,12 +1,12 @@
-<script setup>
+<script lang="ts" setup>
 import * as THREE from "three";
-import { HTTPStore, openGroup } from "zarr";
+import { Group, HTTPStore, openGroup, ZarrArray } from "zarr";
 import { grid2buffer, data2value_buffer } from "./js/gridlook.js";
 import {
   make_colormap_material,
   available_colormaps,
 } from "./js/colormap_shaders.js";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 import { geojson2geometry } from "./utils/geojson.ts";
 import { decodeTime } from "./utils/timeHandling.ts";
 
@@ -21,41 +21,56 @@ import {
   watch,
   onBeforeUnmount,
   defineExpose,
+  type Ref,
 } from "vue";
 
 import { useGlobeControlStore } from "./store/store.js";
 import { storeToRefs } from "pinia";
+import type {
+  EmptyObj,
+  TBounds,
+  TColorMap,
+  TSources,
+  TVarInfo,
+} from "../types/GlobeTypes.ts";
+import type { RawArray } from "zarr/types/rawArray/index";
 
-const props = defineProps([
-  "datasources",
-  "colormap",
-  "invertColormap",
-  "varbounds",
-]);
-const emit = defineEmits(["varinfo"]);
+const props = defineProps<{
+  datasources?: TSources;
+  varbounds?: TBounds;
+  colormap?: TColorMap;
+  invertColormap?: boolean;
+}>();
+// [
+//   "datasources",
+//   "colormap",
+//   "invertColormap",
+//   "varbounds",
+// ]);
+const emit = defineEmits<{ varinfo: [TVarInfo] }>();
 const store = useGlobeControlStore();
 const { showCoastLines, timeIndexSlider, timeIndex, varnameSelector, varname } =
   storeToRefs(store);
 
-const datavars = ref({});
+const datavars: Ref<Record<string, ZarrArray<RequestInit>>> = ref({});
 const update_count = ref(0);
 const updating_data = ref(false);
 const frameId = ref(0);
-const width = ref(undefined);
-const height = ref(undefined);
+const width: Ref<number | undefined> = ref(undefined);
+const height: Ref<number | undefined> = ref(undefined);
 
 let center = undefined;
-let main_mesh = undefined;
-let coast = undefined;
-let scene = undefined;
-let camera = undefined;
-let renderer = undefined;
-let orbitControls = undefined;
-let resize_observer = undefined;
+let main_mesh: THREE.Mesh | undefined = undefined;
+let coast: THREE.LineSegments | undefined = undefined;
+let scene: THREE.Scene | undefined = undefined;
+let camera: THREE.PerspectiveCamera | undefined = undefined;
+let renderer: THREE.Renderer | undefined = undefined;
+let orbitControls: OrbitControls | undefined = undefined;
+let resize_observer: ResizeObserver | undefined = undefined;
 let mouseDown = false;
 
-let canvas = ref();
-let box = ref();
+let canvas: Ref<HTMLCanvasElement | undefined> = ref();
+let box: Ref<Element | undefined> = ref();
 
 watch(
   () => varnameSelector.value,
@@ -139,79 +154,76 @@ async function datasourceUpdate() {
 }
 
 function render() {
+  const myRenderer = renderer as THREE.Renderer;
   if (width.value !== undefined && height.value !== undefined) {
-    renderer.setSize(width.value, height.value);
+    myRenderer.setSize(width.value, height.value);
   }
-  renderer.render(scene, camera);
+  myRenderer.render(scene!, camera!);
   if (box.value) {
-    resize_observer.observe(box.value);
+    resize_observer!.observe(box.value);
   }
 }
 
-function publishVarinfo(info) {
+function publishVarinfo(info: TVarInfo) {
   console.log("publish var info", info);
   emit("varinfo", info);
 }
 
 function redraw() {
-  if (orbitControls.autoRotate) {
+  if (orbitControls?.autoRotate) {
     return;
   }
   cancelAnimationFrame(frameId.value);
-  orbitControls.update();
+  orbitControls?.update();
   frameId.value = requestAnimationFrame(render);
 }
 
 async function fetchGrid() {
-  const store = new HTTPStore(gridsource.value.store);
-  const grid = await openGroup(store, gridsource.value.dataset, "r");
+  const store = new HTTPStore(gridsource.value!.store);
+  const grid = await openGroup(store, gridsource?.value?.dataset, "r");
   const verts = await grid2buffer(grid);
-  console.log("verts have nan: " + verts.some(isNaN));
-  console.log("verts", verts);
-  main_mesh.geometry.setAttribute(
-    "position",
-    new THREE.BufferAttribute(verts, 3)
-  );
-  main_mesh.geometry.attributes.position.needsUpdate = true;
-  main_mesh.geometry.computeBoundingBox();
-  main_mesh.geometry.computeBoundingSphere();
-  console.log("main mesh", main_mesh);
+  const myMesh = main_mesh as THREE.Mesh;
+  myMesh.geometry.setAttribute("position", new THREE.BufferAttribute(verts, 3));
+  myMesh.geometry.attributes.position.needsUpdate = true;
+  myMesh.geometry.computeBoundingBox();
+  myMesh.geometry.computeBoundingSphere();
   redraw();
 }
 
-async function getDataVar(myVarname) {
+async function getDataVar(myVarname: string) {
   if (datavars.value[myVarname] === undefined) {
     console.log("fetching " + myVarname);
-    const localDatasource = props.datasources.levels[0].datasources[myVarname];
+    const myDatasource = props.datasources!.levels[0].datasources[myVarname];
     if (datasource.value === undefined) {
       return undefined;
     }
     try {
-      const datastore = new HTTPStore(localDatasource.store);
+      const datastore = new HTTPStore(myDatasource.store);
       datavars.value[myVarname] = await openGroup(
         datastore,
-        localDatasource.dataset,
+        myDatasource.dataset,
         "r"
-      ).then((ds) => ds.getItem(myVarname));
+      ).then((ds) => ds.getItem(myVarname) as Promise<ZarrArray<RequestInit>>);
     } catch (error) {
       console.log(error);
       console.log(
         "WARNING, couldn't fetch variable " +
           myVarname +
           " from store: " +
-          localDatasource.store +
+          myDatasource.store +
           " and dataset: " +
-          localDatasource.dataset
+          myDatasource.dataset
       );
       return undefined;
     }
   }
+  console.log("DATAVARS", datavars.value);
   return datavars.value[myVarname];
 }
 
 function updateColormap() {
-  const low = props.varbounds.low;
-  const high = props.varbounds.high;
+  const low = props.varbounds?.low as number;
+  const high = props.varbounds?.high as number;
 
   let add_offset;
   let scale_factor;
@@ -223,29 +235,28 @@ function updateColormap() {
     scale_factor = 1 / (high - low);
     add_offset = -low * scale_factor;
   }
-
-  main_mesh.material.uniforms.colormap.value =
-    available_colormaps[props.colormap];
-  main_mesh.material.uniforms.add_offset.value = add_offset;
-  main_mesh.material.uniforms.scale_factor.value = scale_factor;
+  const myMesh = main_mesh as THREE.Mesh;
+  const material = myMesh.material as THREE.ShaderMaterial;
+  material.uniforms.colormap.value = available_colormaps[props.colormap!];
+  material.uniforms.add_offset.value = add_offset;
+  material.uniforms.scale_factor.value = scale_factor;
   redraw();
 }
 
 async function getTimeVar() {
-  const varname = "_time";
-  if (datavars.value[varname] === undefined) {
-    console.log("fetching " + varname);
-    const datasource = props.datasources.levels[0].time;
-    if (datasource === undefined) {
+  const myVarname = "_time";
+  if (datavars.value[myVarname] === undefined) {
+    const datasource = props.datasources?.levels[0].time;
+    if (!datasource) {
       return undefined;
     }
     try {
       const datastore = new HTTPStore(datasource.store);
-      datavars.value[varname] = await openGroup(
+      datavars.value[myVarname] = await openGroup(
         datastore,
         datasource.dataset,
         "r"
-      ).then((ds) => ds.getItem("time"));
+      ).then((ds) => ds.getItem("time") as Promise<ZarrArray<RequestInit>>);
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (_) {
       console.log(
@@ -259,7 +270,7 @@ async function getTimeVar() {
       return undefined;
     }
   }
-  return datavars.value[varname];
+  return datavars.value[myVarname];
 }
 async function getData() {
   store.startLoading();
@@ -281,10 +292,13 @@ async function getData() {
     if (timevar !== undefined) {
       const [timeattrs, timevalues] = await Promise.all([
         timevar.attrs.asObject(),
-        timevar.getRaw().then((t) => t.data),
+        timevar.getRaw().then((t) => {
+          return (t as RawArray).data;
+        }),
       ]);
+      console.log("timevlaues", timevalues);
       timeinfo = {
-        attrs: timeattrs,
+        // attrs: timeattrs,
         values: timevalues,
         current: decodeTime(timevalues[currentTimeIndexSliderValue], timeattrs),
       };
@@ -294,7 +308,7 @@ async function getData() {
         datavar.getRaw(currentTimeIndexSliderValue)
       );
       console.log("data buffer", data_buffer);
-      main_mesh.geometry.setAttribute(
+      main_mesh?.geometry.setAttribute(
         "data_value",
         new THREE.BufferAttribute(data_buffer.data_values, 1)
       );
@@ -320,10 +334,10 @@ async function getData() {
 async function updateCoastlines() {
   if (showCoastLines.value === false) {
     if (coast) {
-      scene.remove(coast);
+      scene?.remove(coast);
     }
   } else {
-    scene.add(await getCoastlines());
+    scene?.add(await getCoastlines());
   }
   redraw();
 }
@@ -343,11 +357,11 @@ async function getCoastlines() {
 
 function makeSnapshot() {
   render();
-  canvas.value.toBlob((blob) => {
+  canvas.value?.toBlob((blob) => {
     let link = document.createElement("a");
     link.download = "gridlook.png";
 
-    link.href = URL.createObjectURL(blob);
+    link.href = URL.createObjectURL(blob!);
     link.click();
 
     // delete the internal blob reference, to let the browser clear memory from it
@@ -356,12 +370,11 @@ function makeSnapshot() {
 }
 
 function copyPythonExample() {
-  console.log(props);
   const example = datashader_example({
-    camera_positon: camera.position,
-    datasrc: datasource.value.store + datasource.value.dataset,
-    gridsrc: gridsource.value.store + gridsource.value.dataset,
-    varname: props.varname,
+    camera_positon: camera!.position,
+    datasrc: datasource.value!.store + datasource.value!.dataset,
+    gridsrc: gridsource.value!.store + gridsource.value!.dataset,
+    varname: varname.value,
     timeIndex: timeIndex.value,
     varbounds: props.varbounds,
     colormap: props.colormap,
@@ -371,16 +384,16 @@ function copyPythonExample() {
 }
 
 function toggleRotate() {
-  orbitControls.autoRotate = !orbitControls.autoRotate;
+  orbitControls!.autoRotate = !orbitControls!.autoRotate;
   animationLoop();
 }
 
 function animationLoop() {
-  if (mouseDown || orbitControls.autoRotate) {
+  if (mouseDown || orbitControls?.autoRotate) {
     cancelAnimationFrame(frameId.value);
   }
   frameId.value = requestAnimationFrame(animationLoop);
-  orbitControls.update();
+  orbitControls?.update();
   render();
 }
 
@@ -391,10 +404,10 @@ function onCanvasResize() {
   const { width: boxWidth, height: boxHeight } =
     box.value.getBoundingClientRect();
   if (boxWidth !== width.value || boxHeight !== height.value) {
-    resize_observer.unobserve(box.value);
+    resize_observer?.unobserve(box.value);
     const aspect = boxWidth / boxHeight;
-    camera.aspect = aspect;
-    camera.updateProjectionMatrix();
+    camera!.aspect = aspect;
+    camera!.updateProjectionMatrix();
     width.value = boxWidth;
     height.value = boxHeight;
     redraw();
@@ -417,7 +430,7 @@ function init() {
   camera.position.x = 30;
   camera.lookAt(center);
 
-  scene.add(main_mesh);
+  scene.add(main_mesh as THREE.Mesh);
 
   orbitControls = new OrbitControls(camera, renderer.domElement);
   orbitControls.update();
@@ -433,30 +446,31 @@ onBeforeMount(async () => {
 });
 
 onMounted(() => {
+  let canvasValue = canvas.value as HTMLCanvasElement;
   mouseDown = false;
-  canvas.value.addEventListener("mousedown", () => {
+  canvasValue.addEventListener("mousedown", () => {
     mouseDown = true;
     animationLoop();
   });
-  canvas.value.addEventListener("wheel", () => {
+  canvasValue.addEventListener("wheel", () => {
     mouseDown = true;
     animationLoop();
   });
-  canvas.value.addEventListener("mouseup", () => {
+  canvasValue.addEventListener("mouseup", () => {
     mouseDown = false;
   });
-  canvas.value.addEventListener("mousedown", () => {
+  canvasValue.addEventListener("mousedown", () => {
     mouseDown = true;
     animationLoop();
   });
   init();
   resize_observer = new ResizeObserver(onCanvasResize);
-  resize_observer.observe(box.value);
+  resize_observer?.observe(box.value!);
   onCanvasResize();
 });
 
 onBeforeUnmount(() => {
-  resize_observer.unobserve(box.value);
+  resize_observer?.unobserve(box.value!);
 });
 
 defineExpose({ makeSnapshot, copyPythonExample, toggleRotate });

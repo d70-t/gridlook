@@ -1,7 +1,8 @@
 import type { Dayjs } from "dayjs";
-import type { available_colormaps } from "../components/js/colormap_shaders";
+import type { available_colormaps } from "../components/js/colormap_shaders.js";
+import type { UserAttributes } from "zarr/types/types.js";
 
-type EmptyObj = Record<PropertyKey, never>;
+export type EmptyObj = Record<PropertyKey, never>;
 
 export type TColorMap = keyof typeof available_colormaps;
 export type TSelection = {
@@ -11,10 +12,10 @@ export type TSelection = {
 };
 
 export type TVarInfo = {
-  timeinfo: { current: Dayjs; values: Int32Array };
+  timeinfo: EmptyObj | { current: Dayjs; values: Int32Array };
   time_range: { start: number; end: number };
   bounds: TBounds;
-  attrs: { long_name: string; units: string };
+  attrs: UserAttributes; //{ long_name: string; units: string };
 };
 
 export type TModelInfo = {
@@ -43,6 +44,24 @@ export type TSources = {
   default_var: string;
   levels: {
     name: string;
-    datasources: object;
+    grid: {
+      store: string;
+      dataset: string;
+    };
+    time: {
+      store: string;
+      dataset: string;
+    };
+    datasources: Record<string, TDataSource>;
   }[];
+};
+
+export type TDataSource = {
+  dataset: string;
+  default_colormap: {
+    name: TColorMap;
+    inverted: boolean;
+  };
+  default_range: TBounds;
+  store: string;
 };
