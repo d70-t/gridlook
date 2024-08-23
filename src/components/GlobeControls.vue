@@ -25,61 +25,61 @@ const store = useGlobeControlStore();
 const { timeIndexSlider, varnameSelector } = storeToRefs(store);
 const menuCollapsed: Ref<boolean> = ref(false);
 const colormap: Ref<TColorMap> = ref("turbo");
-const invert_colormap: Ref<boolean> = ref(true);
-const auto_colormap: Ref<boolean> = ref(true);
-const default_bounds: Ref<TBounds> = ref({});
-const user_bounds_low: Ref<number | undefined> = ref(undefined);
-const user_bounds_high: Ref<number | undefined> = ref(undefined);
-const picked_bounds = ref("auto");
+const invertColormap: Ref<boolean> = ref(true);
+const autoColormap: Ref<boolean> = ref(true);
+const defaultBounds: Ref<TBounds> = ref({});
+const userBoundsLow: Ref<number | undefined> = ref(undefined);
+const userBoundsHigh: Ref<number | undefined> = ref(undefined);
+const pickedBounds = ref("auto");
 
-const active_bounds = computed(() => {
-  if (picked_bounds.value == "auto") {
+const activeBounds = computed(() => {
+  if (pickedBounds.value == "auto") {
     if (
-      default_bounds.value.low !== undefined &&
-      default_bounds.value.high !== undefined
+      defaultBounds.value.low !== undefined &&
+      defaultBounds.value.high !== undefined
     ) {
       return "default";
     } else {
       return "data";
     }
   } else {
-    return picked_bounds.value;
+    return pickedBounds.value;
   }
 });
 
 const bounds = computed(() => {
-  if (active_bounds.value == "data") {
-    return data_bounds;
-  } else if (active_bounds.value == "default") {
-    return default_bounds;
-  } else if (active_bounds.value == "user") {
-    return { low: user_bounds_low.value, high: user_bounds_high.value };
+  if (activeBounds.value == "data") {
+    return dataBounds;
+  } else if (activeBounds.value == "default") {
+    return defaultBounds;
+  } else if (activeBounds.value == "user") {
+    return { low: userBoundsLow.value, high: userBoundsHigh.value };
   }
   return undefined;
 });
 
-const data_bounds = computed(() => {
+const dataBounds = computed(() => {
   return props.varinfo?.bounds ?? {};
 });
 
-const time_range = computed(() => {
+const timeRange = computed(() => {
   return props.varinfo?.time_range ?? { start: 0, end: 1 };
 });
 
-const current_time_value = computed(() => {
+const currentTimeValue = computed(() => {
   console.log("CURRENt_TIME VALUE", props.varinfo?.timeinfo?.current);
   return props.varinfo?.timeinfo?.current;
 });
 
-const current_var_name = computed(() => {
+const currentVarName = computed(() => {
   return store.varname ?? "-";
 });
 
-const current_var_longname = computed(() => {
+const currentVarLongname = computed(() => {
   return props.varinfo?.attrs?.long_name ?? "-";
 });
 
-const current_var_units = computed(() => {
+const currentVarUnits = computed(() => {
   return props.varinfo?.attrs?.units ?? "-";
 });
 
@@ -89,7 +89,7 @@ watch(
     const varinfo = props.modelInfo!.vars[varnameSelector.value];
     console.log("varinfo", varinfo, varnameSelector);
     console.log(props.modelInfo!.vars);
-    default_bounds.value = varinfo.default_range ?? {};
+    defaultBounds.value = varinfo.default_range ?? {};
     setDefaultColormap();
     publish();
   }
@@ -101,7 +101,7 @@ watch(
 );
 
 watch(
-  () => invert_colormap.value,
+  () => invertColormap.value,
   () => publish()
 );
 
@@ -122,7 +122,7 @@ watch(
 );
 
 watch(
-  () => auto_colormap,
+  () => autoColormap,
   () => setDefaultColormap()
 );
 
@@ -134,15 +134,15 @@ const publish = () => {
   emit("selection", {
     bounds: bounds.value as TBounds,
     colormap: colormap.value,
-    invertColormap: invert_colormap.value,
+    invertColormap: invertColormap.value,
   });
 };
 
 const setDefaultColormap = () => {
   const defaultColormap =
     props.modelInfo?.vars[varnameSelector.value].default_colormap;
-  if (auto_colormap.value && defaultColormap !== undefined) {
-    invert_colormap.value = defaultColormap.inverted || false;
+  if (autoColormap.value && defaultColormap !== undefined) {
+    invertColormap.value = defaultColormap.inverted || false;
     colormap.value = defaultColormap.name;
   }
 };
@@ -202,15 +202,15 @@ const setDefaultColormap = () => {
               type="number"
               style="width: 8em"
             />
-            <div class="my-2">/ {{ time_range.end }}</div>
+            <div class="my-2">/ {{ timeRange.end }}</div>
           </div>
         </div>
         <input
           v-model.number="timeIndexSlider"
           class="w-100"
           type="range"
-          :min="time_range.start"
-          :max="time_range.end"
+          :min="timeRange.start"
+          :max="timeRange.end"
         />
         <div class="w-100 is-flex is-justify-content-space-between">
           <div>
@@ -219,16 +219,16 @@ const setDefaultColormap = () => {
             ></span>
           </div>
           <div class="has-text-right">
-            {{ current_var_name }} @ {{ store.timeIndex }}
+            {{ currentVarName }} @ {{ store.timeIndex }}
             <br />
-            <span v-if="current_time_value">
-              {{ current_time_value.format() }}
+            <span v-if="currentTimeValue">
+              {{ currentTimeValue.format() }}
             </span>
             <br />
           </div>
         </div>
         <div class="has-text-right">
-          {{ current_var_longname }} / {{ current_var_units }}
+          {{ currentVarLongname }} / {{ currentVarUnits }}
         </div>
       </div>
     </div>
@@ -243,53 +243,53 @@ const setDefaultColormap = () => {
           <th>low</th>
           <th class="right">high</th>
         </tr>
-        <tr :class="{ active: active_bounds === 'data' }">
+        <tr :class="{ active: activeBounds === 'data' }">
           <td>
             <input
               id="data_bounds"
-              v-model="picked_bounds"
+              v-model="pickedBounds"
               type="radio"
               value="data"
             /><label for="data_bounds">data</label>
           </td>
-          <td>{{ Number(data_bounds.low).toPrecision(4) }}</td>
-          <td class="right">{{ Number(data_bounds.high).toPrecision(4) }}</td>
+          <td>{{ Number(dataBounds.low).toPrecision(4) }}</td>
+          <td class="right">{{ Number(dataBounds.high).toPrecision(4) }}</td>
         </tr>
-        <tr :class="{ active: active_bounds === 'default' }">
+        <tr :class="{ active: activeBounds === 'default' }">
           <td>
             <input
               id="default_bounds"
-              v-model="picked_bounds"
+              v-model="pickedBounds"
               type="radio"
               value="default"
             /><label for="default_bounds">default</label>
           </td>
-          <td>{{ Number(default_bounds.low).toPrecision(2) }}</td>
+          <td>{{ Number(defaultBounds.low).toPrecision(2) }}</td>
           <td class="right">
-            {{ Number(default_bounds.high).toPrecision(2) }}
+            {{ Number(defaultBounds.high).toPrecision(2) }}
           </td>
         </tr>
-        <tr :class="{ active: active_bounds === 'user' }">
+        <tr :class="{ active: activeBounds === 'user' }">
           <td class="py-2">
             <input
               id="user_bounds"
-              v-model="picked_bounds"
+              v-model="pickedBounds"
               type="radio"
               value="user"
             /><label for="user_bounds">user</label>
           </td>
           <td class="py-1">
-            <input v-model.number="user_bounds_low" size="10" class="input" />
+            <input v-model.number="userBoundsLow" size="10" class="input" />
           </td>
           <td class="right py-1">
-            <input v-model.number="user_bounds_high" size="10" class="input" />
+            <input v-model.number="userBoundsHigh" size="10" class="input" />
           </td>
         </tr>
         <tr>
           <td>
             <input
               id="auto_bounds"
-              v-model="picked_bounds"
+              v-model="pickedBounds"
               class="mb-3"
               type="radio"
               value="auto"
@@ -312,7 +312,7 @@ const setDefaultColormap = () => {
             <ColorBar
               class="hcolormap"
               :colormap="colormap"
-              :invert-colormap="invert_colormap"
+              :invert-colormap="invertColormap"
             />
           </td>
         </tr>
@@ -320,7 +320,7 @@ const setDefaultColormap = () => {
           <td>
             <input
               id="invert_colormap"
-              v-model="invert_colormap"
+              v-model="invertColormap"
               type="checkbox"
             /><label for="invert_colormap">invert</label>
           </td>
@@ -328,7 +328,7 @@ const setDefaultColormap = () => {
           <td>
             <input
               id="auto_colormap"
-              v-model="auto_colormap"
+              v-model="autoColormap"
               type="checkbox"
             /><label for="auto_colormap">auto</label>
           </td>

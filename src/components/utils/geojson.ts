@@ -41,7 +41,7 @@ export function geojson2geometry(geojson: FeatureCollection, radius = 1) {
   const indices: number[] = [];
   let is = 0;
   for (let i = 0; i < polylines.length / 3 - 1; ++i) {
-    if (i + 1 == splits[is]) {
+    if (i + 1 === splits[is]) {
       is += 1;
     } else {
       indices.push(i);
