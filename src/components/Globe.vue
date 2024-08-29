@@ -1,405 +1,475 @@
-<script>
+<script lang="ts" setup>
 import * as THREE from "three";
-import { HTTPStore, openGroup } from "zarr";
-import { grid2buffer, data2value_buffer } from "./js/gridlook.js";
+import { HTTPStore, openGroup, ZarrArray } from "zarr";
+import { grid2buffer, data2valueBuffer } from "./utils/gridlook.ts";
 import {
-  make_colormap_material,
-  available_colormaps,
-} from "./js/colormap_shaders.js";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+  makeColormapMaterial,
+  availableColormaps,
+} from "./utils/colormapShaders.ts";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 import { geojson2geometry } from "./utils/geojson.ts";
 import { decodeTime } from "./utils/timeHandling.ts";
 
-import { datashader_example } from "./js/example_formatters.js";
+import { datashaderExample } from "./utils/exampleFormatters.ts";
+import {
+  computed,
+  onBeforeMount,
+  ref,
+  onMounted,
+  watch,
+  onBeforeUnmount,
+  type Ref,
+} from "vue";
 
-export default {
-  props: [
-    "datasources",
-    "colormap",
-    "invertColormap",
-    "varname",
-    "timeIndex",
-    "varbounds",
-    "enableCoastlines",
-  ],
-  emits: ["varinfo"],
-  data() {
-    return {
-      datavars: {},
-      update_count: 0,
-      updating_data: false,
-      frameId: 0,
-      width: undefined,
-      height: undefined,
-    };
-  },
-  created() {
-    const geometry = new THREE.BufferGeometry();
-    const material = this.colormapMaterial;
-    this.main_mesh = new THREE.Mesh(geometry, material);
-    this.datasourceUpdate();
-  },
-  mounted() {
-    this.mouseDown = false;
-    this.$refs.canvas.addEventListener("mousedown", () => {
-      this.mouseDown = true;
-      this.animationLoop();
-    });
-    this.$refs.canvas.addEventListener("wheel", () => {
-      this.mouseDown = true;
-      this.animationLoop();
-    });
-    this.$refs.canvas.addEventListener("mouseup", () => {
-      this.mouseDown = false;
-    });
+import { useGlobeControlStore } from "./store/store.js";
+import { storeToRefs } from "pinia";
+import type {
+  TBounds,
+  TColorMap,
+  TSources,
+  TVarInfo,
+} from "../types/GlobeTypes.ts";
+import type { RawArray } from "zarr/types/rawArray/index";
 
-    this.init();
-    const orbitControls = new OrbitControls(
-      this.camera,
-      this.renderer.domElement
-    );
-    this.orbitControls = orbitControls;
-    this.orbitControls.update();
-    this.resize_observer = new ResizeObserver(this.onCanvasResize);
-    this.resize_observer.observe(this.$refs.box);
-    this.onCanvasResize();
-  },
-  beforeUnmount() {
-    this.resize_observer.unobserve(this.$refs.box);
-  },
-  watch: {
-    datasources() {
-      this.datasourceUpdate();
-    },
-    varname() {
-      this.getData();
-    },
-    timeIndex() {
-      this.getData();
-    },
-    colormap() {
-      this.updateColormap();
-    },
-    invertColormap() {
-      this.updateColormap();
-    },
-    varbounds() {
-      this.updateColormap();
-    },
-    enableCoastlines() {
-      this.updateCoastlines();
-    },
-  },
-  computed: {
-    colormapMaterial() {
-      if (this.invertColormap) {
-        return make_colormap_material(this.colormap, 1.0, -1.0);
-      } else {
-        return make_colormap_material(this.colormap, 0.0, 1.0);
-      }
-    },
-    gridsource() {
-      if (this.datasources) {
-        return this.datasources.levels[0].grid;
-      } else {
-        return undefined;
-      }
-    },
-    datasource() {
-      if (this.datasources) {
-        return this.datasources.levels[0].datasources[this.varname];
-      } else {
-        return undefined;
-      }
-    },
-  },
-  methods: {
-    init() {
-      // from: https://stackoverflow.com/a/65732553
-      this.scene = new THREE.Scene();
-      this.center = new THREE.Vector3();
-      this.camera = new THREE.PerspectiveCamera(
-        7.5,
-        window.innerWidth / window.innerHeight,
-        0.1,
-        1000
+const props = defineProps<{
+  datasources?: TSources;
+  varbounds?: TBounds;
+  colormap?: TColorMap;
+  invertColormap?: boolean;
+}>();
+
+const emit = defineEmits<{ varinfo: [TVarInfo] }>();
+const store = useGlobeControlStore();
+const { showCoastLines, timeIndexSlider, timeIndex, varnameSelector, varname } =
+  storeToRefs(store);
+
+const datavars: Ref<Record<string, ZarrArray<RequestInit>>> = ref({});
+const updateCount = ref(0);
+const updatingData = ref(false);
+const frameId = ref(0);
+const width: Ref<number | undefined> = ref(undefined);
+const height: Ref<number | undefined> = ref(undefined);
+
+let center = undefined;
+let mainMesh: THREE.Mesh | undefined = undefined;
+let coast: THREE.LineSegments | undefined = undefined;
+let scene: THREE.Scene | undefined = undefined;
+let camera: THREE.PerspectiveCamera | undefined = undefined;
+let renderer: THREE.Renderer | undefined = undefined;
+let orbitControls: OrbitControls | undefined = undefined;
+let resizeObserver: ResizeObserver | undefined = undefined;
+let mouseDown = false;
+
+let canvas: Ref<HTMLCanvasElement | undefined> = ref();
+let box: Ref<HTMLDivElement | undefined> = ref();
+
+watch(
+  () => varnameSelector.value,
+  () => {
+    getData();
+  }
+);
+
+watch(
+  () => timeIndexSlider.value,
+  () => {
+    getData();
+  }
+);
+
+watch(
+  () => props.datasources,
+  () => {
+    datasourceUpdate();
+  }
+);
+
+watch(
+  () => props.varbounds,
+  () => {
+    updateColormap();
+  }
+);
+
+watch(
+  () => props.invertColormap,
+  () => {
+    updateColormap();
+  }
+);
+
+watch(
+  () => props.colormap,
+  () => {
+    updateColormap();
+  }
+);
+
+watch(
+  () => showCoastLines.value,
+  () => {
+    updateCoastlines();
+  }
+);
+
+const colormapMaterial = computed(() => {
+  if (props.invertColormap) {
+    return makeColormapMaterial(props.colormap, 1.0, -1.0);
+  } else {
+    return makeColormapMaterial(props.colormap, 0.0, 1.0);
+  }
+});
+
+const gridsource = computed(() => {
+  if (props.datasources) {
+    return props.datasources.levels[0].grid;
+  } else {
+    return undefined;
+  }
+});
+
+const datasource = computed(() => {
+  if (props.datasources) {
+    return props.datasources.levels[0].datasources[varnameSelector.value];
+  } else {
+    return undefined;
+  }
+});
+
+async function datasourceUpdate() {
+  datavars.value = {};
+  if (props.datasources !== undefined) {
+    await fetchGrid();
+    await getData();
+  }
+}
+
+function render() {
+  const myRenderer = renderer as THREE.Renderer;
+  if (width.value !== undefined && height.value !== undefined) {
+    myRenderer.setSize(width.value, height.value);
+  }
+  myRenderer.render(scene!, camera!);
+  if (box.value) {
+    resizeObserver!.observe(box.value);
+  }
+}
+
+function publishVarinfo(info: TVarInfo) {
+  console.log("publish var info", info);
+  emit("varinfo", info);
+}
+
+function redraw() {
+  if (orbitControls?.autoRotate) {
+    return;
+  }
+  cancelAnimationFrame(frameId.value);
+  orbitControls?.update();
+  frameId.value = requestAnimationFrame(render);
+}
+
+async function fetchGrid() {
+  const store = new HTTPStore(gridsource.value!.store);
+  const grid = await openGroup(store, gridsource?.value?.dataset, "r");
+  const verts = await grid2buffer(grid);
+  const myMesh = mainMesh as THREE.Mesh;
+  myMesh.geometry.setAttribute("position", new THREE.BufferAttribute(verts, 3));
+  myMesh.geometry.attributes.position.needsUpdate = true;
+  myMesh.geometry.computeBoundingBox();
+  myMesh.geometry.computeBoundingSphere();
+  redraw();
+}
+
+async function getDataVar(myVarname: string) {
+  if (datavars.value[myVarname] === undefined) {
+    console.log("fetching " + myVarname);
+    const myDatasource = props.datasources!.levels[0].datasources[myVarname];
+    if (datasource.value === undefined) {
+      return undefined;
+    }
+    try {
+      const datastore = new HTTPStore(myDatasource.store);
+      datavars.value[myVarname] = await openGroup(
+        datastore,
+        myDatasource.dataset,
+        "r"
+      ).then((ds) => ds.getItem(myVarname) as Promise<ZarrArray<RequestInit>>);
+    } catch (error) {
+      console.log(error);
+      console.log(
+        "WARNING, couldn't fetch variable " +
+          myVarname +
+          " from store: " +
+          myDatasource.store +
+          " and dataset: " +
+          myDatasource.dataset
       );
-      console.log("canvas", this.$refs.canvas);
-      this.renderer = new THREE.WebGLRenderer({ canvas: this.$refs.canvas });
+      return undefined;
+    }
+  }
+  console.log("DATAVARS", datavars.value);
+  return datavars.value[myVarname];
+}
 
-      this.camera.up = new THREE.Vector3(0, 0, 1);
-      this.camera.position.x = 30;
-      this.camera.lookAt(this.center);
+function updateColormap() {
+  const low = props.varbounds?.low as number;
+  const high = props.varbounds?.high as number;
 
-      this.scene.add(this.main_mesh);
-      this.coast = undefined;
-      this.updateCoastlines();
-    },
-    datasourceUpdate() {
-      this.datavars = {};
-      if (this.datasources !== undefined) {
-        this.fetchGrid();
-        this.getData();
-      }
-    },
-    async fetchGrid() {
-      const store = new HTTPStore(this.gridsource.store);
-      const grid = await openGroup(store, this.gridsource.dataset, "r");
-      const verts = await grid2buffer(grid);
-      console.log("verts have nan: " + verts.some(isNaN));
-      console.log("verts", verts);
-      this.main_mesh.geometry.setAttribute(
-        "position",
-        new THREE.BufferAttribute(verts, 3)
+  let addOffset: number;
+  let scaleFactor: number;
+
+  if (props.invertColormap) {
+    scaleFactor = -1 / (high - low);
+    addOffset = -high * scaleFactor;
+  } else {
+    scaleFactor = 1 / (high - low);
+    addOffset = -low * scaleFactor;
+  }
+  const myMesh = mainMesh as THREE.Mesh;
+  const material = myMesh.material as THREE.ShaderMaterial;
+  material.uniforms.colormap.value = availableColormaps[props.colormap!];
+  material.uniforms.addOffset.value = addOffset;
+  material.uniforms.scaleFactor.value = scaleFactor;
+  redraw();
+}
+
+async function getTimeVar() {
+  const myVarname = "_time";
+  if (datavars.value[myVarname] === undefined) {
+    const datasource = props.datasources?.levels[0].time;
+    if (!datasource) {
+      return undefined;
+    }
+    try {
+      const datastore = new HTTPStore(datasource.store);
+      datavars.value[myVarname] = await openGroup(
+        datastore,
+        datasource.dataset,
+        "r"
+      ).then((ds) => ds.getItem("time") as Promise<ZarrArray<RequestInit>>);
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    } catch (_) {
+      console.log(
+        "WARNING, couldn't fetch variable " +
+          "time" +
+          " from store: " +
+          datasource.store +
+          " and dataset: " +
+          datasource.dataset
       );
-      this.main_mesh.geometry.attributes.position.needsUpdate = true;
-      this.main_mesh.geometry.computeBoundingBox();
-      this.main_mesh.geometry.computeBoundingSphere();
-      this.redraw();
-    },
-    async getDataVar(varname) {
-      if (this.datavars[varname] === undefined) {
-        console.log("fetching " + varname);
-        const datasource = this.datasources.levels[0].datasources[varname];
-        if (datasource === undefined) {
-          return undefined;
-        }
-        try {
-          const datastore = new HTTPStore(datasource.store);
-          this.datavars[varname] = await openGroup(
-            datastore,
-            datasource.dataset,
-            "r"
-          ).then((ds) => ds.getItem(varname));
-        } catch (error) {
-          console.log(
-            "WARNING, couldn't fetch variable " +
-              varname +
-              " from store: " +
-              datasource.store +
-              " and dataset: " +
-              datasource.dataset
-          );
-          return undefined;
-        }
-      }
-      return this.datavars[varname];
-    },
-    async getTimeVar() {
-      const varname = "_time";
-      if (this.datavars[varname] === undefined) {
-        console.log("fetching " + varname);
-        const datasource = this.datasources.levels[0].time;
-        if (datasource === undefined) {
-          return undefined;
-        }
-        try {
-          const datastore = new HTTPStore(datasource.store);
-          this.datavars[varname] = await openGroup(
-            datastore,
-            datasource.dataset,
-            "r"
-          ).then((ds) => ds.getItem("time"));
-        } catch (error) {
-          console.log(
-            "WARNING, couldn't fetch variable " +
-              "time" +
-              " from store: " +
-              datasource.store +
-              " and dataset: " +
-              datasource.dataset
-          );
-          return undefined;
-        }
-      }
-      return this.datavars[varname];
-    },
-    async getData() {
-      this.update_count += 1;
-      const update_count = this.update_count;
-      if (this.updating_data) {
-        return;
-      }
-      this.updating_data = true;
+      return undefined;
+    }
+  }
+  return datavars.value[myVarname];
+}
+async function getData() {
+  store.startLoading();
+  try {
+    updateCount.value += 1;
+    const myUpdatecount = updateCount.value;
+    if (updatingData.value) {
+      return;
+    }
+    updatingData.value = true;
 
-      const varname = this.varname;
-      const time_index = this.timeIndex;
-      const [timevar, datavar] = await Promise.all([
-        this.getTimeVar(),
-        this.getDataVar(varname),
+    const localVarname = varnameSelector.value;
+    const currentTimeIndexSliderValue = timeIndexSlider.value;
+    const [timevar, datavar] = await Promise.all([
+      getTimeVar(),
+      getDataVar(localVarname),
+    ]);
+    let timeinfo = {};
+    if (timevar !== undefined) {
+      const [timeattrs, timevalues] = await Promise.all([
+        timevar.attrs.asObject(),
+        timevar.getRaw().then((t) => {
+          return (t as RawArray).data;
+        }),
       ]);
-      let timeinfo = {};
-      if (timevar !== undefined) {
-        const [timeattrs, timevalues] = await Promise.all([
-          timevar.attrs.asObject(),
-          timevar.getRaw().then((t) => t.data),
-        ]);
-        timeinfo = {
-          attrs: timeattrs,
-          values: timevalues,
-          current: decodeTime(timevalues[time_index], timeattrs),
-        };
-      }
-      if (datavar !== undefined) {
-        const data_buffer = await data2value_buffer(datavar.getRaw(time_index));
-        console.log("data buffer", data_buffer);
-        this.main_mesh.geometry.setAttribute(
-          "data_value",
-          new THREE.BufferAttribute(data_buffer.data_values, 1)
-        );
-        this.publishVarinfo({
-          attrs: await datavar.attrs.asObject(),
-          time_index,
-          timeinfo,
-          varname,
-          time_range: { start: 0, end: datavar.shape[0] - 1 },
-          bounds: { low: data_buffer.data_min, high: data_buffer.data_max },
-        });
-        this.redraw();
-      }
-      this.updating_data = false;
-      if (this.update_count != update_count) {
-        this.getData();
-      }
-    },
-
-    publishVarinfo(info) {
-      this.$emit("varinfo", info);
-    },
-
-    updateColormap() {
-      const low = this.varbounds.low;
-      const high = this.varbounds.high;
-
-      let add_offset;
-      let scale_factor;
-
-      if (this.invertColormap) {
-        scale_factor = -1 / (high - low);
-        add_offset = -high * scale_factor;
-      } else {
-        scale_factor = 1 / (high - low);
-        add_offset = -low * scale_factor;
-      }
-
-      this.main_mesh.material.uniforms.colormap.value =
-        available_colormaps[this.colormap];
-      this.main_mesh.material.uniforms.add_offset.value = add_offset;
-      this.main_mesh.material.uniforms.scale_factor.value = scale_factor;
-      this.redraw();
-    },
-
-    async getCoastlines() {
-      if (this.coast === undefined) {
-        const coastlines = await fetch("static/ne_50m_coastline.geojson").then(
-          (r) => r.json()
-        );
-        console.log(coastlines);
-        const geometry = geojson2geometry(coastlines, 1.001);
-        const material = new THREE.LineBasicMaterial({ color: "#ffffff" });
-        this.coast = new THREE.LineSegments(geometry, material);
-        this.coast.name = "coastlines";
-      }
-      return this.coast;
-    },
-
-    async updateCoastlines() {
-      if (this.enableCoastlines === false) {
-        if (this.coast) {
-          this.scene.remove(this.coast);
-        }
-      } else {
-        this.scene.add(await this.getCoastlines());
-      }
-      this.redraw();
-    },
-
-    render() {
-      if (this.width !== undefined && this.height !== undefined) {
-        this.renderer.setSize(this.width, this.height);
-      }
-      this.renderer.render(this.scene, this.camera);
-      if (this.$refs.box) {
-        this.resize_observer.observe(this.$refs.box);
-      }
-    },
-
-    redraw() {
-      if (this.orbitControls.autoRotate) {
-        return;
-      }
-      cancelAnimationFrame(this.frameId);
-      this.orbitControls.update();
-      this.frameId = requestAnimationFrame(this.render);
-    },
-
-    animationLoop() {
-      if (this.mouseDown || this.orbitControls.autoRotate) {
-        cancelAnimationFrame(this.frameId);
-        this.frameId = requestAnimationFrame(this.animationLoop);
-        this.orbitControls.update();
-        this.render();
-      }
-    },
-
-    onCanvasResize(entries) {
-      if (!this.$refs.box) {
-        return;
-      }
-      console.log(entries);
-      console.log("resize", this.$refs.box);
-      const { width, height } = this.$refs.box.getBoundingClientRect();
-      console.log("box", width, height);
-      if (width !== this.width || height !== this.height) {
-        this.resize_observer.unobserve(this.$refs.box);
-        const aspect = width / height;
-        this.camera.aspect = aspect;
-        this.camera.updateProjectionMatrix();
-        this.width = width;
-        this.height = height;
-        this.redraw();
-      }
-    },
-
-    makeSnapshot() {
-      const canvas = this.$refs.canvas;
-      this.render();
-      canvas.toBlob((blob) => {
-        let link = document.createElement("a");
-        link.download = "gridlook.png";
-
-        link.href = URL.createObjectURL(blob);
-        link.click();
-
-        // delete the internal blob reference, to let the browser clear memory from it
-        URL.revokeObjectURL(link.href);
-      }, "image/png");
-    },
-    copyPythonExample() {
-      const example = datashader_example({
-        camera_positon: this.camera.position,
-        datasrc: this.datasource.store + this.datasource.dataset,
-        gridsrc: this.gridsource.store + this.gridsource.dataset,
-        varname: this.varname,
-        timeIndex: this.timeIndex,
-        varbounds: this.varbounds,
-        colormap: this.colormap,
-        invertColormap: this.invertColormap,
+      console.log("timevlaues", timevalues);
+      timeinfo = {
+        // attrs: timeattrs,
+        values: timevalues,
+        current: decodeTime(timevalues[currentTimeIndexSliderValue], timeattrs),
+      };
+    }
+    if (datavar !== undefined) {
+      const rawData = (await datavar.getRaw(
+        currentTimeIndexSliderValue
+      )) as RawArray;
+      const dataBuffer = data2valueBuffer(rawData);
+      mainMesh?.geometry.setAttribute(
+        "data_value",
+        new THREE.BufferAttribute(dataBuffer.dataValues, 1)
+      );
+      publishVarinfo({
+        attrs: await datavar.attrs.asObject(),
+        timeinfo,
+        timeRange: { start: 0, end: datavar.shape[0] - 1 },
+        bounds: { low: dataBuffer.dataMin, high: dataBuffer.dataMax },
       });
-      navigator.clipboard.writeText(example);
-    },
+      redraw();
+      timeIndex.value = currentTimeIndexSliderValue;
+      varname.value = localVarname;
+    }
+    updatingData.value = false;
+    if (updateCount.value !== myUpdatecount) {
+      await getData();
+    }
+  } finally {
+    store.stopLoading();
+  }
+}
 
-    toggleRotate() {
-      this.orbitControls.autoRotate = !this.orbitControls.autoRotate;
-      this.animationLoop();
-    },
-  },
-};
+async function updateCoastlines() {
+  if (showCoastLines.value === false) {
+    if (coast) {
+      scene?.remove(coast);
+    }
+  } else {
+    scene?.add(await getCoastlines());
+  }
+  redraw();
+}
+
+async function getCoastlines() {
+  if (coast === undefined) {
+    const coastlines = await fetch("static/ne_50m_coastline.geojson").then(
+      (r) => r.json()
+    );
+    const geometry = geojson2geometry(coastlines, 1.001);
+    const material = new THREE.LineBasicMaterial({ color: "#ffffff" });
+    coast = new THREE.LineSegments(geometry, material);
+    coast.name = "coastlines";
+  }
+  return coast;
+}
+
+function makeSnapshot() {
+  render();
+  canvas.value?.toBlob((blob) => {
+    let link = document.createElement("a");
+    link.download = "gridlook.png";
+
+    link.href = URL.createObjectURL(blob!);
+    link.click();
+
+    // delete the internal blob reference, to let the browser clear memory from it
+    URL.revokeObjectURL(link.href);
+  }, "image/png");
+}
+
+function copyPythonExample() {
+  const example = datashaderExample({
+    cameraPosition: camera!.position,
+    datasrc: datasource.value!.store + datasource.value!.dataset,
+    gridsrc: gridsource.value!.store + gridsource.value!.dataset,
+    varname: varname.value,
+    timeIndex: timeIndex.value,
+    varbounds: props.varbounds!,
+    colormap: props.colormap!,
+    invertColormap: props.invertColormap,
+  });
+  navigator.clipboard.writeText(example);
+}
+
+function toggleRotate() {
+  orbitControls!.autoRotate = !orbitControls!.autoRotate;
+  animationLoop();
+}
+
+function animationLoop() {
+  if (mouseDown || orbitControls?.autoRotate) {
+    cancelAnimationFrame(frameId.value);
+  }
+  frameId.value = requestAnimationFrame(animationLoop);
+  orbitControls?.update();
+  render();
+}
+
+function onCanvasResize() {
+  if (!box.value) {
+    return;
+  }
+  const { width: boxWidth, height: boxHeight } =
+    box.value.getBoundingClientRect();
+  if (boxWidth !== width.value || boxHeight !== height.value) {
+    resizeObserver?.unobserve(box.value);
+    const aspect = boxWidth / boxHeight;
+    camera!.aspect = aspect;
+    camera!.updateProjectionMatrix();
+    width.value = boxWidth;
+    height.value = boxHeight;
+    redraw();
+  }
+}
+
+function init() {
+  // from: https://stackoverflow.com/a/65732553
+  scene = new THREE.Scene();
+  center = new THREE.Vector3();
+  camera = new THREE.PerspectiveCamera(
+    7.5,
+    window.innerWidth / window.innerHeight,
+    0.1,
+    1000
+  );
+  renderer = new THREE.WebGLRenderer({ canvas: canvas.value });
+
+  camera.up = new THREE.Vector3(0, 0, 1);
+  camera.position.x = 30;
+  camera.lookAt(center);
+
+  scene.add(mainMesh as THREE.Mesh);
+
+  orbitControls = new OrbitControls(camera, renderer.domElement);
+  orbitControls.update();
+  coast = undefined;
+  updateCoastlines();
+}
+
+onBeforeMount(async () => {
+  const geometry = new THREE.BufferGeometry();
+  const material = colormapMaterial.value;
+  mainMesh = new THREE.Mesh(geometry, material);
+  await datasourceUpdate();
+});
+
+onMounted(() => {
+  let canvasValue = canvas.value as HTMLCanvasElement;
+  mouseDown = false;
+  canvasValue.addEventListener("mousedown", () => {
+    mouseDown = true;
+    animationLoop();
+  });
+  canvasValue.addEventListener("wheel", () => {
+    mouseDown = true;
+    animationLoop();
+  });
+  canvasValue.addEventListener("mouseup", () => {
+    mouseDown = false;
+  });
+  canvasValue.addEventListener("mousedown", () => {
+    mouseDown = true;
+    animationLoop();
+  });
+  init();
+  resizeObserver = new ResizeObserver(onCanvasResize);
+  resizeObserver?.observe(box.value!);
+  onCanvasResize();
+});
+
+onBeforeUnmount(() => {
+  resizeObserver?.unobserve(box.value!);
+});
+
+defineExpose({ makeSnapshot, copyPythonExample, toggleRotate });
 </script>
 
 <template>
-  <div class="globe_box" ref="box">
-    <canvas class="globe_canvas" ref="canvas"> </canvas>
+  <div ref="box" class="globe_box">
+    <canvas ref="canvas" class="globe_canvas"> </canvas>
   </div>
 </template>
 

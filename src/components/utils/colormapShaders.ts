@@ -1,6 +1,7 @@
 import * as THREE from "three";
+import type { TColorMap } from "../../types/GlobeTypes";
 
-export const available_colormaps = {
+export const availableColormaps = {
   inferno: 0,
   magma: 1,
   plasma: 2,
@@ -59,7 +60,7 @@ export const available_colormaps = {
   curl: 55,
   diff: 56,
   tarn: 57,
-};
+} as const;
 
 // credits: https://www.shadertoy.com/view/3lBXR3
 //          https://github.com/mzucker/fit_colormaps
@@ -878,13 +879,13 @@ vec3 tarn(float t) {
 
 
 varying float v_value;
-uniform float add_offset;
-uniform float scale_factor;
+uniform float addOffset;
+uniform float scaleFactor;
 uniform int colormap;
 
 void main() {
     gl_FragColor.a = 1.0;
-    float normalized_value = clamp(add_offset + scale_factor * v_value, 0.0, 1.0);
+    float normalized_value = clamp(addOffset + scaleFactor * v_value, 0.0, 1.0);
 
     if (colormap == 0) {
         gl_FragColor.rgb = inferno(normalized_value);
@@ -1027,16 +1028,16 @@ const dataOnScreenMeshVertexShader = `
     }
     `;
 
-export function make_colormap_material(
-  colormap = "turbo",
-  add_offset = 0.0,
-  scale_factor = 1.0
+export function makeColormapMaterial(
+  colormap: TColorMap = "turbo",
+  addOffset: 1.0 | 0.0 = 0.0,
+  scaleFactor: -1.0 | 1.0 = 1.0
 ) {
   const material = new THREE.ShaderMaterial({
     uniforms: {
-      add_offset: { value: add_offset },
-      scale_factor: { value: scale_factor },
-      colormap: { value: available_colormaps[colormap] },
+      addOffset: { value: addOffset },
+      scaleFactor: { value: scaleFactor },
+      colormap: { value: availableColormaps[colormap] },
     },
 
     vertexShader: dataOnMeshVertexShader,
@@ -1045,16 +1046,16 @@ export function make_colormap_material(
   return material;
 }
 
-export function make_lut_material(
-  colormap = "turbo",
-  add_offset,
-  scale_factor
+export function makeLutMaterial(
+  colormap: TColorMap = "turbo",
+  addOffset: 0 | 1,
+  scaleFactor: 1 | -1
 ) {
   const material = new THREE.ShaderMaterial({
     uniforms: {
-      add_offset: { value: add_offset },
-      scale_factor: { value: scale_factor },
-      colormap: { value: available_colormaps[colormap] },
+      addOffset: { value: addOffset },
+      scaleFactor: { value: scaleFactor },
+      colormap: { value: availableColormaps[colormap] },
     },
 
     vertexShader: dataOnScreenMeshVertexShader,
@@ -1063,8 +1064,8 @@ export function make_lut_material(
   return material;
 }
 
-export function make_lut_geometry() {
-  geometry = new THREE.PlaneGeometry(0.1, 1).translate(0.95, 0, 0);
+export function makeLutGeometry() {
+  const geometry = new THREE.PlaneGeometry(0.1, 1).translate(0.95, 0, 0);
   geometry.setAttribute(
     "data_value",
     new THREE.BufferAttribute(Float32Array.from([1, 1, 0, 0]), 1)
