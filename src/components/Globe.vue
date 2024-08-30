@@ -181,9 +181,8 @@ function redraw() {
   if (orbitControls?.autoRotate) {
     return;
   }
-  cancelAnimationFrame(frameId.value);
   orbitControls?.update();
-  frameId.value = requestAnimationFrame(render);
+  render();
 }
 
 async function fetchGrid() {
@@ -192,9 +191,6 @@ async function fetchGrid() {
   const verts = await grid2buffer(grid);
   const myMesh = mainMesh as THREE.Mesh;
   myMesh.geometry.setAttribute("position", new THREE.BufferAttribute(verts, 3));
-  myMesh.geometry.attributes.position.needsUpdate = true;
-  myMesh.geometry.computeBoundingBox();
-  myMesh.geometry.computeBoundingSphere();
   redraw();
 }
 
