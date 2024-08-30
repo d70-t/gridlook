@@ -50,6 +50,10 @@ const frameId = ref(0);
 const width: Ref<number | undefined> = ref(undefined);
 const height: Ref<number | undefined> = ref(undefined);
 
+// varnameSelector changes its value as soon as the JSON is read
+// and triggers the getData function. This is not necessary at initialization
+// time as getData is called anyway. We use a helper variable to prevent this.
+let isInitialized = false;
 let center = undefined;
 let mainMesh: THREE.Mesh | undefined = undefined;
 let coast: THREE.LineSegments | undefined = undefined;
@@ -66,7 +70,11 @@ let box: Ref<HTMLDivElement | undefined> = ref();
 watch(
   () => varnameSelector.value,
   () => {
-    getData();
+    if (!isInitialized) {
+      isInitialized = !isInitialized;
+    } else {
+      getData();
+    }
   }
 );
 
@@ -139,8 +147,7 @@ const datasource = computed(() => {
 async function datasourceUpdate() {
   datavars.value = {};
   if (props.datasources !== undefined) {
-    await fetchGrid();
-    await getData();
+    await Promise.all([fetchGrid(), getData()]);
   }
 }
 
@@ -156,7 +163,6 @@ function render() {
 }
 
 function publishVarinfo(info: TVarInfo) {
-  console.log("publish var info", info);
   emit("varinfo", info);
 }
 
@@ -208,7 +214,6 @@ async function getDataVar(myVarname: string) {
       return undefined;
     }
   }
-  console.log("DATAVARS", datavars.value);
   return datavars.value[myVarname];
 }
 
@@ -287,7 +292,6 @@ async function getData() {
           return (t as RawArray).data;
         }),
       ]);
-      console.log("timevlaues", timevalues);
       timeinfo = {
         // attrs: timeattrs,
         values: timevalues,
