@@ -152,6 +152,7 @@ async function datasourceUpdate() {
 }
 
 function render() {
+  orbitControls?.update();
   const myRenderer = renderer as THREE.Renderer;
   if (width.value !== undefined && height.value !== undefined) {
     myRenderer.setSize(width.value, height.value);
@@ -169,19 +170,16 @@ function publishVarinfo(info: TVarInfo) {
 function animationLoop() {
   cancelAnimationFrame(frameId.value);
   if (!mouseDown && !orbitControls?.autoRotate) {
-    orbitControls?.update();
     render();
     return;
   }
   frameId.value = requestAnimationFrame(animationLoop);
-  orbitControls?.update();
   render();
 }
 function redraw() {
   if (orbitControls?.autoRotate) {
     return;
   }
-  orbitControls?.update();
   render();
 }
 
