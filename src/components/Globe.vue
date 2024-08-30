@@ -166,6 +166,17 @@ function publishVarinfo(info: TVarInfo) {
   emit("varinfo", info);
 }
 
+function animationLoop() {
+  cancelAnimationFrame(frameId.value);
+  if (!mouseDown && !orbitControls?.autoRotate) {
+    orbitControls?.update();
+    render();
+    return;
+  }
+  frameId.value = requestAnimationFrame(animationLoop);
+  orbitControls?.update();
+  render();
+}
 function redraw() {
   if (orbitControls?.autoRotate) {
     return;
@@ -381,15 +392,6 @@ function copyPythonExample() {
 function toggleRotate() {
   orbitControls!.autoRotate = !orbitControls!.autoRotate;
   animationLoop();
-}
-
-function animationLoop() {
-  if (mouseDown || orbitControls?.autoRotate) {
-    cancelAnimationFrame(frameId.value);
-  }
-  frameId.value = requestAnimationFrame(animationLoop);
-  orbitControls?.update();
-  render();
 }
 
 function onCanvasResize() {
