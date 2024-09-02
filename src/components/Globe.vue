@@ -449,13 +449,10 @@ onBeforeMount(async () => {
 onMounted(() => {
   let canvasValue = canvas.value as HTMLCanvasElement;
   mouseDown = false;
-  canvasValue.addEventListener("mousedown", () => {
-    mouseDown = true;
-    animationLoop();
-  });
   canvasValue.addEventListener("wheel", () => {
     mouseDown = true;
-    render();
+    animationLoop();
+    mouseDown = false;
   });
   canvasValue.addEventListener("mouseup", () => {
     mouseDown = false;
