@@ -189,6 +189,7 @@ async function fetchGrid() {
   const verts = await grid2buffer(grid);
   const myMesh = mainMesh as THREE.Mesh;
   myMesh.geometry.setAttribute("position", new THREE.BufferAttribute(verts, 3));
+  myMesh.geometry.computeBoundingSphere();
   redraw();
 }
 
