@@ -446,7 +446,7 @@ onMounted(() => {
   });
   canvasValue.addEventListener("wheel", () => {
     mouseDown = true;
-    animationLoop();
+    render();
   });
   canvasValue.addEventListener("mouseup", () => {
     mouseDown = false;
