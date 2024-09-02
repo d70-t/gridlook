@@ -2,7 +2,6 @@
 import Globe from "@/components/Globe.vue";
 import GlobeControls from "@/components/GlobeControls.vue";
 import { availableColormaps } from "@/components/utils/colormapShaders.js";
-
 import { ref, computed, watch, onMounted, type Ref } from "vue";
 import type {
   TColorMap,
@@ -10,10 +9,15 @@ import type {
   TSources,
   TVarInfo,
 } from "../types/GlobeTypes";
+import { useGlobeControlStore } from "../components/store/store";
 
 const props = defineProps<{ src: string }>();
-const globe: Ref<typeof Globe | null> = ref(null);
 
+const store = useGlobeControlStore();
+
+const globe: Ref<typeof Globe | null> = ref(null);
+const globeKey = ref(0);
+const globeControlKey = ref(0);
 const datasources: Ref<TSources | undefined> = ref(undefined);
 const selection: Ref<Partial<TSelection>> = ref({});
 const varinfo: Ref<TVarInfo | undefined> = ref(undefined);
@@ -72,7 +76,11 @@ const toggleRotate = () => {
 watch(
   () => props.src,
   () => {
-    console.log("watchSource");
+    // Rerender controls and globe and reset store
+    // if new data is provided
+    globeKey.value += 1;
+    globeControlKey.value += 1;
+    store.$reset();
     updateSrc();
   }
 );
@@ -85,6 +93,7 @@ onMounted(() => {
 <template>
   <main>
     <GlobeControls
+      :key="globeControlKey"
       :model-info="modelInfo"
       :varinfo="varinfo"
       @selection="updateSelection"
@@ -94,6 +103,7 @@ onMounted(() => {
     />
     <Globe
       ref="globe"
+      :key="globeKey"
       :datasources="datasources"
       :colormap="selection.colormap"
       :invert-colormap="selection.invertColormap"
