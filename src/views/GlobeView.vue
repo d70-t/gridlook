@@ -10,9 +10,12 @@ import type {
   TVarInfo,
 } from "../types/GlobeTypes";
 import { useGlobeControlStore } from "../components/store/store";
+import Toast from "primevue/toast";
+import { useToast } from "primevue/usetoast";
 
 const props = defineProps<{ src: string }>();
 
+const toast = useToast();
 const store = useGlobeControlStore();
 
 const globe: Ref<typeof Globe | null> = ref(null);
@@ -49,7 +52,21 @@ const updateVarinfo = (info: TVarInfo) => {
 
 const updateSrc = async () => {
   const src = props.src;
-  const datasourcesResponse = await fetch(src).then((r) => r.json());
+  const datasourcesResponse = await fetch(src)
+    .then((r) => {
+      if (!r.ok) {
+        throw new Error(r.statusText);
+      }
+      return r.json();
+    })
+    .catch((e: { message: string }) => {
+      toast.add({
+        severity: "error",
+        summary: "Error",
+        detail: `Failed to fetch data: ${e.message}`,
+        life: 3000,
+      });
+    });
   if (src === props.src) {
     datasources.value = datasourcesResponse;
   }
@@ -92,6 +109,22 @@ onMounted(() => {
 
 <template>
   <main>
+    <Toast unstyled>
+      <template #container="{ message, closeCallback }">
+        <div class="message is-danger" style="max-width: 400px">
+          <div class="message-body is-flex">
+            <p class="mr-2 text-wrap">
+              {{ message.detail }}
+            </p>
+            <button
+              class="delete"
+              type="button"
+              @click="closeCallback"
+            ></button>
+          </div>
+        </div>
+      </template>
+    </Toast>
     <GlobeControls
       :key="globeControlKey"
       :model-info="modelInfo"

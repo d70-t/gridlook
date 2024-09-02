@@ -30,6 +30,8 @@ import type {
   TVarInfo,
 } from "../types/GlobeTypes.ts";
 import type { RawArray } from "zarr/types/rawArray/index";
+import { useToast } from "primevue/usetoast";
+import { getErrorMessage } from "./utils/errorHandling.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -40,6 +42,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{ varinfo: [TVarInfo] }>();
 const store = useGlobeControlStore();
+const toast = useToast();
 const { showCoastLines, timeIndexSlider, timeIndex, varnameSelector, varname } =
   storeToRefs(store);
 
@@ -184,20 +187,30 @@ function redraw() {
 }
 
 async function fetchGrid() {
-  const store = new HTTPStore(gridsource.value!.store);
-  const grid = await openGroup(store, gridsource?.value?.dataset, "r");
-  const verts = await grid2buffer(grid);
-  const myMesh = mainMesh as THREE.Mesh;
-  myMesh.geometry.setAttribute("position", new THREE.BufferAttribute(verts, 3));
-  myMesh.geometry.computeBoundingSphere();
-  redraw();
+  try {
+    const store = new HTTPStore(gridsource.value!.store);
+    const grid = await openGroup(store, gridsource?.value?.dataset, "r");
+    const verts = await grid2buffer(grid);
+    const myMesh = mainMesh as THREE.Mesh;
+    myMesh.geometry.setAttribute(
+      "position",
+      new THREE.BufferAttribute(verts, 3)
+    );
+    myMesh.geometry.computeBoundingSphere();
+    redraw();
+  } catch (error) {
+    toast.add({
+      detail: getErrorMessage(error),
+      life: 3000,
+    });
+  }
 }
 
 async function getDataVar(myVarname: string) {
-  if (datavars.value[myVarname] === undefined) {
+  if (!datavars.value[myVarname]) {
     console.log("fetching " + myVarname);
     const myDatasource = props.datasources!.levels[0].datasources[myVarname];
-    if (datasource.value === undefined) {
+    if (!datasource.value) {
       return undefined;
     }
     try {
@@ -208,15 +221,35 @@ async function getDataVar(myVarname: string) {
         "r"
       ).then((ds) => ds.getItem(myVarname) as Promise<ZarrArray<RequestInit>>);
     } catch (error) {
-      console.log(error);
-      console.log(
-        "WARNING, couldn't fetch variable " +
-          myVarname +
-          " from store: " +
-          myDatasource.store +
-          " and dataset: " +
-          myDatasource.dataset
-      );
+      toast.add({
+        detail: `Couldn't fetch variable ${myVarname} from store: ${myDatasource.store} and dataset: ${myDatasource.dataset}: ${getErrorMessage(error)}`,
+        life: 3000,
+      });
+      return undefined;
+    }
+  }
+  return datavars.value[myVarname];
+}
+
+async function getTimeVar() {
+  const myVarname = "_time";
+  if (datavars.value[myVarname] === undefined) {
+    const datasource = props.datasources?.levels[0].time;
+    if (!datasource) {
+      return undefined;
+    }
+    try {
+      const datastore = new HTTPStore(datasource.store);
+      datavars.value[myVarname] = await openGroup(
+        datastore,
+        datasource.dataset,
+        "r"
+      ).then((ds) => ds.getItem("time") as Promise<ZarrArray<RequestInit>>);
+    } catch (error) {
+      toast.add({
+        detail: `Couldn't fetch variable time from store: ${datasource.store} and dataset: ${datasource.dataset}: ${getErrorMessage(error)}`,
+        life: 3000,
+      });
       return undefined;
     }
   }
@@ -245,35 +278,6 @@ function updateColormap() {
   redraw();
 }
 
-async function getTimeVar() {
-  const myVarname = "_time";
-  if (datavars.value[myVarname] === undefined) {
-    const datasource = props.datasources?.levels[0].time;
-    if (!datasource) {
-      return undefined;
-    }
-    try {
-      const datastore = new HTTPStore(datasource.store);
-      datavars.value[myVarname] = await openGroup(
-        datastore,
-        datasource.dataset,
-        "r"
-      ).then((ds) => ds.getItem("time") as Promise<ZarrArray<RequestInit>>);
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    } catch (_) {
-      console.log(
-        "WARNING, couldn't fetch variable " +
-          "time" +
-          " from store: " +
-          datasource.store +
-          " and dataset: " +
-          datasource.dataset
-      );
-      return undefined;
-    }
-  }
-  return datavars.value[myVarname];
-}
 async function getData() {
   store.startLoading();
   try {
@@ -327,6 +331,11 @@ async function getData() {
     if (updateCount.value !== myUpdatecount) {
       await getData();
     }
+  } catch (error) {
+    toast.add({
+      detail: `Couldn't fetch data: ${getErrorMessage(error)}`,
+      life: 3000,
+    });
   } finally {
     store.stopLoading();
   }
