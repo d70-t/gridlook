@@ -337,6 +337,7 @@ async function getData() {
       detail: `Couldn't fetch data: ${getErrorMessage(error)}`,
       life: 3000,
     });
+    updatingData.value = false;
   } finally {
     store.stopLoading();
   }
