@@ -436,7 +436,6 @@ function init() {
   scene.add(mainMesh as THREE.Mesh);
 
   orbitControls = new OrbitControls(camera, renderer.domElement);
-  orbitControls.update();
   // smaller minDistances than 1.1 will reveal the naked mesh
   // under the texture when zoomed in
   orbitControls.minDistance = 1.1;
