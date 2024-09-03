@@ -32,6 +32,7 @@ import type {
 import type { RawArray } from "zarr/types/rawArray/index";
 import { useToast } from "primevue/usetoast";
 import { getErrorMessage } from "./utils/errorHandling.ts";
+import { handleKeyDown } from "./utils/OrbitControlsAddOn.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -435,6 +436,7 @@ function init() {
 
   orbitControls = new OrbitControls(camera, renderer.domElement);
   orbitControls.update();
+  orbitControls.enablePan = false;
   coast = undefined;
   updateCoastlines();
 }
@@ -448,19 +450,39 @@ onBeforeMount(async () => {
 
 onMounted(() => {
   let canvasValue = canvas.value as HTMLCanvasElement;
+
   mouseDown = false;
+
   canvasValue.addEventListener("wheel", () => {
     mouseDown = true;
     animationLoop();
     mouseDown = false;
   });
+
   canvasValue.addEventListener("mouseup", () => {
     mouseDown = false;
   });
+
   canvasValue.addEventListener("mousedown", () => {
     mouseDown = true;
     animationLoop();
   });
+
+  box.value!.addEventListener("keydown", (e: KeyboardEvent) => {
+  window.addEventListener("keydown", (e: KeyboardEvent) => {
+    if (
+      e.key === "ArrowRight" ||
+      e.key === "ArrowLeft" ||
+      e.key === "ArrowUp" ||
+      e.key === "ArrowDown"
+    ) {
+      mouseDown = true;
+      handleKeyDown(e, orbitControls!);
+      animationLoop();
+      mouseDown = false;
+    }
+  });
+
   init();
   resizeObserver = new ResizeObserver(onCanvasResize);
   resizeObserver?.observe(box.value!);
@@ -475,7 +497,7 @@ defineExpose({ makeSnapshot, copyPythonExample, toggleRotate });
 </script>
 
 <template>
-  <div ref="box" class="globe_box">
+  <div ref="box" class="globe_box" tabindex="0" autofocus>
     <canvas ref="canvas" class="globe_canvas"> </canvas>
   </div>
 </template>
