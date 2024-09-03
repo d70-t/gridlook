@@ -469,7 +469,6 @@ onMounted(() => {
   });
 
   box.value!.addEventListener("keydown", (e: KeyboardEvent) => {
-  window.addEventListener("keydown", (e: KeyboardEvent) => {
     if (
       e.key === "ArrowRight" ||
       e.key === "ArrowLeft" ||
