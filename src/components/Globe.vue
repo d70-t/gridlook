@@ -437,6 +437,9 @@ function init() {
 
   orbitControls = new OrbitControls(camera, renderer.domElement);
   orbitControls.update();
+  // smaller minDistances than 1.1 will reveal the naked mesh
+  // under the texture when zoomed in
+  orbitControls.minDistance = 1.1;
   orbitControls.enablePan = false;
   coast = undefined;
   updateCoastlines();
@@ -474,7 +477,9 @@ onMounted(() => {
       e.key === "ArrowRight" ||
       e.key === "ArrowLeft" ||
       e.key === "ArrowUp" ||
-      e.key === "ArrowDown"
+      e.key === "ArrowDown" ||
+      e.key === "+" ||
+      e.key === "-"
     ) {
       mouseDown = true;
       handleKeyDown(e, orbitControls!);

@@ -18,18 +18,22 @@ declare module "three" {
     domElement: HTMLElement;
     _rotateUp: (angle: number) => void;
     _rotateLeft: (angle: number) => void;
+    _getZoomScale: (delta: number) => number;
+    _dollyIn: (scale: number) => void;
+    _dollyOut: (scale: number) => void;
   }
 }
 
-const twoPI = 2 * Math.PI;
+const TWO_PI = 2 * Math.PI;
+const ZOOM_STEP = 96;
+
 export function handleKeyDown(event: KeyboardEvent, oC: OrbitControls) {
   const orbitControls = oC as CustomOrbitControls;
   let needsUpdate = false;
-
-  switch (event.code) {
+  switch (event.key) {
     case "ArrowUp":
       orbitControls._rotateUp(
-        (twoPI * orbitControls.rotateSpeed) /
+        (TWO_PI * orbitControls.rotateSpeed) /
           orbitControls.domElement.clientHeight
       );
 
@@ -38,7 +42,7 @@ export function handleKeyDown(event: KeyboardEvent, oC: OrbitControls) {
 
     case "ArrowDown":
       orbitControls._rotateUp(
-        (-twoPI * orbitControls.rotateSpeed) /
+        (-TWO_PI * orbitControls.rotateSpeed) /
           orbitControls.domElement.clientHeight
       );
 
@@ -47,7 +51,7 @@ export function handleKeyDown(event: KeyboardEvent, oC: OrbitControls) {
 
     case "ArrowLeft":
       orbitControls._rotateLeft(
-        (twoPI * orbitControls.rotateSpeed) /
+        (TWO_PI * orbitControls.rotateSpeed) /
           orbitControls.domElement.clientHeight
       );
 
@@ -56,10 +60,20 @@ export function handleKeyDown(event: KeyboardEvent, oC: OrbitControls) {
 
     case "ArrowRight":
       orbitControls._rotateLeft(
-        (-twoPI * orbitControls.rotateSpeed) /
+        (-TWO_PI * orbitControls.rotateSpeed) /
           orbitControls.domElement.clientHeight
       );
 
+      needsUpdate = true;
+      break;
+
+    case "+":
+      orbitControls._dollyIn(orbitControls._getZoomScale(-ZOOM_STEP));
+      needsUpdate = true;
+      break;
+
+    case "-":
+      orbitControls._dollyOut(orbitControls._getZoomScale(ZOOM_STEP));
       needsUpdate = true;
       break;
   }
