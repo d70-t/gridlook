@@ -29,15 +29,12 @@ const ZOOM_STEP = 96;
 
 export function handleKeyDown(event: KeyboardEvent, oC: OrbitControls) {
   const orbitControls = oC as CustomOrbitControls;
-  let needsUpdate = false;
   switch (event.key) {
     case "ArrowUp":
       orbitControls._rotateUp(
         (TWO_PI * orbitControls.rotateSpeed) /
           orbitControls.domElement.clientHeight
       );
-
-      needsUpdate = true;
       break;
 
     case "ArrowDown":
@@ -45,8 +42,6 @@ export function handleKeyDown(event: KeyboardEvent, oC: OrbitControls) {
         (-TWO_PI * orbitControls.rotateSpeed) /
           orbitControls.domElement.clientHeight
       );
-
-      needsUpdate = true;
       break;
 
     case "ArrowLeft":
@@ -54,8 +49,6 @@ export function handleKeyDown(event: KeyboardEvent, oC: OrbitControls) {
         (TWO_PI * orbitControls.rotateSpeed) /
           orbitControls.domElement.clientHeight
       );
-
-      needsUpdate = true;
       break;
 
     case "ArrowRight":
@@ -63,25 +56,16 @@ export function handleKeyDown(event: KeyboardEvent, oC: OrbitControls) {
         (-TWO_PI * orbitControls.rotateSpeed) /
           orbitControls.domElement.clientHeight
       );
-
-      needsUpdate = true;
       break;
 
     case "+":
       orbitControls._dollyIn(orbitControls._getZoomScale(-ZOOM_STEP));
-      needsUpdate = true;
       break;
 
     case "-":
       orbitControls._dollyOut(orbitControls._getZoomScale(ZOOM_STEP));
-      needsUpdate = true;
       break;
   }
 
-  if (needsUpdate) {
-    // prevent the browser from scrolling on cursor keys
-    event.preventDefault();
-
-    orbitControls.update();
-  }
+  event.preventDefault();
 }
