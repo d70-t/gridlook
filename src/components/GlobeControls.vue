@@ -198,6 +198,8 @@ const setDefaultColormap = () => {
               v-model.number="timeIndexSlider"
               class="input"
               type="number"
+              min="1"
+              :max="timeRange.end"
               style="width: 8em"
             />
             <div class="my-2">/ {{ timeRange.end }}</div>
