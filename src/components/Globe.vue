@@ -148,6 +148,10 @@ const datasource = computed(() => {
   }
 });
 
+function publishVarinfo(info: TVarInfo) {
+  emit("varinfo", info);
+}
+
 async function datasourceUpdate() {
   datavars.value = {};
   if (props.datasources !== undefined) {
@@ -157,19 +161,9 @@ async function datasourceUpdate() {
 
 function render() {
   orbitControls?.update();
-  const myRenderer = renderer as THREE.Renderer;
-  if (width.value !== undefined && height.value !== undefined) {
-    myRenderer.setSize(width.value, height.value);
-  }
-  myRenderer.render(scene!, camera!);
-  if (box.value) {
-    resizeObserver!.observe(box.value);
-  }
+  renderer!.render(scene!, camera!);
 }
 
-function publishVarinfo(info: TVarInfo) {
-  emit("varinfo", info);
-}
 
 function animationLoop() {
   cancelAnimationFrame(frameId.value);
@@ -413,7 +407,15 @@ function onCanvasResize() {
     camera!.updateProjectionMatrix();
     width.value = boxWidth;
     height.value = boxHeight;
+
+    const myRenderer = renderer as THREE.WebGLRenderer;
+    if (width.value !== undefined && height.value !== undefined) {
+      myRenderer.setSize(width.value, height.value);
+    }
     redraw();
+    if (box.value) {
+      resizeObserver!.observe(box.value);
+    }
   }
 }
 
