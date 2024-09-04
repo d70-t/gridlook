@@ -156,6 +156,7 @@ async function datasourceUpdate() {
   datavars.value = {};
   if (props.datasources !== undefined) {
     await Promise.all([fetchGrid(), getData()]);
+    updateColormap();
   }
 }
 
