@@ -166,14 +166,14 @@ function render() {
 
 
 function animationLoop() {
-  cancelAnimationFrame(frameId.value);
   if (!mouseDown && !orbitControls?.autoRotate) {
     render();
     return;
   }
-  frameId.value = requestAnimationFrame(animationLoop);
   render();
+  frameId.value = requestAnimationFrame(animationLoop);
 }
+
 function redraw() {
   if (orbitControls?.autoRotate) {
     return;
