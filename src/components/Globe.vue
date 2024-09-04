@@ -167,6 +167,7 @@ function render() {
 
 
 function animationLoop() {
+  cancelAnimationFrame(frameId.value);
   if (!mouseDown && !orbitControls?.autoRotate) {
     render();
     return;
