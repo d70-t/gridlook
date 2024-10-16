@@ -30,6 +30,9 @@ import type {
   TVarInfo,
 } from "../types/GlobeTypes.ts";
 import type { RawArray } from "zarr/types/rawArray/index";
+import { useToast } from "primevue/usetoast";
+import { getErrorMessage } from "./utils/errorHandling.ts";
+import { handleKeyDown } from "./utils/OrbitControlsAddOn.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -40,6 +43,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{ varinfo: [TVarInfo] }>();
 const store = useGlobeControlStore();
+const toast = useToast();
 const { showCoastLines, timeIndexSlider, timeIndex, varnameSelector, varname } =
   storeToRefs(store);
 
@@ -50,6 +54,10 @@ const frameId = ref(0);
 const width: Ref<number | undefined> = ref(undefined);
 const height: Ref<number | undefined> = ref(undefined);
 
+// varnameSelector changes its value as soon as the JSON is read
+// and triggers the getData function. This is not necessary at initialization
+// time as getData is called anyway. We use a helper variable to prevent this.
+let isInitialized = false;
 let center = undefined;
 let mainMesh: THREE.Mesh | undefined = undefined;
 let coast: THREE.LineSegments | undefined = undefined;
@@ -66,7 +74,11 @@ let box: Ref<HTMLDivElement | undefined> = ref();
 watch(
   () => varnameSelector.value,
   () => {
-    getData();
+    if (!isInitialized) {
+      isInitialized = !isInitialized;
+    } else {
+      getData();
+    }
   }
 );
 
@@ -136,56 +148,66 @@ const datasource = computed(() => {
   }
 });
 
+function publishVarinfo(info: TVarInfo) {
+  emit("varinfo", info);
+}
+
 async function datasourceUpdate() {
   datavars.value = {};
   if (props.datasources !== undefined) {
-    await fetchGrid();
-    await getData();
+    await Promise.all([fetchGrid(), getData()]);
+    updateColormap();
   }
 }
 
 function render() {
-  const myRenderer = renderer as THREE.Renderer;
-  if (width.value !== undefined && height.value !== undefined) {
-    myRenderer.setSize(width.value, height.value);
-  }
-  myRenderer.render(scene!, camera!);
-  if (box.value) {
-    resizeObserver!.observe(box.value);
-  }
+  orbitControls?.update();
+  renderer!.render(scene!, camera!);
 }
 
-function publishVarinfo(info: TVarInfo) {
-  console.log("publish var info", info);
-  emit("varinfo", info);
+
+function animationLoop() {
+  cancelAnimationFrame(frameId.value);
+  if (!mouseDown && !orbitControls?.autoRotate) {
+    render();
+    return;
+  }
+  render();
+  frameId.value = requestAnimationFrame(animationLoop);
 }
 
 function redraw() {
   if (orbitControls?.autoRotate) {
     return;
   }
-  cancelAnimationFrame(frameId.value);
-  orbitControls?.update();
-  frameId.value = requestAnimationFrame(render);
+  render();
 }
 
 async function fetchGrid() {
-  const store = new HTTPStore(gridsource.value!.store);
-  const grid = await openGroup(store, gridsource?.value?.dataset, "r");
-  const verts = await grid2buffer(grid);
-  const myMesh = mainMesh as THREE.Mesh;
-  myMesh.geometry.setAttribute("position", new THREE.BufferAttribute(verts, 3));
-  myMesh.geometry.attributes.position.needsUpdate = true;
-  myMesh.geometry.computeBoundingBox();
-  myMesh.geometry.computeBoundingSphere();
-  redraw();
+  try {
+    const store = new HTTPStore(gridsource.value!.store);
+    const grid = await openGroup(store, gridsource?.value?.dataset, "r");
+    const verts = await grid2buffer(grid);
+    const myMesh = mainMesh as THREE.Mesh;
+    myMesh.geometry.setAttribute(
+      "position",
+      new THREE.BufferAttribute(verts, 3)
+    );
+    myMesh.geometry.computeBoundingSphere();
+    redraw();
+  } catch (error) {
+    toast.add({
+      detail: getErrorMessage(error),
+      life: 3000,
+    });
+  }
 }
 
 async function getDataVar(myVarname: string) {
-  if (datavars.value[myVarname] === undefined) {
+  if (!datavars.value[myVarname]) {
     console.log("fetching " + myVarname);
     const myDatasource = props.datasources!.levels[0].datasources[myVarname];
-    if (datasource.value === undefined) {
+    if (!datasource.value) {
       return undefined;
     }
     try {
@@ -196,19 +218,38 @@ async function getDataVar(myVarname: string) {
         "r"
       ).then((ds) => ds.getItem(myVarname) as Promise<ZarrArray<RequestInit>>);
     } catch (error) {
-      console.log(error);
-      console.log(
-        "WARNING, couldn't fetch variable " +
-          myVarname +
-          " from store: " +
-          myDatasource.store +
-          " and dataset: " +
-          myDatasource.dataset
-      );
+      toast.add({
+        detail: `Couldn't fetch variable ${myVarname} from store: ${myDatasource.store} and dataset: ${myDatasource.dataset}: ${getErrorMessage(error)}`,
+        life: 3000,
+      });
       return undefined;
     }
   }
-  console.log("DATAVARS", datavars.value);
+  return datavars.value[myVarname];
+}
+
+async function getTimeVar() {
+  const myVarname = "_time";
+  if (datavars.value[myVarname] === undefined) {
+    const datasource = props.datasources?.levels[0].time;
+    if (!datasource) {
+      return undefined;
+    }
+    try {
+      const datastore = new HTTPStore(datasource.store);
+      datavars.value[myVarname] = await openGroup(
+        datastore,
+        datasource.dataset,
+        "r"
+      ).then((ds) => ds.getItem("time") as Promise<ZarrArray<RequestInit>>);
+    } catch (error) {
+      toast.add({
+        detail: `Couldn't fetch variable time from store: ${datasource.store} and dataset: ${datasource.dataset}: ${getErrorMessage(error)}`,
+        life: 3000,
+      });
+      return undefined;
+    }
+  }
   return datavars.value[myVarname];
 }
 
@@ -234,35 +275,6 @@ function updateColormap() {
   redraw();
 }
 
-async function getTimeVar() {
-  const myVarname = "_time";
-  if (datavars.value[myVarname] === undefined) {
-    const datasource = props.datasources?.levels[0].time;
-    if (!datasource) {
-      return undefined;
-    }
-    try {
-      const datastore = new HTTPStore(datasource.store);
-      datavars.value[myVarname] = await openGroup(
-        datastore,
-        datasource.dataset,
-        "r"
-      ).then((ds) => ds.getItem("time") as Promise<ZarrArray<RequestInit>>);
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    } catch (_) {
-      console.log(
-        "WARNING, couldn't fetch variable " +
-          "time" +
-          " from store: " +
-          datasource.store +
-          " and dataset: " +
-          datasource.dataset
-      );
-      return undefined;
-    }
-  }
-  return datavars.value[myVarname];
-}
 async function getData() {
   store.startLoading();
   try {
@@ -287,7 +299,6 @@ async function getData() {
           return (t as RawArray).data;
         }),
       ]);
-      console.log("timevlaues", timevalues);
       timeinfo = {
         // attrs: timeattrs,
         values: timevalues,
@@ -317,6 +328,12 @@ async function getData() {
     if (updateCount.value !== myUpdatecount) {
       await getData();
     }
+  } catch (error) {
+    toast.add({
+      detail: `Couldn't fetch data: ${getErrorMessage(error)}`,
+      life: 3000,
+    });
+    updatingData.value = false;
   } finally {
     store.stopLoading();
   }
@@ -379,15 +396,6 @@ function toggleRotate() {
   animationLoop();
 }
 
-function animationLoop() {
-  if (mouseDown || orbitControls?.autoRotate) {
-    cancelAnimationFrame(frameId.value);
-  }
-  frameId.value = requestAnimationFrame(animationLoop);
-  orbitControls?.update();
-  render();
-}
-
 function onCanvasResize() {
   if (!box.value) {
     return;
@@ -401,7 +409,15 @@ function onCanvasResize() {
     camera!.updateProjectionMatrix();
     width.value = boxWidth;
     height.value = boxHeight;
+
+    const myRenderer = renderer as THREE.WebGLRenderer;
+    if (width.value !== undefined && height.value !== undefined) {
+      myRenderer.setSize(width.value, height.value);
+    }
     redraw();
+    if (box.value) {
+      resizeObserver!.observe(box.value);
+    }
   }
 }
 
@@ -424,7 +440,10 @@ function init() {
   scene.add(mainMesh as THREE.Mesh);
 
   orbitControls = new OrbitControls(camera, renderer.domElement);
-  orbitControls.update();
+  // smaller minDistances than 1.1 will reveal the naked mesh
+  // under the texture when zoomed in
+  orbitControls.minDistance = 1.1;
+  orbitControls.enablePan = false;
   coast = undefined;
   updateCoastlines();
 }
@@ -438,22 +457,40 @@ onBeforeMount(async () => {
 
 onMounted(() => {
   let canvasValue = canvas.value as HTMLCanvasElement;
+
   mouseDown = false;
-  canvasValue.addEventListener("mousedown", () => {
-    mouseDown = true;
-    animationLoop();
-  });
+
   canvasValue.addEventListener("wheel", () => {
     mouseDown = true;
     animationLoop();
+    mouseDown = false;
   });
+
   canvasValue.addEventListener("mouseup", () => {
     mouseDown = false;
   });
+
   canvasValue.addEventListener("mousedown", () => {
     mouseDown = true;
     animationLoop();
   });
+
+  box.value!.addEventListener("keydown", (e: KeyboardEvent) => {
+    if (
+      e.key === "ArrowRight" ||
+      e.key === "ArrowLeft" ||
+      e.key === "ArrowUp" ||
+      e.key === "ArrowDown" ||
+      e.key === "+" ||
+      e.key === "-"
+    ) {
+      mouseDown = true;
+      handleKeyDown(e, orbitControls!);
+      animationLoop();
+      mouseDown = false;
+    }
+  });
+
   init();
   resizeObserver = new ResizeObserver(onCanvasResize);
   resizeObserver?.observe(box.value!);
@@ -468,7 +505,7 @@ defineExpose({ makeSnapshot, copyPythonExample, toggleRotate });
 </script>
 
 <template>
-  <div ref="box" class="globe_box">
+  <div ref="box" class="globe_box" tabindex="0" autofocus>
     <canvas ref="canvas" class="globe_canvas"> </canvas>
   </div>
 </template>

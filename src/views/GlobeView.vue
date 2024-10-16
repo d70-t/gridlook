@@ -2,7 +2,6 @@
 import Globe from "@/components/Globe.vue";
 import GlobeControls from "@/components/GlobeControls.vue";
 import { availableColormaps } from "@/components/utils/colormapShaders.js";
-
 import { ref, computed, watch, onMounted, type Ref } from "vue";
 import type {
   TColorMap,
@@ -10,10 +9,18 @@ import type {
   TSources,
   TVarInfo,
 } from "../types/GlobeTypes";
+import { useGlobeControlStore } from "../components/store/store";
+import Toast from "primevue/toast";
+import { useToast } from "primevue/usetoast";
 
 const props = defineProps<{ src: string }>();
-const globe: Ref<typeof Globe | null> = ref(null);
 
+const toast = useToast();
+const store = useGlobeControlStore();
+
+const globe: Ref<typeof Globe | null> = ref(null);
+const globeKey = ref(0);
+const globeControlKey = ref(0);
 const datasources: Ref<TSources | undefined> = ref(undefined);
 const selection: Ref<Partial<TSelection>> = ref({});
 const varinfo: Ref<TVarInfo | undefined> = ref(undefined);
@@ -45,7 +52,21 @@ const updateVarinfo = (info: TVarInfo) => {
 
 const updateSrc = async () => {
   const src = props.src;
-  const datasourcesResponse = await fetch(src).then((r) => r.json());
+  const datasourcesResponse = await fetch(src)
+    .then((r) => {
+      if (!r.ok) {
+        throw new Error(r.statusText);
+      }
+      return r.json();
+    })
+    .catch((e: { message: string }) => {
+      toast.add({
+        severity: "error",
+        summary: "Error",
+        detail: `Failed to fetch data: ${e.message}`,
+        life: 3000,
+      });
+    });
   if (src === props.src) {
     datasources.value = datasourcesResponse;
   }
@@ -72,7 +93,11 @@ const toggleRotate = () => {
 watch(
   () => props.src,
   () => {
-    console.log("watchSource");
+    // Rerender controls and globe and reset store
+    // if new data is provided
+    globeKey.value += 1;
+    globeControlKey.value += 1;
+    store.$reset();
     updateSrc();
   }
 );
@@ -84,7 +109,24 @@ onMounted(() => {
 
 <template>
   <main>
+    <Toast unstyled>
+      <template #container="{ message, closeCallback }">
+        <div class="message is-danger" style="max-width: 400px">
+          <div class="message-body is-flex">
+            <p class="mr-2 text-wrap">
+              {{ message.detail }}
+            </p>
+            <button
+              class="delete"
+              type="button"
+              @click="closeCallback"
+            ></button>
+          </div>
+        </div>
+      </template>
+    </Toast>
     <GlobeControls
+      :key="globeControlKey"
       :model-info="modelInfo"
       :varinfo="varinfo"
       @selection="updateSelection"
@@ -94,6 +136,7 @@ onMounted(() => {
     />
     <Globe
       ref="globe"
+      :key="globeKey"
       :datasources="datasources"
       :colormap="selection.colormap"
       :invert-colormap="selection.invertColormap"
