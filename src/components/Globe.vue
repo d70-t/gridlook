@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import * as THREE from "three";
-import { HTTPStore, openGroup, ZarrArray } from "zarr";
+import * as zarr from "zarrita";
 import { grid2buffer, data2valueBuffer } from "./utils/gridlook.ts";
 import {
   makeColormapMaterial,
@@ -15,10 +15,12 @@ import {
   computed,
   onBeforeMount,
   ref,
+  shallowRef,
   onMounted,
   watch,
   onBeforeUnmount,
   type Ref,
+  type ShallowRef,
 } from "vue";
 
 import { useGlobeControlStore } from "./store/store.js";
@@ -29,7 +31,6 @@ import type {
   TSources,
   TVarInfo,
 } from "../types/GlobeTypes.ts";
-import type { RawArray } from "zarr/types/rawArray/index";
 import { useToast } from "primevue/usetoast";
 import { getErrorMessage } from "./utils/errorHandling.ts";
 import { handleKeyDown } from "./utils/OrbitControlsAddOn.ts";
@@ -47,7 +48,8 @@ const toast = useToast();
 const { showCoastLines, timeIndexSlider, timeIndex, varnameSelector, varname } =
   storeToRefs(store);
 
-const datavars: Ref<Record<string, ZarrArray<RequestInit>>> = ref({});
+const datavars: ShallowRef<Record<string, zarr.Array<zarr.DataType, zarr.FetchStore>
+>> = shallowRef({});
 const updateCount = ref(0);
 const updatingData = ref(false);
 const frameId = ref(0);
@@ -185,8 +187,10 @@ function redraw() {
 
 async function fetchGrid() {
   try {
-    const store = new HTTPStore(gridsource.value!.store);
-    const grid = await openGroup(store, gridsource?.value?.dataset, "r");
+    const root = zarr.root(new zarr.FetchStore(gridsource.value!.store));
+    const grid = await zarr.open(root.resolve(gridsource.value!.dataset), {
+      kind: "group",
+    });
     const verts = await grid2buffer(grid);
     const myMesh = mainMesh as THREE.Mesh;
     myMesh.geometry.setAttribute(
@@ -213,12 +217,14 @@ async function getDataVar(myVarname: string) {
       myDatasource = props.datasources!.levels[0].datasources[myVarname];
     }
     try {
-      const datastore = new HTTPStore(myDatasource.store);
-      datavars.value[myVarname] = await openGroup(
-        datastore,
-        myDatasource.dataset,
-        "r"
-      ).then((ds) => ds.getItem(myVarname) as Promise<ZarrArray<RequestInit>>);
+      const root = zarr.root(new zarr.FetchStore(myDatasource.store));
+      const datavar = await zarr.open(
+        root.resolve(myDatasource.dataset + "/" + myVarname),
+        {
+        kind: "array",
+        }
+      );
+      datavars.value[myVarname] = datavar;
     } catch (error) {
       toast.add({
         detail: `Couldn't fetch variable ${myVarname} from store: ${myDatasource.store} and dataset: ${myDatasource.dataset}: ${getErrorMessage(error)}`,
@@ -274,29 +280,26 @@ async function getData() {
     ]);
     let timeinfo = {};
     if (timevar !== undefined) {
-      const [timeattrs, timevalues] = await Promise.all([
-        timevar.attrs.asObject(),
-        timevar.getRaw().then((t) => {
-          return (t as RawArray).data;
-        }),
-      ]);
+      const timeattrs = timevar.attrs;
+      const timevalues = (await zarr.get(timevar, [null])).data;
       timeinfo = {
         // attrs: timeattrs,
         values: timevalues,
-        current: decodeTime(timevalues[currentTimeIndexSliderValue], timeattrs),
+        current: decodeTime(
+          (timevalues as any)[currentTimeIndexSliderValue],
+          timeattrs
+        ),
       };
     }
     if (datavar !== undefined) {
-      const rawData = (await datavar.getRaw(
-        currentTimeIndexSliderValue
-      )) as RawArray;
+      const rawData = await zarr.get(datavar, [currentTimeIndexSliderValue, null]);
       const dataBuffer = data2valueBuffer(rawData);
       mainMesh?.geometry.setAttribute(
         "data_value",
         new THREE.BufferAttribute(dataBuffer.dataValues, 1)
       );
       publishVarinfo({
-        attrs: await datavar.attrs.asObject(),
+        attrs: datavar.attrs,
         timeinfo,
         timeRange: { start: 0, end: datavar.shape[0] - 1 },
         bounds: { low: dataBuffer.dataMin, high: dataBuffer.dataMax },
