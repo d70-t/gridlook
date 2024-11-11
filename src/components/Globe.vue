@@ -206,9 +206,11 @@ async function fetchGrid() {
 async function getDataVar(myVarname: string) {
   if (!datavars.value[myVarname]) {
     console.log("fetching " + myVarname);
-    const myDatasource = props.datasources!.levels[0].datasources[myVarname];
-    if (!datasource.value) {
-      return undefined;
+    let myDatasource;
+    if (myVarname === "time") {
+      myDatasource = props.datasources!.levels[0].time;
+    } else {
+      myDatasource = props.datasources!.levels[0].datasources[myVarname];
     }
     try {
       const datastore = new HTTPStore(myDatasource.store);
@@ -229,28 +231,7 @@ async function getDataVar(myVarname: string) {
 }
 
 async function getTimeVar() {
-  const myVarname = "_time";
-  if (datavars.value[myVarname] === undefined) {
-    const datasource = props.datasources?.levels[0].time;
-    if (!datasource) {
-      return undefined;
-    }
-    try {
-      const datastore = new HTTPStore(datasource.store);
-      datavars.value[myVarname] = await openGroup(
-        datastore,
-        datasource.dataset,
-        "r"
-      ).then((ds) => ds.getItem("time") as Promise<ZarrArray<RequestInit>>);
-    } catch (error) {
-      toast.add({
-        detail: `Couldn't fetch variable time from store: ${datasource.store} and dataset: ${datasource.dataset}: ${getErrorMessage(error)}`,
-        life: 3000,
-      });
-      return undefined;
-    }
-  }
-  return datavars.value[myVarname];
+  return await getDataVar("time");
 }
 
 function updateColormap() {
