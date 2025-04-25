@@ -1,8 +1,9 @@
 <script lang="ts" setup>
+import GlobeHealpix from "@/components/GlobeHealpix.vue";
 import Globe from "@/components/Globe.vue";
 import GlobeControls from "@/components/GlobeControls.vue";
 import { availableColormaps } from "@/components/utils/colormapShaders.js";
-import { ref, computed, watch, onMounted, type Ref } from "vue";
+import { ref, computed, watch, onMounted, type Ref, onBeforeMount } from "vue";
 import type {
   TColorMap,
   TSelection,
@@ -12,11 +13,16 @@ import type {
 import { useGlobeControlStore } from "../components/store/store";
 import Toast from "primevue/toast";
 import { useToast } from "primevue/usetoast";
+import * as zarr from "zarrita";
+import { storeToRefs } from "pinia";
+import { getErrorMessage } from "../components/utils/errorHandling";
 
 const props = defineProps<{ src: string }>();
 
 const toast = useToast();
 const store = useGlobeControlStore();
+
+const { varnameSelector } = storeToRefs(store);
 
 const globe: Ref<typeof Globe | null> = ref(null);
 const globeKey = ref(0);
@@ -24,6 +30,8 @@ const globeControlKey = ref(0);
 const datasources: Ref<TSources | undefined> = ref(undefined);
 const selection: Ref<Partial<TSelection>> = ref({});
 const varinfo: Ref<TVarInfo | undefined> = ref(undefined);
+const isHealpixResult = ref(false);
+const isHealpixCalledOnce = ref(false);
 
 const modelInfo = computed(() => {
   if (datasources.value === undefined) {
@@ -50,7 +58,23 @@ const updateVarinfo = (info: TVarInfo) => {
   varinfo.value = info;
 };
 
-const updateSrc = async () => {
+async function checkIsHealpix() {
+  isHealpixResult.value = await isHealpix();
+  if (varnameSelector.value !== "-") {
+    isHealpixCalledOnce.value = true;
+  }
+}
+
+watch(
+  () => varnameSelector.value,
+  () => {
+    if (datasources.value !== undefined) {
+      checkIsHealpix();
+    }
+  }
+);
+
+async function updateSrc() {
   const src = props.src;
   const datasourcesResponse = await fetch(src)
     .then((r) => {
@@ -67,16 +91,49 @@ const updateSrc = async () => {
         life: 3000,
       });
     });
+  console.log("wat?", src, props.src, datasourcesResponse);
   if (src === props.src) {
     datasources.value = datasourcesResponse;
   }
-};
+}
 
 const makeSnapshot = () => {
   if (globe.value) {
     globe.value.makeSnapshot();
   }
 };
+
+async function isHealpix() {
+  if (varnameSelector.value === "-") {
+    return false;
+  }
+  const myDatasource =
+    datasources.value!.levels[0].datasources[varnameSelector.value];
+  try {
+    const root = zarr.root(new zarr.FetchStore(myDatasource.store));
+    const datavar = await zarr.open(
+      root.resolve(myDatasource.dataset + `/${varnameSelector.value}`),
+      {
+        kind: "array",
+      }
+    );
+    if (datavar.attrs.grid_mapping === "crs") {
+      const crs = await zarr.open(root.resolve(myDatasource.dataset + `/crs`), {
+        kind: "array",
+      });
+      if (crs.attrs["grid_mapping_name"] === "healpix") {
+        return true;
+      }
+    }
+    return false;
+  } catch (error) {
+    // toast.add({
+    //   detail: `${getErrorMessage(error)}`,
+    //   life: 3000,
+    // });
+    return false;
+  }
+}
 
 const makeExample = () => {
   if (globe.value) {
@@ -92,18 +149,22 @@ const toggleRotate = () => {
 
 watch(
   () => props.src,
-  () => {
+  async () => {
     // Rerender controls and globe and reset store
     // if new data is provided
     globeKey.value += 1;
     globeControlKey.value += 1;
     store.$reset();
-    updateSrc();
+    await updateSrc();
   }
 );
 
-onMounted(() => {
-  updateSrc();
+// onMounted(() => {
+// });
+
+onBeforeMount(async () => {
+  await updateSrc();
+  await checkIsHealpix();
 });
 </script>
 
@@ -111,7 +172,11 @@ onMounted(() => {
   <main>
     <Toast unstyled>
       <template #container="{ message, closeCallback }">
-        <div class="message is-danger" style="max-width: 400px">
+        <div
+          class="message"
+          :class="message.severity === 'success' ? 'is-success' : 'is-danger'"
+          style="max-width: 400px"
+        >
           <div class="message-body is-flex">
             <p class="mr-2 text-wrap">
               {{ message.detail }}
@@ -134,7 +199,10 @@ onMounted(() => {
       @on-example="makeExample"
       @on-rotate="toggleRotate"
     />
-    <Globe
+    <div v-if="isHealpixCalledOnce === false">load</div>
+    <component
+      :is="isHealpixResult ? GlobeHealpix : Globe"
+      v-else
       ref="globe"
       :key="globeKey"
       :datasources="datasources"
@@ -143,6 +211,15 @@ onMounted(() => {
       :varbounds="selection.bounds"
       @varinfo="updateVarinfo"
     />
+    <!-- <GlobeHealpix
+      ref="globe"
+      :key="globeKey"
+      :datasources="datasources"
+      :colormap="selection.colormap"
+      :invert-colormap="selection.invertColormap"
+      :varbounds="selection.bounds"
+      @varinfo="updateVarinfo"
+    /> -->
   </main>
 </template>
 
@@ -151,3 +228,15 @@ main {
   overflow: hidden;
 }
 </style>
+<!--
+<component
+:is="isHealpixResult ? GlobeHealpix : Globe"
+ref="globe"
+:key="globeKey"
+:datasources="datasources"
+:colormap="selection.colormap"
+:invert-colormap="selection.invertColormap"
+:varbounds="selection.bounds"
+@varinfo="updateVarinfo"
+/>
+-->

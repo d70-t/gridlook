@@ -48,8 +48,9 @@ const toast = useToast();
 const { showCoastLines, timeIndexSlider, timeIndex, varnameSelector, varname } =
   storeToRefs(store);
 
-const datavars: ShallowRef<Record<string, zarr.Array<zarr.DataType, zarr.FetchStore>
->> = shallowRef({});
+const datavars: ShallowRef<
+  Record<string, zarr.Array<zarr.DataType, zarr.FetchStore>>
+> = shallowRef({});
 const updateCount = ref(0);
 const updatingData = ref(false);
 const frameId = ref(0);
@@ -167,7 +168,6 @@ function render() {
   renderer!.render(scene!, camera!);
 }
 
-
 function animationLoop() {
   cancelAnimationFrame(frameId.value);
   if (!mouseDown && !orbitControls?.autoRotate) {
@@ -201,7 +201,7 @@ async function fetchGrid() {
     redraw();
   } catch (error) {
     toast.add({
-      detail: getErrorMessage(error),
+      detail: `Could not fetch grid: ${getErrorMessage(error)}`,
       life: 3000,
     });
   }
@@ -221,7 +221,7 @@ async function getDataVar(myVarname: string) {
       const datavar = await zarr.open(
         root.resolve(myDatasource.dataset + "/" + myVarname),
         {
-        kind: "array",
+          kind: "array",
         }
       );
       datavars.value[myVarname] = datavar;
@@ -292,7 +292,10 @@ async function getData() {
       };
     }
     if (datavar !== undefined) {
-      const rawData = await zarr.get(datavar, [currentTimeIndexSliderValue, null]);
+      const rawData = await zarr.get(datavar, [
+        currentTimeIndexSliderValue,
+        null,
+      ]);
       const dataBuffer = data2valueBuffer(rawData);
       mainMesh?.geometry.setAttribute(
         "data_value",
