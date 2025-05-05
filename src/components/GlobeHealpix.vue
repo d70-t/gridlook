@@ -54,7 +54,11 @@ const updatingData = ref(false);
 
 const HEALPIX_NUMCHUNKS = 12;
 
-let mainMeshes: THREE.Mesh[] = [];
+let mainMeshes: THREE.Mesh<
+  THREE.BufferGeometry<THREE.NormalBufferAttributes>,
+  THREE.Material,
+  THREE.Object3DEventMap
+>[] = new Array(HEALPIX_NUMCHUNKS);
 
 watch(
   () => varnameSelector.value,
@@ -179,7 +183,7 @@ async function getHealpixData(
   return { texture: data2texture(data, unshuffleIndex), min, max };
 }
 
-function d2(
+function distanceSquared(
   x1: number,
   y1: number,
   z1: number,
@@ -212,7 +216,7 @@ function makeHealpixGeometry(nside: number, ipix: number, steps: number) {
       const c = (i + 1) * steps + j;
       const d = (i + 1) * steps + (j + 1);
 
-      const dac2 = d2(
+      const dac2 = distanceSquared(
         vertices[3 * a + 0],
         vertices[3 * a + 1],
         vertices[3 * a + 2],
@@ -220,7 +224,7 @@ function makeHealpixGeometry(nside: number, ipix: number, steps: number) {
         vertices[3 * c + 1],
         vertices[3 * c + 2]
       );
-      const dbd2 = d2(
+      const dbd2 = distanceSquared(
         vertices[3 * b + 0],
         vertices[3 * b + 1],
         vertices[3 * b + 2],
@@ -295,127 +299,6 @@ function data2texture(
   return texture;
 }
 
-// async function getData() {
-//   store.startLoading();
-//   try {
-//     updateCount.value += 1;
-//     const myUpdatecount = updateCount.value;
-//     if (updatingData.value) {
-//       return;
-//     }
-//     updatingData.value = true;
-//     const localVarname = varnameSelector.value;
-//     const currentTimeIndexSliderValue = timeIndexSlider.value;
-//     const [timevar, datavar] = await Promise.all([
-//       getTimeVar(props.datasources!),
-//       getDataVar(localVarname, props.datasources!),
-//     ]);
-//     let timeinfo = {};
-//     if (timevar !== undefined) {
-//       const timeattrs = timevar.attrs;
-//       const timevalues = (await zarr.get(timevar, [null])).data;
-//       timeinfo = {
-//         // attrs: timeattrs,
-//         values: timevalues,
-//         current: decodeTime(
-//           (timevalues as number[])[currentTimeIndexSliderValue],
-//           timeattrs
-//         ),
-//       };
-//     }
-
-//     if (datavar !== undefined) {
-//       const gridStep = 64 + 1;
-
-//       const texturePromises = [];
-
-//       for (let ipix = 0; ipix < HEALPIX_NUMCHUNKS; ++ipix) {
-//         texturePromises.push(
-//           getHealpixData(
-//             datavar,
-//             currentTimeIndexSliderValue,
-//             ipix,
-//             HEALPIX_NUMCHUNKS
-//           )
-//         );
-//       }
-
-//       let dataMin = Number.POSITIVE_INFINITY;
-//       let dataMax = Number.NEGATIVE_INFINITY;
-//       const textures = await Promise.all(texturePromises);
-
-//       for (const t of textures) {
-//         const min = t.min;
-//         const max = t.max;
-//         dataMin = Math.min(dataMin, min);
-//         dataMax = Math.max(dataMax, max);
-//       }
-//       const low = props.varbounds?.low as number;
-//       const high = props.varbounds?.high as number;
-//       let addOffset: number;
-//       let scaleFactor: number;
-//       if (props.invertColormap) {
-//         scaleFactor = -1 / (high - low);
-//         addOffset = -high * scaleFactor;
-//       } else {
-//         scaleFactor = 1 / (high - low);
-//         addOffset = -low * scaleFactor;
-//       }
-
-//       for (let ipix = 0; ipix < HEALPIX_NUMCHUNKS; ++ipix) {
-//         const geometry = makeHealpixGeometry(1, ipix, gridStep);
-//         const texture = textures[ipix].texture;
-//         const low = props.varbounds?.low as number;
-//         const high = props.varbounds?.high as number;
-//         let scaleFactor: number;
-//         if (props.invertColormap) {
-//           scaleFactor = -1 / (high - low);
-//           addOffset = -high * scaleFactor;
-//         } else {
-//           scaleFactor = 1 / (high - low);
-//           addOffset = -low * scaleFactor;
-//         }
-
-//         const material = makeTextureMaterial(
-//           texture,
-//           props.colormap!,
-//           addOffset,
-//           scaleFactor
-//         );
-
-//         const mesh = new THREE.Mesh(geometry, material);
-//         getScene()!.add(mesh);
-//         if (mainMeshes[ipix]) {
-//           mainMeshes[ipix] = mesh;
-//         } else {
-//           mainMeshes.push(mesh);
-//         }
-//       }
-
-//       publishVarinfo({
-//         attrs: datavar.attrs,
-//         timeinfo,
-//         timeRange: { start: 0, end: datavar.shape[0] - 1 },
-//         bounds: { low: dataMin, high: dataMax },
-//       });
-//       redraw();
-//       timeIndex.value = currentTimeIndexSliderValue;
-//       varname.value = localVarname;
-//     }
-//     updatingData.value = false;
-//     if (updateCount.value !== myUpdatecount) {
-//       await getData();
-//     }
-//   } catch (error) {
-//     toast.add({
-//       detail: `Couldn't fetch data: ${getErrorMessage(error)}`,
-//       life: 3000,
-//     });
-//     updatingData.value = false;
-//   } finally {
-//     store.stopLoading();
-//   }
-// }
 async function getData() {
   store.startLoading();
   try {
@@ -483,18 +366,17 @@ async function getData() {
           scaleFactor
         );
 
-        const mesh = new THREE.Mesh(geometry, material);
-        getScene()!.add(mesh);
-
-        if (mainMeshes[ipix]) {
+        if (!mainMeshes[ipix]) {
+          const mesh = new THREE.Mesh(geometry, material);
+          getScene()!.add(mesh);
           mainMeshes[ipix] = mesh;
         } else {
-          mainMeshes.push(mesh);
+          mainMeshes[ipix].geometry.dispose();
+          mainMeshes[ipix].geometry = geometry;
+          mainMeshes[ipix].material = material;
+          mainMeshes[ipix].material.needsUpdate = true;
         }
-
-        // Optional: trigger a render here if using manual render loop
         redraw();
-        // If your render loop is auto-updating (via requestAnimationFrame), you may skip redraw()
       }
 
       publishVarinfo({
@@ -511,7 +393,7 @@ async function getData() {
     updatingData.value = false;
 
     if (updateCount.value !== myUpdatecount) {
-      await getData(); // Restart update if another one queued
+      await getData();
     }
   } catch (error) {
     toast.add({

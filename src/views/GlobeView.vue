@@ -62,7 +62,9 @@ const modelInfo = computed(() => {
 });
 
 async function setGridType() {
-  gridType.value = await getGridType();
+  const localVarname = await getGridType();
+  console.log("localVarname", localVarname);
+  gridType.value = localVarname;
 }
 
 watch(
@@ -81,14 +83,6 @@ watch(
   }
 );
 
-watch(
-  () => datasources.value,
-  async () => {
-    if (datasources.value !== undefined) {
-      await setGridType();
-    }
-  }
-);
 const updateSelection = (s: TSelection) => {
   selection.value = s;
 };
@@ -119,12 +113,13 @@ const updateSrc = async () => {
       });
       sourceValid.value = false;
     });
-
-  if (src === props.src) {
-    datasources.value = datasourcesResponse;
+  if (sourceValid.value) {
+    if (src === props.src) {
+      datasources.value = datasourcesResponse;
+    }
+    varnameSelector.value =
+      modelInfo.value!.defaultVar ?? Object.keys(modelInfo.value!.vars)[0];
   }
-  varnameSelector.value =
-    modelInfo.value!.defaultVar ?? Object.keys(modelInfo.value!.vars)[0];
 };
 
 const makeSnapshot = () => {
@@ -152,6 +147,22 @@ async function getGridType() {
   const myDatasource =
     datasources.value!.levels[0].datasources[varnameSelector.value];
   try {
+    try {
+      // CHECK IF TRIANGULAR
+      const gridsource = datasources.value!.levels[0].grid;
+      const gridRoot = zarr.root(new zarr.FetchStore(gridsource.store));
+      const grid = await zarr.open(gridRoot.resolve(gridsource.dataset), {
+        kind: "group",
+      });
+      console.log("gridattrs", grid.attrs);
+      await zarr.open(grid.resolve("vertex_of_cell"), {
+        kind: "array",
+      });
+      return GRID_TYPES.TRIANGULAR;
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    } catch (e) {
+      /* empty */
+    }
     const root = zarr.root(new zarr.FetchStore(myDatasource.store));
     const datavar = await zarr.open(
       root.resolve(myDatasource.dataset + `/${varnameSelector.value}`),
@@ -159,15 +170,26 @@ async function getGridType() {
         kind: "array",
       }
     );
+    console.log("dataattrs", datavar.attrs);
     if (datavar.attrs.grid_mapping === "crs") {
       const crs = await zarr.open(root.resolve(myDatasource.dataset + `/crs`), {
         kind: "array",
       });
+      console.log("CRS ATTRS", crs.attrs);
       if (crs.attrs["grid_mapping_name"] === "healpix") {
         return GRID_TYPES.HEALPIX;
       }
+    } else if (datavar.attrs.grid_mapping === "rotated_latitude_longitude") {
+      const crs = await zarr.open(
+        root.resolve(myDatasource.dataset + `/rotated_latitude_longitude`),
+        {
+          kind: "array",
+        }
+      );
+      console.log("CRS ATTRS", crs.attrs);
+      return GRID_TYPES.REGULAR_ROTATED;
     }
-    return GRID_TYPES.TRIANGULAR;
+    return GRID_TYPES.REGULAR;
   } catch (error) {
     toast.add({
       detail: `${getErrorMessage(error)}`,
@@ -205,7 +227,7 @@ onMounted(async () => {
       </template>
     </Toast>
     <GlobeControls
-      v-if="gridType !== GRID_TYPES.ERROR"
+      v-if="sourceValid"
       :key="globeControlKey"
       :model-info="modelInfo"
       :varinfo="varinfo"
