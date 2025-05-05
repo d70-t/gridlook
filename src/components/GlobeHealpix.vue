@@ -8,14 +8,7 @@ import {
 } from "./utils/colormapShaders.ts";
 import { decodeTime } from "./utils/timeHandling.ts";
 import { datashaderExample } from "./utils/exampleFormatters.ts";
-import {
-  computed,
-  onBeforeMount,
-  ref,
-  watch,
-  onBeforeUnmount,
-  type Ref,
-} from "vue";
+import { computed, onBeforeMount, ref, watch, type Ref } from "vue";
 
 import { useGlobeControlStore } from "./store/store.js";
 import { storeToRefs } from "pinia";
@@ -27,7 +20,7 @@ import type {
 } from "../types/GlobeTypes.ts";
 import { useToast } from "primevue/usetoast";
 import { getErrorMessage } from "./utils/errorHandling.ts";
-import { useMySharedLogic } from "./sharedGlobe.ts";
+import { useSharedGlobeLogic } from "./sharedGlobe.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -48,34 +41,25 @@ let box: Ref<HTMLDivElement | undefined> = ref();
 const {
   getScene,
   getCamera,
-  getResizeObserver,
   redraw,
   makeSnapshot,
   toggleRotate,
   resetDataVars,
   getDataVar,
   getTimeVar,
-} = useMySharedLogic(canvas, box);
+} = useSharedGlobeLogic(canvas, box);
 
 const updateCount = ref(0);
 const updatingData = ref(false);
 
 const HEALPIX_NUMCHUNKS = 12;
 
-// varnameSelector changes its value as soon as the JSON is read
-// and triggers the getData function. This is not necessary at initialization
-// time as getData is called anyway. We use a helper variable to prevent this.
-let isInitialized = false;
 let mainMeshes: THREE.Mesh[] = [];
 
 watch(
   () => varnameSelector.value,
   () => {
-    if (!isInitialized) {
-      isInitialized = !isInitialized;
-    } else {
-      getData();
-    }
+    getData();
   }
 );
 
@@ -534,6 +518,7 @@ async function getData() {
       detail: `Couldn't fetch data: ${getErrorMessage(error)}`,
       life: 3000,
     });
+
     updatingData.value = false;
   } finally {
     store.stopLoading();
@@ -560,10 +545,6 @@ function copyPythonExample() {
 
 onBeforeMount(async () => {
   await datasourceUpdate();
-});
-
-onBeforeUnmount(() => {
-  getResizeObserver()?.unobserve(box.value!);
 });
 
 defineExpose({ makeSnapshot, copyPythonExample, toggleRotate });

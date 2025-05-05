@@ -6,8 +6,6 @@ import {
   makeColormapMaterial,
   availableColormaps,
 } from "./utils/colormapShaders.ts";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
-import { geojson2geometry } from "./utils/geojson.ts";
 import { decodeTime } from "./utils/timeHandling.ts";
 
 import { datashaderExample } from "./utils/exampleFormatters.ts";
@@ -18,7 +16,6 @@ import {
   shallowRef,
   onMounted,
   watch,
-  onBeforeUnmount,
   type Ref,
   type ShallowRef,
 } from "vue";
@@ -33,7 +30,7 @@ import type {
 } from "../types/GlobeTypes.ts";
 import { useToast } from "primevue/usetoast";
 import { getErrorMessage } from "./utils/errorHandling.ts";
-import { handleKeyDown } from "./utils/OrbitControlsAddOn.ts";
+import { useSharedGlobeLogic } from "./sharedGlobe.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -45,7 +42,7 @@ const props = defineProps<{
 const emit = defineEmits<{ varinfo: [TVarInfo] }>();
 const store = useGlobeControlStore();
 const toast = useToast();
-const { showCoastLines, timeIndexSlider, timeIndex, varnameSelector, varname } =
+const { timeIndexSlider, timeIndex, varnameSelector, varname } =
   storeToRefs(store);
 
 const datavars: ShallowRef<
@@ -53,35 +50,26 @@ const datavars: ShallowRef<
 > = shallowRef({});
 const updateCount = ref(0);
 const updatingData = ref(false);
-const frameId = ref(0);
-const width: Ref<number | undefined> = ref(undefined);
-const height: Ref<number | undefined> = ref(undefined);
 
-// varnameSelector changes its value as soon as the JSON is read
-// and triggers the getData function. This is not necessary at initialization
-// time as getData is called anyway. We use a helper variable to prevent this.
-let isInitialized = false;
-let center = undefined;
 let mainMesh: THREE.Mesh | undefined = undefined;
-let coast: THREE.LineSegments | undefined = undefined;
-let scene: THREE.Scene | undefined = undefined;
-let camera: THREE.PerspectiveCamera | undefined = undefined;
-let renderer: THREE.Renderer | undefined = undefined;
-let orbitControls: OrbitControls | undefined = undefined;
-let resizeObserver: ResizeObserver | undefined = undefined;
-let mouseDown = false;
 
 let canvas: Ref<HTMLCanvasElement | undefined> = ref();
 let box: Ref<HTMLDivElement | undefined> = ref();
 
+const {
+  getScene,
+  getCamera,
+  redraw,
+  makeSnapshot,
+  toggleRotate,
+  getDataVar,
+  getTimeVar,
+} = useSharedGlobeLogic(canvas, box);
+
 watch(
   () => varnameSelector.value,
   () => {
-    if (!isInitialized) {
-      isInitialized = !isInitialized;
-    } else {
-      getData();
-    }
+    getData();
   }
 );
 
@@ -117,13 +105,6 @@ watch(
   () => props.colormap,
   () => {
     updateColormap();
-  }
-);
-
-watch(
-  () => showCoastLines.value,
-  () => {
-    updateCoastlines();
   }
 );
 
@@ -163,28 +144,6 @@ async function datasourceUpdate() {
   }
 }
 
-function render() {
-  orbitControls?.update();
-  renderer!.render(scene!, camera!);
-}
-
-function animationLoop() {
-  cancelAnimationFrame(frameId.value);
-  if (!mouseDown && !orbitControls?.autoRotate) {
-    render();
-    return;
-  }
-  render();
-  frameId.value = requestAnimationFrame(animationLoop);
-}
-
-function redraw() {
-  if (orbitControls?.autoRotate) {
-    return;
-  }
-  render();
-}
-
 async function fetchGrid() {
   try {
     const root = zarr.root(new zarr.FetchStore(gridsource.value!.store));
@@ -205,39 +164,6 @@ async function fetchGrid() {
       life: 3000,
     });
   }
-}
-
-async function getDataVar(myVarname: string) {
-  if (!datavars.value[myVarname]) {
-    console.log("fetching " + myVarname);
-    let myDatasource;
-    if (myVarname === "time") {
-      myDatasource = props.datasources!.levels[0].time;
-    } else {
-      myDatasource = props.datasources!.levels[0].datasources[myVarname];
-    }
-    try {
-      const root = zarr.root(new zarr.FetchStore(myDatasource.store));
-      const datavar = await zarr.open(
-        root.resolve(myDatasource.dataset + "/" + myVarname),
-        {
-          kind: "array",
-        }
-      );
-      datavars.value[myVarname] = datavar;
-    } catch (error) {
-      toast.add({
-        detail: `Couldn't fetch variable ${myVarname} from store: ${myDatasource.store} and dataset: ${myDatasource.dataset}: ${getErrorMessage(error)}`,
-        life: 3000,
-      });
-      return undefined;
-    }
-  }
-  return datavars.value[myVarname];
-}
-
-async function getTimeVar() {
-  return await getDataVar("time");
 }
 
 function updateColormap() {
@@ -275,8 +201,8 @@ async function getData() {
     const localVarname = varnameSelector.value;
     const currentTimeIndexSliderValue = timeIndexSlider.value;
     const [timevar, datavar] = await Promise.all([
-      getTimeVar(),
-      getDataVar(localVarname),
+      getTimeVar(props.datasources!),
+      getDataVar(localVarname, props.datasources!),
     ]);
     let timeinfo = {};
     if (timevar !== undefined) {
@@ -286,7 +212,7 @@ async function getData() {
         // attrs: timeattrs,
         values: timevalues,
         current: decodeTime(
-          (timevalues as any)[currentTimeIndexSliderValue],
+          (timevalues as number[])[currentTimeIndexSliderValue],
           timeattrs
         ),
       };
@@ -326,47 +252,9 @@ async function getData() {
   }
 }
 
-async function updateCoastlines() {
-  if (showCoastLines.value === false) {
-    if (coast) {
-      scene?.remove(coast);
-    }
-  } else {
-    scene?.add(await getCoastlines());
-  }
-  redraw();
-}
-
-async function getCoastlines() {
-  if (coast === undefined) {
-    const coastlines = await fetch("static/ne_50m_coastline.geojson").then(
-      (r) => r.json()
-    );
-    const geometry = geojson2geometry(coastlines, 1.001);
-    const material = new THREE.LineBasicMaterial({ color: "#ffffff" });
-    coast = new THREE.LineSegments(geometry, material);
-    coast.name = "coastlines";
-  }
-  return coast;
-}
-
-function makeSnapshot() {
-  render();
-  canvas.value?.toBlob((blob) => {
-    let link = document.createElement("a");
-    link.download = "gridlook.png";
-
-    link.href = URL.createObjectURL(blob!);
-    link.click();
-
-    // delete the internal blob reference, to let the browser clear memory from it
-    URL.revokeObjectURL(link.href);
-  }, "image/png");
-}
-
 function copyPythonExample() {
   const example = datashaderExample({
-    cameraPosition: camera!.position,
+    cameraPosition: getCamera()!.position,
     datasrc: datasource.value!.store + datasource.value!.dataset,
     gridsrc: gridsource.value!.store + gridsource.value!.dataset,
     varname: varname.value,
@@ -378,114 +266,15 @@ function copyPythonExample() {
   navigator.clipboard.writeText(example);
 }
 
-function toggleRotate() {
-  orbitControls!.autoRotate = !orbitControls!.autoRotate;
-  animationLoop();
-}
-
-function onCanvasResize() {
-  if (!box.value) {
-    return;
-  }
-  const { width: boxWidth, height: boxHeight } =
-    box.value.getBoundingClientRect();
-  if (boxWidth !== width.value || boxHeight !== height.value) {
-    resizeObserver?.unobserve(box.value);
-    const aspect = boxWidth / boxHeight;
-    camera!.aspect = aspect;
-    camera!.updateProjectionMatrix();
-    width.value = boxWidth;
-    height.value = boxHeight;
-
-    const myRenderer = renderer as THREE.WebGLRenderer;
-    if (width.value !== undefined && height.value !== undefined) {
-      myRenderer.setSize(width.value, height.value);
-    }
-    redraw();
-    if (box.value) {
-      resizeObserver!.observe(box.value);
-    }
-  }
-}
-
-function init() {
-  // from: https://stackoverflow.com/a/65732553
-  scene = new THREE.Scene();
-  center = new THREE.Vector3();
-  camera = new THREE.PerspectiveCamera(
-    7.5,
-    window.innerWidth / window.innerHeight,
-    0.1,
-    1000
-  );
-  renderer = new THREE.WebGLRenderer({ canvas: canvas.value });
-
-  camera.up = new THREE.Vector3(0, 0, 1);
-  camera.position.x = 30;
-  camera.lookAt(center);
-
-  scene.add(mainMesh as THREE.Mesh);
-
-  orbitControls = new OrbitControls(camera, renderer.domElement);
-  // smaller minDistances than 1.1 will reveal the naked mesh
-  // under the texture when zoomed in
-  orbitControls.minDistance = 1.1;
-  orbitControls.enablePan = false;
-  coast = undefined;
-  updateCoastlines();
-}
+onMounted(() => {
+  getScene()?.add(mainMesh as THREE.Mesh);
+});
 
 onBeforeMount(async () => {
   const geometry = new THREE.BufferGeometry();
   const material = colormapMaterial.value;
   mainMesh = new THREE.Mesh(geometry, material);
   await datasourceUpdate();
-});
-
-onMounted(() => {
-  let canvasValue = canvas.value as HTMLCanvasElement;
-
-  mouseDown = false;
-
-  canvasValue.addEventListener("wheel", () => {
-    mouseDown = true;
-    animationLoop();
-    mouseDown = false;
-  });
-
-  canvasValue.addEventListener("mouseup", () => {
-    mouseDown = false;
-  });
-
-  canvasValue.addEventListener("mousedown", () => {
-    mouseDown = true;
-    animationLoop();
-  });
-
-  box.value!.addEventListener("keydown", (e: KeyboardEvent) => {
-    if (
-      e.key === "ArrowRight" ||
-      e.key === "ArrowLeft" ||
-      e.key === "ArrowUp" ||
-      e.key === "ArrowDown" ||
-      e.key === "+" ||
-      e.key === "-"
-    ) {
-      mouseDown = true;
-      handleKeyDown(e, orbitControls!);
-      animationLoop();
-      mouseDown = false;
-    }
-  });
-
-  init();
-  resizeObserver = new ResizeObserver(onCanvasResize);
-  resizeObserver?.observe(box.value!);
-  onCanvasResize();
-});
-
-onBeforeUnmount(() => {
-  resizeObserver?.unobserve(box.value!);
 });
 
 defineExpose({ makeSnapshot, copyPythonExample, toggleRotate });
@@ -505,7 +294,9 @@ div.globe_box {
   margin: 0;
   overflow: hidden;
   display: flex;
+  z-index: 0;
 }
+
 div.globe_canvas {
   padding: 0;
   margin: 0;

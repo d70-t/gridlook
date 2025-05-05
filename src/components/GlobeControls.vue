@@ -85,8 +85,6 @@ watch(
   () => varnameSelector.value,
   () => {
     const varinfo = props.modelInfo!.vars[varnameSelector.value];
-    console.log("varinfo", varinfo, varnameSelector);
-    console.log(props.modelInfo!.vars);
     defaultBounds.value = varinfo.default_range ?? {};
     setDefaultColormap();
     publish();
@@ -106,17 +104,6 @@ watch(
 watch(
   () => bounds.value,
   () => publish()
-);
-
-watch(
-  () => props.modelInfo,
-  () => {
-    if (props.modelInfo?.vars[varnameSelector.value] === undefined) {
-      varnameSelector.value =
-        props.modelInfo?.defaultVar ?? Object.keys(props.modelInfo!.vars)[0];
-    }
-    setDefaultColormap();
-  }
 );
 
 watch(

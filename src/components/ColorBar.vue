@@ -130,7 +130,6 @@ function updateColormap() {
   shaderMaterial.uniforms.colormap.value = availableColormaps[props.colormap];
   shaderMaterial.uniforms.addOffset.value = addOffset.value;
   shaderMaterial.uniforms.scaleFactor.value = scaleFactor.value;
-  console.log("update colormap");
   redraw();
 }
 </script>

@@ -1,5 +1,6 @@
 import { storeToRefs } from "pinia";
 import {
+  onBeforeUnmount,
   onMounted,
   ref,
   shallowRef,
@@ -16,19 +17,13 @@ import { useToast } from "primevue/usetoast";
 import * as zarr from "zarrita";
 import type { TSources } from "@/types/GlobeTypes.ts";
 import { getErrorMessage } from "./utils/errorHandling.ts";
-export function useMySharedLogic(
+
+export function useSharedGlobeLogic(
   canvas: Ref<HTMLCanvasElement | undefined>,
   box: Ref<HTMLDivElement | undefined>
 ) {
-  // redraw: () => void,
   const store = useGlobeControlStore();
-  const {
-    showCoastLines,
-    // timeIndexSlider,
-    // timeIndex,
-    // varnameSelector,
-    // varname,
-  } = storeToRefs(store);
+  const { showCoastLines } = storeToRefs(store);
 
   const toast = useToast();
   const datavars: ShallowRef<
@@ -109,7 +104,6 @@ export function useMySharedLogic(
   }
 
   async function updateCoastlines() {
-    console.log(showCoastLines.value, getCoast);
     if (showCoastLines.value === false) {
       if (getCoast()) {
         scene?.remove(getCoast()!);
@@ -226,6 +220,10 @@ export function useMySharedLogic(
     setResizeObserver(new ResizeObserver(onCanvasResize));
     getResizeObserver()?.observe(box.value!);
     onCanvasResize();
+  });
+
+  onBeforeUnmount(() => {
+    getResizeObserver()?.unobserve(box.value!);
   });
 
   function makeSnapshot() {
