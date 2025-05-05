@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import * as zarr from "zarrita";
 import GlobeHealpix from "@/components/GlobeHealpix.vue";
-import GlobeRegular from "@/components/GlobeRegular.vue";
+// import GlobeRegular from "@/components/GlobeRegular.vue";
 import Globe from "@/components/Globe.vue";
 import GlobeControls from "@/components/GlobeControls.vue";
 import { availableColormaps } from "@/components/utils/colormapShaders.js";
