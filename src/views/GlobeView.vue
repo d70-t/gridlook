@@ -214,29 +214,20 @@ onMounted(async () => {
       @on-example="makeExample"
       @on-rotate="toggleRotate"
     />
-    <div
+    <!-- <div
       class="notification is-danger is-light has-text-centered mx-auto"
       style="max-width: 400px"
     >
       {{ gridType }}
-    </div>
+    </div> -->
     <div v-if="isLoading" class="mx-auto loader"></div>
     <div
       v-else-if="gridType === GRID_TYPES.ERROR"
       class="notification is-danger is-light has-text-centered mx-auto"
       style="max-width: 400px"
     >
-      An error occurred. Please try again.
+      An error occurred. Possibly missing or not supported data.
     </div>
-    <!--<GlobeRegular
-      ref="globe"
-      :key="globeKey"
-      :datasources="datasources"
-      :colormap="selection.colormap"
-      :invert-colormap="selection.invertColormap"
-      :varbounds="selection.bounds"
-      @varinfo="updateVarinfo"
-    />-->
     <component
       :is="gridType === GRID_TYPES.HEALPIX ? GlobeHealpix : Globe"
       v-else
