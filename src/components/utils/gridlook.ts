@@ -1,38 +1,27 @@
 import * as THREE from "three";
-import type { Group, NestedArray, TypedArray, ZarrArray } from "zarr";
-import type { RawArray } from "zarr/types/rawArray";
+import * as zarr from "zarrita";
 
-export async function grid2buffer(grid: Group<RequestInit>) {
+export async function grid2buffer(grid: zarr.Group<zarr.FetchStore>) {
   const [voc, vx, vy, vz] = await Promise.all([
-    grid
-      .getItem("vertex_of_cell")
-      .then(
-        (a) =>
-          (a as ZarrArray<RequestInit>).get() as Promise<
-            NestedArray<TypedArray>
-          >
-      ),
-    grid
-      .getItem("cartesian_x_vertices")
-      .then((a) => (a as ZarrArray<RequestInit>).get())
-      .then((a) => (a as NestedArray<TypedArray>).data),
-    grid
-      .getItem("cartesian_y_vertices")
-      .then((a) => (a as ZarrArray<RequestInit>).get())
-      .then((a) => (a as NestedArray<TypedArray>).data),
-    grid
-      .getItem("cartesian_z_vertices")
-      .then((a) => (a as ZarrArray<RequestInit>).get())
-      .then((a) => (a as NestedArray<TypedArray>).data),
+    zarr.open(grid.resolve("vertex_of_cell"), { kind: "array" }).then(zarr.get),
+    zarr
+      .open(grid.resolve("cartesian_x_vertices"), { kind: "array" })
+      .then(zarr.get),
+    zarr
+      .open(grid.resolve("cartesian_y_vertices"), { kind: "array" })
+      .then(zarr.get),
+    zarr
+      .open(grid.resolve("cartesian_z_vertices"), { kind: "array" })
+      .then(zarr.get),
   ]);
 
   const ncells = voc.shape[1];
 
   const verts = new Float32Array(ncells * 3 * 3);
 
-  const vs0 = (voc.get(0) as NestedArray<Float32Array>).data as Float32Array;
-  const vs1 = (voc.get(1) as NestedArray<Float32Array>).data as Float32Array;
-  const vs2 = (voc.get(2) as NestedArray<Float32Array>).data as Float32Array;
+  const vs0 = (voc.data as Int32Array).slice(ncells * 0, ncells * 1);
+  const vs1 = (voc.data as Int32Array).slice(ncells * 1, ncells * 2);
+  const vs2 = (voc.data as Int32Array).slice(ncells * 2, ncells * 3);
 
   const a = new THREE.Vector3();
   const b = new THREE.Vector3();
@@ -46,15 +35,15 @@ export async function grid2buffer(grid: Group<RequestInit>) {
     const v2 = vs2[i] - 1;
 
     // Cache vertex values
-    const v0x = vx[v0] as number,
-      v0y = vy[v0] as number,
-      v0z = vz[v0] as number;
-    let v1x = vx[v1] as number,
-      v1y = vy[v1] as number,
-      v1z = vz[v1] as number;
-    let v2x = vx[v2] as number,
-      v2y = vy[v2] as number,
-      v2z = vz[v2] as number;
+    const v0x = (vx.data as Float64Array)[v0],
+      v0y = (vy.data as Float64Array)[v0],
+      v0z = (vz.data as Float64Array)[v0];
+    let v1x = (vx.data as Float64Array)[v1] as number,
+      v1y = (vy.data as Float64Array)[v1] as number,
+      v1z = (vz.data as Float64Array)[v1] as number;
+    let v2x = (vx.data as Float64Array)[v2] as number,
+      v2y = (vy.data as Float64Array)[v2] as number,
+      v2z = (vz.data as Float64Array)[v2] as number;
 
     // Set vector values
     a.set(v0x, v0y, v0z);
@@ -89,10 +78,10 @@ export async function grid2buffer(grid: Group<RequestInit>) {
   return verts;
 }
 
-export function data2valueBuffer(data: RawArray) {
+export function data2valueBuffer(data: zarr.Chunk<zarr.DataType>) {
   const awaitedData = data;
   const ncells = awaitedData.shape[0];
-  const plotdata = awaitedData.data;
+  const plotdata = awaitedData.data as Float32Array;
 
   let dataMin = Number.POSITIVE_INFINITY;
   let dataMax = Number.NEGATIVE_INFINITY;

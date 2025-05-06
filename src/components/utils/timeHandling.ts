@@ -1,12 +1,12 @@
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
-import type { UserAttributes } from "zarr/types/types";
+import * as zarr from "zarrita";
 
 dayjs.extend(utc);
 
-export function decodeTime(value: number, attrs: UserAttributes) {
+export function decodeTime(value: number, attrs: zarr.Attributes) {
   const unitsRegEx = /([a-zA-Z]+) since (.+)$/;
-  const units: string = attrs.units;
+  const units: string = attrs.units as string;
   const regExMatch = units.match(unitsRegEx);
   if (!regExMatch) {
     throw new Error("time units not recognized");

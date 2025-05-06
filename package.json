@@ -19,7 +19,7 @@
     "three": "^0.168",
     "vue": "^3.4",
     "vue-router": "^4.4",
-    "zarr": "^0.6.3"
+    "zarrita": "^0.4.0-next.17"
   },
   "devDependencies": {
     "@types/geojson": "7946.0.14",

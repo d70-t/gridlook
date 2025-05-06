@@ -1,6 +1,6 @@
 import type { Dayjs } from "dayjs";
 import type { availableColormaps } from "../components/utils/colormapShaders.ts";
-import type { UserAttributes } from "zarr/types/types.js";
+import * as zarr from "zarrita";
 
 export type EmptyObj = Record<PropertyKey, never>;
 
@@ -18,7 +18,7 @@ export type TVarInfo = {
   timeinfo: EmptyObj | { current: Dayjs; values: Int32Array };
   timeRange: { start: number; end: number };
   bounds: TBounds;
-  attrs: UserAttributes; //{ long_name: string; units: string };
+  attrs: zarr.Attributes; //{ long_name: string; units: string };
 };
 
 export type TModelInfo = {
