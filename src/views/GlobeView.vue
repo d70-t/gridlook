@@ -17,6 +17,7 @@ import Toast from "primevue/toast";
 import { useToast } from "primevue/usetoast";
 import { storeToRefs } from "pinia";
 import { getErrorMessage } from "../components/utils/errorHandling";
+// import GlobeRegular from "../components/GlobeRegular.vue";
 const props = defineProps<{ src: string }>();
 
 const GRID_TYPES = {
@@ -58,6 +59,20 @@ const modelInfo = computed(() => {
         end: 1,
       },
     };
+  }
+});
+
+const currentGlobeComponent = computed(() => {
+  if (gridType.value === GRID_TYPES.HEALPIX) {
+    return GlobeHealpix;
+  } else if (
+    gridType.value === GRID_TYPES.REGULAR_ROTATED ||
+    gridType.value === GRID_TYPES.REGULAR
+  ) {
+    // LATER: Add GlobeRegular
+    return Globe;
+  } else {
+    return Globe;
   }
 });
 
@@ -141,10 +156,12 @@ const toggleRotate = () => {
 };
 
 async function getGridType() {
+  // FIXME: This is a clumsy hack to distinguish between different
+  // grid types.
   if (!sourceValid.value) {
     return GRID_TYPES.ERROR;
   }
-  const myDatasource =
+  const datasource =
     datasources.value!.levels[0].datasources[varnameSelector.value];
   try {
     try {
@@ -163,16 +180,15 @@ async function getGridType() {
     } catch (e) {
       /* empty */
     }
-    const root = zarr.root(new zarr.FetchStore(myDatasource.store));
+    const root = zarr.root(new zarr.FetchStore(datasource.store));
     const datavar = await zarr.open(
-      root.resolve(myDatasource.dataset + `/${varnameSelector.value}`),
+      root.resolve(datasource.dataset + `/${varnameSelector.value}`),
       {
         kind: "array",
       }
     );
-    console.log("dataattrs", datavar.attrs);
     if (datavar.attrs.grid_mapping === "crs") {
-      const crs = await zarr.open(root.resolve(myDatasource.dataset + `/crs`), {
+      const crs = await zarr.open(root.resolve(datasource.dataset + `/crs`), {
         kind: "array",
       });
       console.log("CRS ATTRS", crs.attrs);
@@ -180,13 +196,6 @@ async function getGridType() {
         return GRID_TYPES.HEALPIX;
       }
     } else if (datavar.attrs.grid_mapping === "rotated_latitude_longitude") {
-      const crs = await zarr.open(
-        root.resolve(myDatasource.dataset + `/rotated_latitude_longitude`),
-        {
-          kind: "array",
-        }
-      );
-      console.log("CRS ATTRS", crs.attrs);
       return GRID_TYPES.REGULAR_ROTATED;
     }
     return GRID_TYPES.REGULAR;
@@ -250,8 +259,7 @@ onMounted(async () => {
     >
       An error occurred. Possibly missing or not supported data.
     </div>
-    <component
-      :is="gridType === GRID_TYPES.HEALPIX ? GlobeHealpix : Globe"
+    <currentGlobeComponent
       v-else
       ref="globe"
       :key="globeKey"
@@ -259,6 +267,7 @@ onMounted(async () => {
       :colormap="selection.colormap"
       :invert-colormap="selection.invertColormap"
       :varbounds="selection.bounds"
+      :is-rotated="gridType === GRID_TYPES.REGULAR_ROTATED"
       @varinfo="updateVarinfo"
     />
     <div v-if="isLoading || loading" class="top-right-loader loader" />
