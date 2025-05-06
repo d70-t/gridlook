@@ -4,11 +4,12 @@ import * as zarr from "zarrita";
 import * as healpix from "@hscmap/healpix";
 import {
   availableColormaps,
+  calculateColorMapProperties,
   makeTextureMaterial,
 } from "./utils/colormapShaders.ts";
 import { decodeTime } from "./utils/timeHandling.ts";
 import { datashaderExample } from "./utils/exampleFormatters.ts";
-import { computed, onBeforeMount, ref, watch, type Ref } from "vue";
+import { computed, onBeforeMount, onMounted, ref, watch, type Ref } from "vue";
 
 import { useGlobeControlStore } from "./store/store.js";
 import { storeToRefs } from "pinia";
@@ -125,30 +126,48 @@ function publishVarinfo(info: TVarInfo) {
 async function datasourceUpdate() {
   resetDataVars();
   if (props.datasources !== undefined) {
-    await getData();
-    updateColormap();
+    if (props.datasources !== undefined) {
+      await Promise.all([fetchGrid(), getData()]);
+      updateColormap();
+    }
   }
 }
 
 function updateColormap() {
   const low = props.varbounds?.low as number;
   const high = props.varbounds?.high as number;
-  let addOffset: number;
-  let scaleFactor: number;
-  if (props.invertColormap) {
-    scaleFactor = -1 / (high - low);
-    addOffset = -high * scaleFactor;
-  } else {
-    scaleFactor = 1 / (high - low);
-    addOffset = -low * scaleFactor;
-  }
+  const { addOffset, scaleFactor } = calculateColorMapProperties(
+    low,
+    high,
+    props.invertColormap
+  );
   for (const myMesh of mainMeshes) {
     const material = myMesh.material as THREE.ShaderMaterial;
-    material.uniforms.colormap.value = availableColormaps[props.colormap!];
-    material.uniforms.addOffset.value = addOffset;
-    material.uniforms.scaleFactor.value = scaleFactor;
+    if (material.uniforms) {
+      material.uniforms.colormap.value = availableColormaps[props.colormap!];
+      material.uniforms.addOffset.value = addOffset;
+      material.uniforms.scaleFactor.value = scaleFactor;
+    }
   }
   redraw();
+}
+
+async function fetchGrid() {
+  const gridStep = 64 + 1;
+  try {
+    for (let ipix = 0; ipix < HEALPIX_NUMCHUNKS; ipix++) {
+      const geometry = makeHealpixGeometry(1, ipix, gridStep);
+
+      mainMeshes[ipix].geometry.dispose();
+      mainMeshes[ipix].geometry = geometry;
+    }
+    redraw();
+  } catch (error) {
+    toast.add({
+      detail: `Could not fetch grid: ${getErrorMessage(error)}`,
+      life: 3000,
+    });
+  }
 }
 
 async function getHealpixData(
@@ -159,8 +178,7 @@ async function getHealpixData(
 ) {
   const unshuffleIndex: { [key: number]: Int32Array } = {};
   const chunksize = datavar.shape[datavar.shape.length - 1] / numChunks;
-  // const range = [1, zarr.slice(ipix * chunksize, (ipix + 1) * chunksize)];
-  // const dataSlice = (await zarr.get(z, range)).data as Int32Array;
+
   const dataSlice = (
     await zarr.get(datavar, [
       timeValue,
@@ -310,102 +328,123 @@ async function getData() {
     updatingData.value = true;
     const localVarname = varnameSelector.value;
     const currentTimeIndexSliderValue = timeIndexSlider.value;
-
-    const [timevar, datavar] = await Promise.all([
-      getTimeVar(props.datasources!),
-      getDataVar(localVarname, props.datasources!),
-    ]);
-
-    let timeinfo = {};
-    if (timevar !== undefined) {
-      const timeattrs = timevar.attrs;
-      const timevalues = (await zarr.get(timevar, [null])).data;
-      timeinfo = {
-        values: timevalues,
-        current: decodeTime(
-          (timevalues as number[])[currentTimeIndexSliderValue],
-          timeattrs
-        ),
-      };
-    }
-
+    const [timevar, datavar] = await loadTimeAndDataVars(localVarname);
+    const timeinfo = await extractTimeInfo(
+      timevar,
+      currentTimeIndexSliderValue
+    );
     if (datavar !== undefined) {
-      const gridStep = 64 + 1;
-      let dataMin = Number.POSITIVE_INFINITY;
-      let dataMax = Number.NEGATIVE_INFINITY;
-
-      const low = props.varbounds?.low as number;
-      const high = props.varbounds?.high as number;
-      let scaleFactor: number;
-      let addOffset: number;
-      if (props.invertColormap) {
-        scaleFactor = -1 / (high - low);
-        addOffset = -high * scaleFactor;
-      } else {
-        scaleFactor = 1 / (high - low);
-        addOffset = -low * scaleFactor;
-      }
-
-      for (let ipix = 0; ipix < HEALPIX_NUMCHUNKS; ++ipix) {
-        const texData = await getHealpixData(
-          datavar,
-          currentTimeIndexSliderValue,
-          ipix,
-          HEALPIX_NUMCHUNKS
-        );
-
-        // Update global data range
-        dataMin = Math.min(dataMin, texData.min);
-        dataMax = Math.max(dataMax, texData.max);
-
-        const geometry = makeHealpixGeometry(1, ipix, gridStep);
-        const material = makeTextureMaterial(
-          texData.texture,
-          props.colormap!,
-          addOffset,
-          scaleFactor
-        );
-
-        if (!mainMeshes[ipix]) {
-          const mesh = new THREE.Mesh(geometry, material);
-          getScene()!.add(mesh);
-          mainMeshes[ipix] = mesh;
-        } else {
-          mainMeshes[ipix].geometry.dispose();
-          mainMeshes[ipix].geometry = geometry;
-          mainMeshes[ipix].material = material;
-          mainMeshes[ipix].material.needsUpdate = true;
-        }
-        redraw();
-      }
-
-      publishVarinfo({
-        attrs: datavar.attrs,
+      await processDataVar(
+        datavar,
+        currentTimeIndexSliderValue,
         timeinfo,
-        timeRange: { start: 0, end: datavar.shape[0] - 1 },
-        bounds: { low: dataMin, high: dataMax },
-      });
-
-      timeIndex.value = currentTimeIndexSliderValue;
-      varname.value = localVarname;
+        localVarname
+      );
     }
-
     updatingData.value = false;
 
     if (updateCount.value !== myUpdatecount) {
-      await getData();
+      await getData(); // Restart update if another one queued
     }
   } catch (error) {
     toast.add({
       detail: `Couldn't fetch data: ${getErrorMessage(error)}`,
       life: 3000,
     });
-
     updatingData.value = false;
   } finally {
     store.stopLoading();
   }
 }
+
+async function loadTimeAndDataVars(varname: string) {
+  return await Promise.all([
+    getTimeVar(props.datasources!),
+    getDataVar(varname, props.datasources!),
+  ]);
+}
+
+async function extractTimeInfo(
+  timevar: zarr.Array<zarr.DataType, zarr.FetchStore> | undefined,
+  index: number
+): Promise<TVarInfo["timeinfo"]> {
+  if (!timevar) return {};
+  const timevalues = (await zarr.get(timevar, [null])).data as Int32Array;
+  return {
+    values: timevalues,
+    current: decodeTime(timevalues[index], timevar.attrs),
+  };
+}
+
+async function processDataVar(
+  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  currentTimeIndexSliderValue: number,
+  timeinfo: Awaited<ReturnType<typeof extractTimeInfo>>,
+  localVarname: string
+) {
+  if (datavar !== undefined) {
+    const gridStep = 64 + 1;
+    let dataMin = Number.POSITIVE_INFINITY;
+    let dataMax = Number.NEGATIVE_INFINITY;
+
+    const low = props.varbounds?.low as number;
+    const high = props.varbounds?.high as number;
+    let scaleFactor: number;
+    let addOffset: number;
+    if (props.invertColormap) {
+      scaleFactor = -1 / (high - low);
+      addOffset = -high * scaleFactor;
+    } else {
+      scaleFactor = 1 / (high - low);
+      addOffset = -low * scaleFactor;
+    }
+
+    for (let ipix = 0; ipix < HEALPIX_NUMCHUNKS; ++ipix) {
+      const texData = await getHealpixData(
+        datavar,
+        currentTimeIndexSliderValue,
+        ipix,
+        HEALPIX_NUMCHUNKS
+      );
+
+      // Update global data range
+      dataMin = Math.min(dataMin, texData.min);
+      dataMax = Math.max(dataMax, texData.max);
+
+      const geometry = makeHealpixGeometry(1, ipix, gridStep);
+      const material = makeTextureMaterial(
+        texData.texture,
+        props.colormap!,
+        addOffset,
+        scaleFactor
+      );
+
+      const mesh = new THREE.Mesh(geometry, material);
+      getScene()!.add(mesh);
+
+      if (mainMeshes[ipix]) {
+        mainMeshes[ipix] = mesh;
+      } else {
+        mainMeshes.push(mesh);
+      }
+
+      // Optional: trigger a render here if using manual render loop
+      redraw();
+      // If your render loop is auto-updating (via requestAnimationFrame), you may skip redraw()
+    }
+
+    publishVarinfo({
+      attrs: datavar.attrs,
+      timeinfo,
+      timeRange: { start: 0, end: datavar.shape[0] - 1 },
+      bounds: { low: dataMin, high: dataMax },
+    });
+
+    timeIndex.value = currentTimeIndexSliderValue;
+    varname.value = localVarname;
+  }
+}
+
 function copyPythonExample() {
   const example = datashaderExample({
     cameraPosition: getCamera()!.position,
@@ -425,7 +464,18 @@ function copyPythonExample() {
   });
 }
 
+onMounted(() => {
+  for (let ipix = 0; ipix < HEALPIX_NUMCHUNKS; ++ipix) {
+    getScene()!.add(mainMeshes[ipix]);
+  }
+});
+
 onBeforeMount(async () => {
+  const geometry = new THREE.BufferGeometry();
+  const material = new THREE.ShaderMaterial();
+  for (let ipix = 0; ipix < HEALPIX_NUMCHUNKS; ++ipix) {
+    mainMeshes[ipix] = new THREE.Mesh(geometry, material);
+  }
   await datasourceUpdate();
 });
 

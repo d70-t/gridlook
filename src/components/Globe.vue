@@ -5,6 +5,7 @@ import { grid2buffer, data2valueBuffer } from "./utils/gridlook.ts";
 import {
   makeColormapMaterial,
   availableColormaps,
+  calculateColorMapProperties,
 } from "./utils/colormapShaders.ts";
 import { decodeTime } from "./utils/timeHandling.ts";
 
@@ -169,17 +170,12 @@ async function fetchGrid() {
 function updateColormap() {
   const low = props.varbounds?.low as number;
   const high = props.varbounds?.high as number;
+  const { addOffset, scaleFactor } = calculateColorMapProperties(
+    low,
+    high,
+    props.invertColormap
+  );
 
-  let addOffset: number;
-  let scaleFactor: number;
-
-  if (props.invertColormap) {
-    scaleFactor = -1 / (high - low);
-    addOffset = -high * scaleFactor;
-  } else {
-    scaleFactor = 1 / (high - low);
-    addOffset = -low * scaleFactor;
-  }
   const myMesh = mainMesh as THREE.Mesh;
   const material = myMesh.material as THREE.ShaderMaterial;
   material.uniforms.colormap.value = availableColormaps[props.colormap!];

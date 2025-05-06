@@ -2046,3 +2046,20 @@ export function makeLutGeometry() {
   );
   return geometry;
 }
+
+export function calculateColorMapProperties(
+  low: number,
+  high: number,
+  invertColormap: boolean
+) {
+  let addOffset: number;
+  let scaleFactor: number;
+  if (invertColormap) {
+    scaleFactor = -1 / (high - low);
+    addOffset = -high * scaleFactor;
+  } else {
+    scaleFactor = 1 / (high - low);
+    addOffset = -low * scaleFactor;
+  }
+  return { addOffset, scaleFactor };
+}

@@ -87,7 +87,7 @@ export function useSharedGlobeLogic(
 
   function render() {
     getOrbitControls()?.update();
-    getRenderer()!.render(getScene()!, getCamera()!);
+    getRenderer()?.render(getScene()!, getCamera()!);
   }
 
   async function getCoastlines() {
