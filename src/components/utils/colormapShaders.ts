@@ -62,9 +62,7 @@ export const availableColormaps = {
   tarn: 57,
 } as const;
 
-// credits: https://www.shadertoy.com/view/3lBXR3
-//          https://github.com/mzucker/fit_colormaps
-const colormapFragmentShader = `
+const shaders = `
 vec3 inferno(float t) {
 
     const vec3 coeffs0 = vec3(0.0002135429892708984, 0.001634827339221268, -0.0371299084800798);
@@ -875,18 +873,9 @@ vec3 tarn(float t) {
 
     return coeffs0+t*(coeffs1+t*(coeffs2+t*(coeffs3+t*(coeffs4+t*(coeffs5+t*coeffs6)))));
 
-}
+}`;
 
-
-varying float v_value;
-uniform float addOffset;
-uniform float scaleFactor;
-uniform int colormap;
-
-void main() {
-    gl_FragColor.a = 1.0;
-    float normalized_value = clamp(addOffset + scaleFactor * v_value, 0.0, 1.0);
-
+const distinguishShaders = `
     if (colormap == 0) {
         gl_FragColor.rgb = inferno(normalized_value);
     } else if (colormap == 1) {
@@ -1004,6 +993,42 @@ void main() {
     } else if (colormap == 57) {
         gl_FragColor.rgb = tarn(normalized_value);
     }
+`;
+
+const healPixColormapFragmentShader = `
+${shaders}
+
+
+uniform float addOffset;
+uniform float scaleFactor;
+uniform int colormap;
+uniform sampler2D data;
+
+varying vec2 vUv;
+
+void main() {
+    gl_FragColor.a = 1.0;
+    float v_value = texture(data, vUv).r;
+    float normalized_value = clamp(addOffset + scaleFactor * v_value, 0.0, 1.0);
+
+    ${distinguishShaders}
+}`;
+
+// credits: https://www.shadertoy.com/view/3lBXR3
+//          https://github.com/mzucker/fit_colormaps
+const colormapFragmentShader = `
+${shaders}
+
+varying float v_value;
+uniform float addOffset;
+uniform float scaleFactor;
+uniform int colormap;
+
+void main() {
+    gl_FragColor.a = 1.0;
+    float normalized_value = clamp(addOffset + scaleFactor * v_value, 0.0, 1.0);
+
+    ${distinguishShaders}
 }`;
 
 const dataOnMeshVertexShader = `
@@ -1025,6 +1050,15 @@ const dataOnScreenMeshVertexShader = `
     void main() {
       v_value = data_value;
       gl_Position = vec4(position,1.0);
+    }
+    `;
+
+const dataOnTextureVertexShader = `
+    varying vec2 vUv;
+
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
     }
     `;
 
@@ -1064,6 +1098,26 @@ export function makeLutMaterial(
   return material;
 }
 
+export function makeTextureMaterial(
+  texture: THREE.Texture,
+  colormap: TColorMap = "turbo",
+  addOffset: number,
+  scaleFactor: number
+) {
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      addOffset: { value: addOffset },
+      scaleFactor: { value: scaleFactor },
+      colormap: { value: availableColormaps[colormap] },
+      data: { value: texture },
+    },
+
+    vertexShader: dataOnTextureVertexShader,
+    fragmentShader: healPixColormapFragmentShader,
+  });
+  return material;
+}
+
 export function makeLutGeometry() {
   const geometry = new THREE.PlaneGeometry(0.1, 1).translate(0.95, 0, 0);
   geometry.setAttribute(
@@ -1071,4 +1125,21 @@ export function makeLutGeometry() {
     new THREE.BufferAttribute(Float32Array.from([1, 1, 0, 0]), 1)
   );
   return geometry;
+}
+
+export function calculateColorMapProperties(
+  low: number,
+  high: number,
+  invertColormap: boolean
+) {
+  let addOffset: number;
+  let scaleFactor: number;
+  if (invertColormap) {
+    scaleFactor = -1 / (high - low);
+    addOffset = -high * scaleFactor;
+  } else {
+    scaleFactor = 1 / (high - low);
+    addOffset = -low * scaleFactor;
+  }
+  return { addOffset, scaleFactor };
 }

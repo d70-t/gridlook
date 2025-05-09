@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { ref, onMounted } from "vue";
+import { ref, onMounted, onBeforeMount } from "vue";
 import GlobeView from "./GlobeView.vue";
 
 const defaultSrc = ref("static/index_mr_dpp0066.json");
@@ -15,6 +15,10 @@ const onHashChange = () => {
 
 onMounted(() => {
   window.addEventListener("hashchange", onHashChange);
+  // onHashChange();
+});
+
+onBeforeMount(() => {
   onHashChange();
 });
 </script>
