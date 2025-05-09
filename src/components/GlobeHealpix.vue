@@ -399,7 +399,7 @@ async function processDataVar(
       addOffset = -low * scaleFactor;
     }
 
-    for (let ipix = 0; ipix < HEALPIX_NUMCHUNKS; ++ipix) {
+    await Promise.all([...Array(HEALPIX_NUMCHUNKS).keys()].map(async (ipix) => {
       const texData = await getHealpixData(
         datavar,
         currentTimeIndexSliderValue,
@@ -431,7 +431,7 @@ async function processDataVar(
       // Optional: trigger a render here if using manual render loop
       redraw();
       // If your render loop is auto-updating (via requestAnimationFrame), you may skip redraw()
-    }
+    }));
 
     publishVarinfo({
       attrs: datavar.attrs,
