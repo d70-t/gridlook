@@ -131,6 +131,8 @@ const setDefaultColormap = () => {
     colormap.value = defaultColormap.name;
   }
 };
+
+publish();  // ensure initial settings are published
 </script>
 
 <template>

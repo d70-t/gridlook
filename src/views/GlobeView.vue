@@ -106,34 +106,85 @@ const updateVarinfo = (info: TVarInfo) => {
   varinfo.value = info;
 };
 
+async function indexFromZarr(src: string) {
+  const store = await zarr.withConsolidated(new zarr.FetchStore(src));
+  const root = await zarr.open(store, { kind: "group" });
+
+  const candidates = await Promise.allSettled(store.contents().map(async ({ path, kind }) => {
+      const varname = path.slice(1);
+      if (kind !== "array") {
+        return {};
+      }
+      let variable = await zarr.open(root.resolve(path), { kind: "array" });
+      if (
+        variable.shape.length === 2 &&
+        variable.attrs?._ARRAY_DIMENSIONS &&
+        variable.attrs?._ARRAY_DIMENSIONS instanceof Array &&
+        variable.attrs?._ARRAY_DIMENSIONS[0] === "time"
+      ) {
+        return {
+          [varname]: {
+            store: src,
+            dataset: "",
+          }
+        };
+      } else {
+        return {};
+      }
+    })
+  );
+  const datasources = candidates
+    .filter((promise) => promise.status === "fulfilled")
+    .map((promise) => promise.value)
+    .reduce((a, b) => {
+      return { ...a, ...b };
+    }, {});
+
+  return {
+    name: root.attrs?.title,
+    levels: [
+      {
+        time: {
+          store: src,
+          dataset: "",
+        },
+        datasources,
+      },
+    ],
+  };
+}
+
+async function indexFromIndex(src: string) {
+  const res = await fetch(src);
+  return await res.json();
+}
+
 const updateSrc = async () => {
   const src = props.src;
-  const datasourcesResponse = await fetch(src)
-    .then((r) => {
-      if (!r.ok) {
-        throw new Error(r.statusText);
-      }
-      return r.json();
-    })
-    .then((r) => {
+
+  const indices = await Promise.allSettled([indexFromZarr(src), indexFromIndex(src)]);
+  let lastError = null;
+
+  sourceValid.value = false;
+  for (const index of indices) {
+    if (index.status === "fulfilled") {
       sourceValid.value = true;
-      return r;
-    })
-    .catch((e: { message: string }) => {
-      toast.add({
-        severity: "error",
-        summary: "Error",
-        detail: `Failed to fetch data: ${e.message}`,
-        life: 3000,
-      });
-      sourceValid.value = false;
-    });
-  if (sourceValid.value) {
-    if (src === props.src) {
-      datasources.value = datasourcesResponse;
+      if (src === props.src) {
+        datasources.value = index.value;
+      }
+      varnameSelector.value =
+        modelInfo.value!.defaultVar ?? Object.keys(modelInfo.value!.vars)[0];
+    } else {
+      lastError = index.reason;
     }
-    varnameSelector.value =
-      modelInfo.value!.defaultVar ?? Object.keys(modelInfo.value!.vars)[0];
+  }
+  if (!sourceValid.value && lastError) {
+    toast.add({
+      severity: "error",
+      summary: "Error",
+      detail: `Failed to fetch data: ${lastError.message}`,
+      life: 3000,
+    });
   }
 };
 
