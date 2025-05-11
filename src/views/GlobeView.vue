@@ -174,6 +174,7 @@ const updateSrc = async () => {
       }
       varnameSelector.value =
         modelInfo.value!.defaultVar ?? Object.keys(modelInfo.value!.vars)[0];
+      break;
     } else {
       lastError = index.reason;
     }
