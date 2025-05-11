@@ -187,7 +187,7 @@ async function getGridType() {
         kind: "array",
       }
     );
-    if (datavar.attrs.grid_mapping === "crs") {
+    try {
       const crs = await zarr.open(root.resolve(datasource.dataset + `/crs`), {
         kind: "array",
       });
@@ -195,7 +195,8 @@ async function getGridType() {
       if (crs.attrs["grid_mapping_name"] === "healpix") {
         return GRID_TYPES.HEALPIX;
       }
-    } else if (datavar.attrs.grid_mapping === "rotated_latitude_longitude") {
+    } catch { /* fall through to other cases */ }
+    if (datavar.attrs.grid_mapping === "rotated_latitude_longitude") {
       return GRID_TYPES.REGULAR_ROTATED;
     }
     return GRID_TYPES.REGULAR;
