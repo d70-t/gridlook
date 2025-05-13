@@ -17,6 +17,7 @@ import {
   shallowRef,
   onMounted,
   watch,
+  nextTick,
   type Ref,
   type ShallowRef,
 } from "vue";
@@ -52,7 +53,11 @@ const datavars: ShallowRef<
 const updateCount = ref(0);
 const updatingData = ref(false);
 
+const SKY_BLUE_COLOR = new THREE.Color(0x87CEEB);
+const NIGHT_COLOR = new THREE.Color(0x000014);
+
 let mainMesh: THREE.Mesh | undefined = undefined;
+let scene: THREE.Scene | undefined = undefined;
 
 let canvas: Ref<HTMLCanvasElement | undefined> = ref();
 let box: Ref<HTMLDivElement | undefined> = ref();
@@ -66,6 +71,31 @@ const {
   getDataVar,
   getTimeVar,
 } = useSharedGlobeLogic(canvas, box);
+
+watch(
+  () => store.isDarkTheme,
+  (newValue) => {
+    updateBackgroundColor(newValue);
+  },
+  { immediate: true }  
+);
+
+function redrawScene() {
+  if (scene) {
+    redraw();
+  }
+}
+
+function ensureBackgroundColor() {
+  if (scene) {
+    const currentColor = store.isDarkTheme ? NIGHT_COLOR : SKY_BLUE_COLOR;
+    if (scene.background !== currentColor) {
+      scene.background = currentColor;
+      console.log("Fixed background color:", currentColor);
+      redrawScene();
+    }
+  }
+}
 
 watch(
   () => varnameSelector.value,
@@ -184,6 +214,19 @@ function updateColormap() {
   redraw();
 }
 
+function updateBackgroundColor(isDarkTheme: boolean) {
+  if (scene) {
+    const newColor = isDarkTheme ? NIGHT_COLOR : SKY_BLUE_COLOR;
+    scene.background = newColor;
+    console.log("Background color updated:", isDarkTheme ? "dark theme" : "light theme", 
+                scene.background);
+    redraw();
+  } else {
+    console.log("Scene not available yet for background update");
+    setTimeout(() => updateBackgroundColor(isDarkTheme), 100);
+  }
+}
+
 async function getData() {
   store.startLoading();
   try {
@@ -205,7 +248,6 @@ async function getData() {
       const timeattrs = timevar.attrs;
       const timevalues = (await zarr.get(timevar, [null])).data;
       timeinfo = {
-        // attrs: timeattrs,
         values: timevalues,
         current: decodeTime(
           (timevalues as number[])[currentTimeIndexSliderValue],
@@ -263,7 +305,25 @@ function copyPythonExample() {
 }
 
 onMounted(() => {
-  getScene()?.add(mainMesh as THREE.Mesh);
+  scene = getScene();
+  
+  if (scene) {
+    scene.background = store.isDarkTheme ? NIGHT_COLOR : SKY_BLUE_COLOR;
+    console.log("Initial background color set:", scene.background);
+  }
+  
+  scene?.add(mainMesh as THREE.Mesh);
+  
+    nextTick(() => {
+    updateBackgroundColor(store.isDarkTheme);
+    
+
+    const checkInterval = setInterval(ensureBackgroundColor, 1000);
+    
+    setTimeout(() => {
+      clearInterval(checkInterval);
+    }, 5000);
+  });
 });
 
 onBeforeMount(async () => {
