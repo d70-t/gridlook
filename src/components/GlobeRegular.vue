@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import * as THREE from "three";
 import * as zarr from "zarrita";
-import * as zarrStore from "@zarrita/storage";
+import type { Readable } from "@zarrita/storage";
 import {
   availableColormaps,
   calculateColorMapProperties,
@@ -185,7 +185,7 @@ function rotatedToGeographic(
   return { lat, lon };
 }
 
-async function getGaussianGrid(grid: zarr.Group<zarrStore.Readable>) {
+async function getGaussianGrid(grid: zarr.Group<Readable>) {
   const isRotated = props.isRotated;
   let latitudes = (
     await zarr
@@ -219,9 +219,9 @@ async function getGaussianGrid(grid: zarr.Group<zarrStore.Readable>) {
   }
 
   const radius = 1.0;
-  const vertices = [];
-  const indices = [];
-  const uvs = [];
+  const vertices: number[] = [];
+  const indices: number[] = [];
+  const uvs: number[] = [];
 
   const latCount = latitudes.length;
   const lonCount = longitudes.length;
@@ -280,7 +280,7 @@ async function getGaussianGrid(grid: zarr.Group<zarrStore.Readable>) {
   return { vertices, indices, uvs };
 }
 
-async function makeRegularGeometry(grid: zarr.Group<zarrStore.Readable>) {
+async function makeRegularGeometry(grid: zarr.Group<Readable>) {
   const { vertices, indices, uvs } = await getGaussianGrid(grid);
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute(
