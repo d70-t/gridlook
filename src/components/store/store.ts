@@ -9,6 +9,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
       varnameSelector: "-",
       varname: "-",
       loading: false,
+      isDarkTheme: false,
     };
   },
   actions: {
@@ -20,6 +21,9 @@ export const useGlobeControlStore = defineStore("globeControl", {
     },
     stopLoading() {
       this.loading = false;
+    },
+    toggleTheme() {
+      this.isDarkTheme = !this.isDarkTheme;
     },
   },
 });

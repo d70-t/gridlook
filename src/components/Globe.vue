@@ -8,7 +8,6 @@ import {
   calculateColorMapProperties,
 } from "./utils/colormapShaders.ts";
 import { decodeTime } from "./utils/timeHandling.ts";
-
 import { datashaderExample } from "./utils/exampleFormatters.ts";
 import {
   computed,
@@ -21,7 +20,6 @@ import {
   type Ref,
   type ShallowRef,
 } from "vue";
-
 import { useGlobeControlStore } from "./store/store.js";
 import { storeToRefs } from "pinia";
 import type {
@@ -53,14 +51,14 @@ const datavars: ShallowRef<
 const updateCount = ref(0);
 const updatingData = ref(false);
 
-const SKY_BLUE_COLOR = new THREE.Color(0x87CEEB);
+const SKY_BLUE_COLOR = new THREE.Color(0x87ceeb);
 const NIGHT_COLOR = new THREE.Color(0x000014);
 
 let mainMesh: THREE.Mesh | undefined = undefined;
-let scene: THREE.Scene | undefined = undefined;
+const sceneRef = ref<THREE.Scene | null>(null);
 
-let canvas: Ref<HTMLCanvasElement | undefined> = ref();
-let box: Ref<HTMLDivElement | undefined> = ref();
+const canvas: Ref<HTMLCanvasElement | undefined> = ref();
+const box: Ref<HTMLDivElement | undefined> = ref();
 
 const {
   getScene,
@@ -72,104 +70,83 @@ const {
   getTimeVar,
 } = useSharedGlobeLogic(canvas, box);
 
+function updateBackgroundColor(isDarkTheme: boolean) {
+  const scene = sceneRef.value;
+  if (scene) {
+    scene.background = isDarkTheme ? NIGHT_COLOR : SKY_BLUE_COLOR;
+    if (scene.background instanceof THREE.Color) {
+      scene.background.needsUpdate = true;
+    }
+    redraw();
+    console.log('Background updated to:', isDarkTheme ? 'dark' : 'light');
+  }
+}
+
+function redrawScene() {
+  redraw();
+}
+
 watch(
   () => store.isDarkTheme,
   (newValue) => {
-    updateBackgroundColor(newValue);
+    nextTick(() => updateBackgroundColor(newValue));
   },
-  { immediate: true }  
+  { immediate: true }
 );
-
-function redrawScene() {
-  if (scene) {
-    redraw();
-  }
-}
-
-function ensureBackgroundColor() {
-  if (scene) {
-    const currentColor = store.isDarkTheme ? NIGHT_COLOR : SKY_BLUE_COLOR;
-    if (scene.background !== currentColor) {
-      scene.background = currentColor;
-      console.log("Fixed background color:", currentColor);
-      redrawScene();
-    }
-  }
-}
 
 watch(
   () => varnameSelector.value,
-  () => {
-    getData();
-  }
+  () => getData()
 );
 
 watch(
   () => timeIndexSlider.value,
-  () => {
-    getData();
-  }
+  () => getData()
 );
 
 watch(
   () => props.datasources,
-  () => {
-    datasourceUpdate();
-  }
+  () => datasourceUpdate()
 );
 
 watch(
   () => props.varbounds,
-  () => {
-    updateColormap();
-  }
+  () => updateColormap()
 );
 
 watch(
   () => props.invertColormap,
-  () => {
-    updateColormap();
-  }
+  () => updateColormap()
 );
 
 watch(
   () => props.colormap,
-  () => {
-    updateColormap();
-  }
+  () => updateColormap()
 );
 
 const colormapMaterial = computed(() => {
-  if (props.invertColormap) {
-    return makeColormapMaterial(props.colormap, 1.0, -1.0);
-  } else {
-    return makeColormapMaterial(props.colormap, 0.0, 1.0);
-  }
+  return makeColormapMaterial(
+    props.colormap || 'viridis',
+    props.invertColormap ? 1.0 : 0.0,
+    props.invertColormap ? -1.0 : 1.0
+  );
 });
 
 const gridsource = computed(() => {
-  if (props.datasources) {
-    return props.datasources.levels[0].grid;
-  } else {
-    return undefined;
-  }
+  return props.datasources?.levels[0].grid;
 });
 
 const datasource = computed(() => {
-  if (props.datasources) {
-    return props.datasources.levels[0].datasources[varnameSelector.value];
-  } else {
-    return undefined;
-  }
+  return props.datasources?.levels[0].datasources[varnameSelector.value];
 });
 
 function publishVarinfo(info: TVarInfo) {
-  emit("varinfo", info);
+  emit('varinfo', info);
 }
 
 async function datasourceUpdate() {
   datavars.value = {};
-  if (props.datasources !== undefined) {
+  if (props.datasources) {
     await Promise.all([fetchGrid(), getData()]);
     updateColormap();
   }
@@ -177,20 +154,25 @@ async function datasourceUpdate() {
 
 async function fetchGrid() {
   try {
-    const root = zarr.root(new zarr.FetchStore(gridsource.value!.store));
-    const grid = await zarr.open(root.resolve(gridsource.value!.dataset), {
+    if (!gridsource.value) return;
+    
+    const root = zarr.root(new zarr.FetchStore(gridsource.value.store));
+    const grid = await zarr.open(root.resolve(gridsource.value.dataset), {
       kind: "group",
     });
     const verts = await grid2buffer(grid);
-    const myMesh = mainMesh as THREE.Mesh;
-    myMesh.geometry.setAttribute(
-      "position",
-      new THREE.BufferAttribute(verts, 3)
-    );
-    myMesh.geometry.computeBoundingSphere();
-    redraw();
+    if (mainMesh) {
+      mainMesh.geometry.setAttribute(
+        "position",
+        new THREE.BufferAttribute(verts, 3)
+      );
+      mainMesh.geometry.computeBoundingSphere();
+      redraw();
+    }
   } catch (error) {
     toast.add({
+      severity: 'error',
+      summary: 'Error',
       detail: `Could not fetch grid: ${getErrorMessage(error)}`,
       life: 3000,
     });
@@ -198,89 +180,84 @@ async function fetchGrid() {
 }
 
 function updateColormap() {
-  const low = props.varbounds?.low as number;
-  const high = props.varbounds?.high as number;
+  if (!mainMesh || !props.varbounds) return;
+  
+  const { low, high } = props.varbounds;
   const { addOffset, scaleFactor } = calculateColorMapProperties(
     low,
     high,
     props.invertColormap
   );
 
-  const myMesh = mainMesh as THREE.Mesh;
-  const material = myMesh.material as THREE.ShaderMaterial;
-  material.uniforms.colormap.value = availableColormaps[props.colormap!];
+  const material = mainMesh.material as THREE.ShaderMaterial;
+  material.uniforms.colormap.value = availableColormaps[props.colormap || 'viridis'];
   material.uniforms.addOffset.value = addOffset;
   material.uniforms.scaleFactor.value = scaleFactor;
+  material.needsUpdate = true;
   redraw();
 }
 
-function updateBackgroundColor(isDarkTheme: boolean) {
-  if (scene) {
-    const newColor = isDarkTheme ? NIGHT_COLOR : SKY_BLUE_COLOR;
-    scene.background = newColor;
-    console.log("Background color updated:", isDarkTheme ? "dark theme" : "light theme", 
-                scene.background);
-    redraw();
-  } else {
-    console.log("Scene not available yet for background update");
-    setTimeout(() => updateBackgroundColor(isDarkTheme), 100);
-  }
-}
-
 async function getData() {
+  if (!props.datasources) return;
+  
   store.startLoading();
   try {
     updateCount.value += 1;
-    const myUpdatecount = updateCount.value;
-    if (updatingData.value) {
-      return;
-    }
+    const myUpdateCount = updateCount.value;
+    
+    if (updatingData.value) return;
     updatingData.value = true;
 
     const localVarname = varnameSelector.value;
-    const currentTimeIndexSliderValue = timeIndexSlider.value;
+    const currentTimeIndex = timeIndexSlider.value;
+    
     const [timevar, datavar] = await Promise.all([
-      getTimeVar(props.datasources!),
-      getDataVar(localVarname, props.datasources!),
+      getTimeVar(props.datasources),
+      getDataVar(localVarname, props.datasources),
     ]);
+
     let timeinfo = {};
-    if (timevar !== undefined) {
+    if (timevar) {
       const timeattrs = timevar.attrs;
       const timevalues = (await zarr.get(timevar, [null])).data;
       timeinfo = {
         values: timevalues,
         current: decodeTime(
-          (timevalues as number[])[currentTimeIndexSliderValue],
+          (timevalues as number[])[currentTimeIndex],
           timeattrs
         ),
       };
     }
-    if (datavar !== undefined) {
-      const rawData = await zarr.get(datavar, [
-        currentTimeIndexSliderValue,
-        null,
-      ]);
+
+    if (datavar && mainMesh) {
+      const rawData = await zarr.get(datavar, [currentTimeIndex, null]);
       const dataBuffer = data2valueBuffer(rawData);
-      mainMesh?.geometry.setAttribute(
+      
+      mainMesh.geometry.setAttribute(
         "data_value",
         new THREE.BufferAttribute(dataBuffer.dataValues, 1)
       );
+      
       publishVarinfo({
         attrs: datavar.attrs,
         timeinfo,
         timeRange: { start: 0, end: datavar.shape[0] - 1 },
         bounds: { low: dataBuffer.dataMin, high: dataBuffer.dataMax },
       });
-      redraw();
-      timeIndex.value = currentTimeIndexSliderValue;
+      
+      timeIndex.value = currentTimeIndex;
       varname.value = localVarname;
+      redraw();
     }
+
     updatingData.value = false;
-    if (updateCount.value !== myUpdatecount) {
+    if (updateCount.value !== myUpdateCount) {
       await getData();
     }
   } catch (error) {
     toast.add({
+      severity: 'error',
+      summary: 'Error',
       detail: `Couldn't fetch data: ${getErrorMessage(error)}`,
       life: 3000,
     });
@@ -291,59 +268,59 @@ async function getData() {
 }
 
 function copyPythonExample() {
+  if (!datasource.value || !gridsource.value) return;
+  
   const example = datashaderExample({
-    cameraPosition: getCamera()!.position,
-    datasrc: datasource.value!.store + datasource.value!.dataset,
-    gridsrc: gridsource.value!.store + gridsource.value!.dataset,
-    varname: varname.value,
-    timeIndex: timeIndex.value,
-    varbounds: props.varbounds!,
-    colormap: props.colormap!,
-    invertColormap: props.invertColormap,
+    cameraPosition: getCamera()?.position || new THREE.Vector3(),
+    datasrc: datasource.value.store + datasource.value.dataset,
+    gridsrc: gridsource.value.store + gridsource.value.dataset,
+    varname: varname.value || '',
+    timeIndex: timeIndex.value || 0,
+    varbounds: props.varbounds || { low: 0, high: 1 },
+    colormap: props.colormap || 'viridis',
+    invertColormap: props.invertColormap || false,
   });
   navigator.clipboard.writeText(example);
 }
 
 onMounted(() => {
-  scene = getScene();
+  const scene = getScene();
+  sceneRef.value = scene;
   
-  if (scene) {
+  if (scene && mainMesh) {
+    scene.add(mainMesh);
     scene.background = store.isDarkTheme ? NIGHT_COLOR : SKY_BLUE_COLOR;
-    console.log("Initial background color set:", scene.background);
+    if (scene.background instanceof THREE.Color) {
+      scene.background.needsUpdate = true;
+    }
+    redraw();
   }
   
-  scene?.add(mainMesh as THREE.Mesh);
-  
-    nextTick(() => {
-    updateBackgroundColor(store.isDarkTheme);
-    
-
-    const checkInterval = setInterval(ensureBackgroundColor, 1000);
-    
-    setTimeout(() => {
-      clearInterval(checkInterval);
-    }, 5000);
-  });
+  datasourceUpdate();
 });
 
-onBeforeMount(async () => {
+onBeforeMount(() => {
   const geometry = new THREE.BufferGeometry();
   const material = colormapMaterial.value;
   mainMesh = new THREE.Mesh(geometry, material);
-  await datasourceUpdate();
 });
 
-defineExpose({ makeSnapshot, copyPythonExample, toggleRotate });
+defineExpose({ 
+  makeSnapshot, 
+  copyPythonExample, 
+  toggleRotate,
+  redraw: redrawScene
+});
 </script>
 
 <template>
-  <div ref="box" class="globe_box" tabindex="0" autofocus>
-    <canvas ref="canvas" class="globe_canvas"> </canvas>
+  <div ref="box" class="globe_box" tabindex="0">
+    <canvas ref="canvas" class="globe_canvas"></canvas>
   </div>
 </template>
 
 <style>
-div.globe_box {
+.globe_box {
   height: 100%;
   width: 100%;
   padding: 0;
@@ -351,10 +328,15 @@ div.globe_box {
   overflow: hidden;
   display: flex;
   z-index: 0;
+  background: transparent;
 }
 
-div.globe_canvas {
+.globe_canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
   padding: 0;
   margin: 0;
+  outline: none;
 }
 </style>
