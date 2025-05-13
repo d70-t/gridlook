@@ -81,7 +81,6 @@ const currentGlobeComponent = computed(() => {
 
 async function setGridType() {
   const localVarname = await getGridType();
-  console.log("localVarname", localVarname);
   gridType.value = localVarname;
 }
 
@@ -104,6 +103,9 @@ watch(
 watch(
   () => varnameSelector.value,
   async () => {
+    if (!varnameSelector.value || varnameSelector.value === "-") {
+      return;
+    }
     await setGridType();
   }
 );

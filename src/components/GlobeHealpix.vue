@@ -412,7 +412,6 @@ async function processDataVar(
         dataMin = Math.min(dataMin, texData.min);
         dataMax = Math.max(dataMax, texData.max);
 
-        const geometry = makeHealpixGeometry(1, ipix, gridStep);
         const material = makeTextureMaterial(
           texData.texture,
           props.colormap!,
@@ -421,11 +420,10 @@ async function processDataVar(
         );
 
         if (mainMeshes[ipix]) {
-          mainMeshes[ipix]!.geometry.dispose();
-          mainMeshes[ipix]!.geometry = geometry;
           mainMeshes[ipix].material = material;
           mainMeshes[ipix].material.needsUpdate = true;
         } else {
+          const geometry = makeHealpixGeometry(1, ipix, gridStep);
           const mesh = new THREE.Mesh(geometry, material);
           mainMeshes.push(mesh);
           getScene()!.add(mesh);
