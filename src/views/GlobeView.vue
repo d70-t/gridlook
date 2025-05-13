@@ -1,7 +1,8 @@
 <script lang="ts" setup>
 import * as zarr from "zarrita";
 import GlobeHealpix from "@/components/GlobeHealpix.vue";
-// import GlobeRegular from "@/components/GlobeRegular.vue";
+import GlobeRegular from "@/components/GlobeRegular.vue";
+// import GlobeIrregular from "@/components/GlobeIrregular.vue";
 import Globe from "@/components/Globe.vue";
 import GlobeControls from "@/components/GlobeControls.vue";
 import { availableColormaps } from "@/components/utils/colormapShaders.js";
@@ -69,16 +70,17 @@ const currentGlobeComponent = computed(() => {
     gridType.value === GRID_TYPES.REGULAR_ROTATED ||
     gridType.value === GRID_TYPES.REGULAR
   ) {
-    // LATER: Add GlobeRegular
+    return GlobeRegular;
+  } else if (gridType.value === GRID_TYPES.TRIANGULAR) {
     return Globe;
   } else {
+    // Irregular later
     return Globe;
   }
 });
 
 async function setGridType() {
   const localVarname = await getGridType();
-  console.log("localVarname", localVarname);
   gridType.value = localVarname;
 }
 
@@ -98,6 +100,16 @@ watch(
   }
 );
 
+watch(
+  () => varnameSelector.value,
+  async () => {
+    if (!varnameSelector.value || varnameSelector.value === "-") {
+      return;
+    }
+    await setGridType();
+  }
+);
+
 const updateSelection = (s: TSelection) => {
   selection.value = s;
 };
@@ -110,7 +122,8 @@ async function indexFromZarr(src: string) {
   const store = await zarr.withConsolidated(new zarr.FetchStore(src));
   const root = await zarr.open(store, { kind: "group" });
 
-  const candidates = await Promise.allSettled(store.contents().map(async ({ path, kind }) => {
+  const candidates = await Promise.allSettled(
+    store.contents().map(async ({ path, kind }) => {
       const varname = path.slice(1);
       if (kind !== "array") {
         return {};
@@ -127,9 +140,9 @@ async function indexFromZarr(src: string) {
             store: src,
             dataset: "",
             attrs: {
-              ...variable.attrs
+              ...variable.attrs,
             },
-          }
+          },
         };
       } else {
         return {};
@@ -165,7 +178,10 @@ async function indexFromIndex(src: string) {
 const updateSrc = async () => {
   const src = props.src;
 
-  const indices = await Promise.allSettled([indexFromZarr(src), indexFromIndex(src)]);
+  const indices = await Promise.allSettled([
+    indexFromZarr(src),
+    indexFromIndex(src),
+  ]);
   let lastError = null;
 
   sourceValid.value = false;
@@ -250,11 +266,16 @@ async function getGridType() {
       if (crs.attrs["grid_mapping_name"] === "healpix") {
         return GRID_TYPES.HEALPIX;
       }
-    } catch { /* fall through to other cases */ }
+    } catch {
+      /* fall through to other cases */
+    }
     if (datavar.attrs.grid_mapping === "rotated_latitude_longitude") {
       return GRID_TYPES.REGULAR_ROTATED;
     }
-    return GRID_TYPES.REGULAR;
+    if ((datavar.attrs._ARRAY_DIMENSIONS as unknown[]).length >= 3) {
+      return GRID_TYPES.REGULAR;
+    }
+    return GRID_TYPES.GAUSSIAN;
   } catch (error) {
     toast.add({
       detail: `${getErrorMessage(error)}`,
