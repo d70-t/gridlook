@@ -169,8 +169,7 @@ publish();  // ensure initial settings are published
             :key="varname"
             :value="varname"
           >
-            {{ varname }} <span v-if=" modelInfo.vars[varname]?.attrs?.standard_name">- 
-              {{ modelInfo.vars[varname].attrs.standard_name }}</span>
+            {{ varname }}
           </option>
         </select>
       </div>
