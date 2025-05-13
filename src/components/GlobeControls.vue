@@ -176,6 +176,7 @@ publish();  // ensure initial settings are published
       class="panel-content"
       :class="{ 'is-hidden': menuCollapsed }"
     >
+<<<<<<< HEAD
       <div class="panel-section">
         <div class="select-container">
           <select v-model="varnameSelector" class="form-select">
@@ -188,6 +189,19 @@ publish();  // ensure initial settings are published
             </option>
           </select>
         </div>
+=======
+      <div class="select is-fullwidth">
+        <select v-model="varnameSelector" class="form-control">
+          <option
+            v-for="varname in Object.keys(modelInfo.vars)"
+            :key="varname"
+            :value="varname"
+          >
+            {{ varname }} <span v-if=" modelInfo.vars[varname]?.attrs?.standard_name">- 
+              {{ modelInfo.vars[varname].attrs.standard_name }}</span>
+          </option>
+        </select>
+>>>>>>> 76bbd5d250292263c35db81712a01f82731e9c1d
       </div>
 
       <div class="panel-section time-controls">

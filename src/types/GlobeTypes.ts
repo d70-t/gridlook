@@ -21,34 +21,23 @@ export type TVarInfo = {
   attrs: zarr.Attributes; //{ long_name: string; units: string };
 };
 
+export type TDataSource = {
+  store: string;
+  dataset: string;
+  default_colormap?: {
+    name: TColorMap;
+    inverted: boolean;
+  };
+  default_range?: TBounds;
+  attrs?: zarr.Attributes;
+};
+
 export type TModelInfo = {
-  vars: Record<
-    string,
-    {
-      dataset: string;
-      default_colormap: {
-        // external resource, we keep the kebab-case here...
-        name: TColorMap;
-        inverted: boolean;
-      };
-      default_range: TBounds;
-      store: string;
-    }
-  >;
+  vars: Record<string, TDataSource>;
   defaultVar: string;
   title: string;
   colormaps: TColorMap[];
   timeRange: { start: number; end: number };
-};
-
-export type TDataSource = {
-  dataset: string;
-  default_colormap: {
-    name: TColorMap;
-    inverted: boolean;
-  };
-  default_range: TBounds;
-  store: string;
 };
 
 export type TSources = {
