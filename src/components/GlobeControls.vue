@@ -33,7 +33,6 @@ const pickedBounds = ref("auto");
 
 // Theme management
 const theme = ref<'light' | 'dark'>('light');
-
 function toggleTheme() {
   theme.value = theme.value === 'dark' ? 'light' : 'dark';
   document.documentElement.setAttribute("data-theme", theme.value);
