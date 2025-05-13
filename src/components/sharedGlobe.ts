@@ -32,7 +32,7 @@ export function useSharedGlobeLogic(
   let coast: THREE.LineSegments | undefined = undefined;
   let scene: THREE.Scene | undefined = undefined;
   let camera: THREE.PerspectiveCamera | undefined = undefined;
-  let renderer: THREE.Renderer | undefined = undefined;
+  let renderer: THREE.WebGLRenderer | undefined = undefined;
   let orbitControls: OrbitControls | undefined = undefined;
   let resizeObserver: ResizeObserver | undefined = undefined;
   const width: Ref<number | undefined> = ref(undefined);
@@ -198,6 +198,15 @@ export function useSharedGlobeLogic(
     canvasValue.addEventListener("mousedown", () => {
       mouseDown = true;
       animationLoop();
+    });
+
+    canvasValue.addEventListener("touchstart", () => {
+      mouseDown = true;
+      animationLoop();
+    });
+
+    canvasValue.addEventListener("touchend", () => {
+      mouseDown = false;
     });
 
     box.value!.addEventListener("keydown", (e: KeyboardEvent) => {

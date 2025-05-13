@@ -13,6 +13,6 @@ export function decodeTime(value: number, attrs: zarr.Attributes) {
   }
   const [, interval, refdate] = regExMatch;
   const ref = dayjs.utc(refdate);
-  const timepoint = ref.add(value, interval);
+  const timepoint = ref.add(value, interval as dayjs.ManipulateType);
   return timepoint;
 }
