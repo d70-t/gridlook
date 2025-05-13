@@ -18,6 +18,9 @@ import { useToast } from "primevue/usetoast";
 import { storeToRefs } from "pinia";
 import { getErrorMessage } from "../components/utils/errorHandling";
 // import GlobeRegular from "../components/GlobeRegular.vue";
+
+import plotProperties from "../plot_properties.json";
+
 const props = defineProps<{ src: string }>();
 
 const GRID_TYPES = {
@@ -126,9 +129,7 @@ async function indexFromZarr(src: string) {
           [varname]: {
             store: src,
             dataset: "",
-            attrs: {
-              ...variable.attrs
-            },
+            attrs: variable.attrs,
           }
         };
       } else {

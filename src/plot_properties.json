@@ -22,5 +22,14 @@
         "name": "ice",
         "inverted": false
     }
+  },
+  {
+    "standard_name": "kinetic_energy_dissipation_in_atmosphere_boundary_layer",
+    "names": ["ci"],
+    "default_colormap": {
+        "name": "ice",
+        "inverted": false
+    }
   }
+
 ]

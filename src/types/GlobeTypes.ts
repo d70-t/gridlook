@@ -14,6 +14,16 @@ export type TSelection = {
   bounds: TBounds;
 };
 
+export interface PlotProperties {
+  standard_name?: string;
+  names: string[];
+  default_range: TBounds
+  default_colormap: {
+    name: TColorMap;
+    inverted: boolean;
+  };
+}
+
 export type TVarInfo = {
   timeinfo: EmptyObj | { current: Dayjs; values: Int32Array };
   timeRange: { start: number; end: number };
