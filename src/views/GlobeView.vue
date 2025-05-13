@@ -226,6 +226,20 @@ const toggleRotate = () => {
   }
 };
 
+async function findCRSVar(root: zarr.FetchStore, varname: string) {
+  const datavar = await zarr.open(root.resolve(varname), {
+    kind: "array",
+  });
+  if ( datavar.attrs?.grid_mapping ) {
+    return String(datavar.attrs.grid_mapping).split(":")[0];
+  }
+  const group = await zarr.open(root, {kind: "group"});
+  if ( group.attrs?.grid_mapping ) {
+    return String(group.attrs.grid_mapping).split(":")[0];
+  }
+  return "crs";
+}
+
 async function getGridType() {
   // FIXME: This is a clumsy hack to distinguish between different
   // grid types.
@@ -251,17 +265,20 @@ async function getGridType() {
     } catch (e) {
       /* empty */
     }
-    const root = zarr.root(new zarr.FetchStore(datasource.store));
-    const datavar = await zarr.open(
-      root.resolve(datasource.dataset + `/${varnameSelector.value}`),
-      {
-        kind: "array",
-      }
+    const root = zarr.root(
+      new zarr.FetchStore(datasource.store + datasource.dataset)
     );
+    const datavar = await zarr.open(root.resolve(varnameSelector.value), {
+      kind: "array",
+    });
+
     try {
-      const crs = await zarr.open(root.resolve(datasource.dataset + `/crs`), {
-        kind: "array",
-      });
+      const crs = await zarr.open(
+        root.resolve(await findCRSVar(root, varnameSelector.value)),
+        {
+          kind: "array",
+        }
+      );
       console.log("CRS ATTRS", crs.attrs);
       if (crs.attrs["grid_mapping_name"] === "healpix") {
         return GRID_TYPES.HEALPIX;
