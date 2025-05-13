@@ -399,39 +399,43 @@ async function processDataVar(
       addOffset = -low * scaleFactor;
     }
 
-    await Promise.all([...Array(HEALPIX_NUMCHUNKS).keys()].map(async (ipix) => {
-      const texData = await getHealpixData(
-        datavar,
-        currentTimeIndexSliderValue,
-        ipix,
-        HEALPIX_NUMCHUNKS
-      );
+    await Promise.all(
+      [...Array(HEALPIX_NUMCHUNKS).keys()].map(async (ipix) => {
+        const texData = await getHealpixData(
+          datavar,
+          currentTimeIndexSliderValue,
+          ipix,
+          HEALPIX_NUMCHUNKS
+        );
 
-      // Update global data range
-      dataMin = Math.min(dataMin, texData.min);
-      dataMax = Math.max(dataMax, texData.max);
+        // Update global data range
+        dataMin = Math.min(dataMin, texData.min);
+        dataMax = Math.max(dataMax, texData.max);
 
-      const geometry = makeHealpixGeometry(1, ipix, gridStep);
-      const material = makeTextureMaterial(
-        texData.texture,
-        props.colormap!,
-        addOffset,
-        scaleFactor
-      );
+        const geometry = makeHealpixGeometry(1, ipix, gridStep);
+        const material = makeTextureMaterial(
+          texData.texture,
+          props.colormap!,
+          addOffset,
+          scaleFactor
+        );
 
-      const mesh = new THREE.Mesh(geometry, material);
-      getScene()!.add(mesh);
+        if (mainMeshes[ipix]) {
+          mainMeshes[ipix]!.geometry.dispose();
+          mainMeshes[ipix]!.geometry = geometry;
+          mainMeshes[ipix].material = material;
+          mainMeshes[ipix].material.needsUpdate = true;
+        } else {
+          const mesh = new THREE.Mesh(geometry, material);
+          mainMeshes.push(mesh);
+          getScene()!.add(mesh);
+        }
 
-      if (mainMeshes[ipix]) {
-        mainMeshes[ipix] = mesh;
-      } else {
-        mainMeshes.push(mesh);
-      }
-
-      // Optional: trigger a render here if using manual render loop
-      redraw();
-      // If your render loop is auto-updating (via requestAnimationFrame), you may skip redraw()
-    }));
+        // Optional: trigger a render here if using manual render loop
+        redraw();
+        // If your render loop is auto-updating (via requestAnimationFrame), you may skip redraw()
+      })
+    );
 
     publishVarinfo({
       attrs: datavar.attrs,
