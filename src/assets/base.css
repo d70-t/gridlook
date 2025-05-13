@@ -45,3 +45,14 @@ main {
   white-space: normal;
   word-break: break-word;
 }
+
+@media (prefers-color-scheme: dark) {
+  .gl_controls .panel-block {
+    background-color: rgb(15, 15, 15, 0.8);
+  }
+
+  .panel-heading {
+    background-color: rgb(15, 15, 15);
+    color: white;
+  }
+}

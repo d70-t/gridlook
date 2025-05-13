@@ -376,6 +376,12 @@ table tr.active {
   background-color: lightgreen;
 }
 
+@media (prefers-color-scheme: dark) {
+  table tr.active {
+    background-color: #2E7D32;
+  }
+}
+
 .hcolormap {
   width: 15em;
   height: 1.5em;
