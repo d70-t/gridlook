@@ -169,7 +169,7 @@ publish();  // ensure initial settings are published
             :key="varname"
             :value="varname"
           >
-            {{ varname }}
+            {{ varname }} {{ modelInfo.vars[varname].attrs.standard_name ? ' - ' + modelInfo.vars[varname].attrs.standard_name : '' }}
           </option>
         </select>
       </div>
