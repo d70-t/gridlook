@@ -1,0 +1,26 @@
+[
+  {
+    "standard_name": "atmosphere_mass_content_of_cloud_ice",
+    "names": ["clivi"],
+    "default_range": {
+        "low": 0,
+        "high": 0.5
+    },
+    "default_colormap": {
+        "name": "ice",
+        "inverted": false
+    }
+  },
+  {
+    "standard_name": "",
+    "names": ["cllvi"],
+    "default_range": {
+        "low": 0,
+        "high": 2
+    },
+    "default_colormap": {
+        "name": "ice",
+        "inverted": false
+    }
+  }
+]
