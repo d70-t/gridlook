@@ -313,8 +313,8 @@ publish(); // ensure initial settings are published
           <div class="column">
             <input
               id="user_bounds"
-              class="mr-1"
               v-model="pickedBounds"
+              class="mr-1"
               type="radio"
               value="user"
             />
@@ -431,6 +431,7 @@ publish(); // ensure initial settings are published
   overflow-x: hidden;
   width: 25rem;
   border-radius: 0 0 bulmaUt.$radius bulmaUt.$radius !important;
+  bottom: 0;
 
   @media only screen and (max-width: bulmaUt.$tablet) {
     width: 100%;
@@ -439,6 +440,7 @@ publish(); // ensure initial settings are published
     top: 0;
     left: 0;
     right: 0;
+    bottom: 80%;
     overflow-x: hidden;
     border-radius: 0 !important;
     animation: 0.45s ease-out 0s 1 slideInFromTop;
