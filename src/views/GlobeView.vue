@@ -126,9 +126,6 @@ async function indexFromZarr(src: string) {
           [varname]: {
             store: src,
             dataset: "",
-            attrs: {
-              ...variable.attrs
-            },
           }
         };
       } else {
