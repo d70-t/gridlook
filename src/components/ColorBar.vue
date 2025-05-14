@@ -9,8 +9,8 @@ import {
 
 const props = withDefaults(
   defineProps<{
-    colormap: keyof typeof availableColormaps;
-    invertColormap: boolean;
+    colormap?: keyof typeof availableColormaps;
+    invertColormap?: boolean;
   }>(),
   {
     colormap: "turbo",

@@ -1,0 +1,28 @@
+name: Lint
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    container:
+      image: node:20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: npm install --progress=false
+
+      - name: Run linter
+        run: npm run lint-ci
+
+      - name: Run type checker
+        run: npm run typecheck
+
+      - name: Test-Build
+        run: npm run build
