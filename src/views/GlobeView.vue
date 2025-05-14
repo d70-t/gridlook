@@ -360,6 +360,7 @@ onMounted(async () => {
       :invert-colormap="selection.invertColormap"
       :varbounds="selection.bounds"
       :is-rotated="gridType === GRID_TYPES.REGULAR_ROTATED"
+      :projection="selection.projection"
       @varinfo="updateVarinfo"
     />
     <div v-if="isLoading || loading" class="top-right-loader loader" />
