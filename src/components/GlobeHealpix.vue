@@ -143,9 +143,13 @@ function updateColormap() {
   );
   for (const myMesh of mainMeshes) {
     const material = myMesh.material as THREE.ShaderMaterial;
-    if (material.uniforms) {
+    if (material?.uniforms.colormap) {
       material.uniforms.colormap.value = availableColormaps[props.colormap!];
+    }
+    if (material?.uniforms.addOffset) {
       material.uniforms.addOffset.value = addOffset;
+    }
+    if (material?.uniforms.scaleFactor) {
       material.uniforms.scaleFactor.value = scaleFactor;
     }
   }
@@ -383,21 +387,8 @@ async function processDataVar(
   localVarname: string
 ) {
   if (datavar !== undefined) {
-    const gridStep = 64 + 1;
     let dataMin = Number.POSITIVE_INFINITY;
     let dataMax = Number.NEGATIVE_INFINITY;
-
-    const low = props.varbounds?.low as number;
-    const high = props.varbounds?.high as number;
-    let scaleFactor: number;
-    let addOffset: number;
-    if (props.invertColormap) {
-      scaleFactor = -1 / (high - low);
-      addOffset = -high * scaleFactor;
-    } else {
-      scaleFactor = 1 / (high - low);
-      addOffset = -low * scaleFactor;
-    }
 
     await Promise.all(
       [...Array(HEALPIX_NUMCHUNKS).keys()].map(async (ipix) => {
@@ -412,22 +403,9 @@ async function processDataVar(
         dataMin = Math.min(dataMin, texData.min);
         dataMax = Math.max(dataMax, texData.max);
 
-        const material = makeTextureMaterial(
-          texData.texture,
-          props.colormap!,
-          addOffset,
-          scaleFactor
-        );
-
-        if (mainMeshes[ipix]) {
-          mainMeshes[ipix].material = material;
-          mainMeshes[ipix].material.needsUpdate = true;
-        } else {
-          const geometry = makeHealpixGeometry(1, ipix, gridStep);
-          const mesh = new THREE.Mesh(geometry, material);
-          mainMeshes.push(mesh);
-          getScene()!.add(mesh);
-        }
+        const material = mainMeshes[ipix].material as THREE.ShaderMaterial;
+        material.uniforms.data.value.dispose();
+        material.uniforms.data.value = texData.texture;
 
         // Optional: trigger a render here if using manual render loop
         redraw();
@@ -473,10 +451,29 @@ onMounted(() => {
 });
 
 onBeforeMount(async () => {
-  const geometry = new THREE.BufferGeometry();
-  const material = new THREE.ShaderMaterial();
+  const gridStep = 64 + 1;
+  const low = props.varbounds?.low as number;
+  const high = props.varbounds?.high as number;
+  let scaleFactor: number;
+  let addOffset: number;
+  if (props.invertColormap) {
+    scaleFactor = -1 / (high - low);
+    addOffset = -high * scaleFactor;
+  } else {
+    scaleFactor = 1 / (high - low);
+    addOffset = -low * scaleFactor;
+  }
   for (let ipix = 0; ipix < HEALPIX_NUMCHUNKS; ++ipix) {
-    mainMeshes[ipix] = new THREE.Mesh(geometry, material);
+    const material = makeTextureMaterial(
+      new THREE.Texture(),
+      props.colormap!,
+      addOffset,
+      scaleFactor
+    );
+    mainMeshes[ipix] = new THREE.Mesh(
+      makeHealpixGeometry(1, ipix, gridStep),
+      material
+    );
   }
   await datasourceUpdate();
 });
