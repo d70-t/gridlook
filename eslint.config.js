@@ -59,10 +59,6 @@ export default [
       "vue/block-lang": ["error", { script: { lang: "ts" } }],
       "vue/block-order": [
         "error",
-        { order: ["script[setup]", "template", "style[scoped]"] },
-      ],
-      "vue/component-tags-order": [
-        "error",
         {
           order: [["script", "template"], "style"],
         },
