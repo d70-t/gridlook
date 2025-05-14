@@ -172,7 +172,7 @@ publish(); // ensure initial settings are published
     >
       <button
         type="button"
-        class="button is-primary is-hidden-tablet"
+        class="button is-primary is-hidden-tablet mr-1"
         @click="toggleMobileMenu"
       >
         <i class="fa-solid fa-bars"></i>
@@ -426,22 +426,33 @@ publish(); // ensure initial settings are published
 @use "bulma/sass/utilities" as bulmaUt;
 
 .gl_controls {
-  top: 0;
   position: fixed;
-  overflow-x: hidden;
+  top: 0;
+  left: 0;
   width: 25rem;
+  max-height: 100vh; // Full screen height limit
+  overflow-y: auto;
+  overflow-x: hidden;
   border-radius: 0 0 bulmaUt.$radius bulmaUt.$radius !important;
-  bottom: 0;
+  // background-color: white;
+  z-index: 9;
+
+  .panel-block {
+    background-color: white;
+  }
+
+  input {
+    margin-right: 3px;
+  }
+
+  .panel-heading {
+    border-radius: 0;
+  }
 
   @media only screen and (max-width: bulmaUt.$tablet) {
     width: 100%;
-    position: fixed;
-    z-index: 10000;
-    top: 0;
-    left: 0;
+    height: auto;
     right: 0;
-    bottom: 80%;
-    overflow-x: hidden;
     border-radius: 0 !important;
     animation: 0.45s ease-out 0s 1 slideInFromTop;
 
@@ -455,36 +466,23 @@ publish(); // ensure initial settings are published
       }
     }
 
-    .panel-heading {
-      .mobile-title {
-        float: right;
-      }
+    &.panel {
+      border-radius: 0 !important;
     }
-  }
-  .panel-block {
-    background-color: white;
-  }
 
-  input {
-    margin-right: 3px;
-  }
-
-  &.mobile-visible {
-    @media only screen and (max-width: bulmaUt.$tablet) {
-      height: 100%;
-      background-color: white;
-
-      bottom: 0;
+    .panel-heading .mobile-title {
+      float: right;
     }
-  }
 
-  .panel-heading {
-    border-radius: 0;
+    &.mobile-visible {
+      max-height: 100vh;
+      height: 100vh;
+    }
   }
 
   @media (prefers-color-scheme: dark) {
     .panel-block {
-      background-color: rgb(15, 15, 15, 0.8);
+      background-color: rgba(15, 15, 15, 0.8);
     }
 
     .panel-heading {

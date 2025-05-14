@@ -339,20 +339,18 @@ onMounted(async () => {
       @on-example="makeExample"
       @on-rotate="toggleRotate"
     />
-    <!-- <div
-      class="notification is-danger is-light has-text-centered mx-auto"
-      style="max-width: 400px"
-    >
-      {{ gridType }}
-    </div> -->
     <div v-if="isLoading" class="mx-auto loader"></div>
-    <div
+    <section
       v-else-if="gridType === GRID_TYPES.ERROR"
-      class="notification is-danger is-light has-text-centered mx-auto"
-      style="max-width: 400px"
+      class="hero is-fullheight is-flex is-align-items-center is-justify-content-center"
     >
-      An error occurred. Possibly missing or not supported data.
-    </div>
+      <div
+        class="notification is-danger is-light has-text-centered mx-auto"
+        style="max-width: 400px"
+      >
+        An error occurred. Possibly missing or not supported data.
+      </div>
+    </section>
     <currentGlobeComponent
       v-else
       ref="globe"
