@@ -1,10 +1,14 @@
 import type { Dayjs } from "dayjs";
-import type { availableColormaps } from "../components/utils/colormapShaders.ts";
+import type {
+  availableColormaps,
+  availableProjections,
+} from "../components/utils/colormapShaders.ts";
 import * as zarr from "zarrita";
 
 export type EmptyObj = Record<PropertyKey, never>;
 
 export type TColorMap = keyof typeof availableColormaps;
+export type TProjection = keyof typeof availableProjections;
 
 export type TBounds = EmptyObj | { low: number; high: number };
 
@@ -12,6 +16,7 @@ export type TSelection = {
   colormap: TColorMap;
   invertColormap: boolean;
   bounds: TBounds;
+  projection: TProjection;
 };
 
 export type TVarInfo = {

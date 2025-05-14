@@ -6,6 +6,7 @@ import {
   makeColormapMaterial,
   availableColormaps,
   calculateColorMapProperties,
+  availableProjections,
 } from "./utils/colormapShaders.ts";
 import { decodeTime } from "./utils/timeHandling.ts";
 
@@ -26,6 +27,7 @@ import { storeToRefs } from "pinia";
 import type {
   TBounds,
   TColorMap,
+  TProjection,
   TSources,
   TVarInfo,
 } from "../types/GlobeTypes.ts";
@@ -38,6 +40,7 @@ const props = defineProps<{
   varbounds?: TBounds;
   colormap?: TColorMap;
   invertColormap?: boolean;
+  projection?: TProjection;
 }>();
 
 const emit = defineEmits<{ varinfo: [TVarInfo] }>();
@@ -109,11 +112,18 @@ watch(
   }
 );
 
+watch(
+  () => props.projection,
+  () => {
+    updateProjection();
+  }
+);
+
 const colormapMaterial = computed(() => {
   if (props.invertColormap) {
-    return makeColormapMaterial(props.colormap, 1.0, -1.0);
+    return makeColormapMaterial(props.colormap, 1.0, -1.0, props.projection);
   } else {
-    return makeColormapMaterial(props.colormap, 0.0, 1.0);
+    return makeColormapMaterial(props.colormap, 0.0, 1.0, props.projection);
   }
 });
 
@@ -182,6 +192,16 @@ function updateColormap() {
   material.uniforms.addOffset.value = addOffset;
   material.uniforms.scaleFactor.value = scaleFactor;
   redraw();
+}
+
+function updateProjection() {
+  if (props.projection) {
+    const myMesh = mainMesh as THREE.Mesh;
+    const material = myMesh.material as THREE.ShaderMaterial;
+    material.uniforms.projection.value =
+      availableProjections[props.projection!];
+    redraw();
+  }
 }
 
 async function getData() {

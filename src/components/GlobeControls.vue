@@ -7,9 +7,11 @@ import type {
   TColorMap,
   TModelInfo,
   TBounds,
+  TProjection,
   TVarInfo,
   TSelection,
 } from "../types/GlobeTypes.js";
+import { availableProjections } from "./utils/colormapShaders.ts";
 
 const props = defineProps<{ varinfo?: TVarInfo; modelInfo?: TModelInfo }>();
 
@@ -32,6 +34,7 @@ const defaultBounds: Ref<TBounds> = ref({});
 const userBoundsLow: Ref<number | undefined> = ref(undefined);
 const userBoundsHigh: Ref<number | undefined> = ref(undefined);
 const pickedBounds = ref("auto");
+const projection: Ref<TProjection> = ref("perspective");
 
 const activeBounds = computed(() => {
   if (pickedBounds.value === "auto") {
@@ -119,6 +122,11 @@ watch(
   () => setDefaultColormap()
 );
 
+watch(
+  () => projection.value,
+  () => publish()
+);
+
 function toggleMenu() {
   menuCollapsed.value = !menuCollapsed.value;
 }
@@ -132,6 +140,7 @@ const publish = () => {
     bounds: bounds.value as TBounds,
     colormap: colormap.value,
     invertColormap: invertColormap.value,
+    projection: projection.value,
   });
 };
 
@@ -402,6 +411,19 @@ publish(); // ensure initial settings are published
           <i class="fa-solid fa-rotate mr-1"></i>
           Toggle Rotation
         </button>
+      </div>
+    </div>
+    <div v-if="modelInfo && !isHidden" class="panel-block">
+      <div class="select is-fullwidth">
+        <select v-model="projection">
+          <option
+            v-for="p in Object.keys(availableProjections)"
+            :key="p"
+            :value="p"
+          >
+            {{ p }}
+          </option>
+        </select>
       </div>
     </div>
     <div v-if="modelInfo && !isHidden" class="panel-block">
