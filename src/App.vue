@@ -16,6 +16,6 @@ import HashGlobeView from "@/views/HashGlobeView.vue";
   <HashGlobeView />
 </template>
 
-<style>
-@import "@/assets/base.css";
+<style lang="scss">
+@use "@/assets/base.scss";
 </style>
