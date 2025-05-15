@@ -1045,7 +1045,7 @@ const positionVertexShaderPerspective = `
 const positionVertexShaderAzimuthal = `
       vec3 pos = mat3(modelViewMatrix) * position;
       float dist = (${PI} / 2.) - asin(pos.z);
-      pos.xy = normalize(pos.xy) * (dist * .25);
+      pos.xy = normalize(pos.xy) * (dist * .39);
       pos.z = -10. + pos.z * 0.001;
       gl_Position = projectionMatrix * vec4(pos, 1.);
 `;
