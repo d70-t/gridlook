@@ -4,6 +4,7 @@ import * as zarr from "zarrita";
 import * as healpix from "@hscmap/healpix";
 import {
   availableColormaps,
+  availableProjections,
   calculateColorMapProperties,
   makeTextureMaterial,
 } from "./utils/colormapShaders.ts";
@@ -16,6 +17,7 @@ import { storeToRefs } from "pinia";
 import type {
   TBounds,
   TColorMap,
+  TProjection,
   TSources,
   TVarInfo,
 } from "../types/GlobeTypes.ts";
@@ -28,6 +30,7 @@ const props = defineProps<{
   varbounds?: TBounds;
   colormap?: TColorMap;
   invertColormap?: boolean;
+  projection?: TProjection;
 }>();
 
 const emit = defineEmits<{ varinfo: [TVarInfo] }>();
@@ -103,6 +106,13 @@ watch(
   }
 );
 
+watch(
+  () => props.projection,
+  () => {
+    updateProjection();
+  }
+);
+
 const gridsource = computed(() => {
   if (props.datasources) {
     return props.datasources.levels[0].grid;
@@ -151,6 +161,17 @@ function updateColormap() {
     }
     if (material?.uniforms.scaleFactor) {
       material.uniforms.scaleFactor.value = scaleFactor;
+    }
+  }
+  redraw();
+}
+
+function updateProjection() {
+  for (const myMesh of mainMeshes) {
+    const material = myMesh.material as THREE.ShaderMaterial;
+    if (material?.uniforms.projection && props.projection) {
+      material.uniforms.projection.value =
+        availableProjections[props.projection];
     }
   }
   redraw();
@@ -468,7 +489,8 @@ onBeforeMount(async () => {
       new THREE.Texture(),
       props.colormap!,
       addOffset,
-      scaleFactor
+      scaleFactor,
+      props.projection!
     );
     mainMeshes[ipix] = new THREE.Mesh(
       makeHealpixGeometry(1, ipix, gridStep),

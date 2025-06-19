@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { TColorMap } from "../../types/GlobeTypes";
+import type { TColorMap, TProjection } from "../../types/GlobeTypes";
 
 export const availableColormaps = {
   inferno: 0,
@@ -60,6 +60,11 @@ export const availableColormaps = {
   curl: 55,
   diff: 56,
   tarn: 57,
+} as const;
+
+export const availableProjections = {
+  perspective: 0,
+  azimuthal: 1,
 } as const;
 
 const shaders = `
@@ -1031,14 +1036,40 @@ void main() {
     ${distinguishShaders}
 }`;
 
+const PI = 3.14159265359;
+
+const positionVertexShaderPerspective = `
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+`;
+
+const positionVertexShaderAzimuthal = `
+      vec3 pos = mat3(modelViewMatrix) * position;
+      float dist = (${PI} / 2.) - asin(pos.z);
+      pos.xy = normalize(pos.xy) * (dist * .39);
+      pos.z = -10. + pos.z * 0.001;
+      gl_Position = projectionMatrix * vec4(pos, 1.);
+`;
+
+const positionVertexShaderUniforms = `
+uniform int projection;
+`;
+const positionVertexShaderPart = `
+      if (projection == 0) {
+        ${positionVertexShaderPerspective}
+      } else if (projection == 1) {
+        ${positionVertexShaderAzimuthal}
+      }
+`;
+
 const dataOnMeshVertexShader = `
     attribute float data_value;
 
     varying float v_value;
+    ${positionVertexShaderUniforms}
 
     void main() {
       v_value = data_value;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+      ${positionVertexShaderPart}
     }
     `;
 
@@ -1055,23 +1086,26 @@ const dataOnScreenMeshVertexShader = `
 
 const dataOnTextureVertexShader = `
     varying vec2 vUv;
+    ${positionVertexShaderUniforms}
 
     void main() {
       vUv = uv;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+      ${positionVertexShaderPart}
     }
     `;
 
 export function makeColormapMaterial(
   colormap: TColorMap = "turbo",
   addOffset: 1.0 | 0.0 = 0.0,
-  scaleFactor: -1.0 | 1.0 = 1.0
+  scaleFactor: -1.0 | 1.0 = 1.0,
+  projection: TProjection = "perspective"
 ) {
   const material = new THREE.ShaderMaterial({
     uniforms: {
       addOffset: { value: addOffset },
       scaleFactor: { value: scaleFactor },
       colormap: { value: availableColormaps[colormap] },
+      projection: { value: availableProjections[projection] },
     },
 
     vertexShader: dataOnMeshVertexShader,
@@ -1102,7 +1136,8 @@ export function makeTextureMaterial(
   texture: THREE.Texture,
   colormap: TColorMap = "turbo",
   addOffset: number,
-  scaleFactor: number
+  scaleFactor: number,
+  projection: TProjection = "perspective"
 ) {
   const material = new THREE.ShaderMaterial({
     uniforms: {
@@ -1110,6 +1145,7 @@ export function makeTextureMaterial(
       scaleFactor: { value: scaleFactor },
       colormap: { value: availableColormaps[colormap] },
       data: { value: texture },
+      projection: { value: availableProjections[projection] },
     },
 
     vertexShader: dataOnTextureVertexShader,
