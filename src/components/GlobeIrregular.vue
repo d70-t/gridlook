@@ -51,7 +51,9 @@ const datavars: ShallowRef<
 const updateCount = ref(0);
 const updatingData = ref(false);
 
-let meshes: THREE.Mesh[] = [];
+const estimatedSpacing = ref(0);
+
+let points: THREE.Points | undefined = undefined;
 
 let canvas: Ref<HTMLCanvasElement | undefined> = ref();
 let box: Ref<HTMLDivElement | undefined> = ref();
@@ -64,6 +66,7 @@ const {
   toggleRotate,
   getDataVar,
   getTimeVar,
+  registerUpdateLOD,
 } = useSharedGlobeLogic(canvas, box);
 
 watch(
@@ -153,16 +156,13 @@ function updateColormap() {
     props.invertColormap
   );
 
-  for (const myMesh of meshes) {
-    const material = myMesh.material as THREE.ShaderMaterial;
-    material.uniforms.colormap.value = availableColormaps[props.colormap!];
-    material.uniforms.addOffset.value = addOffset;
-    material.uniforms.scaleFactor.value = scaleFactor;
-  }
+  const material = points!.material as THREE.ShaderMaterial;
+  material.uniforms.colormap.value = availableColormaps[props.colormap!];
+  material.uniforms.addOffset.value = addOffset;
+  material.uniforms.scaleFactor.value = scaleFactor;
+  material.needsUpdate = true;
   redraw();
 }
-
-const BATCH_SIZE = 64; // Adjust based on memory and browser limits
 
 function latLonToCartesianFlat(
   lat: number,
@@ -178,203 +178,89 @@ function latLonToCartesianFlat(
   out[offset + 2] = radius * Math.sin(latRad);
 }
 
+function estimateAverageSpacing(positions: Float32Array): number {
+  /*
+    Estimate average spacing between points based on first 10 points
+  */
+  let totalDist = 0;
+  let count = 0;
+  for (let i = 0; i < positions.length - 6 && count < 10; i += 3) {
+    const dx = positions[i] - positions[i + 3];
+    const dy = positions[i + 1] - positions[i + 4];
+    const dz = positions[i + 2] - positions[i + 5];
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    totalDist += dist;
+    count++;
+  }
+  return totalDist / count;
+}
+
 async function getGrid(grid: zarr.Group<zarr.Readable>, data: Float64Array) {
-  let latitudes = (
+  // Load latitudes and longitudes arrays (1D)
+  const latitudes = (
     await zarr.open(grid.resolve("lat"), { kind: "array" }).then(zarr.get)
   ).data as Float64Array;
 
-  let longitudes = (
+  const longitudes = (
     await zarr.open(grid.resolve("lon"), { kind: "array" }).then(zarr.get)
   ).data as Float64Array;
 
-  console.time("build rows");
-  const { rows, uniqueLats } = buildRows(latitudes, longitudes, data);
-  console.timeEnd("build rows");
+  const N = latitudes.length;
 
-  const totalBatches = Math.ceil((uniqueLats.length - 1) / BATCH_SIZE);
-  console.time("mesh");
-
-  for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
-    const lStart = batchIndex * BATCH_SIZE;
-    const lEnd = Math.min(lStart + BATCH_SIZE, uniqueLats.length - 1);
-    let totalCells = 0;
-
-    // Precompute total number of cells (quads) in this batch
-    for (let l = lStart; l < lEnd; l++) {
-      totalCells += rows[uniqueLats[l]].length;
-    }
-
-    const positions = new Float32Array(totalCells * 4 * 3);
-    const dataValues = new Float32Array(totalCells * 4);
-    const indices = new Uint32Array(totalCells * 6);
-
-    let vtxOffset = 0;
-    let idxOffset = 0;
-    let cellIndex = 0;
-
-    for (let l = lStart; l < lEnd; l++) {
-      const lat1 = uniqueLats[l];
-      const lat2 = uniqueLats[l + 1];
-      const row1 = rows[lat1];
-
-      for (let i = 0; i < row1.length; i++) {
-        const cell = row1[i];
-        const nextCell = row1[(i + 1) % row1.length];
-        const lon1 = cell.lon;
-        const lon2 = nextCell.lon;
-        const dLon = (lon2 - lon1 + 360) % 360;
-
-        // Compute 4 corners
-        latLonToCartesianFlat(lat1, lon1, positions, vtxOffset);
-        latLonToCartesianFlat(lat1, lon1 - dLon, positions, vtxOffset + 3);
-        latLonToCartesianFlat(lat2, lon1 - dLon, positions, vtxOffset + 6);
-        latLonToCartesianFlat(lat2, lon1, positions, vtxOffset + 9);
-
-        // Data value
-        dataValues.fill(cell.value, cellIndex * 4, cellIndex * 4 + 4);
-
-        // Indices for two triangles
-        const v = cellIndex * 4;
-        indices.set([v, v + 1, v + 2, v, v + 2, v + 3], idxOffset);
-
-        // Offsets
-        vtxOffset += 12;
-        idxOffset += 6;
-        cellIndex++;
-      }
-    }
-
-    // Build geometry
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute(
-      "data_value",
-      new THREE.BufferAttribute(dataValues, 1)
+  if (longitudes.length !== N || data.length !== N) {
+    throw new Error(
+      "Latitudes, longitudes, and data must have the same length"
     );
-    geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-
-    if (meshes[batchIndex]) {
-      meshes[batchIndex].geometry.dispose();
-      meshes[batchIndex].geometry = geometry;
-    } else {
-      const mesh = new THREE.Mesh(geometry, colormapMaterial.value);
-      meshes.push(mesh);
-      getScene()?.add(mesh);
-    }
-  }
-  console.log("meshes", meshes.length);
-  console.timeEnd("mesh");
-}
-
-// function latLonToCartesian(lat: number, lon: number, radius = 1) {
-//   // Convert latitude and longitude from degrees to radians
-//   const latRad = lat * (Math.PI / 180);
-//   const lonRad = lon * (Math.PI / 180);
-
-//   // Calculate the Cartesian coordinates
-//   const x = radius * Math.cos(latRad) * Math.cos(lonRad);
-//   const y = radius * Math.cos(latRad) * Math.sin(lonRad);
-//   const z = radius * Math.sin(latRad);
-
-//   return new THREE.Vector3(x, y, z);
-// }
-
-function buildRows(lats: Float64Array, lons: Float64Array, data: Float64Array) {
-  const rows: Record<number, { lon: number; value: number }[]> = {};
-  for (let i = 0; i < lats.length; i++) {
-    const lat = lats[i];
-    if (!rows[lat]) rows[lat] = [];
-    rows[lat].push({ lon: lons[i], value: data[i] });
   }
 
-  const uniqueLats = Object.keys(rows)
-    .map(Number)
-    .sort((a, b) => b - a);
-  return { rows, uniqueLats };
+  // Allocate typed arrays for positions and values
+  const positions = new Float32Array(N * 3);
+  const dataValues = new Float32Array(N);
+
+  // Convert lat/lon to Cartesian positions
+  for (let i = 0; i < N; i++) {
+    latLonToCartesianFlat(latitudes[i], longitudes[i], positions, i * 3);
+    dataValues[i] = data[i];
+  }
+
+  estimatedSpacing.value = estimateAverageSpacing(positions);
+
+  points!.geometry.setAttribute(
+    "position",
+    new THREE.BufferAttribute(positions, 3)
+  );
+  points!.geometry.setAttribute(
+    "data_value",
+    new THREE.BufferAttribute(dataValues, 1)
+  );
+  points!.geometry.computeBoundingSphere();
+  const material = points!.material as THREE.ShaderMaterial;
+  material.needsUpdate = true;
+  updateLOD();
 }
 
-// async function getGrid(grid: zarr.Group<zarr.Readable>, data: Float64Array) {
-//   let latitudes = (
-//     await zarr
-//       .open(grid.resolve("lat"), {
-//         kind: "array",
-//       })
-//       .then(zarr.get)
-//   ).data as Float64Array;
+function updateLOD() {
+  /* FIXME: Points do not scale automatically when the camera zooms in.
+  This is a hack to make the points bigger when the camera is close by
+  taking into acount some the distance of some arbitrary points (estimatedSpacing)
+  the distance of the camera (cameraDistance) and some scaling factor (k).
 
-//   let longitudes = (
-//     await zarr.open(grid.resolve("lon"), { kind: "array" }).then(zarr.get)
-//   ).data as Float64Array;
-
-//   console.time("build rows");
-//   const { rows, uniqueLats } = buildRows(latitudes, longitudes, data);
-//   console.timeEnd("build rows");
-
-//   console.time("mesh");
-//   for (let l = 0; l < uniqueLats.length - 1; l++) {
-//     const lat1 = uniqueLats[l];
-//     const lat2 = uniqueLats[l + 1];
-//     const row1 = rows[lat1];
-//     const estimatedVertexCount = row1.length * 4;
-//     const positions = new Float32Array(estimatedVertexCount * 3);
-
-//     const dataValues = [];
-//     const indices = [];
-//     let vertexCount = 0;
-//     let positionIndex = 0;
-//     for (let i = 0; i < row1.length; i++) {
-//       const cell = row1[i];
-//       const nextCell = row1[(i + 1) % row1.length];
-
-//       const lon1 = cell.lon;
-//       const lon2 = nextCell.lon;
-//       const dLon = (lon2 - lon1 + 360) % 360;
-
-//       const corners = [
-//         latLonToCartesian(lat1, lon1),
-//         latLonToCartesian(lat1, lon1 - dLon),
-//         latLonToCartesian(lat2, lon1 - dLon),
-//         latLonToCartesian(lat2, lon1),
-//       ];
-//       for (const corner of corners) {
-//         positions[positionIndex++] = corner.x;
-//         positions[positionIndex++] = corner.y;
-//         positions[positionIndex++] = corner.z;
-//       }
-
-//       const v = cell.value;
-//       for (let j = 0; j < 4; j++) dataValues.push(v);
-
-//       indices.push(vertexCount, vertexCount + 1, vertexCount + 2);
-//       indices.push(vertexCount, vertexCount + 2, vertexCount + 3);
-//       vertexCount += 4;
-//     }
-
-//     const geometry = new THREE.BufferGeometry();
-//     geometry.setAttribute(
-//       "position",
-//       new THREE.Float32BufferAttribute(positions, 3)
-//     );
-//     geometry.setAttribute(
-//       "data_value",
-//       new THREE.Float32BufferAttribute(dataValues, 1)
-//     );
-//     geometry.setIndex(indices);
-
-//     if (meshes[l]) {
-//       meshes[l].geometry.dispose();
-//       meshes[l].geometry = geometry;
-//     } else {
-//       const mesh = new THREE.Mesh(geometry, colormapMaterial.value);
-//       meshes.push(mesh);
-//       getScene()?.add(mesh);
-//     }
-//   }
-//   console.timeEnd("mesh");
-// }
+  The size will vary between 0.5 and 30, which is probably not the best way to do it.
+  It would be better to have the size also depend on the screen size aswell.
+   */
+  const cameraDistance = getCamera()!.position.length();
+  const k = 70000; // tweak this value to taste
+  const size = THREE.MathUtils.clamp(
+    (k * estimatedSpacing.value) / cameraDistance,
+    0.5,
+    30 // maybe something dynamic, depending on the screen size?
+  );
+  const material: THREE.ShaderMaterial = points!
+    .material as THREE.ShaderMaterial;
+  material.uniforms.pointSize.value = size;
+}
 
 async function getData() {
-  console.log("GET DATA");
   store.startLoading();
   try {
     updateCount.value += 1;
@@ -383,7 +269,6 @@ async function getData() {
       return;
     }
     updatingData.value = true;
-    console.log("GET DATA");
     const localVarname = varnameSelector.value;
     const currentTimeIndexSliderValue = timeIndexSlider.value;
     const [timevar, datavar] = await Promise.all([
@@ -404,7 +289,6 @@ async function getData() {
       };
     }
     if (datavar !== undefined) {
-      console.time("getgrid");
       const root = zarr.root(new zarr.FetchStore(gridsource.value!.store));
       const grid = await zarr.open(root.resolve(gridsource.value!.dataset), {
         kind: "group",
@@ -420,35 +304,21 @@ async function getData() {
         min = Math.min(min, i);
         max = Math.max(max, i);
       }
-      console.log("minmax", min, max);
-      await getGrid(grid, rawData.data);
-      // const low = props.varbounds?.low as number;
-      // const high = props.varbounds?.high as number;
-      // const { addOffset, scaleFactor } = calculateColorMapProperties(
-      //   low,
-      //   high,
-      //   props.invertColormap
-      // );
+      await getGrid(grid, rawData.data as Float64Array);
       publishVarinfo({
         attrs: datavar.attrs,
         timeinfo,
         timeRange: { start: 0, end: datavar.shape[0] - 1 },
         bounds: { low: min, high: max },
       });
-      console.time("updateColormap");
-      redraw();
-      console.timeEnd("updateColormap");
       timeIndex.value = currentTimeIndexSliderValue;
       varname.value = localVarname;
-      console.timeEnd("getgrid");
     }
     updatingData.value = false;
     if (updateCount.value !== myUpdatecount) {
       await getData();
     }
   } catch (error) {
-    console.log(error);
-    console.error(error);
     toast.add({
       detail: `Couldn't fetch data: ${getErrorMessage(error)}`,
       life: 3000,
@@ -473,13 +343,29 @@ function copyPythonExample() {
   navigator.clipboard.writeText(example);
 }
 
-// onMounted(() => {
-//   // getScene()?.add(mainMesh as THREE.Mesh);
-// });
+onMounted(() => {
+  let sphereGeometry = new THREE.SphereGeometry(0.999, 64, 64);
+  const earthMat = new THREE.MeshBasicMaterial({ color: 0x000000 }); // black color
+
+  // it is quite likely that the data points do not cover the whole globe
+  // in order to avoid some ugly transparency issues, we add an opaque black
+  // sphere underneath
+  const globeMesh = new THREE.Mesh(sphereGeometry, earthMat);
+  globeMesh.geometry.attributes.position.needsUpdate = true;
+  globeMesh.rotation.x = Math.PI / 2;
+  globeMesh.geometry.computeBoundingBox();
+  globeMesh.geometry.computeBoundingSphere();
+
+  getScene()?.add(points as THREE.Points);
+  getScene()?.add(globeMesh);
+});
 
 onBeforeMount(async () => {
-  console.log("IRREGULAR");
+  const geometry = new THREE.BufferGeometry();
+  const material = colormapMaterial.value;
+  points = new THREE.Points(geometry, material);
   await datasourceUpdate();
+  registerUpdateLOD(updateLOD);
 });
 
 defineExpose({ makeSnapshot, copyPythonExample, toggleRotate });
