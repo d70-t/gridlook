@@ -164,6 +164,10 @@ async function indexFromZarr(src: string) {
           store: src,
           dataset: "",
         },
+        grid: {
+          store: src,
+          dataset: "",
+        },
         datasources,
       },
     ],
