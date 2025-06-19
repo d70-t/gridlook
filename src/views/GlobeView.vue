@@ -2,7 +2,7 @@
 import * as zarr from "zarrita";
 import GlobeHealpix from "@/components/GlobeHealpix.vue";
 import GlobeRegular from "@/components/GlobeRegular.vue";
-// import GlobeIrregular from "@/components/GlobeIrregular.vue";
+import GlobeIrregular from "@/components/GlobeIrregular.vue";
 import Globe from "@/components/Globe.vue";
 import GlobeControls from "@/components/GlobeControls.vue";
 import { availableColormaps } from "@/components/utils/colormapShaders.js";
@@ -18,7 +18,6 @@ import Toast from "primevue/toast";
 import { useToast } from "primevue/usetoast";
 import { storeToRefs } from "pinia";
 import { getErrorMessage } from "../components/utils/errorHandling";
-// import GlobeRegular from "../components/GlobeRegular.vue";
 const props = defineProps<{ src: string }>();
 
 const GRID_TYPES = {
@@ -27,6 +26,7 @@ const GRID_TYPES = {
   REGULAR_ROTATED: "regular_rotated",
   TRIANGULAR: "triangular",
   GAUSSIAN: "gaussian",
+  IRREGULAR: "irregular",
   ERROR: "error",
 } as const;
 
@@ -75,7 +75,7 @@ const currentGlobeComponent = computed(() => {
     return Globe;
   } else {
     // Irregular later
-    return Globe;
+    return GlobeIrregular;
   }
 });
 
@@ -250,6 +250,7 @@ async function getGridType() {
   if (!sourceValid.value) {
     return GRID_TYPES.ERROR;
   }
+
   const datasource =
     datasources.value!.levels[0].datasources[varnameSelector.value];
   try {
@@ -260,7 +261,6 @@ async function getGridType() {
       const grid = await zarr.open(gridRoot.resolve(gridsource.dataset), {
         kind: "group",
       });
-      console.log("gridattrs", grid.attrs);
       await zarr.open(grid.resolve("vertex_of_cell"), {
         kind: "array",
       });
@@ -270,8 +270,15 @@ async function getGridType() {
       /* empty */
     }
     const root = zarr.root(
-      new zarr.FetchStore(datasource.store + datasource.dataset)
+      new zarr.FetchStore(
+        (datasource.store.endsWith("/")
+          ? datasource.store.slice(0, -1)
+          : datasource.store) +
+          "/" +
+          datasource.dataset
+      )
     );
+
     const datavar = await zarr.open(root.resolve(varnameSelector.value), {
       kind: "array",
     });
@@ -283,7 +290,6 @@ async function getGridType() {
           kind: "array",
         }
       );
-      console.log("CRS ATTRS", crs.attrs);
       if (crs.attrs["grid_mapping_name"] === "healpix") {
         return GRID_TYPES.HEALPIX;
       }
@@ -295,6 +301,25 @@ async function getGridType() {
     }
     if ((datavar.attrs._ARRAY_DIMENSIONS as unknown[]).length >= 3) {
       return GRID_TYPES.REGULAR;
+    }
+    try {
+      const gridsource = datasources.value!.levels[0].grid;
+      const gridRoot = zarr.root(new zarr.FetchStore(gridsource.store));
+      const grid = await zarr.open(gridRoot.resolve(gridsource.dataset), {
+        kind: "group",
+      });
+      const latitudes = (
+        await zarr.open(grid.resolve("lat"), { kind: "array" }).then(zarr.get)
+      ).data as Float64Array;
+
+      const longitudes = (
+        await zarr.open(grid.resolve("lon"), { kind: "array" }).then(zarr.get)
+      ).data as Float64Array;
+      if (latitudes.length === longitudes.length) {
+        return GRID_TYPES.IRREGULAR;
+      }
+    } catch {
+      /* fall through */
     }
     return GRID_TYPES.GAUSSIAN;
   } catch (error) {
