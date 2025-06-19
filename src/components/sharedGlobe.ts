@@ -210,14 +210,26 @@ export function useSharedGlobeLogic(
       animationLoop();
     });
 
-    canvasValue.addEventListener("touchstart", () => {
-      mouseDown = true;
-      animationLoop();
-    });
+    canvasValue.addEventListener(
+      "touchstart",
+      () => {
+        mouseDown = true;
+        animationLoop();
+      },
+      {
+        passive: true,
+      }
+    );
 
-    canvasValue.addEventListener("touchend", () => {
-      mouseDown = false;
-    });
+    canvasValue.addEventListener(
+      "touchend",
+      () => {
+        mouseDown = false;
+      },
+      {
+        passive: true,
+      }
+    );
 
     box.value!.addEventListener("keydown", (e: KeyboardEvent) => {
       if (
