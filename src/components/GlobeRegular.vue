@@ -52,6 +52,10 @@ const {
 
 const updateCount = ref(0);
 const updatingData = ref(false);
+
+const longitudes = ref(new Float64Array());
+const latitudes = ref(new Float64Array());
+
 let mainMesh: THREE.Mesh | undefined = undefined;
 watch(
   () => varnameSelector.value,
@@ -118,9 +122,31 @@ function publishVarinfo(info: TVarInfo) {
 async function datasourceUpdate() {
   resetDataVars();
   if (props.datasources !== undefined) {
-    await Promise.all([fetchGrid(), getData()]);
+    const root = zarr.root(new zarr.FetchStore(gridsource.value!.store));
+    const grid = await zarr.open(root.resolve(gridsource.value!.dataset), {
+      kind: "group",
+    });
+    await getDims(grid);
+    await Promise.all([makeGeometry(), getData()]);
     updateColormap();
   }
+}
+
+async function getDims(grid: zarr.Group<Readable>) {
+  const isRotated = props.isRotated;
+  const [latitudesData, longitudesData] = await Promise.all([
+    zarr
+      .open(grid.resolve(isRotated ? "rlat" : "lat"), {
+        kind: "array",
+      })
+      .then(zarr.get),
+    zarr
+      .open(grid.resolve(isRotated ? "rlon" : "lon"), { kind: "array" })
+      .then(zarr.get),
+  ]);
+
+  longitudes.value = longitudesData.data as Float64Array;
+  latitudes.value = latitudesData.data as Float64Array;
 }
 
 function updateColormap() {
@@ -184,77 +210,66 @@ function rotatedToGeographic(
   const lat = THREE.MathUtils.radToDeg(phi);
   return { lat, lon };
 }
-
-async function getGaussianGrid(grid: zarr.Group<Readable>) {
+async function getGaussianGrid() {
   const isRotated = props.isRotated;
-  let latitudes = (
-    await zarr
-      .open(grid.resolve(isRotated ? "rlat" : "lat"), {
-        kind: "array",
-      })
-      .then(zarr.get)
-  ).data as Float64Array;
 
-  let longitudes = (
-    await zarr
-      .open(grid.resolve(isRotated ? "rlon" : "lon"), { kind: "array" })
-      .then(zarr.get)
-  ).data as Float64Array;
-  let poleLat;
-  let poleLon;
+  let lats = latitudes.value;
+  let lons = longitudes.value;
+
+  // Check if latitudes are descending and reverse if necessary
+  let isLatReversed = lats[0] > lats[lats.length - 1];
+  if (isLatReversed) {
+    lats = Float64Array.from(lats).reverse();
+  }
+
+  let poleLat, poleLon;
   if (isRotated) {
     const rotatedNorthPole = await getRotatedNorthPole();
     poleLat = rotatedNorthPole.lat;
     poleLon = rotatedNorthPole.lon;
   }
-  const isGlobal =
-    longitudes[longitudes.length - 1] + (longitudes[1] - longitudes[0]) >= 360;
+
+  const isGlobal = lons[lons.length - 1] + (lons[1] - lons[0]) >= 360;
 
   if (isGlobal) {
-    // the UVs are causing a seam, if a we do not close the full sphere on global data
-    // as
-    if (longitudes[longitudes.length - 1] !== 360) {
-      longitudes = new Float64Array(new Set([...longitudes, 360]));
+    if (lons[lons.length - 1] !== 360) {
+      lons = new Float64Array(new Set([...lons, 360]));
     }
   }
+
+  const latCount = lats.length;
+  const lonCount = lons.length;
 
   const radius = 1.0;
   const vertices: number[] = [];
   const indices: number[] = [];
   const uvs: number[] = [];
 
-  const latCount = latitudes.length;
-  const lonCount = longitudes.length;
-
-  let latMin = Number.POSITIVE_INFINITY;
-  let latMax = Number.NEGATIVE_INFINITY;
-  for (let i = 0; i < latitudes.length; i++) {
-    if (latitudes[i] < latMin) latMin = latitudes[i];
-    if (latitudes[i] > latMax) latMax = latitudes[i];
-  }
-
-  let lonMin = Number.POSITIVE_INFINITY;
-  let lonMax = Number.NEGATIVE_INFINITY;
-  for (let i = 0; i < longitudes.length; i++) {
-    if (longitudes[i] < lonMin) lonMin = longitudes[i];
-    if (longitudes[i] > lonMax) lonMax = longitudes[i];
-  }
-
+  const latMin = lats[0];
+  const latMax = lats[latCount - 1];
+  const lonMin = lons[0];
+  const lonMax = lons[lonCount - 1];
   const latRange = latMax - latMin;
   const lonRange = lonMax - lonMin;
 
   for (let i = 0; i < latCount; i++) {
-    const v = (latitudes[i] - latMin) / latRange;
+    const rawLat = lats[i];
+    const v = isLatReversed
+      ? (latCount - 1 - i) / (latCount - 1)
+      : (rawLat - latMin) / latRange;
+
     for (let j = 0; j < lonCount; j++) {
-      const u = (longitudes[j] - lonMin) / lonRange;
+      const rawLon = lons[j];
+      const u = (rawLon - lonMin) / lonRange;
+
       const vals = isRotated
         ? rotatedToGeographic(
-            latitudes[i],
-            longitudes[j],
+            rawLat,
+            rawLon,
             poleLat as number,
             poleLon as number
           )
-        : { lat: latitudes[i], lon: longitudes[j] };
+        : { lat: rawLat, lon: rawLon };
 
       const xyz = latLongToXYZ(vals.lat, vals.lon, radius);
       vertices.push(...xyz);
@@ -272,6 +287,7 @@ async function getGaussianGrid(grid: zarr.Group<Readable>) {
       const topLeft = (latIt + 1) * lonCount + lonIt;
       const topRight = (latIt + 1) * lonCount + nextJ;
 
+      // Winding order is OK because latitudes were reversed earlier if needed
       indices.push(lowLeft, topRight, topLeft);
       indices.push(lowLeft, lowRight, topRight);
     }
@@ -280,8 +296,8 @@ async function getGaussianGrid(grid: zarr.Group<Readable>) {
   return { vertices, indices, uvs };
 }
 
-async function makeRegularGeometry(grid: zarr.Group<Readable>) {
-  const { vertices, indices, uvs } = await getGaussianGrid(grid);
+async function makeRegularGeometry() {
+  const { vertices, indices, uvs } = await getGaussianGrid();
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute(
     "position",
@@ -292,13 +308,9 @@ async function makeRegularGeometry(grid: zarr.Group<Readable>) {
   return geometry;
 }
 
-async function fetchGrid() {
+async function makeGeometry() {
   try {
-    const root = zarr.root(new zarr.FetchStore(gridsource.value!.store));
-    const grid = await zarr.open(root.resolve(gridsource.value!.dataset), {
-      kind: "group",
-    });
-    const geometry = await makeRegularGeometry(grid!);
+    const geometry = await makeRegularGeometry();
     mainMesh!.geometry.dispose();
     mainMesh!.geometry = geometry;
     redraw();
@@ -309,6 +321,7 @@ async function fetchGrid() {
     });
   }
 }
+
 async function getRegularData(
   arr: Float64Array,
   latCount: number,
@@ -378,13 +391,16 @@ async function getData() {
       let min = Number.POSITIVE_INFINITY;
       let max = Number.NEGATIVE_INFINITY;
       for (let i of rawData.data as Float64Array) {
+        if (isNaN(i)) {
+          continue;
+        }
         min = Math.min(min, i);
         max = Math.max(max, i);
       }
       const textures = await getRegularData(
         rawData.data as Float64Array,
-        rawData.shape[0],
-        rawData.shape[1]
+        latitudes.value.length,
+        longitudes.value.length
       );
       const low = props.varbounds?.low as number;
       const high = props.varbounds?.high as number;
