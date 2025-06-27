@@ -80,7 +80,7 @@ export async function grid2buffer(grid: zarr.Group<zarr.FetchStore>) {
 
 export function data2valueBuffer(data: zarr.Chunk<zarr.DataType>) {
   const awaitedData = data;
-  const ncells = awaitedData.shape[0];
+  const ncells = awaitedData.shape.reduce((acc, val) => acc * val, 1);  
   const plotdata = awaitedData.data as Float32Array;
 
   let dataMin = Number.POSITIVE_INFINITY;
