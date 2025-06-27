@@ -37,6 +37,7 @@ export function useSharedGlobeLogic(
   let resizeObserver: ResizeObserver | undefined = undefined;
   const width: Ref<number | undefined> = ref(undefined);
   const height: Ref<number | undefined> = ref(undefined);
+  let updateLOD: (() => void) | undefined = undefined;
   let mouseDown = false;
   const frameId = ref(0);
 
@@ -49,6 +50,10 @@ export function useSharedGlobeLogic(
 
   function getCoast() {
     return coast;
+  }
+
+  function registerUpdateLOD(func: () => void) {
+    updateLOD = func;
   }
 
   function getScene() {
@@ -86,6 +91,9 @@ export function useSharedGlobeLogic(
   }
 
   function render() {
+    if (updateLOD) {
+      updateLOD();
+    }
     getOrbitControls()?.update();
     getRenderer()?.render(getScene()!, getCamera()!);
   }
@@ -95,8 +103,10 @@ export function useSharedGlobeLogic(
       const coastlines = await fetch("static/ne_50m_coastline.geojson").then(
         (r) => r.json()
       );
-      const geometry = geojson2geometry(coastlines, 1.001);
-      const material = new THREE.LineBasicMaterial({ color: "#ffffff" });
+      const geometry = geojson2geometry(coastlines, 1.002);
+      const material = new THREE.LineBasicMaterial({
+        color: "#ffffff",
+      });
       coast = new THREE.LineSegments(geometry, material);
       coast.name = "coastlines";
     }
@@ -200,14 +210,26 @@ export function useSharedGlobeLogic(
       animationLoop();
     });
 
-    canvasValue.addEventListener("touchstart", () => {
-      mouseDown = true;
-      animationLoop();
-    });
+    canvasValue.addEventListener(
+      "touchstart",
+      () => {
+        mouseDown = true;
+        animationLoop();
+      },
+      {
+        passive: true,
+      }
+    );
 
-    canvasValue.addEventListener("touchend", () => {
-      mouseDown = false;
-    });
+    canvasValue.addEventListener(
+      "touchend",
+      () => {
+        mouseDown = false;
+      },
+      {
+        passive: true,
+      }
+    );
 
     box.value!.addEventListener("keydown", (e: KeyboardEvent) => {
       if (
@@ -291,5 +313,6 @@ export function useSharedGlobeLogic(
     resetDataVars,
     getDataVar,
     getTimeVar,
+    registerUpdateLOD,
   };
 }

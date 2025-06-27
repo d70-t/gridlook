@@ -1032,6 +1032,7 @@ void main() {
 }`;
 
 const dataOnMeshVertexShader = `
+    uniform float pointSize;
     attribute float data_value;
 
     varying float v_value;
@@ -1039,6 +1040,9 @@ const dataOnMeshVertexShader = `
     void main() {
       v_value = data_value;
       gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+      if (pointSize > 0.0) {
+        gl_PointSize = pointSize;
+      }
     }
     `;
 
@@ -1071,6 +1075,7 @@ export function makeColormapMaterial(
     uniforms: {
       addOffset: { value: addOffset },
       scaleFactor: { value: scaleFactor },
+      pointSize: { value: 0.0 },
       colormap: { value: availableColormaps[colormap] },
     },
 
