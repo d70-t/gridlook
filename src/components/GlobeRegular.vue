@@ -232,6 +232,7 @@ async function getGaussianGrid() {
   const isGlobal = lons[lons.length - 1] + (lons[1] - lons[0]) >= 360;
 
   if (isGlobal) {
+    // the UVs are causing a seam, if a we do not close the full sphere on global data
     if (lons[lons.length - 1] !== 360) {
       lons = new Float64Array(new Set([...lons, 360]));
     }
