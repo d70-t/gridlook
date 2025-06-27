@@ -250,7 +250,6 @@ async function getGridType() {
   if (!sourceValid.value) {
     return GRID_TYPES.ERROR;
   }
-
   const datasource =
     datasources.value!.levels[0].datasources[varnameSelector.value];
   try {
@@ -308,6 +307,7 @@ async function getGridType() {
       const grid = await zarr.open(gridRoot.resolve(gridsource.dataset), {
         kind: "group",
       });
+
       const latitudes = (
         await zarr.open(grid.resolve("lat"), { kind: "array" }).then(zarr.get)
       ).data as Float64Array;
@@ -315,6 +315,13 @@ async function getGridType() {
       const longitudes = (
         await zarr.open(grid.resolve("lon"), { kind: "array" }).then(zarr.get)
       ).data as Float64Array;
+
+      const isRegular =
+        longitudes.length * latitudes.length ===
+        datavar.shape[datavar.shape.length - 1];
+      if (isRegular) {
+        return GRID_TYPES.REGULAR;
+      }
       if (latitudes.length === longitudes.length) {
         return GRID_TYPES.IRREGULAR;
       }
