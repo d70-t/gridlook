@@ -1031,19 +1031,127 @@ void main() {
     ${distinguishShaders}
 }`;
 
+const colormapFragmentShader2 = `
+${shaders}  // <- your colormap function definitions
+
+varying float v_value;
+
+uniform float addOffset;
+uniform float scaleFactor;
+uniform int colormap;
+
+void main() {
+    // Point-centered UV from [-1, 1]
+    vec2 uv = gl_PointCoord * 2.0 - 1.0;
+    float r2 = dot(uv, uv);
+
+    // Soft circular splat using Gaussian falloff
+    float falloff = exp(-r2 * 4.0); // Adjust the 4.0 as needed (sharpness)
+    // if (falloff < 0.01) discard; // Optional: discard transparent fragments
+
+    // Normalize scalar value for color mapping
+    float normalized_value = clamp(addOffset + scaleFactor * v_value, 0.0, 1.0);
+    ${distinguishShaders}
+
+    // Choose color from colormap
+    // vec3 color;
+    // if (colormap == 0) {
+    //     color = inferno(normalized_value);
+    // } else if (colormap == 1) {
+    //     color = magma(normalized_value);
+    // } else if (colormap == 2) {
+    //     color = plasma(normalized_value);
+    // } else if (colormap == 3) {
+    //     color = viridis(normalized_value);
+    // } else if (colormap == 4) {
+    //     color = turbo(normalized_value);
+    // } else {
+    //     color = vec3(normalized_value); // fallback: grayscale
+    // }
+
+    // Set final color with alpha from Gaussian falloff
+    gl_FragColor.a = falloff;
+}`;
+// ${shaders}
+
+// varying float v_value;
+// uniform float addOffset;
+// uniform float scaleFactor;
+// uniform int colormap;
+
+// void main() {
+//     gl_FragColor.a = 1.0;
+//     float normalized_value = clamp(addOffset + scaleFactor * v_value, 0.0, 1.0);
+
+//     ${distinguishShaders}
+// }`;
+
 const dataOnMeshVertexShader = `
-    uniform float pointSize;
-    attribute float data_value;
+attribute float data_value;
+attribute float localDensity;
+uniform float baseSize;
+varying float vDensity;
+varying float v_value;
 
-    varying float v_value;
+void main() {
+    v_value = data_value;
+    vDensity = localDensity;
 
-    void main() {
-      v_value = data_value;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
-      if (pointSize > 0.0) {
-        gl_PointSize = pointSize;
-      }
-    }
+    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+    gl_Position = projectionMatrix * mvPosition;
+
+    // Compensate for perspective scaling
+    float size = baseSize / (vDensity * 5.0 + 1.0);
+    size = size * (4.0 / -mvPosition.z); // Adjust constant (300.0) for your scene scaling
+
+    gl_PointSize = size;
+}
+
+//  attribute float data_value;
+//  attribute float localDensity;
+//  uniform float baseSize;
+//  varying float vDensity;
+//  varying float v_value;
+//  void main() {
+//       v_value = data_value;
+//       vDensity = localDensity * 5.0;
+//       vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+//       gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+//       // Scale point size inversely with local density
+//       gl_PointSize = (baseSize / (vDensity + 1.0));
+//  }
+// uniform float pointSize;
+// attribute float data_value;
+
+// varying float v_value;
+
+// void main() {
+//     v_value = data_value;
+//     gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+//     if (pointSize > 0.0) {
+//     gl_PointSize = pointSize;
+//     }
+// }
+
+// uniform float pointSize;
+// attribute float data_value;
+
+// varying float v_value;
+
+// void main() {
+//     v_value = data_value;
+
+//     // Calculate model-view position
+//     vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+
+//     // Apply perspective-based size attenuation
+//     float distance = length(mvPosition.xyz);
+//     float attenuation = 1.0 / distance;
+
+//     gl_PointSize = pointSize * attenuation;
+
+//     gl_Position = projectionMatrix * mvPosition;
+// }
     `;
 
 const dataOnScreenMeshVertexShader = `
@@ -1077,10 +1185,37 @@ export function makeColormapMaterial(
       scaleFactor: { value: scaleFactor },
       pointSize: { value: 0.0 },
       colormap: { value: availableColormaps[colormap] },
+      baseSize: { value: 50.0 },
     },
 
     vertexShader: dataOnMeshVertexShader,
     fragmentShader: colormapFragmentShader,
+    transparent: true,
+    depthWrite: false,
+    // blending: THREE.AdditiveBlending,
+  });
+  return material;
+}
+
+export function makeColormapMaterial2(
+  colormap: TColorMap = "turbo",
+  addOffset: 1.0 | 0.0 = 0.0,
+  scaleFactor: -1.0 | 1.0 = 1.0
+) {
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      addOffset: { value: addOffset },
+      scaleFactor: { value: scaleFactor },
+      pointSize: { value: 0.0 },
+      colormap: { value: availableColormaps[colormap] },
+      baseSize: { value: 50.0 },
+    },
+
+    vertexShader: dataOnMeshVertexShader,
+    fragmentShader: colormapFragmentShader2,
+    transparent: true,
+    depthWrite: false,
+    // blending: THREE.AdditiveBlending,
   });
   return material;
 }
