@@ -27,6 +27,7 @@
     "zarrita": "^0.5.1"
   },
   "devDependencies": {
+    "@types/delaunator": "^5.0.3",
     "@types/geojson": "7946.0.16",
     "@types/node": "^18",
     "@types/three": "0.176",

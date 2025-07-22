@@ -32,7 +32,7 @@ import { useToast } from "primevue/usetoast";
 import { getErrorMessage } from "./utils/errorHandling.ts";
 import { useSharedGlobeLogic } from "./sharedGlobe.ts";
 
-type Point3D = { x: number; y: number; z: number };
+// type Point3D = { x: number; y: number; z: number };
 
 const props = defineProps<{
   datasources?: TSources;
@@ -53,7 +53,7 @@ const datavars: ShallowRef<
 const updateCount = ref(0);
 const updatingData = ref(false);
 
-const estimatedSpacing = ref(0);
+// const estimatedSpacing = ref(0);
 
 let points: THREE.Points | undefined = undefined;
 
@@ -63,7 +63,6 @@ let box: Ref<HTMLDivElement | undefined> = ref();
 const {
   getScene,
   getCamera,
-  getRenderer,
   redraw,
   makeSnapshot,
   toggleRotate,
@@ -198,11 +197,11 @@ function latLonToCartesianFlat(
 //   return totalDist / count;
 // }
 
-function xyzToLonLat(x: number, y: number, z: number): [number, number] {
-  const lon = Math.atan2(y, x);
-  const lat = Math.asin(z / Math.sqrt(x * x + y * y + z * z));
-  return [lon, lat];
-}
+// function xyzToLonLat(x: number, y: number, z: number): [number, number] {
+//   const lon = Math.atan2(y, x);
+//   const lat = Math.asin(z / Math.sqrt(x * x + y * y + z * z));
+//   return [lon, lat];
+// }
 
 // function latLongToXYZ(lat: number, lon: number, radius: number) {
 //   // Convert latitude and longitude from degrees to radians
@@ -574,53 +573,53 @@ async function getGrid(grid: zarr.Group<zarr.Readable>, data: Float64Array) {
 //   return sampleCount > 0 ? totalDist / sampleCount : 0;
 // }
 
-function estimateAverageSpacing(
-  positions: Float32Array,
-  camera: THREE.Camera,
-  renderer: THREE.WebGLRenderer
-): number {
-  const N = positions.length / 3;
-  if (N < 2) return 0;
-
-  const step = Math.max(1, Math.floor(N / 100));
-  const width = renderer.domElement.width;
-  const height = renderer.domElement.height;
-
-  let totalPixelDist = 0;
-  let sampleCount = 0;
-
-  const vector = new THREE.Vector3();
-
-  for (let i = 0; i < N; i += step) {
-    const i3 = i * 3;
-    vector.set(positions[i3], positions[i3 + 1], positions[i3 + 2]);
-    vector.project(camera);
-    const x1 = (vector.x * 0.5 + 0.5) * width;
-    const y1 = (vector.y * -0.5 + 0.5) * height;
-
-    let minPixelDistSq = Infinity;
-
-    for (let j = i + 1; j < Math.min(N, i + 6); j++) {
-      const j3 = j * 3;
-      vector.set(positions[j3], positions[j3 + 1], positions[j3 + 2]);
-      vector.project(camera);
-      const x2 = (vector.x * 0.5 + 0.5) * width;
-      const y2 = (vector.y * -0.5 + 0.5) * height;
-
-      const dx = x1 - x2;
-      const dy = y1 - y2;
-      const distSq = dx * dx + dy * dy;
-      if (distSq < minPixelDistSq) minPixelDistSq = distSq;
-    }
-
-    if (minPixelDistSq < Infinity) {
-      totalPixelDist += Math.sqrt(minPixelDistSq);
-      sampleCount++;
-    }
-  }
-
-  return sampleCount > 0 ? totalPixelDist / sampleCount : 0;
-}
+// function estimateAverageSpacing(
+//   positions: Float32Array,
+//   camera: THREE.Camera,
+//   renderer: THREE.WebGLRenderer
+// ): number {
+//   const N = positions.length / 3;
+//   if (N < 2) return 0;
+//
+//   const step = Math.max(1, Math.floor(N / 100));
+//   const width = renderer.domElement.width;
+//   const height = renderer.domElement.height;
+//
+//   let totalPixelDist = 0;
+//   let sampleCount = 0;
+//
+//   const vector = new THREE.Vector3();
+//
+//   for (let i = 0; i < N; i += step) {
+//     const i3 = i * 3;
+//     vector.set(positions[i3], positions[i3 + 1], positions[i3 + 2]);
+//     vector.project(camera);
+//     const x1 = (vector.x * 0.5 + 0.5) * width;
+//     const y1 = (vector.y * -0.5 + 0.5) * height;
+//
+//     let minPixelDistSq = Infinity;
+//
+//     for (let j = i + 1; j < Math.min(N, i + 6); j++) {
+//       const j3 = j * 3;
+//       vector.set(positions[j3], positions[j3 + 1], positions[j3 + 2]);
+//       vector.project(camera);
+//       const x2 = (vector.x * 0.5 + 0.5) * width;
+//       const y2 = (vector.y * -0.5 + 0.5) * height;
+//
+//       const dx = x1 - x2;
+//       const dy = y1 - y2;
+//       const distSq = dx * dx + dy * dy;
+//       if (distSq < minPixelDistSq) minPixelDistSq = distSq;
+//     }
+//
+//     if (minPixelDistSq < Infinity) {
+//       totalPixelDist += Math.sqrt(minPixelDistSq);
+//       sampleCount++;
+//     }
+//   }
+//
+//   return sampleCount > 0 ? totalPixelDist / sampleCount : 0;
+// }
 
 function updateLOD() {
   /* FIXME: Points do not scale automatically when the camera zooms in.
