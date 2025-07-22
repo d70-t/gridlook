@@ -250,7 +250,6 @@ async function getGridType() {
   if (!sourceValid.value) {
     return GRID_TYPES.ERROR;
   }
-
   const datasource =
     datasources.value!.levels[0].datasources[varnameSelector.value];
   try {
@@ -308,6 +307,7 @@ async function getGridType() {
       const grid = await zarr.open(gridRoot.resolve(gridsource.dataset), {
         kind: "group",
       });
+
       const latitudes = (
         await zarr.open(grid.resolve("lat"), { kind: "array" }).then(zarr.get)
       ).data as Float64Array;
