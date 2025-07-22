@@ -315,13 +315,6 @@ async function getGridType() {
       const longitudes = (
         await zarr.open(grid.resolve("lon"), { kind: "array" }).then(zarr.get)
       ).data as Float64Array;
-
-      const isRegular =
-        longitudes.length * latitudes.length ===
-        datavar.shape[datavar.shape.length - 1];
-      if (isRegular) {
-        return GRID_TYPES.REGULAR;
-      }
       if (latitudes.length === longitudes.length) {
         return GRID_TYPES.IRREGULAR;
       }

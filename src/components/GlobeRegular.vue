@@ -144,9 +144,10 @@ async function getDims(grid: zarr.Group<Readable>) {
       .open(grid.resolve(isRotated ? "rlon" : "lon"), { kind: "array" })
       .then(zarr.get),
   ]);
-
-  longitudes.value = longitudesData.data as Float64Array;
-  latitudes.value = latitudesData.data as Float64Array;
+  const myLongitudes = longitudesData.data as Float64Array;
+  const myLatitudes = latitudesData.data as Float64Array;
+  longitudes.value = new Float64Array(new Set(myLongitudes));
+  latitudes.value = new Float64Array(new Set(myLatitudes));
 }
 
 function updateColormap() {
@@ -210,76 +211,81 @@ function rotatedToGeographic(
   const lat = THREE.MathUtils.radToDeg(phi);
   return { lat, lon };
 }
-async function getGaussianGrid() {
-  const isRotated = props.isRotated;
 
-  let lats = latitudes.value;
-  let lons = longitudes.value;
+function isLongitudeGlobal(lons: Float64Array): boolean {
+  const n = lons.length;
+  if (n < 2) return false;
 
-  // Check if latitudes are descending and reverse if necessary
-  let isLatReversed = lats[0] > lats[lats.length - 1];
-  if (isLatReversed) {
-    lats = Float64Array.from(lats).reverse();
-  }
+  const delta = lons[1] - lons[0];
 
-  let poleLat, poleLon;
-  if (isRotated) {
-    const rotatedNorthPole = await getRotatedNorthPole();
-    poleLat = rotatedNorthPole.lat;
-    poleLon = rotatedNorthPole.lon;
-  }
+  // Compute total span covered by all steps (delta * (n - 1))
+  const span = Math.abs(delta * (n - 1));
 
-  const isGlobal = lons[lons.length - 1] + (lons[1] - lons[0]) >= 360;
+  // Normalize the span to [0, 360]
+  const normalizedSpan = span % 360;
+  return normalizedSpan + delta > 359.5;
+}
 
-  if (isGlobal) {
-    // the UVs are causing a seam, if a we do not close the full sphere on global data
-    if (lons[lons.length - 1] !== 360) {
-      lons = new Float64Array(new Set([...lons, 360]));
-    }
-  }
-
+/**
+ * Generates vertices and UVs for a grid of points on a sphere.
+ *
+ * The function returns an object with two properties: `vertices`, an array of
+ * 3D coordinates (x, y, z) representing the points on the sphere, and `uvs`, an
+ * array of (u, v) coordinates representing the texture coordinates for the
+ * points.
+ */
+function generateGridVerticesAndUVs(
+  lats: Float64Array,
+  lons: Float64Array,
+  isReversed: boolean,
+  isRotated: boolean,
+  poleLat?: number,
+  poleLon?: number,
+  radius = 1.0
+) {
+  const vertices: number[] = [];
+  const uvs: number[] = [];
   const latCount = lats.length;
   const lonCount = lons.length;
 
-  const radius = 1.0;
-  const vertices: number[] = [];
-  const indices: number[] = [];
-  const uvs: number[] = [];
-
-  const latMin = lats[0];
-  const latMax = lats[latCount - 1];
-  const lonMin = lons[0];
-  const lonMax = lons[lonCount - 1];
-  const latRange = latMax - latMin;
-  const lonRange = lonMax - lonMin;
-
   for (let i = 0; i < latCount; i++) {
     const rawLat = lats[i];
-    const v = isLatReversed
-      ? (latCount - 1 - i) / (latCount - 1)
-      : (rawLat - latMin) / latRange;
-
     for (let j = 0; j < lonCount; j++) {
       const rawLon = lons[j];
-      const u = (rawLon - lonMin) / lonRange;
 
-      const vals = isRotated
-        ? rotatedToGeographic(
-            rawLat,
-            rawLon,
-            poleLat as number,
-            poleLon as number
-          )
+      // If the grid is rotated, convert the raw latitude and longitude values
+      // to geographic coordinates.
+      const { lat, lon } = isRotated
+        ? rotatedToGeographic(rawLat, rawLon, poleLat!, poleLon!)
         : { lat: rawLat, lon: rawLon };
 
-      const xyz = latLongToXYZ(vals.lat, vals.lon, radius);
+      // Convert the latitude and longitude to 3D coordinates on the sphere.
+      const xyz = latLongToXYZ(lat, lon, radius);
       vertices.push(...xyz);
+
+      // Calculate the texture coordinates for the point. The `u` coordinate
+      // represents the longitude, and the `v` coordinate represents the latitude.
+      // The coordinates are normalized to the range [0, 1].
+      const u = j / (lonCount - 1);
+      const v = isReversed
+        ? (latCount - 1 - i) / (latCount - 1)
+        : i / (latCount - 1);
       uvs.push(u, v);
     }
   }
 
+  return { vertices, uvs };
+}
+
+function generateGridIndices(
+  latCount: number,
+  lonCount: number,
+  isGlobal: boolean
+) {
+  const indices: number[] = [];
   const latIterationEnd = latCount - 1;
   const lonIterationEnd = isGlobal ? lonCount : lonCount - 1;
+
   for (let latIt = 0; latIt < latIterationEnd; latIt++) {
     for (let lonIt = 0; lonIt < lonIterationEnd; lonIt++) {
       const nextJ = isGlobal ? (lonIt + 1) % lonCount : lonIt + 1;
@@ -288,11 +294,53 @@ async function getGaussianGrid() {
       const topLeft = (latIt + 1) * lonCount + lonIt;
       const topRight = (latIt + 1) * lonCount + nextJ;
 
-      // Winding order is OK because latitudes were reversed earlier if needed
       indices.push(lowLeft, topRight, topLeft);
       indices.push(lowLeft, lowRight, topRight);
     }
   }
+
+  return indices;
+}
+
+async function getGaussianGrid() {
+  const isRotated = props.isRotated;
+
+  let lats = latitudes.value;
+  let lons = longitudes.value.map((lon) => (lon + 360) % 360);
+
+  // Check if latitudes are descending and reverse if necessary
+  let isLatReversed = lats[0] > lats[lats.length - 1];
+  if (isLatReversed) {
+    lats = Float64Array.from(lats).reverse();
+  }
+
+  const isGlobal = isLongitudeGlobal(lons);
+
+  if (isGlobal) {
+    lons = new Float64Array(new Set([...lons, 360]));
+  }
+
+  const radius = 1.0;
+  let poleLat, poleLon;
+  if (isRotated) {
+    const rotatedNorthPole = await getRotatedNorthPole();
+    poleLat = rotatedNorthPole.lat;
+    poleLon = rotatedNorthPole.lon;
+  }
+
+  const { vertices, uvs } = generateGridVerticesAndUVs(
+    lats,
+    lons,
+    isLatReversed,
+    isRotated,
+    poleLat,
+    poleLon,
+    radius
+  );
+
+  const latCount = lats.length;
+  const lonCount = lons.length;
+  const indices = generateGridIndices(latCount, lonCount, isGlobal);
 
   return { vertices, indices, uvs };
 }
