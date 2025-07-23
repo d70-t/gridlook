@@ -42,15 +42,15 @@ npm run build
 npm run lint
 ```
 
-## Customize configuration
+### Customize configuration
 
 See [Vite Configuration Reference](https://vitejs.dev/config/).
 
-### Usage
+## Usage
 
 The project is served at http://localhost:3000/ when you run `npm run dev`.
 
-### CORS & Hosting Notes
+## CORS & Hosting Notes
 
 To load datasets from services like DKRZ Swift, ensure [CORS](https://developer.mozilla.org/de/docs/Web/HTTP/Guides/CORS) is enabled on the server.
 
