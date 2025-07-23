@@ -1,28 +1,24 @@
 # gridlook
 
-Javascript based viewer for ICON model output on native grid.
+GridLook is a WebGL-based viewer for Earth system model (ESM) output. It supports cloud-hosted Zarr datasets.
 
-## note
+![](docs/assets/showcase.webp)
 
-When deployed, this website will do CORS requests towards the DKRZ swift server. These requests must be allowed on the server side.
-According to [the docs](https://docs.openstack.org/swift/latest/cors.html) this is possible using container metadata.
-Using the `swift` tool, you can set the required configuration using:
+## Try It Live
+
+Try out the example dataset:
+
+https://gridlook.pages.dev
+
+You can view any CORS-enabled, public Zarr dataset with GridLook:
+
 ```
-swift post nextGEMS -m "X-Container-Meta-Access-Control-Allow-Origin:*"
+https://gridlook.pages.dev/#<ZARR_URI>
 ```
-for the `nextGEMS` container.
-
-This template should help get you started developing with Vue 3 in Vite.
-
-## vue & npm
-
-this project uses vue.js and npm
-
-## Customize configuration
-
-See [Vite Configuration Reference](https://vitejs.dev/config/).
 
 ## Project Setup
+
+This project uses [Node.js](https://nodejs.org/en) and [vue.js](https://vuejs.org/)
 
 ```sh
 npm install
@@ -45,3 +41,23 @@ npm run build
 ```sh
 npm run lint
 ```
+
+### Customize configuration
+
+See [Vite Configuration Reference](https://vitejs.dev/config/).
+
+## Usage
+
+The project is served at http://localhost:3000/ when you run `npm run dev`.
+
+## CORS & Hosting Notes
+
+To load datasets from services like DKRZ Swift, ensure [CORS](https://developer.mozilla.org/de/docs/Web/HTTP/Guides/CORS) is enabled on the server.
+
+Example for the nextGEMS container on Swift:
+
+```
+swift post nextGEMS -m "X-Container-Meta-Access-Control-Allow-Origin:*"
+```
+
+This allows GridLook to fetch data directly from the container in your browser.
