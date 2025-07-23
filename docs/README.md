@@ -116,7 +116,7 @@ Mind that when you are on mobile network or using a mobile device.
     Dataset: CMIP6 EC-Earth3P-HR highresSST-present pr, 30km.
     -> Support for CMIP
 1. [🧭 Rotated lat x lon](https://s3.eu-dkrz-1.dkrz.cloud/bm1344/gridlook/index.html#https://euro-cordex.s3.amazonaws.com/CMIP5/cordex/output/EUR-11/GERICS/MPI-M-MPI-ESM-LR/historical/r3i1p1/REMO2015/v1/mon/tas/v20190925/)
-    Dataset: CORDEX REMO2015 historical tas on EUR11(11km)
+    Dataset: CORDEX REMO2015 historical tas on EUR11(12km)
     -> Support for CORDEX
 
 ----
