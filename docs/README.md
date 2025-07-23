@@ -72,20 +72,14 @@ Where `ZARR_URI`:
 - 🔺 Triangular (ICON)
 - 🪢 * Irregular Grids
 - 🌐 * Gaussian Reduced (e.g., ERA5)
-<br/>
-<div style="font-size:10pt;">
-* Not upstreamed yet
-</div>
 
 ----
 
 ## Limitations (yet)
 
-- 🕳️ No multi-dimensional arrays
-     No Model-levels enabled
-- 🔒 No scale shown
-- 🕳️ Python example does not work
-- 🌱 Code is not consolidated yet
+- 🕳️ [multi-dimensional arrays](https://github.com/d70-t/gridlook/issues/43)
+- 🔒 [Scale](https://github.com/d70-t/gridlook/issues/8)
+- 🕳️ [Python example does not work](https://github.com/d70-t/gridlook/issues/47)
 
 ----
 
@@ -273,10 +267,6 @@ Reduce the amount of transferred data.
 
 
 ## 🔭 Outlook
-
-We have ideas...
-
-----
 
 🎯 **Low-hanging fruits**:
 
