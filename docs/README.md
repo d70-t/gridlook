@@ -140,10 +140,12 @@ Mind that when you are on mobile network or using a mobile device.
 ----
 
 Precipitation rate in IFS Dyamond3 over the indian ocean
+![Precipitation rate in IFS Dyamond3 over the indian ocean](assets/ifs_precip_ringshaped.jpg)
 
 ----
 
 Cloud coverage in IFS Dyamond3 over the Pacific
+![Cloud coverage in IFS Dyamond3 over the Pacific](assets/ifs_cloudcover.jpg)
 
 
 ---
@@ -183,6 +185,8 @@ works well for the HK25 data stored at DKRZ because we
 - embedded links in catalogs
 
 ----
+
+![Traffic](assets/traffic.png)
 
 ----
 
