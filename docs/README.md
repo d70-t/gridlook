@@ -1,4 +1,4 @@
-# Gridlook
+# Gridlook 2025-07-22
 
 **ESM data viewer on a 3D sphere using WebGL**
 
@@ -6,8 +6,7 @@ Andrej Fast¹, Tobi Kölling², Fabian Wachsmann¹, Lukas Kluft²
 
 ¹DKRZ, ²MPI-M
 
-![](https://pad.gwdg.de/uploads/2db28dcb-1113-48db-aa16-a6b45bac438a.png =120x) 🔗[This pad](https://pad.gwdg.de/s/mP3yfY2tW#) - 🔗 [Github](https://github.com/d70-t/gridlook) - 🔗 [Deployed](https://gridlook.pages.dev/)
-
+🔗 [Github](https://github.com/d70-t/gridlook) - 🔗 [Deployed](https://gridlook.pages.dev/)
 
 ---
 
@@ -151,11 +150,6 @@ Cloud coverage in IFS Dyamond3 over the Pacific
 ![](https://pad.gwdg.de/uploads/1efde248-0c73-4e14-94ed-06cabd65a2b4.png)
 
 
-----
-
-[100MB Video on Irregular grid](https://swift.dkrz.de/v1/dkrz_a073cd57eae14eba9afc9c692de6c127/NetCDFDumpToJson/Irregular.mp4?temp_url_sig=94c0f7c37a96f7f4dc5308e5d46c931ff48b965a&temp_url_expires=2025-07-28T13:17:24Z)
-
-
 ---
 
 ## ☁️ Gridlook collections
@@ -221,7 +215,7 @@ For CORS-enabled locations:
 
 ## BYODataset
 
-*A minimal guide:*
+*A minimal guide for DKRZ users:*
 
 1. Make your dataset [CF](https://cfconventions.org/) conform for gridtype identification. Add
 
@@ -327,18 +321,3 @@ Contribute, leave issues or discuss in:
 
 🎯 makes **climate science more explorable and tangible**.
 
-----
-
-## Outtakes
-
-----
-
-![](https://pad.gwdg.de/uploads/981ace0b-353a-4f81-abab-2e5cfaa32f59.png)
-
-----
-
-![](https://pad.gwdg.de/uploads/b77821f8-aa89-4585-9eec-0a65cc5340a4.png)
-
-----
-
-![](https://pad.gwdg.de/uploads/463f44ce-b555-4410-a0da-0c0ac3c35389.png)
