@@ -141,13 +141,9 @@ Mind that when you are on mobile network or using a mobile device.
 
 Precipitation rate in IFS Dyamond3 over the indian ocean
 
-![](https://pad.gwdg.de/uploads/12615a0f-7e9d-4788-9886-094ccac44702.png)
-
 ----
 
 Cloud coverage in IFS Dyamond3 over the Pacific
-
-![](https://pad.gwdg.de/uploads/1efde248-0c73-4e14-94ed-06cabd65a2b4.png)
 
 
 ---
@@ -187,8 +183,6 @@ works well for the HK25 data stored at DKRZ because we
 - embedded links in catalogs
 
 ----
-
-![](https://pad.gwdg.de/uploads/8d793e32-aefd-40de-a664-af0b696e29ec.png)
 
 ----
 
@@ -277,8 +271,6 @@ Reduce the amount of transferred data.
 ## 🔭 Outlook
 
 We have ideas...
-
-![](https://pad.gwdg.de/uploads/2eafff8e-1c3e-4bd4-acc4-09979b749545.png)
 
 ----
 
