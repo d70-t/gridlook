@@ -13,22 +13,19 @@ Andrej Fast¹, Tobi Kölling², Fabian Wachsmann¹, Lukas Kluft²
 ## 🌍 Motivation
 
 Build an easy-to-use **visualisation tool** to:
+make climate science more **explorable and tangible**.
+
+---
+
+## 🚀 Features
 
 - 👀 show plotting without HPC
 - 🔎 *Simply and Interactively explore*
     **native grid** Earth System Model (ESM) output
 - 🔗 Share *any dataset view* via URL
 - 🚅💨 no installation or compute server required
-
-----
-
-**🌍 Motivation**
-
-for developers: interesting technology!
-
-🎨 *client-side* rendering and color mapping
-**no image pregeneration**
-
+- 🎨 *client-side* rendering and color mapping
+    **no image pregeneration**
 
 ----
 
