@@ -12,7 +12,8 @@ Andrej Fast¹, Tobi Kölling², Fabian Wachsmann¹, Lukas Kluft²
 
 ## 🌍 Motivation
 
-Build an easy-to-use **visualisation tool** to:
+Build an easy-to-use **visualisation tool** to 
+
 make climate science more **explorable and tangible**.
 
 ---
