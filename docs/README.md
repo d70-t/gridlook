@@ -73,14 +73,6 @@ Where `ZARR_URI`:
 
 ----
 
-## Limitations (yet)
-
-- 🕳️ [multi-dimensional arrays](https://github.com/d70-t/gridlook/issues/43)
-- 🔒 [Scale](https://github.com/d70-t/gridlook/issues/8)
-- 🕳️ [Python example does not work](https://github.com/d70-t/gridlook/issues/47)
-
-----
-
 ## 📊 Examples
 
 **💠 Healpix**
@@ -261,44 +253,6 @@ Reduce the amount of transferred data.
   - [zarrita supports common algorithms](https://github.com/manzt/zarrita.js/blob/c0dd684dc4da79a6f42ab2a591246947bde8d143/packages/zarrita/src/codecs.ts#L26)
 
 
----
-
-
-## 🔭 Outlook
-
-🎯 **Low-hanging fruits**:
-
-- Sliders for additional dimensions
-- URL-based config: default variable, color map, etc.
-
-----
-
-<span style="color: red; font-weight: bold;">-- NEED SUPPORT ** NEED SUPPORT --</span>
-
-✨ Wouldn’t it be cool if Gridlook, the afternoon hack, …
-
-- 🌍 could generate snapshots in python for reproducability?
-- ▶️ had a play button for animation of time series for small datasets?
-- 🌍 could plot not just data stored in cloud, but also your grid and data, too?
-    - Make it a tool including data serving mechanism
-    - Support for more complex grid types
-
-----
-
-<span style="color: red; font-weight: bold;">-- NEED SUPPORT ** NEED SUPPORT --</span>
-
-✨ Wouldn’t it be cool if Gridlook, the afternoon hack, …
-
-- 🧵 could be even more efficient?
-    - Dynamic level-of-detail rendering depending on scale
-    - Improve caching mechanism to load data faster and smarter
-    - Parallelize with web-worker
-
----
-
-## Thank you
-
-Contribute, leave issues or discuss in:
 
 🔗 [https://github.com/d70-t/gridlook](https://github.com/d70-t/gridlook)
 
