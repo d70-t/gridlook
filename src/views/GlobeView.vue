@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import * as zarr from "zarrita";
+import AboutView from "@/views/AboutView.vue";
 import GlobeHealpix from "@/components/GlobeHealpix.vue";
 import GlobeRegular from "@/components/GlobeRegular.vue";
 import GlobeIrregular from "@/components/GlobeIrregular.vue";
@@ -40,6 +41,7 @@ const globe: Ref<typeof Globe | null> = ref(null);
 const globeKey = ref(0);
 const globeControlKey = ref(0);
 const isLoading = ref(false);
+const isInitialized = ref(false);
 const sourceValid = ref(false);
 const datasources: Ref<TSources | undefined> = ref(undefined);
 const selection: Ref<Partial<TSelection>> = ref({});
@@ -80,6 +82,9 @@ const currentGlobeComponent = computed(() => {
 });
 
 async function setGridType() {
+  if (!isInitialized.value) {
+    return;
+  }
   const localVarname = await getGridType();
   gridType.value = localVarname;
 }
@@ -90,11 +95,11 @@ watch(
     // Rerender controls and globe and reset store
     // if new data is provided
     isLoading.value = true;
+    gridType.value = undefined;
     globeKey.value += 1;
     globeControlKey.value += 1;
     store.$reset();
     await updateSrc();
-    await setGridType();
 
     isLoading.value = false;
   }
@@ -327,6 +332,7 @@ async function getGridType() {
       detail: `${getErrorMessage(error)}`,
       life: 3000,
     });
+
     return GRID_TYPES.ERROR;
   }
 }
@@ -334,6 +340,7 @@ async function getGridType() {
 onMounted(async () => {
   isLoading.value = true;
   await updateSrc();
+  isInitialized.value = true;
   await setGridType();
 
   isLoading.value = false;
@@ -381,7 +388,7 @@ onMounted(async () => {
       </div>
     </section>
     <currentGlobeComponent
-      v-else
+      v-else-if="gridType !== undefined"
       ref="globe"
       :key="globeKey"
       :datasources="datasources"
