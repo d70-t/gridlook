@@ -392,6 +392,7 @@ onMounted(async () => {
       @varinfo="updateVarinfo"
     />
     <div v-if="isLoading || loading" class="top-right-loader loader" />
+    <AboutView />
   </main>
 </template>
 
