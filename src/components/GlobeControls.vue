@@ -3,45 +3,60 @@ import ColorBar from "@/components/ColorBar.vue";
 import { computed, onMounted, onUnmounted, ref, watch, type Ref } from "vue";
 import { useGlobeControlStore } from "./store/store.ts";
 import { storeToRefs } from "pinia";
-import type {
-  TColorMap,
-  TModelInfo,
-  TBounds,
-  TVarInfo,
-  TSelection,
-} from "../types/GlobeTypes.js";
+import type { TModelInfo, TBounds } from "../types/GlobeTypes.js";
 
-const props = defineProps<{ varinfo?: TVarInfo; modelInfo?: TModelInfo }>();
+const props = defineProps<{ modelInfo?: TModelInfo }>();
 
-const emit = defineEmits<{
-  selection: [TSelection];
+defineEmits<{
   onSnapshot: [];
   onExample: [];
   onRotate: [];
 }>();
 
+const BOUND_MODES = {
+  AUTO: "auto",
+  DATA: "data",
+  DEFAULT: "default",
+  USER: "user",
+} as const;
+
+type TBoundModes = (typeof BOUND_MODES)[keyof typeof BOUND_MODES];
+
 const store = useGlobeControlStore();
-const { timeIndexSlider, varnameSelector } = storeToRefs(store);
+const {
+  timeIndexSlider,
+  colormap,
+  invertColormap,
+  varnameSelector,
+  varinfo,
+  userBoundsLow,
+  userBoundsHigh,
+} = storeToRefs(store);
 const menuCollapsed: Ref<boolean> = ref(false);
 const mobileMenuCollapsed: Ref<boolean> = ref(true);
-const colormap: Ref<TColorMap> = ref("turbo");
 const isMobileView: Ref<boolean> = ref(false);
-const invertColormap: Ref<boolean> = ref(true);
 const autoColormap: Ref<boolean> = ref(true);
 const defaultBounds: Ref<TBounds> = ref({});
-const userBoundsLow: Ref<number | undefined> = ref(undefined);
-const userBoundsHigh: Ref<number | undefined> = ref(undefined);
-const pickedBounds = ref("auto");
+const pickedBounds: Ref<TBoundModes> = ref(BOUND_MODES.AUTO);
 
-const activeBounds = computed(() => {
-  if (pickedBounds.value === "auto") {
+const activeBoundsMode = computed(() => {
+  if (pickedBounds.value === BOUND_MODES.AUTO) {
+    // USER BOUNDS IST VERSEHENTLICH EIN STRING!!!!
     if (
+      userBoundsLow.value !== undefined &&
+      userBoundsHigh.value !== undefined &&
+      // if the input-fields are empty, they are interpreted as "" instead of a number
+      (userBoundsHigh.value as unknown as string) !== "" &&
+      (userBoundsLow.value as unknown as string) !== ""
+    ) {
+      return BOUND_MODES.USER;
+    } else if (
       defaultBounds.value.low !== undefined &&
       defaultBounds.value.high !== undefined
     ) {
-      return "default";
+      return BOUND_MODES.DEFAULT;
     } else {
-      return "data";
+      return BOUND_MODES.DATA;
     }
   } else {
     return pickedBounds.value;
@@ -49,38 +64,42 @@ const activeBounds = computed(() => {
 });
 
 const dataBounds = computed(() => {
-  return props.varinfo?.bounds ?? {};
+  return varinfo.value?.bounds ?? {};
 });
 
 const bounds = computed(() => {
-  if (activeBounds.value === "data") {
-    return dataBounds;
-  } else if (activeBounds.value === "default") {
-    return defaultBounds;
-  } else if (activeBounds.value === "user") {
-    return { low: userBoundsLow.value, high: userBoundsHigh.value };
+  console.log(userBoundsLow.value, typeof userBoundsHigh.value);
+  if (activeBoundsMode.value === BOUND_MODES.DATA) {
+    return dataBounds.value;
+  } else if (activeBoundsMode.value === BOUND_MODES.USER) {
+    return {
+      low: userBoundsLow.value,
+      high: userBoundsHigh.value,
+    };
+  } else if (activeBoundsMode.value === BOUND_MODES.DEFAULT) {
+    return defaultBounds.value;
   }
   return undefined;
 });
 
 const timeRange = computed(() => {
-  return props.varinfo?.timeRange ?? { start: 0, end: 1 };
+  return varinfo.value?.timeRange ?? { start: 0, end: 1 };
 });
 
 const currentTimeValue = computed(() => {
-  return props.varinfo?.timeinfo?.current;
+  return varinfo.value?.timeinfo?.current;
 });
 
 const currentVarName = computed(() => {
-  return store.varname ?? "-";
+  return store.varnameDisplay ?? "-";
 });
 
 const currentVarLongname = computed(() => {
-  return props.varinfo?.attrs?.long_name ?? "-";
+  return varinfo.value?.attrs?.long_name ?? "-";
 });
 
 const currentVarUnits = computed(() => {
-  return props.varinfo?.attrs?.units ?? "-";
+  return varinfo.value?.attrs?.units ?? "-";
 });
 
 const isHidden = computed(() => {
@@ -92,32 +111,30 @@ const isHidden = computed(() => {
 watch(
   () => varnameSelector.value,
   () => {
-    const varinfo = props.modelInfo!.vars[varnameSelector.value];
-    defaultBounds.value = varinfo.default_range ?? {};
+    setDefaultBounds();
     setDefaultColormap();
-    publish();
+    store.updateBounds(bounds.value as TBounds);
   }
 );
 
 watch(
-  () => colormap.value,
-  () => publish()
-);
-
-watch(
-  () => invertColormap.value,
-  () => publish()
-);
-
-watch(
   () => bounds.value,
-  () => publish()
+  () => {
+    store.updateBounds(bounds.value as TBounds);
+  }
 );
 
 watch(
   () => autoColormap,
-  () => setDefaultColormap()
+  () => {
+    setDefaultColormap();
+  }
 );
+
+function setDefaultBounds() {
+  const defaultConfig = props.modelInfo!.vars[varnameSelector.value];
+  defaultBounds.value = defaultConfig.default_range ?? {};
+}
 
 function toggleMenu() {
   menuCollapsed.value = !menuCollapsed.value;
@@ -127,15 +144,8 @@ function toggleMobileMenu() {
   mobileMenuCollapsed.value = !mobileMenuCollapsed.value;
 }
 
-const publish = () => {
-  emit("selection", {
-    bounds: bounds.value as TBounds,
-    colormap: colormap.value,
-    invertColormap: invertColormap.value,
-  });
-};
-
 const setDefaultColormap = () => {
+  console.log("setDefaultColormap called");
   const defaultColormap =
     props.modelInfo?.vars[varnameSelector.value].default_colormap;
   if (autoColormap.value && defaultColormap !== undefined) {
@@ -144,20 +154,23 @@ const setDefaultColormap = () => {
   }
 };
 
+const MOBILE_VIEW_THRESHOLD = 769; // px
+
 onMounted(() => {
-  isMobileView.value = window.innerWidth < 769;
+  isMobileView.value = window.innerWidth < MOBILE_VIEW_THRESHOLD;
   window.addEventListener("resize", () => {
-    isMobileView.value = window.innerWidth < 769;
+    isMobileView.value = window.innerWidth < MOBILE_VIEW_THRESHOLD;
   });
 });
 
 onUnmounted(() => {
   window.removeEventListener("resize", () => {
-    isMobileView.value = window.innerWidth < 769;
+    isMobileView.value = window.innerWidth < MOBILE_VIEW_THRESHOLD;
   });
 });
 
-publish(); // ensure initial settings are published
+setDefaultBounds();
+store.updateBounds(bounds.value as TBounds); // ensure initial settings are published
 </script>
 
 <template>
@@ -239,7 +252,7 @@ publish(); // ensure initial settings are published
             ></span>
           </div>
           <div class="has-text-right">
-            {{ currentVarName }} @ {{ store.timeIndex }}
+            {{ currentVarName }} @ {{ store.timeIndexDisplay }}
             <br />
             <span v-if="currentTimeValue">
               {{ currentTimeValue.format() }}
@@ -264,7 +277,7 @@ publish(); // ensure initial settings are published
         <!-- Data Bounds -->
         <div
           class="columns is-mobile active-row compact-row"
-          :class="{ active: activeBounds === 'data' }"
+          :class="{ active: activeBoundsMode === BOUND_MODES.DATA }"
         >
           <div class="column">
             <input
@@ -285,7 +298,7 @@ publish(); // ensure initial settings are published
         <!-- Default Bounds -->
         <div
           class="columns is-mobile active-row compact-row"
-          :class="{ active: activeBounds === 'default' }"
+          :class="{ active: activeBoundsMode === BOUND_MODES.DEFAULT }"
         >
           <div class="column">
             <input
@@ -298,17 +311,17 @@ publish(); // ensure initial settings are published
             <label for="default_bounds">default</label>
           </div>
           <div class="column">
-            {{ Number(defaultBounds.low).toPrecision(2) }}
+            {{ Number(defaultBounds.low).toPrecision(4) }}
           </div>
           <div class="column has-text-right">
-            {{ Number(defaultBounds.high).toPrecision(2) }}
+            {{ Number(defaultBounds.high).toPrecision(4) }}
           </div>
         </div>
 
         <!-- User Bounds -->
         <div
           class="columns is-mobile active-row compact-row"
-          :class="{ active: activeBounds === 'user' }"
+          :class="{ active: activeBoundsMode === BOUND_MODES.USER }"
         >
           <div class="column">
             <input
@@ -321,18 +334,25 @@ publish(); // ensure initial settings are published
             <label for="user_bounds">user</label>
           </div>
           <div class="column">
-            <input v-model.number="userBoundsLow" size="10" class="input" />
+            <input
+              v-model.number="userBoundsLow"
+              size="10"
+              class="input"
+              type="number"
+            />
           </div>
           <div class="column has-text-right">
-            <input v-model.number="userBoundsHigh" size="10" class="input" />
+            <input
+              v-model.number="userBoundsHigh"
+              size="10"
+              class="input"
+              type="number"
+            />
           </div>
         </div>
 
         <!-- Auto Bounds -->
-        <div
-          class="columns is-mobile active-row compact-row"
-          :class="{ active: activeBounds === 'auto' }"
-        >
+        <div class="columns is-mobile active-row compact-row">
           <div class="column">
             <input
               id="auto_bounds"

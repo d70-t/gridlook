@@ -8,18 +8,14 @@ import Globe from "@/components/Globe.vue";
 import GlobeControls from "@/components/GlobeControls.vue";
 import { availableColormaps } from "@/components/utils/colormapShaders.js";
 import { ref, computed, watch, onMounted, type Ref } from "vue";
-import type {
-  TColorMap,
-  TSelection,
-  TSources,
-  TVarInfo,
-} from "../types/GlobeTypes";
+import type { TColorMap, TSources } from "../types/GlobeTypes";
 import { useGlobeControlStore } from "../components/store/store";
 import Toast from "primevue/toast";
 import { useToast } from "primevue/usetoast";
 import { storeToRefs } from "pinia";
 import { getErrorMessage } from "../components/utils/errorHandling";
-const props = defineProps<{ src: string }>();
+import StoreUrlListener from "../components/store/storeUrlListener.vue";
+const props = defineProps<{ src: string; paramVarname: string | undefined }>();
 
 const GRID_TYPES = {
   REGULAR: "regular",
@@ -35,7 +31,8 @@ type T_GRID_TYPES = (typeof GRID_TYPES)[keyof typeof GRID_TYPES];
 
 const toast = useToast();
 const store = useGlobeControlStore();
-const { varnameSelector, loading } = storeToRefs(store);
+const { varnameSelector, loading, colormap, invertColormap } =
+  storeToRefs(store);
 
 const globe: Ref<typeof Globe | null> = ref(null);
 const globeKey = ref(0);
@@ -44,9 +41,18 @@ const isLoading = ref(false);
 const isInitialized = ref(false);
 const sourceValid = ref(false);
 const datasources: Ref<TSources | undefined> = ref(undefined);
-const selection: Ref<Partial<TSelection>> = ref({});
-const varinfo: Ref<TVarInfo | undefined> = ref(undefined);
 const gridType: Ref<T_GRID_TYPES | undefined> = ref(undefined);
+
+function changeURLHash(key: string, value: string) {
+  // const [resource, paramString] = location.hash.substring(1).split("::");
+  // const params = new URLSearchParams(paramString);
+  // params.set(key, value);
+  // history.replaceState(
+  //   null,
+  //   "",
+  //   document.location.pathname + "#" + resource + "::" + params.toString()
+  // );
+}
 
 const modelInfo = computed(() => {
   if (datasources.value === undefined) {
@@ -85,8 +91,8 @@ async function setGridType() {
   if (!isInitialized.value) {
     return;
   }
-  const localVarname = await getGridType();
-  gridType.value = localVarname;
+  const localGridType = await getGridType();
+  gridType.value = localGridType;
 }
 
 watch(
@@ -106,6 +112,16 @@ watch(
 );
 
 watch(
+  () => props.paramVarname,
+  async () => {
+    if (props.paramVarname) {
+      console.log("paramVarname changed", props.paramVarname);
+      varnameSelector.value = props.paramVarname;
+    }
+  }
+);
+
+watch(
   () => varnameSelector.value,
   async () => {
     if (!varnameSelector.value || varnameSelector.value === "-") {
@@ -114,14 +130,6 @@ watch(
     await setGridType();
   }
 );
-
-const updateSelection = (s: TSelection) => {
-  selection.value = s;
-};
-
-const updateVarinfo = (info: TVarInfo) => {
-  varinfo.value = info;
-};
 
 async function indexFromZarr(src: string) {
   const store = await zarr.withConsolidated(new zarr.FetchStore(src));
@@ -201,7 +209,31 @@ const updateSrc = async () => {
         datasources.value = index.value;
       }
       varnameSelector.value =
-        modelInfo.value!.defaultVar ?? Object.keys(modelInfo.value!.vars)[0];
+        props.paramVarname ??
+        modelInfo.value!.defaultVar ??
+        Object.keys(modelInfo.value!.vars)[0];
+
+      if (
+        datasources.value &&
+        varnameSelector.value in datasources.value.levels[0].datasources
+      ) {
+        const varinfoLocal =
+          datasources.value.levels[0].datasources[varnameSelector.value];
+        if (varinfoLocal.default_colormap) {
+          colormap.value = varinfoLocal.default_colormap.name;
+          if (
+            Object.prototype.hasOwnProperty.call(
+              varinfoLocal.default_colormap,
+              "inverted"
+            )
+          ) {
+            invertColormap.value = varinfoLocal.default_colormap.inverted;
+          }
+        }
+        if (varinfoLocal.default_range) {
+          store.updateBounds(varinfoLocal.default_range);
+        }
+      }
       break;
     } else {
       lastError = index.reason;
@@ -349,6 +381,7 @@ onMounted(async () => {
 
 <template>
   <main>
+    <StoreUrlListener />
     <Toast unstyled>
       <template #container="{ message, closeCallback }">
         <div class="message is-danger" style="max-width: 400px">
@@ -369,8 +402,6 @@ onMounted(async () => {
       v-if="sourceValid"
       :key="globeControlKey"
       :model-info="modelInfo"
-      :varinfo="varinfo"
-      @selection="updateSelection"
       @on-snapshot="makeSnapshot"
       @on-example="makeExample"
       @on-rotate="toggleRotate"
@@ -392,11 +423,7 @@ onMounted(async () => {
       ref="globe"
       :key="globeKey"
       :datasources="datasources"
-      :colormap="selection.colormap"
-      :invert-colormap="selection.invertColormap"
-      :varbounds="selection.bounds"
       :is-rotated="gridType === GRID_TYPES.REGULAR_ROTATED"
-      @varinfo="updateVarinfo"
     />
     <div v-if="isLoading || loading" class="top-right-loader loader" />
     <AboutView />
