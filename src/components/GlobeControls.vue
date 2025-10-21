@@ -135,8 +135,8 @@ watch(
 );
 
 function setDefaultBounds() {
-  const defaultConfig = props.modelInfo!.vars[varnameSelector.value];
-  defaultBounds.value = defaultConfig.default_range ?? {};
+  const defaultConfig = props.modelInfo?.vars[varnameSelector.value];
+  defaultBounds.value = defaultConfig?.default_range ?? {};
 }
 
 function toggleMenu() {

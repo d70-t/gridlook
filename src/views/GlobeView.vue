@@ -98,6 +98,7 @@ watch(
     globeKey.value += 1;
     globeControlKey.value += 1;
     store.$reset();
+    urlParameterStore.$reset();
     await updateSrc();
 
     isLoading.value = false;
