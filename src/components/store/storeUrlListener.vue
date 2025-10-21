@@ -3,9 +3,19 @@ import { storeToRefs } from "pinia";
 import { watch } from "vue";
 import { useGlobeControlStore } from "./store";
 import { URL_PARAMETERS, type TURLParameterValues } from "../utils/urlParams";
+import { useUrlParameterStore } from "./paramStore";
 
 const store = useGlobeControlStore();
-const { userBoundsHigh, userBoundsLow, varnameSelector } = storeToRefs(store);
+const {
+  userBoundsHigh,
+  userBoundsLow,
+  varnameSelector,
+  timeIndexSlider,
+  colormap,
+} = storeToRefs(store);
+
+const urlParameterStore = useUrlParameterStore();
+const { paramCameraState } = storeToRefs(urlParameterStore);
 
 function changeURLHash(
   entries: Partial<Record<TURLParameterValues, string | number>>
@@ -77,4 +87,32 @@ watch(
     handleUserBounds();
   }
 );
+
+watch(
+  () => colormap.value,
+  () => {
+    changeURLHash({ [URL_PARAMETERS.COLORMAP]: colormap.value });
+  }
+);
+
+watch(
+  () => timeIndexSlider.value,
+  () => {
+    changeURLHash({ [URL_PARAMETERS.TIMEINDEX]: timeIndexSlider.value });
+  }
+);
+
+watch(
+  () => paramCameraState.value,
+  () => {
+    if (paramCameraState.value) {
+      changeURLHash({ [URL_PARAMETERS.CAMERA_STATE]: paramCameraState.value });
+    }
+  }
+);
 </script>
+
+<template>
+  <!-- This component only listens to store changes and updates the URL hash accordingly -->
+  <div />
+</template>

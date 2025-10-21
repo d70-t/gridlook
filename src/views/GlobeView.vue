@@ -15,7 +15,8 @@ import { useToast } from "primevue/usetoast";
 import { storeToRefs } from "pinia";
 import { getErrorMessage } from "../components/utils/errorHandling";
 import StoreUrlListener from "../components/store/storeUrlListener.vue";
-const props = defineProps<{ src: string; paramVarname: string | undefined }>();
+import { useUrlParameterStore } from "../components/store/paramStore";
+const props = defineProps<{ src: string }>();
 
 const GRID_TYPES = {
   REGULAR: "regular",
@@ -34,6 +35,9 @@ const store = useGlobeControlStore();
 const { varnameSelector, loading, colormap, invertColormap } =
   storeToRefs(store);
 
+const urlParameterStore = useUrlParameterStore();
+const { paramVarname } = storeToRefs(urlParameterStore);
+
 const globe: Ref<typeof Globe | null> = ref(null);
 const globeKey = ref(0);
 const globeControlKey = ref(0);
@@ -42,17 +46,6 @@ const isInitialized = ref(false);
 const sourceValid = ref(false);
 const datasources: Ref<TSources | undefined> = ref(undefined);
 const gridType: Ref<T_GRID_TYPES | undefined> = ref(undefined);
-
-function changeURLHash(key: string, value: string) {
-  // const [resource, paramString] = location.hash.substring(1).split("::");
-  // const params = new URLSearchParams(paramString);
-  // params.set(key, value);
-  // history.replaceState(
-  //   null,
-  //   "",
-  //   document.location.pathname + "#" + resource + "::" + params.toString()
-  // );
-}
 
 const modelInfo = computed(() => {
   if (datasources.value === undefined) {
@@ -108,16 +101,6 @@ watch(
     await updateSrc();
 
     isLoading.value = false;
-  }
-);
-
-watch(
-  () => props.paramVarname,
-  async () => {
-    if (props.paramVarname) {
-      console.log("paramVarname changed", props.paramVarname);
-      varnameSelector.value = props.paramVarname;
-    }
   }
 );
 
@@ -209,7 +192,7 @@ const updateSrc = async () => {
         datasources.value = index.value;
       }
       varnameSelector.value =
-        props.paramVarname ??
+        paramVarname.value ??
         modelInfo.value!.defaultVar ??
         Object.keys(modelInfo.value!.vars)[0];
 
@@ -217,21 +200,21 @@ const updateSrc = async () => {
         datasources.value &&
         varnameSelector.value in datasources.value.levels[0].datasources
       ) {
-        const varinfoLocal =
+        const variableDefaults =
           datasources.value.levels[0].datasources[varnameSelector.value];
-        if (varinfoLocal.default_colormap) {
-          colormap.value = varinfoLocal.default_colormap.name;
+        if (variableDefaults.default_colormap) {
+          colormap.value = variableDefaults.default_colormap.name;
           if (
             Object.prototype.hasOwnProperty.call(
-              varinfoLocal.default_colormap,
+              variableDefaults.default_colormap,
               "inverted"
             )
           ) {
-            invertColormap.value = varinfoLocal.default_colormap.inverted;
+            invertColormap.value = variableDefaults.default_colormap.inverted;
           }
         }
-        if (varinfoLocal.default_range) {
-          store.updateBounds(varinfoLocal.default_range);
+        if (variableDefaults.default_range) {
+          store.updateBounds(variableDefaults.default_range);
         }
       }
       break;

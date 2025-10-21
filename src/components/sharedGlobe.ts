@@ -17,6 +17,7 @@ import { useToast } from "primevue/usetoast";
 import * as zarr from "zarrita";
 import type { TSources } from "@/types/GlobeTypes.ts";
 import { getErrorMessage } from "./utils/errorHandling.ts";
+import { useUrlParameterStore } from "./store/paramStore.ts";
 
 export function useSharedGlobeLogic(
   canvas: Ref<HTMLCanvasElement | undefined>,
@@ -24,6 +25,9 @@ export function useSharedGlobeLogic(
 ) {
   const store = useGlobeControlStore();
   const { showCoastLines } = storeToRefs(store);
+
+  const urlParameterStore = useUrlParameterStore();
+  const { paramCameraState } = storeToRefs(urlParameterStore);
 
   const toast = useToast();
   const datavars: ShallowRef<
@@ -136,9 +140,19 @@ export function useSharedGlobeLogic(
     );
     renderer = new THREE.WebGLRenderer({ canvas: canvas.value });
 
-    camera.up = new THREE.Vector3(0, 0, 1);
-    camera.position.x = 30;
-    camera.lookAt(center);
+    if (paramCameraState.value === undefined) {
+      camera.up = new THREE.Vector3(0, 0, 1);
+      camera.position.x = 30;
+      camera.lookAt(center);
+    } else {
+      camera.up = new THREE.Vector3(0, 0, 1);
+      camera.position.x = 30;
+      camera.lookAt(center);
+      const state = decodeCameraFromURL();
+      if (state) {
+        applyCameraState(camera, state);
+      }
+    }
 
     //scene.add(mainMesh as THREE.Mesh);
 
@@ -184,6 +198,7 @@ export function useSharedGlobeLogic(
     cancelAnimationFrame(frameId.value);
     if (!mouseDown && !getOrbitControls()?.autoRotate) {
       render();
+      encodeCameraToURL(getCamera()!);
       return;
     }
     render();
@@ -301,6 +316,89 @@ export function useSharedGlobeLogic(
 
   async function getTimeVar(datasources: TSources) {
     return await getDataVar("time", datasources);
+  }
+
+  type TCameraState = {
+    position: number[];
+    quaternion: number[];
+    fov: number;
+    aspect: number;
+    near: number;
+    far: number;
+  };
+
+  function encodeCameraToURL(camera: THREE.PerspectiveCamera) {
+    // Encodes the camera state to the URL parameters.
+    // This function is getting called at the end of each render loop.
+    const state: TCameraState = {
+      position: camera.position.toArray(),
+      quaternion: camera.quaternion.toArray(),
+      fov: camera.fov,
+      aspect: camera.aspect,
+      near: camera.near,
+      far: camera.far,
+    };
+
+    // Stringify and Base64-encode (URL-safe)
+    const json = JSON.stringify(state);
+    const encoded = btoa(json)
+      .replace(/\+/g, "-") // URL-safe base64
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+
+    paramCameraState.value = encoded;
+  }
+
+  function decodeCameraFromURL(): TCameraState | null {
+    // Decodes the camera state from the URL parameters.
+    // This function is getting called during initialization of the globe,
+    // when a camera state is found in the URL parameters.
+    const encoded = paramCameraState.value;
+    if (!encoded) return null;
+
+    try {
+      const json = atob(encoded.replace(/-/g, "+").replace(/_/g, "/"));
+      return JSON.parse(json);
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    } catch (ignore) {
+      return null;
+    }
+  }
+
+  function applyCameraState(
+    camera: THREE.PerspectiveCamera,
+    data: TCameraState
+  ) {
+    // Applies a camera state to the camera.
+    // This function is getting called during initialization of the globe,
+    // when a camera state is found in the URL parameters.
+    if (!data) return;
+
+    if (data.position && data.position.length === 3) {
+      camera.position.fromArray(data.position);
+    }
+
+    if (data.quaternion && data.quaternion.length === 4) {
+      camera.quaternion.fromArray(data.quaternion);
+    }
+
+    if (typeof data.fov === "number") {
+      camera.fov = data.fov;
+    }
+
+    if (typeof data.aspect === "number") {
+      camera.aspect = data.aspect;
+    }
+
+    if (typeof data.near === "number") {
+      camera.near = data.near;
+    }
+
+    if (typeof data.far === "number") {
+      camera.far = data.far;
+    }
+
+    camera.updateProjectionMatrix();
   }
 
   return {

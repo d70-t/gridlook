@@ -4,6 +4,7 @@ import { computed, onMounted, onUnmounted, ref, watch, type Ref } from "vue";
 import { useGlobeControlStore } from "./store/store.ts";
 import { storeToRefs } from "pinia";
 import type { TModelInfo, TBounds } from "../types/GlobeTypes.js";
+import { useUrlParameterStore } from "./store/paramStore.ts";
 
 const props = defineProps<{ modelInfo?: TModelInfo }>();
 
@@ -32,6 +33,10 @@ const {
   userBoundsLow,
   userBoundsHigh,
 } = storeToRefs(store);
+
+const urlParameterStore = useUrlParameterStore();
+const { paramColormap, paramTimeIndex } = storeToRefs(urlParameterStore);
+
 const menuCollapsed: Ref<boolean> = ref(false);
 const mobileMenuCollapsed: Ref<boolean> = ref(true);
 const isMobileView: Ref<boolean> = ref(false);
@@ -41,7 +46,6 @@ const pickedBounds: Ref<TBoundModes> = ref(BOUND_MODES.AUTO);
 
 const activeBoundsMode = computed(() => {
   if (pickedBounds.value === BOUND_MODES.AUTO) {
-    // USER BOUNDS IST VERSEHENTLICH EIN STRING!!!!
     if (
       userBoundsLow.value !== undefined &&
       userBoundsHigh.value !== undefined &&
@@ -68,7 +72,6 @@ const dataBounds = computed(() => {
 });
 
 const bounds = computed(() => {
-  console.log(userBoundsLow.value, typeof userBoundsHigh.value);
   if (activeBoundsMode.value === BOUND_MODES.DATA) {
     return dataBounds.value;
   } else if (activeBoundsMode.value === BOUND_MODES.USER) {
@@ -145,7 +148,6 @@ function toggleMobileMenu() {
 }
 
 const setDefaultColormap = () => {
-  console.log("setDefaultColormap called");
   const defaultColormap =
     props.modelInfo?.vars[varnameSelector.value].default_colormap;
   if (autoColormap.value && defaultColormap !== undefined) {
@@ -169,8 +171,15 @@ onUnmounted(() => {
   });
 });
 
+// INITIALIZATION
 setDefaultBounds();
 store.updateBounds(bounds.value as TBounds); // ensure initial settings are published
+if (paramColormap.value) {
+  colormap.value = paramColormap.value;
+}
+if (paramTimeIndex.value) {
+  timeIndexSlider.value = Number(paramTimeIndex.value);
+}
 </script>
 
 <template>
@@ -231,7 +240,7 @@ store.updateBounds(bounds.value as TBounds); // ensure initial settings are publ
               v-model.number="timeIndexSlider"
               class="input"
               type="number"
-              min="1"
+              :min="timeRange.start"
               :max="timeRange.end"
               style="width: 8em"
             />

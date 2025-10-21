@@ -92,7 +92,6 @@ const bounds = computed(() => {
 watch(
   () => bounds.value,
   () => {
-    console.log("bounds changed to ", bounds.value);
     updateColormap();
   }
 );
@@ -107,7 +106,6 @@ watch(
 watch(
   () => colormap.value,
   () => {
-    console.log("colormap changed to ", colormap.value);
     updateColormap();
   }
 );

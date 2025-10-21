@@ -13,28 +13,25 @@ import { computed, onBeforeMount, onMounted, ref, watch, type Ref } from "vue";
 
 import { useGlobeControlStore } from "./store/store.js";
 import { storeToRefs } from "pinia";
-import type {
-  TBounds,
-  TColorMap,
-  TSources,
-  TVarInfo,
-} from "../types/GlobeTypes.ts";
+import type { TSources, TVarInfo } from "../types/GlobeTypes.ts";
 import { useToast } from "primevue/usetoast";
 import { getErrorMessage } from "./utils/errorHandling.ts";
 import { useSharedGlobeLogic } from "./sharedGlobe.ts";
 
 const props = defineProps<{
   datasources?: TSources;
-  varbounds?: TBounds;
-  colormap?: TColorMap;
-  invertColormap?: boolean;
 }>();
 
-const emit = defineEmits<{ varinfo: [TVarInfo] }>();
 const store = useGlobeControlStore();
 const toast = useToast();
-const { timeIndexSlider, timeIndex, varnameSelector, varname } =
-  storeToRefs(store);
+const {
+  timeIndexSlider,
+  varnameSelector,
+  colormap,
+  invertColormap,
+  selection,
+} = storeToRefs(store);
+storeToRefs(store);
 
 let canvas: Ref<HTMLCanvasElement | undefined> = ref();
 
@@ -82,22 +79,26 @@ watch(
   }
 );
 
+const bounds = computed(() => {
+  return selection.value;
+});
+
 watch(
-  () => props.varbounds,
+  () => bounds.value,
   () => {
     updateColormap();
   }
 );
 
 watch(
-  () => props.invertColormap,
+  () => invertColormap.value,
   () => {
     updateColormap();
   }
 );
 
 watch(
-  () => props.colormap,
+  () => colormap.value,
   () => {
     updateColormap();
   }
@@ -119,10 +120,6 @@ const datasource = computed(() => {
   }
 });
 
-function publishVarinfo(info: TVarInfo) {
-  emit("varinfo", info);
-}
-
 async function datasourceUpdate() {
   resetDataVars();
   if (props.datasources !== undefined) {
@@ -134,17 +131,17 @@ async function datasourceUpdate() {
 }
 
 function updateColormap() {
-  const low = props.varbounds?.low as number;
-  const high = props.varbounds?.high as number;
+  const low = bounds.value?.low as number;
+  const high = bounds.value?.high as number;
   const { addOffset, scaleFactor } = calculateColorMapProperties(
     low,
     high,
-    props.invertColormap
+    invertColormap.value
   );
   for (const myMesh of mainMeshes) {
     const material = myMesh.material as THREE.ShaderMaterial;
     if (material?.uniforms.colormap) {
-      material.uniforms.colormap.value = availableColormaps[props.colormap!];
+      material.uniforms.colormap.value = availableColormaps[colormap.value];
     }
     if (material?.uniforms.addOffset) {
       material.uniforms.addOffset.value = addOffset;
@@ -338,12 +335,7 @@ async function getData() {
       currentTimeIndexSliderValue
     );
     if (datavar !== undefined) {
-      await processDataVar(
-        datavar,
-        currentTimeIndexSliderValue,
-        timeinfo,
-        localVarname
-      );
+      await processDataVar(datavar, currentTimeIndexSliderValue, timeinfo);
     }
     updatingData.value = false;
 
@@ -383,8 +375,7 @@ async function extractTimeInfo(
 async function processDataVar(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
   currentTimeIndexSliderValue: number,
-  timeinfo: Awaited<ReturnType<typeof extractTimeInfo>>,
-  localVarname: string
+  timeinfo: Awaited<ReturnType<typeof extractTimeInfo>>
 ) {
   if (datavar !== undefined) {
     let dataMin = Number.POSITIVE_INFINITY;
@@ -413,15 +404,12 @@ async function processDataVar(
       })
     );
 
-    publishVarinfo({
+    store.updateVarInfo({
       attrs: datavar.attrs,
       timeinfo,
       timeRange: { start: 0, end: datavar.shape[0] - 1 },
       bounds: { low: dataMin, high: dataMax },
     });
-
-    timeIndex.value = currentTimeIndexSliderValue;
-    varname.value = localVarname;
   }
 }
 
@@ -430,11 +418,11 @@ function copyPythonExample() {
     cameraPosition: getCamera()!.position,
     datasrc: datasource.value!.store + datasource.value!.dataset,
     gridsrc: gridsource.value!.store + gridsource.value!.dataset,
-    varname: varname.value,
-    timeIndex: timeIndex.value,
-    varbounds: props.varbounds!,
-    colormap: props.colormap!,
-    invertColormap: props.invertColormap,
+    varname: varnameSelector.value,
+    timeIndex: timeIndexSlider.value,
+    varbounds: bounds.value!,
+    colormap: colormap.value,
+    invertColormap: invertColormap.value,
   });
   navigator.clipboard.writeText(example);
   toast.add({
@@ -452,11 +440,11 @@ onMounted(() => {
 
 onBeforeMount(async () => {
   const gridStep = 64 + 1;
-  const low = props.varbounds?.low as number;
-  const high = props.varbounds?.high as number;
+  const low = bounds.value?.low as number;
+  const high = bounds.value?.high as number;
   let scaleFactor: number;
   let addOffset: number;
-  if (props.invertColormap) {
+  if (invertColormap.value) {
     scaleFactor = -1 / (high - low);
     addOffset = -high * scaleFactor;
   } else {
@@ -466,7 +454,7 @@ onBeforeMount(async () => {
   for (let ipix = 0; ipix < HEALPIX_NUMCHUNKS; ++ipix) {
     const material = makeTextureMaterial(
       new THREE.Texture(),
-      props.colormap!,
+      colormap.value,
       addOffset,
       scaleFactor
     );

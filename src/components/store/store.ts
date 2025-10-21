@@ -1,5 +1,6 @@
 import type { TVarInfo, TColorMap, TBounds } from "@/types/GlobeTypes";
 import { defineStore } from "pinia";
+import { useUrlParameterStore } from "./paramStore";
 
 export const useGlobeControlStore = defineStore("globeControl", {
   state: () => {
@@ -31,10 +32,20 @@ export const useGlobeControlStore = defineStore("globeControl", {
       this.varnameDisplay = this.varnameSelector;
     },
     updateVarInfo(varinfo: TVarInfo) {
+      const parameterStore = useUrlParameterStore();
+      if (
+        parameterStore.paramMinTimeBound !== undefined &&
+        !isNaN(Number(parameterStore.paramMinTimeBound)) &&
+        parameterStore.paramMaxTimeBound !== undefined &&
+        !isNaN(Number(parameterStore.paramMaxTimeBound))
+      ) {
+        // update the time range if given in URL parameters
+        varinfo.timeRange.start = Number(parameterStore.paramMinTimeBound);
+        varinfo.timeRange.end = Number(parameterStore.paramMaxTimeBound);
+      }
       this.varinfo = varinfo;
     },
     updateBounds(bounds: TBounds) {
-      console.log("updateBounds", bounds);
       this.selection = bounds;
     },
   },
