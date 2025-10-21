@@ -148,6 +148,7 @@ function toggleMobileMenu() {
 }
 
 const setDefaultColormap = () => {
+  console.log(props.modelInfo?.vars, varnameSelector.value);
   const defaultColormap =
     props.modelInfo?.vars[varnameSelector.value].default_colormap;
   if (autoColormap.value && defaultColormap !== undefined) {
@@ -313,16 +314,42 @@ if (paramTimeIndex.value) {
             <input
               id="default_bounds"
               v-model="pickedBounds"
+              :disabled="
+                defaultBounds.low === undefined &&
+                defaultBounds.high === undefined
+              "
               type="radio"
               class="mr-1"
               value="default"
             />
-            <label for="default_bounds">default</label>
+            <label
+              for="default_bounds"
+              :class="{
+                'has-text-grey-light':
+                  defaultBounds.low === undefined &&
+                  defaultBounds.high === undefined,
+              }"
+              >default</label
+            >
           </div>
-          <div class="column">
+          <div
+            class="column"
+            :class="{
+              'has-text-grey-light':
+                defaultBounds.low === undefined &&
+                defaultBounds.high === undefined,
+            }"
+          >
             {{ Number(defaultBounds.low).toPrecision(4) }}
           </div>
-          <div class="column has-text-right">
+          <div
+            class="column has-text-right"
+            :class="{
+              'has-text-grey-light':
+                defaultBounds.low === undefined &&
+                defaultBounds.high === undefined,
+            }"
+          >
             {{ Number(defaultBounds.high).toPrecision(4) }}
           </div>
         </div>
