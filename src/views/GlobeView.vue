@@ -122,14 +122,16 @@ async function indexFromZarr(src: string) {
   const candidates = await Promise.allSettled(
     store.contents().map(async ({ path, kind }) => {
       const varname = path.slice(1);
+      console.log(varname);
       if (kind !== "array") {
         return {};
       }
       let variable = await zarr.open(root.resolve(path), { kind: "array" });
       if (
-        variable.shape.length === 2 &&
+        variable.shape.length >= 2 &&
         variable.attrs?._ARRAY_DIMENSIONS &&
         variable.attrs?._ARRAY_DIMENSIONS instanceof Array &&
+        !varname.includes("bnds") &&
         variable.attrs?._ARRAY_DIMENSIONS[0] === "time"
       ) {
         return {
@@ -336,6 +338,7 @@ async function getGridType() {
       const longitudes = (
         await zarr.open(grid.resolve("lon"), { kind: "array" }).then(zarr.get)
       ).data as Float64Array;
+
       if (latitudes.length === longitudes.length) {
         return GRID_TYPES.IRREGULAR;
       }
