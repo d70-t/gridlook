@@ -3,10 +3,7 @@ import { ref, onMounted, onBeforeMount, type Ref } from "vue";
 import GlobeView from "./GlobeView.vue";
 import { useGlobeControlStore } from "../components/store/store";
 import { storeToRefs } from "pinia";
-import {
-  URL_PARAMETERS,
-  type TURLParameterValues,
-} from "../components/utils/urlParams";
+import { type TURLParameterValues } from "../components/utils/urlParams";
 import {
   STORE_PARAM_MAPPING,
   useUrlParameterStore,
