@@ -12,6 +12,7 @@ const {
   varnameSelector,
   timeIndexSlider,
   colormap,
+  invertColormap,
 } = storeToRefs(store);
 
 const urlParameterStore = useUrlParameterStore();
@@ -85,6 +86,15 @@ watch(
   () => userBoundsHigh.value,
   () => {
     handleUserBounds();
+  }
+);
+
+watch(
+  () => invertColormap.value,
+  () => {
+    changeURLHash({
+      [URL_PARAMETERS.INVERT_COLORMAP]: String(invertColormap.value),
+    });
   }
 );
 

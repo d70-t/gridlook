@@ -19,6 +19,7 @@ export const useUrlParameterStore = defineStore("urlParams", {
       paramMinTimeBound: undefined as string | undefined,
       paramMaxTimeBound: undefined as string | undefined,
       paramCameraState: undefined as string | undefined,
+      paramInvertColormap: undefined as string | undefined,
     };
   },
 });
@@ -36,4 +37,5 @@ export const STORE_PARAM_MAPPING: Partial<
   mintimebound: "paramMinTimeBound",
   maxtimebound: "paramMaxTimeBound",
   camerastate: "paramCameraState",
+  invertcolormap: "paramInvertColormap",
 };

@@ -35,7 +35,8 @@ const {
 } = storeToRefs(store);
 
 const urlParameterStore = useUrlParameterStore();
-const { paramColormap, paramTimeIndex } = storeToRefs(urlParameterStore);
+const { paramColormap, paramTimeIndex, paramInvertColormap } =
+  storeToRefs(urlParameterStore);
 
 const menuCollapsed: Ref<boolean> = ref(false);
 const mobileMenuCollapsed: Ref<boolean> = ref(true);
@@ -178,6 +179,16 @@ store.updateBounds(bounds.value as TBounds); // ensure initial settings are publ
 if (paramColormap.value) {
   colormap.value = paramColormap.value;
 }
+
+if (paramInvertColormap.value) {
+  // explicitely check for string values "true" and "false"
+  if (paramInvertColormap.value === "false") {
+    invertColormap.value = false;
+  } else if (paramInvertColormap.value === "true") {
+    invertColormap.value = true;
+  }
+}
+
 if (paramTimeIndex.value) {
   timeIndexSlider.value = Number(paramTimeIndex.value);
 }
