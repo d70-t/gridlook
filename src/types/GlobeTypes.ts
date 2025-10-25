@@ -9,8 +9,6 @@ export type TColorMap = keyof typeof availableColormaps;
 export type TBounds = EmptyObj | { low: number; high: number };
 
 export type TSelection = {
-  colormap: TColorMap;
-  invertColormap: boolean;
   bounds: TBounds;
 };
 

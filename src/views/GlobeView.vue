@@ -8,17 +8,14 @@ import Globe from "@/components/Globe.vue";
 import GlobeControls from "@/components/GlobeControls.vue";
 import { availableColormaps } from "@/components/utils/colormapShaders.js";
 import { ref, computed, watch, onMounted, type Ref } from "vue";
-import type {
-  TColorMap,
-  TSelection,
-  TSources,
-  TVarInfo,
-} from "../types/GlobeTypes";
+import type { TColorMap, TSources } from "../types/GlobeTypes";
 import { useGlobeControlStore } from "../components/store/store";
 import Toast from "primevue/toast";
 import { useToast } from "primevue/usetoast";
 import { storeToRefs } from "pinia";
 import { getErrorMessage } from "../components/utils/errorHandling";
+import StoreUrlListener from "../components/store/storeUrlListener.vue";
+import { useUrlParameterStore } from "../components/store/paramStore";
 const props = defineProps<{ src: string }>();
 
 const GRID_TYPES = {
@@ -35,7 +32,11 @@ type T_GRID_TYPES = (typeof GRID_TYPES)[keyof typeof GRID_TYPES];
 
 const toast = useToast();
 const store = useGlobeControlStore();
-const { varnameSelector, loading } = storeToRefs(store);
+const { varnameSelector, loading, colormap, invertColormap } =
+  storeToRefs(store);
+
+const urlParameterStore = useUrlParameterStore();
+const { paramVarname } = storeToRefs(urlParameterStore);
 
 const globe: Ref<typeof Globe | null> = ref(null);
 const globeKey = ref(0);
@@ -44,8 +45,6 @@ const isLoading = ref(false);
 const isInitialized = ref(false);
 const sourceValid = ref(false);
 const datasources: Ref<TSources | undefined> = ref(undefined);
-const selection: Ref<Partial<TSelection>> = ref({});
-const varinfo: Ref<TVarInfo | undefined> = ref(undefined);
 const gridType: Ref<T_GRID_TYPES | undefined> = ref(undefined);
 
 const modelInfo = computed(() => {
@@ -85,8 +84,8 @@ async function setGridType() {
   if (!isInitialized.value) {
     return;
   }
-  const localVarname = await getGridType();
-  gridType.value = localVarname;
+  const localGridType = await getGridType();
+  gridType.value = localGridType;
 }
 
 watch(
@@ -99,6 +98,7 @@ watch(
     globeKey.value += 1;
     globeControlKey.value += 1;
     store.$reset();
+    urlParameterStore.$reset();
     await updateSrc();
 
     isLoading.value = false;
@@ -115,14 +115,6 @@ watch(
   }
 );
 
-const updateSelection = (s: TSelection) => {
-  selection.value = s;
-};
-
-const updateVarinfo = (info: TVarInfo) => {
-  varinfo.value = info;
-};
-
 async function indexFromZarr(src: string) {
   const store = await zarr.withConsolidated(new zarr.FetchStore(src));
   const root = await zarr.open(store, { kind: "group" });
@@ -130,14 +122,16 @@ async function indexFromZarr(src: string) {
   const candidates = await Promise.allSettled(
     store.contents().map(async ({ path, kind }) => {
       const varname = path.slice(1);
+      console.log(varname);
       if (kind !== "array") {
         return {};
       }
       let variable = await zarr.open(root.resolve(path), { kind: "array" });
       if (
-        variable.shape.length === 2 &&
+        variable.shape.length >= 2 &&
         variable.attrs?._ARRAY_DIMENSIONS &&
         variable.attrs?._ARRAY_DIMENSIONS instanceof Array &&
+        !varname.includes("bnds") &&
         variable.attrs?._ARRAY_DIMENSIONS[0] === "time"
       ) {
         return {
@@ -201,7 +195,31 @@ const updateSrc = async () => {
         datasources.value = index.value;
       }
       varnameSelector.value =
-        modelInfo.value!.defaultVar ?? Object.keys(modelInfo.value!.vars)[0];
+        paramVarname.value ??
+        modelInfo.value!.defaultVar ??
+        Object.keys(modelInfo.value!.vars)[0];
+
+      if (
+        datasources.value &&
+        varnameSelector.value in datasources.value.levels[0].datasources
+      ) {
+        const variableDefaults =
+          datasources.value.levels[0].datasources[varnameSelector.value];
+        if (variableDefaults.default_colormap) {
+          colormap.value = variableDefaults.default_colormap.name;
+          if (
+            Object.prototype.hasOwnProperty.call(
+              variableDefaults.default_colormap,
+              "inverted"
+            )
+          ) {
+            invertColormap.value = variableDefaults.default_colormap.inverted;
+          }
+        }
+        if (variableDefaults.default_range) {
+          store.updateBounds(variableDefaults.default_range);
+        }
+      }
       break;
     } else {
       lastError = index.reason;
@@ -320,6 +338,7 @@ async function getGridType() {
       const longitudes = (
         await zarr.open(grid.resolve("lon"), { kind: "array" }).then(zarr.get)
       ).data as Float64Array;
+
       if (latitudes.length === longitudes.length) {
         return GRID_TYPES.IRREGULAR;
       }
@@ -349,6 +368,7 @@ onMounted(async () => {
 
 <template>
   <main>
+    <StoreUrlListener />
     <Toast unstyled>
       <template #container="{ message, closeCallback }">
         <div class="message is-danger" style="max-width: 400px">
@@ -369,8 +389,6 @@ onMounted(async () => {
       v-if="sourceValid"
       :key="globeControlKey"
       :model-info="modelInfo"
-      :varinfo="varinfo"
-      @selection="updateSelection"
       @on-snapshot="makeSnapshot"
       @on-example="makeExample"
       @on-rotate="toggleRotate"
@@ -392,11 +410,7 @@ onMounted(async () => {
       ref="globe"
       :key="globeKey"
       :datasources="datasources"
-      :colormap="selection.colormap"
-      :invert-colormap="selection.invertColormap"
-      :varbounds="selection.bounds"
       :is-rotated="gridType === GRID_TYPES.REGULAR_ROTATED"
-      @varinfo="updateVarinfo"
     />
     <div v-if="isLoading || loading" class="top-right-loader loader" />
     <AboutView />
