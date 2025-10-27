@@ -253,7 +253,6 @@ export function useSharedGlobeLogic(
     const { canvas, ctx, width, height } = createStandardCanvas();
     const { land, path } = await createLandProjection(ctx, width, height);
 
-    // ctx.globalAlpha = 0.7;
     ctx.globalAlpha = 1;
     ctx.fillStyle = "#888";
 
@@ -354,9 +353,7 @@ export function useSharedGlobeLogic(
         ? LAND_SEA_MASK_MODES.GLOBE
         : LAND_SEA_MASK_MODES.GLOBE_COLORED;
     }
-    console.log("mode", mode);
     if (landSeaMask) {
-      console.log("remove land sea mask");
       scene?.remove(landSeaMask);
       landSeaMask = undefined;
     }
