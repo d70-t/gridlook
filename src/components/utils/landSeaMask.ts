@@ -60,6 +60,36 @@ export async function loadJSON(
   return p;
 }
 
+function determineEffectiveMode(
+  choice: TLandSeaMaskMode,
+  useTexture: boolean
+): TLandSeaMaskMode {
+  if (choice === LAND_SEA_MASK_MODES.OFF) {
+    return LAND_SEA_MASK_MODES.OFF;
+  }
+
+  const modeMap: Record<
+    string,
+    { textured: TLandSeaMaskMode; plain: TLandSeaMaskMode }
+  > = {
+    [LAND_SEA_MASK_MODES.SEA]: {
+      textured: LAND_SEA_MASK_MODES.SEA,
+      plain: LAND_SEA_MASK_MODES.SEA_GREY,
+    },
+    [LAND_SEA_MASK_MODES.LAND]: {
+      textured: LAND_SEA_MASK_MODES.LAND,
+      plain: LAND_SEA_MASK_MODES.LAND_GREY,
+    },
+    [LAND_SEA_MASK_MODES.GLOBE]: {
+      textured: LAND_SEA_MASK_MODES.GLOBE,
+      plain: LAND_SEA_MASK_MODES.GLOBE_COLORED,
+    },
+  };
+
+  const mapping = modeMap[choice];
+  return mapping ? (useTexture ? mapping.textured : mapping.plain) : choice;
+}
+
 // Utility function to create canvas with standard dimensions
 function createStandardCanvas() {
   //const width = 8192;
@@ -111,7 +141,6 @@ function createSphereMesh(
  * Get the land sea mask THREE.Mesh by using a texture (blue marble). If the mask does not exist, create it.
  * If invert is true, the land will be grey and the sea will be transparent.
  * If invert is false, the sea will be grey and the land will be transparent.
- * @returns {Promise<THREE.Mesh>} - A promise resolving to a THREE.Mesh containing the land sea mask
  */
 async function getTexturedLandSeaMask({ invert = false } = {}) {
   const { canvas, ctx, width, height } = createStandardCanvas();
@@ -156,10 +185,6 @@ async function getGlobeTexture() {
  * Create a grey mask to be used with the globe.
  * If invert is true, the land will be grey and the sea will be transparent.
  * If invert is false, the sea will be grey and the land will be transparent.
- *
- * @param {Object} [options] - Options to be passed to the function
- * @param {boolean} [options.invert=false] - Whether to invert the mask
- * @returns {Promise<THREE.Mesh>} - A promise resolving to a THREE.Mesh containing the grey mask
  */
 async function getSolidMask({ invert = false } = {}) {
   const { canvas, ctx, width, height } = createStandardCanvas();
@@ -243,22 +268,7 @@ export async function getLandSeaMask(
   const useTexture = landSeaMaskUseTexture ?? true;
   let mode: TLandSeaMaskMode = LAND_SEA_MASK_MODES.OFF;
 
-  if (choice === LAND_SEA_MASK_MODES.OFF) {
-    mode = LAND_SEA_MASK_MODES.OFF;
-  } else if (choice === LAND_SEA_MASK_MODES.SEA) {
-    mode = useTexture ? LAND_SEA_MASK_MODES.SEA : LAND_SEA_MASK_MODES.SEA_GREY;
-  } else if (choice === LAND_SEA_MASK_MODES.LAND) {
-    mode = useTexture
-      ? LAND_SEA_MASK_MODES.LAND
-      : LAND_SEA_MASK_MODES.LAND_GREY;
-  } else if (choice === LAND_SEA_MASK_MODES.GLOBE) {
-    mode = useTexture
-      ? LAND_SEA_MASK_MODES.GLOBE
-      : LAND_SEA_MASK_MODES.GLOBE_COLORED;
-  }
-  if (mode === LAND_SEA_MASK_MODES.OFF) {
-    return undefined;
-  }
+  mode = determineEffectiveMode(choice, useTexture);
 
   // Helper for grey mask
   try {
@@ -271,7 +281,8 @@ export async function getLandSeaMask(
       [LAND_SEA_MASK_MODES.LAND_GREY]: () => getSolidMask({ invert: true }),
       [LAND_SEA_MASK_MODES.GLOBE]: () => getGlobeTexture(),
       [LAND_SEA_MASK_MODES.GLOBE_COLORED]: () => getSolidColoredGlobe(),
-    };
+      [LAND_SEA_MASK_MODES.OFF]: () => undefined,
+    } as const;
 
     const maskFactory = maskConfig[mode];
     if (maskFactory) {

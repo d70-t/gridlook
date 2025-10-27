@@ -8,11 +8,7 @@ import {
   type Ref,
   type ShallowRef,
 } from "vue";
-import {
-  LAND_SEA_MASK_MODES,
-  useGlobeControlStore,
-  type TLandSeaMaskMode,
-} from "./store/store";
+import { LAND_SEA_MASK_MODES, useGlobeControlStore } from "./store/store";
 import { geojson2geometry } from "./utils/geojson.ts";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
@@ -141,36 +137,6 @@ export function useSharedGlobeLogic(
     redraw();
   }
 
-  function determineEffectiveMode(
-    choice: TLandSeaMaskMode,
-    useTexture: boolean
-  ): TLandSeaMaskMode {
-    if (choice === LAND_SEA_MASK_MODES.OFF) {
-      return LAND_SEA_MASK_MODES.OFF;
-    }
-
-    const modeMap: Record<
-      string,
-      { textured: TLandSeaMaskMode; plain: TLandSeaMaskMode }
-    > = {
-      [LAND_SEA_MASK_MODES.SEA]: {
-        textured: LAND_SEA_MASK_MODES.SEA,
-        plain: LAND_SEA_MASK_MODES.SEA_GREY,
-      },
-      [LAND_SEA_MASK_MODES.LAND]: {
-        textured: LAND_SEA_MASK_MODES.LAND,
-        plain: LAND_SEA_MASK_MODES.LAND_GREY,
-      },
-      [LAND_SEA_MASK_MODES.GLOBE]: {
-        textured: LAND_SEA_MASK_MODES.GLOBE,
-        plain: LAND_SEA_MASK_MODES.GLOBE_COLORED,
-      },
-    };
-
-    const mapping = modeMap[choice];
-    return mapping ? (useTexture ? mapping.textured : mapping.plain) : choice;
-  }
-
   async function updateLandSeaMask() {
     const choice = landSeaMaskChoice.value ?? LAND_SEA_MASK_MODES.OFF;
     if (landSeaMask) {
@@ -219,14 +185,11 @@ export function useSharedGlobeLogic(
       }
     }
 
-    //scene.add(mainMesh as THREE.Mesh);
-
     orbitControls = new OrbitControls(camera, renderer.domElement);
     // smaller minDistances than 1.1 will reveal the naked mesh
     // under the texture when zoomed in
     orbitControls.minDistance = 1.1;
     orbitControls.enablePan = false;
-    // coast = undefined;
     updateCoastlines();
   }
 
