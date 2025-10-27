@@ -3,6 +3,7 @@ import ColorBar from "@/components/ColorBar.vue";
 import { computed, onMounted, onUnmounted, ref, watch, type Ref } from "vue";
 import { useGlobeControlStore } from "./store/store.ts";
 import { storeToRefs } from "pinia";
+import debounce from "lodash.debounce";
 import type { TModelInfo, TBounds } from "../types/GlobeTypes.js";
 import { useUrlParameterStore } from "./store/paramStore.ts";
 
@@ -52,6 +53,9 @@ const autoColormap: Ref<boolean> = ref(true);
 const defaultBounds: Ref<TBounds> = ref({});
 const pickedBounds: Ref<TBoundModes> = ref(BOUND_MODES.AUTO);
 
+// Local copy of timeIndexSlider to allow debounced updates
+const localTimeIndexSlider: Ref<number> = ref(timeIndexSlider.value);
+
 const activeBoundsMode = computed(() => {
   if (pickedBounds.value === BOUND_MODES.AUTO) {
     if (
@@ -95,6 +99,14 @@ const bounds = computed(() => {
 
 const timeRange = computed(() => {
   return varinfo.value?.timeRange ?? { start: 0, end: 1 };
+});
+
+const debouncedUpdateTimeIndexSlider = debounce(() => {
+  timeIndexSlider.value = localTimeIndexSlider.value;
+}, 350);
+
+watch(localTimeIndexSlider, () => {
+  debouncedUpdateTimeIndexSlider();
 });
 
 const currentTimeValue = computed(() => {
@@ -210,6 +222,7 @@ if (paramInvertColormap.value) {
 
 if (paramTimeIndex.value) {
   timeIndexSlider.value = Number(paramTimeIndex.value);
+  localTimeIndexSlider.value = Number(paramTimeIndex.value);
 }
 </script>
 
@@ -268,7 +281,7 @@ if (paramTimeIndex.value) {
           <div class="my-2">Time:</div>
           <div class="is-flex">
             <input
-              v-model.number="timeIndexSlider"
+              v-model.number="localTimeIndexSlider"
               class="input"
               type="number"
               :min="timeRange.start"
@@ -279,7 +292,7 @@ if (paramTimeIndex.value) {
           </div>
         </div>
         <input
-          v-model.number="timeIndexSlider"
+          v-model.number="localTimeIndexSlider"
           class="w-100"
           type="range"
           :min="timeRange.start"
