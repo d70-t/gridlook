@@ -2,10 +2,29 @@ import type { TVarInfo, TColorMap, TBounds } from "@/types/GlobeTypes";
 import { defineStore } from "pinia";
 import { useUrlParameterStore } from "./paramStore";
 
+export const LAND_SEA_MASK_MODES = {
+  OFF: "off",
+  SEA: "sea",
+  LAND: "land",
+  GLOBE: "globe",
+
+  // Those types are only used in sharedGlobe
+  SEA_GREY: "sea_grey",
+  LAND_GREY: "land_grey",
+  GLOBE_COLORED: "globe_colored",
+} as const;
+
+export type TLandSeaMaskMode =
+  (typeof LAND_SEA_MASK_MODES)[keyof typeof LAND_SEA_MASK_MODES];
+
 export const useGlobeControlStore = defineStore("globeControl", {
   state: () => {
     return {
       showCoastLines: true,
+      // simplified UI choice (Off|Sea|Land|Globe) — used by controls
+      landSeaMaskChoice: LAND_SEA_MASK_MODES.OFF as TLandSeaMaskMode,
+      // when true, use the textured versions; when false, use the greyscale/solid versions
+      landSeaMaskUseTexture: true,
       timeIndexSlider: 1, // the time index currently selected by the slider
       timeIndexDisplay: 1, // the time index currently shown on the globe (will be updated after loading)
       varnameSelector: "-", // the varname currently selected in the dropdown

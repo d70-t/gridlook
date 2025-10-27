@@ -8,7 +8,11 @@ import {
   type Ref,
   type ShallowRef,
 } from "vue";
-import { useGlobeControlStore } from "./store/store";
+import {
+  LAND_SEA_MASK_MODES,
+  useGlobeControlStore,
+  type TLandSeaMaskMode,
+} from "./store/store";
 import { geojson2geometry } from "./utils/geojson.ts";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
@@ -18,13 +22,16 @@ import * as zarr from "zarrita";
 import type { TSources } from "@/types/GlobeTypes.ts";
 import { getErrorMessage } from "./utils/errorHandling.ts";
 import { useUrlParameterStore } from "./store/paramStore.ts";
+import * as d3 from "d3-geo";
+import albedo from "../assets/earth.jpg";
 
 export function useSharedGlobeLogic(
   canvas: Ref<HTMLCanvasElement | undefined>,
   box: Ref<HTMLDivElement | undefined>
 ) {
   const store = useGlobeControlStore();
-  const { showCoastLines } = storeToRefs(store);
+  const { showCoastLines, landSeaMaskChoice, landSeaMaskUseTexture } =
+    storeToRefs(store);
 
   const urlParameterStore = useUrlParameterStore();
   const { paramCameraState } = storeToRefs(urlParameterStore);
@@ -34,6 +41,7 @@ export function useSharedGlobeLogic(
     Record<string, zarr.Array<zarr.DataType, zarr.FetchStore>>
   > = shallowRef({});
   let coast: THREE.LineSegments | undefined = undefined;
+  let landSeaMask: THREE.Mesh | undefined = undefined;
   let scene: THREE.Scene | undefined = undefined;
   let camera: THREE.PerspectiveCamera | undefined = undefined;
   let renderer: THREE.WebGLRenderer | undefined = undefined;
@@ -49,6 +57,13 @@ export function useSharedGlobeLogic(
     () => showCoastLines.value,
     () => {
       updateCoastlines();
+    }
+  );
+
+  watch(
+    [() => landSeaMaskChoice.value, () => landSeaMaskUseTexture.value],
+    () => {
+      updateLandSeaMask();
     }
   );
 
@@ -117,6 +132,195 @@ export function useSharedGlobeLogic(
     return coast;
   }
 
+  // Utility function to create canvas with standard dimensions
+  function createStandardCanvas() {
+    const width = 4096;
+    const height = 2048;
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d")!;
+    ctx.clearRect(0, 0, width, height);
+    return { canvas, ctx, width, height };
+  }
+
+  // Utility function to load land GeoJSON and create projection
+  async function createLandProjection(
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    height: number
+  ) {
+    const land = await fetch("static/ne_50m_land.geojson").then((r) =>
+      r.json()
+    );
+    const projection = d3
+      .geoEquirectangular()
+      .translate([width / 2, height / 2])
+      .scale(width / (2 * Math.PI));
+    const path = d3.geoPath(projection, ctx);
+    return { land, path };
+  }
+
+  // Utility function to create sphere mesh
+  function createSphereMesh(
+    texture: THREE.CanvasTexture,
+    radius: number,
+    transparent = true
+  ) {
+    const geometry = new THREE.SphereGeometry(radius, 128, 64);
+    const material = new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent,
+      side: THREE.FrontSide,
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.name = "mask";
+    mesh.rotation.x = Math.PI / 2;
+    return mesh;
+  }
+
+  /**
+   * Get the land sea mask THREE.Mesh by using a texture (blue marble). If the mask does not exist, create it.
+   * If invert is true, the land will be grey and the sea will be transparent.
+   * If invert is false, the sea will be grey and the land will be transparent.
+   * @returns {Promise<THREE.Mesh>} - A promise resolving to a THREE.Mesh containing the land sea mask
+   */
+  async function getLandSeaMask({ invert = false } = {}) {
+    if (!landSeaMask) {
+      const { canvas, ctx, width, height } = createStandardCanvas();
+
+      // Load and draw base JPG
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const loader = new Image();
+        loader.src = albedo;
+        loader.onload = () => resolve(loader);
+        loader.onerror = reject;
+      });
+      ctx.drawImage(img, 0, 0, width, height);
+
+      // Setup land projection and masking
+      const { land, path } = await createLandProjection(ctx, width, height);
+      ctx.beginPath();
+      path(land);
+      ctx.globalCompositeOperation = invert
+        ? "destination-in"
+        : "destination-out";
+      ctx.fill();
+
+      // Create texture and mesh
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.needsUpdate = true;
+
+      landSeaMask = createSphereMesh(texture, 1.002);
+    }
+
+    return landSeaMask;
+  }
+
+  async function getGlobeTexture() {
+    // Show the full globe texture, no geojson masking, radius 0.9999
+    const radius = 0.9999;
+    const geometry = new THREE.SphereGeometry(radius, 128, 64);
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const loader = new Image();
+      loader.src = albedo;
+      loader.onload = () => resolve(loader);
+      loader.onerror = reject;
+    });
+    const texture = new THREE.Texture(img);
+    texture.needsUpdate = true;
+    const material = new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent: false,
+      side: THREE.FrontSide,
+    });
+    landSeaMask = new THREE.Mesh(geometry, material);
+    landSeaMask.name = "globe_texture";
+    landSeaMask.rotation.x = Math.PI / 2;
+    return landSeaMask;
+  }
+
+  /**
+   * Create a grey mask to be used with the globe.
+   * If invert is true, the land will be grey and the sea will be transparent.
+   * If invert is false, the sea will be grey and the land will be transparent.
+   *
+   * @param {Object} [options] - Options to be passed to the function
+   * @param {boolean} [options.invert=false] - Whether to invert the mask
+   * @returns {Promise<THREE.Mesh>} - A promise resolving to a THREE.Mesh containing the grey mask
+   */
+  async function getGreyMask({ invert = false } = {}) {
+    const { canvas, ctx, width, height } = createStandardCanvas();
+    const { land, path } = await createLandProjection(ctx, width, height);
+
+    // ctx.globalAlpha = 0.7;
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "#888";
+
+    if (!invert) {
+      // Sea grey: fill all, then cut out land
+      ctx.fillRect(0, 0, width, height);
+    }
+    ctx.save();
+    ctx.beginPath();
+    path(land);
+    ctx.globalCompositeOperation = invert ? "source-over" : "destination-out";
+    ctx.fill();
+    ctx.restore();
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.needsUpdate = true;
+
+    return createSphereMesh(texture, 1.002);
+  }
+
+  async function getSolidColoredGlobe() {
+    // Globe colored: solid blue ocean, grey land. Use radius 0.9999
+    const radius = 0.9999;
+    const width = 4096;
+    const height = 2048;
+
+    // prepare canvas (no base texture)
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d")!;
+    ctx.clearRect(0, 0, width, height);
+
+    // fill ocean with solid blue
+    ctx.fillStyle = "rgb(60,120,200)"; // solid blue
+    ctx.fillRect(0, 0, width, height);
+
+    // load land geojson and draw land as grey on top
+    const land = await fetch("static/ne_50m_land.geojson").then((r) =>
+      r.json()
+    );
+    const projection = d3
+      .geoEquirectangular()
+      .translate([width / 2, height / 2])
+      .scale(width / (2 * Math.PI));
+    const path = d3.geoPath(projection, ctx);
+    ctx.beginPath();
+    path(land);
+    ctx.fillStyle = "rgb(136,136,136)"; // grey for land
+    ctx.fill();
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.anisotropy = 16;
+    texture.needsUpdate = true;
+
+    const geometry = new THREE.SphereGeometry(radius, 128, 64);
+    const material = new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent: false,
+      side: THREE.FrontSide,
+    });
+    landSeaMask = new THREE.Mesh(geometry, material);
+    landSeaMask.name = "mask";
+    landSeaMask.rotation.x = Math.PI / 2;
+    return landSeaMask;
+  }
+
   async function updateCoastlines() {
     if (showCoastLines.value === false) {
       if (getCoast()) {
@@ -124,6 +328,68 @@ export function useSharedGlobeLogic(
       }
     } else {
       scene?.add(await getCoastlines());
+    }
+    redraw();
+  }
+
+  async function updateLandSeaMask() {
+    // Determine effective mode from simplified choice and texture flag
+    console.log(landSeaMaskChoice.value, landSeaMaskUseTexture.value);
+    const choice = landSeaMaskChoice.value ?? LAND_SEA_MASK_MODES.OFF;
+    const useTexture = landSeaMaskUseTexture.value ?? true;
+    let mode: TLandSeaMaskMode = LAND_SEA_MASK_MODES.OFF;
+
+    if (choice === LAND_SEA_MASK_MODES.OFF) {
+      mode = LAND_SEA_MASK_MODES.OFF;
+    } else if (choice === LAND_SEA_MASK_MODES.SEA) {
+      mode = useTexture
+        ? LAND_SEA_MASK_MODES.SEA
+        : LAND_SEA_MASK_MODES.SEA_GREY;
+    } else if (choice === LAND_SEA_MASK_MODES.LAND) {
+      mode = useTexture
+        ? LAND_SEA_MASK_MODES.LAND
+        : LAND_SEA_MASK_MODES.LAND_GREY;
+    } else if (choice === LAND_SEA_MASK_MODES.GLOBE) {
+      mode = useTexture
+        ? LAND_SEA_MASK_MODES.GLOBE
+        : LAND_SEA_MASK_MODES.GLOBE_COLORED;
+    }
+    console.log("mode", mode);
+    if (landSeaMask) {
+      console.log("remove land sea mask");
+      scene?.remove(landSeaMask);
+      landSeaMask = undefined;
+    }
+    if (mode === LAND_SEA_MASK_MODES.OFF) {
+      redraw();
+      return;
+    }
+
+    // Helper for grey mask
+
+    try {
+      if (
+        mode === LAND_SEA_MASK_MODES.SEA ||
+        mode === LAND_SEA_MASK_MODES.LAND
+      ) {
+        const invert = mode === LAND_SEA_MASK_MODES.LAND;
+        scene?.add(await getLandSeaMask({ invert }));
+      } else if (
+        mode === LAND_SEA_MASK_MODES.SEA_GREY ||
+        mode === LAND_SEA_MASK_MODES.LAND_GREY
+      ) {
+        const invert = mode === LAND_SEA_MASK_MODES.LAND_GREY;
+        landSeaMask = await getGreyMask({ invert });
+        scene?.add(landSeaMask);
+      } else if (mode === LAND_SEA_MASK_MODES.GLOBE) {
+        landSeaMask = await getGlobeTexture();
+        scene?.add(landSeaMask);
+      } else if (mode === LAND_SEA_MASK_MODES.GLOBE_COLORED) {
+        landSeaMask = await getSolidColoredGlobe();
+        scene?.add(landSeaMask);
+      }
+    } catch (e) {
+      console.error("Failed to update land/sea mask:", e);
     }
     redraw();
   }

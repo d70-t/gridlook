@@ -15,6 +15,7 @@
     "@fortawesome/fontawesome-free": "^7.0.0",
     "@hscmap/healpix": "^1.4.12",
     "bulma": "^1.0.4",
+    "d3-geo": "^3.1.1",
     "dayjs": "^1.11.13",
     "lodash.debounce": "4.0.8",
     "pinia": "^3.0.3",

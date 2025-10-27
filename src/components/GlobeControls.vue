@@ -32,6 +32,8 @@ const {
   varinfo,
   userBoundsLow,
   userBoundsHigh,
+  landSeaMaskChoice,
+  landSeaMaskUseTexture,
 } = storeToRefs(store);
 
 const urlParameterStore = useUrlParameterStore();
@@ -462,7 +464,8 @@ if (paramTimeIndex.value) {
           type="checkbox"
           :checked="store.showCoastLines"
           @change="store.toggleCoastLines"
-        /><label for="enable_coastlines">coastlines</label>
+        />
+        <label for="enable_coastlines">coastlines</label>
       </div>
       <div>
         <button class="button" type="button" @click="() => $emit('onRotate')">
@@ -471,6 +474,35 @@ if (paramTimeIndex.value) {
         </button>
       </div>
     </div>
+    <div
+      v-if="modelInfo && !isHidden"
+      class="panel-block is-justify-content-space-between"
+    >
+      <div class="select">
+        <select id="land_sea_mask" v-model="landSeaMaskChoice">
+          <option value="off">Mask: Off</option>
+          <option value="land">Mask: Land</option>
+          <option value="sea">Mask: Sea</option>
+          <option value="globe">Mask: Globe</option>
+        </select>
+      </div>
+      <div class="columns is-mobile compact-row">
+        <div class="column py-2">
+          <input
+            id="use_texture"
+            v-model="landSeaMaskUseTexture"
+            type="checkbox"
+          />
+          <label for="use_texture">Use Texture</label>
+        </div>
+        <!-- <div class="column"></div>
+          <div class="column has-text-right py-2">
+            <input id="auto_colormap" v-model="autoColormap" type="checkbox" />
+            <label for="auto_colormap">auto</label>
+          </div> -->
+      </div>
+    </div>
+
     <div v-if="modelInfo && !isHidden" class="panel-block">
       <p class="control">
         <button
