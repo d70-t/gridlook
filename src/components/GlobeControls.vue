@@ -521,15 +521,17 @@ if (paramTimeIndex.value) {
           <input
             id="use_texture"
             v-model="landSeaMaskUseTexture"
+            :disabled="landSeaMaskChoice === 'off'"
             type="checkbox"
           />
-          <label for="use_texture">Use Texture</label>
+          <label
+            for="use_texture"
+            :class="{
+              'has-text-grey-light': landSeaMaskChoice === 'off',
+            }"
+            >Use Texture</label
+          >
         </div>
-        <!-- <div class="column"></div>
-          <div class="column has-text-right py-2">
-            <input id="auto_colormap" v-model="autoColormap" type="checkbox" />
-            <label for="auto_colormap">auto</label>
-          </div> -->
       </div>
     </div>
 
