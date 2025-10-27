@@ -80,21 +80,7 @@ const bounds = computed(() => {
 });
 
 watch(
-  () => bounds.value,
-  () => {
-    updateColormap();
-  }
-);
-
-watch(
-  () => invertColormap.value,
-  () => {
-    updateColormap();
-  }
-);
-
-watch(
-  () => colormap.value,
+  [() => bounds.value, () => invertColormap.value, () => colormap.value],
   () => {
     updateColormap();
   }
