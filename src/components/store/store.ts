@@ -24,7 +24,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
       // simplified UI choice (Off|Sea|Land|Globe) — used by controls
       landSeaMaskChoice: LAND_SEA_MASK_MODES.OFF as TLandSeaMaskMode,
       // when true, use the textured versions; when false, use the greyscale/solid versions
-      landSeaMaskUseTexture: true,
+      landSeaMaskUseTexture: false,
       timeIndexSlider: 1, // the time index currently selected by the slider
       timeIndexDisplay: 1, // the time index currently shown on the globe (will be updated after loading)
       varnameSelector: "-", // the varname currently selected in the dropdown

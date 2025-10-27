@@ -37,8 +37,13 @@ const {
 } = storeToRefs(store);
 
 const urlParameterStore = useUrlParameterStore();
-const { paramColormap, paramTimeIndex, paramInvertColormap } =
-  storeToRefs(urlParameterStore);
+const {
+  paramColormap,
+  paramTimeIndex,
+  paramInvertColormap,
+  paramMaskMode,
+  paramMaskingUseTexture,
+} = storeToRefs(urlParameterStore);
 
 const menuCollapsed: Ref<boolean> = ref(false);
 const mobileMenuCollapsed: Ref<boolean> = ref(true);
@@ -151,7 +156,6 @@ function toggleMobileMenu() {
 }
 
 const setDefaultColormap = () => {
-  console.log(props.modelInfo?.vars, varnameSelector.value);
   const defaultColormap =
     props.modelInfo?.vars[varnameSelector.value].default_colormap;
   if (autoColormap.value && defaultColormap !== undefined) {
@@ -176,6 +180,19 @@ onUnmounted(() => {
 });
 
 // INITIALIZATION
+if (paramMaskingUseTexture.value) {
+  if (paramMaskingUseTexture.value === "false") {
+    landSeaMaskUseTexture.value = false;
+  } else if (paramMaskingUseTexture.value === "true") {
+    landSeaMaskUseTexture.value = true;
+  }
+}
+
+if (paramMaskMode.value) {
+  landSeaMaskChoice.value =
+    paramMaskMode.value as typeof landSeaMaskChoice.value;
+}
+
 setDefaultBounds();
 store.updateBounds(bounds.value as TBounds); // ensure initial settings are published
 if (paramColormap.value) {

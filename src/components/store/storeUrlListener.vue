@@ -106,6 +106,22 @@ watch(
 );
 
 watch(
+  () => store.landSeaMaskChoice,
+  () => {
+    changeURLHash({ [URL_PARAMETERS.MASK_MODE]: store.landSeaMaskChoice });
+  }
+);
+
+watch(
+  () => store.landSeaMaskUseTexture,
+  () => {
+    changeURLHash({
+      [URL_PARAMETERS.MASK_USE_TEXTURE]: String(store.landSeaMaskUseTexture),
+    });
+  }
+);
+
+watch(
   () => timeIndexSlider.value,
   () => {
     changeURLHash({ [URL_PARAMETERS.TIMEINDEX]: timeIndexSlider.value });

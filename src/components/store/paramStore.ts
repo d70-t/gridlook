@@ -13,13 +13,15 @@ import type { TURLParameterValues } from "../utils/urlParams";
 export const useUrlParameterStore = defineStore("urlParams", {
   state: () => {
     return {
-      paramColormap: undefined as TColorMap | undefined,
       paramVarname: undefined as string | undefined,
       paramTimeIndex: undefined as string | undefined,
       paramMinTimeBound: undefined as string | undefined,
       paramMaxTimeBound: undefined as string | undefined,
       paramCameraState: undefined as string | undefined,
+      paramColormap: undefined as TColorMap | undefined,
       paramInvertColormap: undefined as string | undefined,
+      paramMaskMode: undefined as string | undefined,
+      paramMaskingUseTexture: undefined as string | undefined,
     };
   },
 });
@@ -38,4 +40,6 @@ export const STORE_PARAM_MAPPING: Partial<
   maxtimebound: "paramMaxTimeBound",
   camerastate: "paramCameraState",
   invertcolormap: "paramInvertColormap",
+  maskmode: "paramMaskMode",
+  maskusetexture: "paramMaskingUseTexture",
 };

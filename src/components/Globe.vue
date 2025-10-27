@@ -62,6 +62,7 @@ const {
   toggleRotate,
   getDataVar,
   getTimeVar,
+  updateLandSeaMask,
 } = useSharedGlobeLogic(canvas, box);
 
 watch(
@@ -138,6 +139,7 @@ async function datasourceUpdate() {
   datavars.value = {};
   if (props.datasources !== undefined) {
     await Promise.all([fetchGrid(), getData()]);
+    updateLandSeaMask();
     updateColormap();
   }
 }

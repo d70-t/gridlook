@@ -45,6 +45,7 @@ const {
   resetDataVars,
   getDataVar,
   getTimeVar,
+  updateLandSeaMask,
 } = useSharedGlobeLogic(canvas, box);
 
 const updateCount = ref(0);
@@ -125,6 +126,7 @@ async function datasourceUpdate() {
   if (props.datasources !== undefined) {
     if (props.datasources !== undefined) {
       await Promise.all([fetchGrid(), getData()]);
+      updateLandSeaMask();
       updateColormap();
     }
   }

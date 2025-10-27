@@ -122,7 +122,6 @@ async function indexFromZarr(src: string) {
   const candidates = await Promise.allSettled(
     store.contents().map(async ({ path, kind }) => {
       const varname = path.slice(1);
-      console.log(varname);
       if (kind !== "array") {
         return {};
       }

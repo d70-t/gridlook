@@ -63,6 +63,7 @@ const {
   getDataVar,
   getTimeVar,
   registerUpdateLOD,
+  updateLandSeaMask,
 } = useSharedGlobeLogic(canvas, box);
 
 watch(
@@ -139,6 +140,7 @@ async function datasourceUpdate() {
   datavars.value = {};
   if (props.datasources !== undefined) {
     await Promise.all([getData()]);
+    updateLandSeaMask();
     updateColormap();
   }
 }
