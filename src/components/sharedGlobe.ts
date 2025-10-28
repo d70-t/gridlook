@@ -19,6 +19,7 @@ import type { TSources } from "@/types/GlobeTypes.ts";
 import { getErrorMessage } from "./utils/errorHandling.ts";
 import { useUrlParameterStore } from "./store/paramStore.ts";
 import { getLandSeaMask, loadJSON } from "./utils/landSeaMask.ts";
+import debounce from "lodash.debounce";
 
 export function useSharedGlobeLogic(
   canvas: Ref<HTMLCanvasElement | undefined>,
@@ -226,7 +227,7 @@ export function useSharedGlobeLogic(
     cancelAnimationFrame(frameId.value);
     if (!mouseDown && !getOrbitControls()?.autoRotate) {
       render();
-      encodeCameraToURL(getCamera()!);
+      debouncedEncodeCameraToURL(getCamera()!);
       return;
     }
     render();
@@ -354,6 +355,13 @@ export function useSharedGlobeLogic(
     near: number;
     far: number;
   };
+
+  const debouncedEncodeCameraToURL = debounce(
+    (camera: THREE.PerspectiveCamera) => {
+      encodeCameraToURL(camera);
+    },
+    300
+  );
 
   function encodeCameraToURL(camera: THREE.PerspectiveCamera) {
     // Encodes the camera state to the URL parameters.
