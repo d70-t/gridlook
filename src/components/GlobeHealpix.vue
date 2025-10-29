@@ -45,6 +45,7 @@ const {
   resetDataVars,
   getDataVar,
   getTimeVar,
+  updateLandSeaMask,
 } = useSharedGlobeLogic(canvas, box);
 
 const updateCount = ref(0);
@@ -84,21 +85,7 @@ const bounds = computed(() => {
 });
 
 watch(
-  () => bounds.value,
-  () => {
-    updateColormap();
-  }
-);
-
-watch(
-  () => invertColormap.value,
-  () => {
-    updateColormap();
-  }
-);
-
-watch(
-  () => colormap.value,
+  [() => bounds.value, () => invertColormap.value, () => colormap.value],
   () => {
     updateColormap();
   }
@@ -125,6 +112,7 @@ async function datasourceUpdate() {
   if (props.datasources !== undefined) {
     if (props.datasources !== undefined) {
       await Promise.all([fetchGrid(), getData()]);
+      updateLandSeaMask();
       updateColormap();
     }
   }

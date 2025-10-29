@@ -8,6 +8,8 @@ const URL_PARAMETERS = {
   MIN_TIME_BOUND: "mintimebound",
   MAX_TIME_BOUND: "maxtimebound",
   CAMERA_STATE: "camerastate",
+  MASK_MODE: "maskmode",
+  MASK_USE_TEXTURE: "maskusetexture",
 } as const;
 
 type TURLParameterValues = (typeof URL_PARAMETERS)[keyof typeof URL_PARAMETERS];

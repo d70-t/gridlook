@@ -34,7 +34,7 @@ export function geojson2geometry(geojson: FeatureCollection, radius = 1) {
         pushLinestring(coords);
       }
     } else {
-      console.log("unknown geometry: " + f.geometry.type);
+      console.error("unknown geometry: " + f.geometry.type);
     }
   }
 
