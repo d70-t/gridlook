@@ -110,7 +110,7 @@ async function createLandProjection(
   width: number,
   height: number
 ) {
-  const land = await loadJSON("static/ne_50m_coastline.geojson");
+  const land = await loadJSON("static/ne_50m_land.geojson");
   const projection = d3
     .geoEquirectangular()
     .translate([width / 2, height / 2])
@@ -231,7 +231,7 @@ async function getSolidColoredGlobe() {
   ctx.fillRect(0, 0, width, height);
 
   // load land geojson and draw land as grey on top
-  const land = await loadJSON("static/ne_50m_coastline.geojson");
+  const land = await loadJSON("static/ne_50m_land.geojson");
   const projection = d3
     .geoEquirectangular()
     .translate([width / 2, height / 2])
