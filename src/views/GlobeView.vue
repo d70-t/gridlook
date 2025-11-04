@@ -16,6 +16,7 @@ import { storeToRefs } from "pinia";
 import { getErrorMessage } from "../components/utils/errorHandling";
 import StoreUrlListener from "../components/store/storeUrlListener.vue";
 import { useUrlParameterStore } from "../components/store/paramStore";
+import { findCRSVar } from "../components/utils/zarrUtils";
 const props = defineProps<{ src: string }>();
 
 const GRID_TYPES = {
@@ -251,20 +252,6 @@ const toggleRotate = () => {
     globe.value.toggleRotate();
   }
 };
-
-async function findCRSVar(root: zarr.FetchStore, varname: string) {
-  const datavar = await zarr.open(root.resolve(varname), {
-    kind: "array",
-  });
-  if (datavar.attrs?.grid_mapping) {
-    return String(datavar.attrs.grid_mapping).split(":")[0];
-  }
-  const group = await zarr.open(root, { kind: "group" });
-  if (group.attrs?.grid_mapping) {
-    return String(group.attrs.grid_mapping).split(":")[0];
-  }
-  return "crs";
-}
 
 async function getGridType() {
   // FIXME: This is a clumsy hack to distinguish between different
