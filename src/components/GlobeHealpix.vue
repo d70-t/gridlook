@@ -32,7 +32,6 @@ const {
   invertColormap,
   selection,
 } = storeToRefs(store);
-storeToRefs(store);
 
 let canvas: Ref<HTMLCanvasElement | undefined> = ref();
 
