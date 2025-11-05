@@ -17,6 +17,7 @@ import type { TSources, TVarInfo } from "../types/GlobeTypes.ts";
 import { useToast } from "primevue/usetoast";
 import { getErrorMessage } from "./utils/errorHandling.ts";
 import { useSharedGlobeLogic } from "./sharedGlobe.ts";
+import { findCRSVar, getDataSourceStore } from "./utils/zarrUtils.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -31,7 +32,6 @@ const {
   invertColormap,
   selection,
 } = storeToRefs(store);
-storeToRefs(store);
 
 let canvas: Ref<HTMLCanvasElement | undefined> = ref();
 
@@ -45,6 +45,7 @@ const {
   resetDataVars,
   getDataVar,
   getTimeVar,
+  updateLandSeaMask,
 } = useSharedGlobeLogic(canvas, box);
 
 const updateCount = ref(0);
@@ -84,21 +85,7 @@ const bounds = computed(() => {
 });
 
 watch(
-  () => bounds.value,
-  () => {
-    updateColormap();
-  }
-);
-
-watch(
-  () => invertColormap.value,
-  () => {
-    updateColormap();
-  }
-);
-
-watch(
-  () => colormap.value,
+  [() => bounds.value, () => invertColormap.value, () => colormap.value],
   () => {
     updateColormap();
   }
@@ -125,6 +112,7 @@ async function datasourceUpdate() {
   if (props.datasources !== undefined) {
     if (props.datasources !== undefined) {
       await Promise.all([fetchGrid(), getData()]);
+      updateLandSeaMask();
       updateColormap();
     }
   }
@@ -171,35 +159,117 @@ async function fetchGrid() {
   }
 }
 
+async function getNside() {
+  const root = getDataSourceStore(props.datasources!, varnameSelector.value);
+
+  const resolveRoot = root.resolve(
+    await findCRSVar(root, varnameSelector.value)
+  );
+  const crs = await zarr.open(resolveRoot, {
+    kind: "array",
+  });
+  // FIXME: could probably have other names
+  const nside = crs.attrs["healpix_nside"] as number;
+  return nside;
+}
+
+async function getCells() {
+  const root = getDataSourceStore(props.datasources!, varnameSelector.value);
+  try {
+    const cellstore = await zarr.open(root.resolve("cell"), {
+      kind: "array",
+    });
+    let cells = (await zarr.get(cellstore)).data as
+      | Int32Array
+      | BigInt64Array
+      | number[];
+    if (typeof cells[0] === "bigint") {
+      cells = Array.from(cells, Number) as number[];
+    }
+    return cells as number[];
+  } catch {
+    return undefined;
+  }
+}
+
 async function getHealpixData(
   datavar: zarr.Array<zarr.DataType>,
+  cellCoord: number[] | undefined, // Optional - undefined for global data
   timeValue: number,
   ipix: number,
-  numChunks: number
+  numChunks: number,
+  nside: number
 ) {
-  const unshuffleIndex: { [key: number]: Int32Array } = {};
-  const chunksize = datavar.shape[datavar.shape.length - 1] / numChunks;
+  const chunksize = (12 * nside * nside) / numChunks;
+  const pixelStart = ipix * chunksize;
+  const pixelEnd = (ipix + 1) * chunksize;
 
-  const dataSlice = (
-    await zarr.get(datavar, [
-      timeValue,
-      zarr.slice(ipix * chunksize, (ipix + 1) * chunksize),
-    ])
-  ).data as Int32Array;
+  const dataSlice = new Float32Array(chunksize);
+
+  // Global data case: cellCoord is undefined
+  if (cellCoord === undefined) {
+    // Fetch data directly for this chunk
+    const data = (
+      await zarr.get(datavar, [timeValue, zarr.slice(pixelStart, pixelEnd)])
+    ).data as Float32Array;
+
+    dataSlice.set(data);
+  } else {
+    // Limited-area data case: need to map cellCoord to global positions
+    // dataSlice.fill(NaN);
+
+    // Find which indices in cellCoord fall within this chunk's range
+    const relevantIndices: number[] = [];
+    const localPositions: number[] = [];
+
+    for (let i = 0; i < cellCoord.length; i++) {
+      const globalPixel = cellCoord[i];
+      if (globalPixel >= pixelStart && globalPixel < pixelEnd) {
+        relevantIndices.push(i); // Index in the data array
+        localPositions.push(globalPixel - pixelStart); // Position in chunk
+      }
+    }
+
+    // Only fetch data if this chunk has any relevant cells
+    if (relevantIndices.length === 0) {
+      return undefined;
+    }
+
+    // Check if indices are contiguous for optimization
+    const start = relevantIndices[0];
+    const end = relevantIndices[relevantIndices.length - 1] + 1;
+    const data = (await zarr.get(datavar, [timeValue, zarr.slice(start, end)]))
+      .data as Float32Array;
+    const isContiguous =
+      relevantIndices.length > 1 &&
+      relevantIndices[relevantIndices.length - 1] - relevantIndices[0] ===
+        relevantIndices.length - 1;
+
+    if (isContiguous) {
+      // Contiguous: use slice for efficient fetching
+      for (let i = 0; i < relevantIndices.length; i++) {
+        dataSlice[localPositions[i]] = data[i];
+      }
+    } else {
+      // Non-contiguous: fetch the entire range and skip what we don't need
+      for (let i = 0; i < relevantIndices.length; i++) {
+        const dataIdx = relevantIndices[i] - start;
+        dataSlice[localPositions[i]] = data[dataIdx];
+      }
+    }
+  }
+
+  // Calculate min/max
   let min = Number.POSITIVE_INFINITY;
   let max = Number.NEGATIVE_INFINITY;
   for (let i = 0; i < dataSlice.length; i++) {
-    //min max
-    if (dataSlice[i] < min) {
-      min = dataSlice[i];
-    }
-    if (dataSlice[i] > max) {
-      max = dataSlice[i];
+    if (!isNaN(dataSlice[i])) {
+      if (dataSlice[i] < min) min = dataSlice[i];
+      if (dataSlice[i] > max) max = dataSlice[i];
     }
   }
-  const data = dataSlice as Int32Array;
-  unshuffleMortonArray(data, unshuffleIndex);
-  return { texture: data2texture(data, unshuffleIndex), min, max };
+
+  return { texture: data2texture(dataSlice, {}), min, max };
 }
 
 function distanceSquared(
@@ -260,7 +330,6 @@ function makeHealpixGeometry(nside: number, ipix: number, steps: number) {
       }
     }
   }
-
   const geometry = new THREE.BufferGeometry();
   geometry.setIndex(indices);
   geometry.setAttribute(
@@ -273,8 +342,8 @@ function makeHealpixGeometry(nside: number, ipix: number, steps: number) {
 
 function getUnshuffleIndex(
   size: number,
-  unshuffleIndex: { [key: number]: Int32Array }
-): Int32Array {
+  unshuffleIndex: { [key: number]: Float32Array }
+): Float32Array {
   if (unshuffleIndex[size] === undefined) {
     let temp = [];
     for (let i = 0; i < size; ++i) {
@@ -282,15 +351,15 @@ function getUnshuffleIndex(
         temp.push(healpix.bit_combine(j, i));
       }
     }
-    unshuffleIndex[size] = new Int32Array(temp);
+    unshuffleIndex[size] = new Float32Array(temp);
   }
   return unshuffleIndex[size];
 }
 
 function unshuffleMortonArray(
-  arr: Int32Array,
-  unshuffleIndex: { [key: number]: Int32Array }
-): Int32Array {
+  arr: Float32Array,
+  unshuffleIndex: { [key: number]: Float32Array }
+): Float32Array {
   const out = arr.slice(); // makes a copy
   const size = Math.floor(Math.sqrt(arr.length));
   const uidx = getUnshuffleIndex(size, unshuffleIndex);
@@ -301,10 +370,15 @@ function unshuffleMortonArray(
 }
 
 function data2texture(
-  arr: Int32Array,
-  unshuffleIndex: { [key: number]: Int32Array }
+  arr: Float32Array,
+  unshuffleIndex: { [key: number]: Float32Array }
 ) {
   const size = Math.floor(Math.sqrt(arr.length));
+  if (arr instanceof Float64Array) {
+    // WebGL doesn't support Float64Array textures
+    // we convert it to Float32Array and accept the loss of precision
+    arr = Float32Array.from(arr);
+  }
   const mortonArr = unshuffleMortonArray(arr, unshuffleIndex);
   const texture = new THREE.DataTexture(
     mortonArr,
@@ -380,15 +454,23 @@ async function processDataVar(
   if (datavar !== undefined) {
     let dataMin = Number.POSITIVE_INFINITY;
     let dataMax = Number.NEGATIVE_INFINITY;
-
+    const cellCoord = await getCells();
+    const nside = await getNside();
     await Promise.all(
       [...Array(HEALPIX_NUMCHUNKS).keys()].map(async (ipix) => {
         const texData = await getHealpixData(
           datavar,
+          cellCoord,
           currentTimeIndexSliderValue,
           ipix,
-          HEALPIX_NUMCHUNKS
+          HEALPIX_NUMCHUNKS,
+          nside
         );
+        if (texData === undefined) {
+          const material = mainMeshes[ipix].material as THREE.ShaderMaterial;
+          material.uniforms.data.value.dispose();
+          return;
+        }
 
         // Update global data range
         dataMin = Math.min(dataMin, texData.min);

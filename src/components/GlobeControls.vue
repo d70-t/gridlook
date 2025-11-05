@@ -3,6 +3,7 @@ import ColorBar from "@/components/ColorBar.vue";
 import { computed, onMounted, onUnmounted, ref, watch, type Ref } from "vue";
 import { useGlobeControlStore } from "./store/store.ts";
 import { storeToRefs } from "pinia";
+import debounce from "lodash.debounce";
 import type { TModelInfo, TBounds } from "../types/GlobeTypes.js";
 import { useUrlParameterStore } from "./store/paramStore.ts";
 
@@ -32,11 +33,18 @@ const {
   varinfo,
   userBoundsLow,
   userBoundsHigh,
+  landSeaMaskChoice,
+  landSeaMaskUseTexture,
 } = storeToRefs(store);
 
 const urlParameterStore = useUrlParameterStore();
-const { paramColormap, paramTimeIndex, paramInvertColormap } =
-  storeToRefs(urlParameterStore);
+const {
+  paramColormap,
+  paramTimeIndex,
+  paramInvertColormap,
+  paramMaskMode,
+  paramMaskingUseTexture,
+} = storeToRefs(urlParameterStore);
 
 const menuCollapsed: Ref<boolean> = ref(false);
 const mobileMenuCollapsed: Ref<boolean> = ref(true);
@@ -44,6 +52,9 @@ const isMobileView: Ref<boolean> = ref(false);
 const autoColormap: Ref<boolean> = ref(true);
 const defaultBounds: Ref<TBounds> = ref({});
 const pickedBounds: Ref<TBoundModes> = ref(BOUND_MODES.AUTO);
+
+// Local copy of timeIndexSlider to allow debounced updates
+const localTimeIndexSlider: Ref<number> = ref(timeIndexSlider.value);
 
 const activeBoundsMode = computed(() => {
   if (pickedBounds.value === BOUND_MODES.AUTO) {
@@ -88,6 +99,14 @@ const bounds = computed(() => {
 
 const timeRange = computed(() => {
   return varinfo.value?.timeRange ?? { start: 0, end: 1 };
+});
+
+const debouncedUpdateTimeIndexSlider = debounce(() => {
+  timeIndexSlider.value = localTimeIndexSlider.value;
+}, 350);
+
+watch(localTimeIndexSlider, () => {
+  debouncedUpdateTimeIndexSlider();
 });
 
 const currentTimeValue = computed(() => {
@@ -149,7 +168,6 @@ function toggleMobileMenu() {
 }
 
 const setDefaultColormap = () => {
-  console.log(props.modelInfo?.vars, varnameSelector.value);
   const defaultColormap =
     props.modelInfo?.vars[varnameSelector.value].default_colormap;
   if (autoColormap.value && defaultColormap !== undefined) {
@@ -174,6 +192,19 @@ onUnmounted(() => {
 });
 
 // INITIALIZATION
+if (paramMaskingUseTexture.value) {
+  if (paramMaskingUseTexture.value === "false") {
+    landSeaMaskUseTexture.value = false;
+  } else if (paramMaskingUseTexture.value === "true") {
+    landSeaMaskUseTexture.value = true;
+  }
+}
+
+if (paramMaskMode.value) {
+  landSeaMaskChoice.value =
+    paramMaskMode.value as typeof landSeaMaskChoice.value;
+}
+
 setDefaultBounds();
 store.updateBounds(bounds.value as TBounds); // ensure initial settings are published
 if (paramColormap.value) {
@@ -191,6 +222,7 @@ if (paramInvertColormap.value) {
 
 if (paramTimeIndex.value) {
   timeIndexSlider.value = Number(paramTimeIndex.value);
+  localTimeIndexSlider.value = Number(paramTimeIndex.value);
 }
 </script>
 
@@ -249,7 +281,7 @@ if (paramTimeIndex.value) {
           <div class="my-2">Time:</div>
           <div class="is-flex">
             <input
-              v-model.number="timeIndexSlider"
+              v-model.number="localTimeIndexSlider"
               class="input"
               type="number"
               :min="timeRange.start"
@@ -260,7 +292,7 @@ if (paramTimeIndex.value) {
           </div>
         </div>
         <input
-          v-model.number="timeIndexSlider"
+          v-model.number="localTimeIndexSlider"
           class="w-100"
           type="range"
           :min="timeRange.start"
@@ -462,7 +494,8 @@ if (paramTimeIndex.value) {
           type="checkbox"
           :checked="store.showCoastLines"
           @change="store.toggleCoastLines"
-        /><label for="enable_coastlines">coastlines</label>
+        />
+        <label for="enable_coastlines">coastlines</label>
       </div>
       <div>
         <button class="button" type="button" @click="() => $emit('onRotate')">
@@ -471,6 +504,37 @@ if (paramTimeIndex.value) {
         </button>
       </div>
     </div>
+    <div
+      v-if="modelInfo && !isHidden"
+      class="panel-block is-justify-content-space-between"
+    >
+      <div class="select">
+        <select id="land_sea_mask" v-model="landSeaMaskChoice">
+          <option value="off">Mask: Off</option>
+          <option value="land">Mask: Land</option>
+          <option value="sea">Mask: Sea</option>
+          <option value="globe">Mask: Globe</option>
+        </select>
+      </div>
+      <div class="columns is-mobile compact-row">
+        <div class="column py-2">
+          <input
+            id="use_texture"
+            v-model="landSeaMaskUseTexture"
+            :disabled="landSeaMaskChoice === 'off'"
+            type="checkbox"
+          />
+          <label
+            for="use_texture"
+            :class="{
+              'has-text-grey-light': landSeaMaskChoice === 'off',
+            }"
+            >Use Texture</label
+          >
+        </div>
+      </div>
+    </div>
+
     <div v-if="modelInfo && !isHidden" class="panel-block">
       <p class="control">
         <button

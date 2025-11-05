@@ -16,6 +16,8 @@ import { storeToRefs } from "pinia";
 import { getErrorMessage } from "../components/utils/errorHandling";
 import StoreUrlListener from "../components/store/storeUrlListener.vue";
 import { useUrlParameterStore } from "../components/store/paramStore";
+import { findCRSVar, getDataSourceStore } from "../components/utils/zarrUtils";
+
 const props = defineProps<{ src: string }>();
 
 const GRID_TYPES = {
@@ -122,7 +124,6 @@ async function indexFromZarr(src: string) {
   const candidates = await Promise.allSettled(
     store.contents().map(async ({ path, kind }) => {
       const varname = path.slice(1);
-      console.log(varname);
       if (kind !== "array") {
         return {};
       }
@@ -253,28 +254,12 @@ const toggleRotate = () => {
   }
 };
 
-async function findCRSVar(root: zarr.FetchStore, varname: string) {
-  const datavar = await zarr.open(root.resolve(varname), {
-    kind: "array",
-  });
-  if (datavar.attrs?.grid_mapping) {
-    return String(datavar.attrs.grid_mapping).split(":")[0];
-  }
-  const group = await zarr.open(root, { kind: "group" });
-  if (group.attrs?.grid_mapping) {
-    return String(group.attrs.grid_mapping).split(":")[0];
-  }
-  return "crs";
-}
-
 async function getGridType() {
   // FIXME: This is a clumsy hack to distinguish between different
   // grid types.
   if (!sourceValid.value) {
     return GRID_TYPES.ERROR;
   }
-  const datasource =
-    datasources.value!.levels[0].datasources[varnameSelector.value];
   try {
     try {
       // CHECK IF TRIANGULAR
@@ -291,15 +276,8 @@ async function getGridType() {
     } catch (e) {
       /* empty */
     }
-    const root = zarr.root(
-      new zarr.FetchStore(
-        (datasource.store.endsWith("/")
-          ? datasource.store.slice(0, -1)
-          : datasource.store) +
-          "/" +
-          datasource.dataset
-      )
-    );
+
+    const root = getDataSourceStore(datasources.value!, varnameSelector.value);
 
     const datavar = await zarr.open(root.resolve(varnameSelector.value), {
       kind: "array",

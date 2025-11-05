@@ -8,7 +8,7 @@ import {
   type Ref,
   type ShallowRef,
 } from "vue";
-import { useGlobeControlStore } from "./store/store";
+import { LAND_SEA_MASK_MODES, useGlobeControlStore } from "./store/store";
 import { geojson2geometry } from "./utils/geojson.ts";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
@@ -18,13 +18,16 @@ import * as zarr from "zarrita";
 import type { TSources } from "@/types/GlobeTypes.ts";
 import { getErrorMessage } from "./utils/errorHandling.ts";
 import { useUrlParameterStore } from "./store/paramStore.ts";
+import { getLandSeaMask, loadJSON } from "./utils/landSeaMask.ts";
+import debounce from "lodash.debounce";
 
 export function useSharedGlobeLogic(
   canvas: Ref<HTMLCanvasElement | undefined>,
   box: Ref<HTMLDivElement | undefined>
 ) {
   const store = useGlobeControlStore();
-  const { showCoastLines } = storeToRefs(store);
+  const { showCoastLines, landSeaMaskChoice, landSeaMaskUseTexture } =
+    storeToRefs(store);
 
   const urlParameterStore = useUrlParameterStore();
   const { paramCameraState } = storeToRefs(urlParameterStore);
@@ -34,6 +37,7 @@ export function useSharedGlobeLogic(
     Record<string, zarr.Array<zarr.DataType, zarr.FetchStore>>
   > = shallowRef({});
   let coast: THREE.LineSegments | undefined = undefined;
+  let landSeaMask: THREE.Mesh | undefined = undefined;
   let scene: THREE.Scene | undefined = undefined;
   let camera: THREE.PerspectiveCamera | undefined = undefined;
   let renderer: THREE.WebGLRenderer | undefined = undefined;
@@ -49,6 +53,14 @@ export function useSharedGlobeLogic(
     () => showCoastLines.value,
     () => {
       updateCoastlines();
+    }
+  );
+
+  watch(
+    [() => landSeaMaskChoice.value, () => landSeaMaskUseTexture.value],
+    () => {
+      console.log("updating landseamask");
+      updateLandSeaMask();
     }
   );
 
@@ -104,9 +116,7 @@ export function useSharedGlobeLogic(
 
   async function getCoastlines() {
     if (coast === undefined) {
-      const coastlines = await fetch("static/ne_50m_coastline.geojson").then(
-        (r) => r.json()
-      );
+      const coastlines = await loadJSON("static/ne_50m_coastline.geojson");
       const geometry = geojson2geometry(coastlines, 1.002);
       const material = new THREE.LineBasicMaterial({
         color: "#ffffff",
@@ -124,6 +134,28 @@ export function useSharedGlobeLogic(
       }
     } else {
       scene?.add(await getCoastlines());
+    }
+    redraw();
+  }
+
+  async function updateLandSeaMask() {
+    const choice = landSeaMaskChoice.value ?? LAND_SEA_MASK_MODES.OFF;
+    if (landSeaMask) {
+      scene?.remove(landSeaMask);
+      landSeaMask = undefined;
+    }
+    if (choice === LAND_SEA_MASK_MODES.OFF) {
+      redraw();
+      return;
+    }
+
+    const mask = await getLandSeaMask(
+      landSeaMaskChoice.value!,
+      landSeaMaskUseTexture.value!
+    );
+    landSeaMask = mask;
+    if (landSeaMask) {
+      scene?.add(landSeaMask);
     }
     redraw();
   }
@@ -154,14 +186,11 @@ export function useSharedGlobeLogic(
       }
     }
 
-    //scene.add(mainMesh as THREE.Mesh);
-
     orbitControls = new OrbitControls(camera, renderer.domElement);
     // smaller minDistances than 1.1 will reveal the naked mesh
     // under the texture when zoomed in
     orbitControls.minDistance = 1.1;
     orbitControls.enablePan = false;
-    // coast = undefined;
     updateCoastlines();
   }
 
@@ -198,7 +227,7 @@ export function useSharedGlobeLogic(
     cancelAnimationFrame(frameId.value);
     if (!mouseDown && !getOrbitControls()?.autoRotate) {
       render();
-      encodeCameraToURL(getCamera()!);
+      debouncedEncodeCameraToURL(getCamera()!);
       return;
     }
     render();
@@ -327,6 +356,13 @@ export function useSharedGlobeLogic(
     far: number;
   };
 
+  const debouncedEncodeCameraToURL = debounce(
+    (camera: THREE.PerspectiveCamera) => {
+      encodeCameraToURL(camera);
+    },
+    300
+  );
+
   function encodeCameraToURL(camera: THREE.PerspectiveCamera) {
     // Encodes the camera state to the URL parameters.
     // This function is getting called at the end of each render loop.
@@ -412,5 +448,6 @@ export function useSharedGlobeLogic(
     getDataVar,
     getTimeVar,
     registerUpdateLOD,
+    updateLandSeaMask,
   };
 }
