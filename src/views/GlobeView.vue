@@ -16,7 +16,8 @@ import { storeToRefs } from "pinia";
 import { getErrorMessage } from "../components/utils/errorHandling";
 import StoreUrlListener from "../components/store/storeUrlListener.vue";
 import { useUrlParameterStore } from "../components/store/paramStore";
-import { findCRSVar } from "../components/utils/zarrUtils";
+import { findCRSVar, getDataSourceStore } from "../components/utils/zarrUtils";
+
 const props = defineProps<{ src: string }>();
 
 const GRID_TYPES = {
@@ -259,8 +260,6 @@ async function getGridType() {
   if (!sourceValid.value) {
     return GRID_TYPES.ERROR;
   }
-  const datasource =
-    datasources.value!.levels[0].datasources[varnameSelector.value];
   try {
     try {
       // CHECK IF TRIANGULAR
@@ -277,15 +276,8 @@ async function getGridType() {
     } catch (e) {
       /* empty */
     }
-    const root = zarr.root(
-      new zarr.FetchStore(
-        (datasource.store.endsWith("/")
-          ? datasource.store.slice(0, -1)
-          : datasource.store) +
-          "/" +
-          datasource.dataset
-      )
-    );
+
+    const root = getDataSourceStore(datasources.value!, varnameSelector.value);
 
     const datavar = await zarr.open(root.resolve(varnameSelector.value), {
       kind: "array",

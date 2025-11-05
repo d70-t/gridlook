@@ -17,7 +17,7 @@ import type { TSources, TVarInfo } from "../types/GlobeTypes.ts";
 import { useToast } from "primevue/usetoast";
 import { getErrorMessage } from "./utils/errorHandling.ts";
 import { useSharedGlobeLogic } from "./sharedGlobe.ts";
-import { findCRSVar } from "./utils/zarrUtils.ts";
+import { findCRSVar, getDataSourceStore } from "./utils/zarrUtils.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -160,20 +160,21 @@ async function fetchGrid() {
 }
 
 async function getNside() {
-  const root = zarr.root(new zarr.FetchStore(gridsource.value!.store));
-  const crs = await zarr.open(
-    root.resolve(await findCRSVar(root, varnameSelector.value)),
-    {
-      kind: "array",
-    }
+  const root = getDataSourceStore(props.datasources!, varnameSelector.value);
+
+  const resolveRoot = root.resolve(
+    await findCRSVar(root, varnameSelector.value)
   );
+  const crs = await zarr.open(resolveRoot, {
+    kind: "array",
+  });
   // FIXME: could probably have other names
   const nside = crs.attrs["healpix_nside"] as number;
   return nside;
 }
 
 async function getCells() {
-  const root = zarr.root(new zarr.FetchStore(gridsource.value!.store));
+  const root = getDataSourceStore(props.datasources!, varnameSelector.value);
   try {
     const cellstore = await zarr.open(root.resolve("cell"), {
       kind: "array",
