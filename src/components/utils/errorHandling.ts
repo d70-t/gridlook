@@ -3,11 +3,13 @@
 // This is a workaround to get clean error messages
 // Credits:
 // https://kentcdodds.com/blog/get-a-catch-block-error-message-with-typescript
-type ErrorWithMessage = {
+
+type NormalizedError = {
   message: string;
+  stack?: unknown;
 };
 
-function isErrorWithMessage(error: unknown): error is ErrorWithMessage {
+function isNormalizedError(error: unknown): error is NormalizedError {
   return (
     typeof error === "object" &&
     error !== null &&
@@ -16,8 +18,8 @@ function isErrorWithMessage(error: unknown): error is ErrorWithMessage {
   );
 }
 
-function toErrorWithMessage(maybeError: unknown): ErrorWithMessage {
-  if (isErrorWithMessage(maybeError)) return maybeError;
+export function toNormalizedError(maybeError: unknown): NormalizedError {
+  if (isNormalizedError(maybeError)) return maybeError;
 
   try {
     return new Error(JSON.stringify(maybeError));
@@ -29,5 +31,5 @@ function toErrorWithMessage(maybeError: unknown): ErrorWithMessage {
 }
 
 export function getErrorMessage(error: unknown) {
-  return toErrorWithMessage(error).message;
+  return toNormalizedError(error).message;
 }

@@ -11,9 +11,8 @@ import { ref, computed, watch, onMounted, type Ref } from "vue";
 import type { TColorMap, TSources } from "../types/GlobeTypes";
 import { useGlobeControlStore } from "../components/store/store";
 import Toast from "primevue/toast";
-import { useToast } from "primevue/usetoast";
+import { useLog } from "../components/utils/logging";
 import { storeToRefs } from "pinia";
-import { getErrorMessage } from "../components/utils/errorHandling";
 import StoreUrlListener from "../components/store/storeUrlListener.vue";
 import { useUrlParameterStore } from "../components/store/paramStore";
 import { findCRSVar, getDataSourceStore } from "../components/utils/zarrUtils";
@@ -32,7 +31,7 @@ const GRID_TYPES = {
 
 type T_GRID_TYPES = (typeof GRID_TYPES)[keyof typeof GRID_TYPES];
 
-const toast = useToast();
+const { logError } = useLog();
 const store = useGlobeControlStore();
 const { varnameSelector, loading, colormap, invertColormap } =
   storeToRefs(store);
@@ -227,12 +226,7 @@ const updateSrc = async () => {
     }
   }
   if (!sourceValid.value && lastError) {
-    toast.add({
-      severity: "error",
-      summary: "Error",
-      detail: `Failed to fetch data: ${lastError.message}`,
-      life: 3000,
-    });
+    logError(lastError, "Failed to fetch data");
   }
 };
 
@@ -325,11 +319,7 @@ async function getGridType() {
     }
     return GRID_TYPES.GAUSSIAN;
   } catch (error) {
-    toast.add({
-      detail: `${getErrorMessage(error)}`,
-      life: 3000,
-    });
-
+    logError(error, "Could not determine grid type");
     return GRID_TYPES.ERROR;
   }
 }

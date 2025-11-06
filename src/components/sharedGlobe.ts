@@ -13,10 +13,9 @@ import { geojson2geometry } from "./utils/geojson.ts";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 import { handleKeyDown } from "./utils/OrbitControlsAddOn.ts";
-import { useToast } from "primevue/usetoast";
+import { useLog } from "./utils/logging";
 import * as zarr from "zarrita";
 import type { TSources } from "@/types/GlobeTypes.ts";
-import { getErrorMessage } from "./utils/errorHandling.ts";
 import { useUrlParameterStore } from "./store/paramStore.ts";
 import { getLandSeaMask, loadJSON } from "./utils/landSeaMask.ts";
 import debounce from "lodash.debounce";
@@ -32,7 +31,7 @@ export function useSharedGlobeLogic(
   const urlParameterStore = useUrlParameterStore();
   const { paramCameraState } = storeToRefs(urlParameterStore);
 
-  const toast = useToast();
+  const { logError } = useLog();
   const datavars: ShallowRef<
     Record<string, zarr.Array<zarr.DataType, zarr.FetchStore>>
   > = shallowRef({});
@@ -333,10 +332,10 @@ export function useSharedGlobeLogic(
         );
         datavars.value[myVarname] = datavar;
       } catch (error) {
-        toast.add({
-          detail: `Couldn't fetch variable ${myVarname} from store: ${myDatasource.store} and dataset: ${myDatasource.dataset}: ${getErrorMessage(error)}`,
-          life: 3000,
-        });
+        logError(
+          error,
+          `Couldn't fetch variable ${myVarname} from store: ${myDatasource.store} and dataset: ${myDatasource.dataset}`
+        );
         return undefined;
       }
     }
