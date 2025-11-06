@@ -24,8 +24,7 @@ import {
 import { useGlobeControlStore } from "./store/store.js";
 import { storeToRefs } from "pinia";
 import type { TSources } from "../types/GlobeTypes.ts";
-import { useToast } from "primevue/usetoast";
-import { getErrorMessage } from "./utils/errorHandling.ts";
+import { useLog } from "./utils/logging";
 import { useSharedGlobeLogic } from "./sharedGlobe.ts";
 
 const props = defineProps<{
@@ -33,7 +32,7 @@ const props = defineProps<{
 }>();
 
 const store = useGlobeControlStore();
-const toast = useToast();
+const { logError } = useLog();
 const {
   timeIndexSlider,
   varnameSelector,
@@ -145,10 +144,7 @@ async function fetchGrid() {
     myMesh.geometry.computeBoundingSphere();
     redraw();
   } catch (error) {
-    toast.add({
-      detail: `Could not fetch grid: ${getErrorMessage(error)}`,
-      life: 3000,
-    });
+    logError(error, "Could not fetch grid");
   }
 }
 
@@ -221,10 +217,7 @@ async function getData() {
       await getData();
     }
   } catch (error) {
-    toast.add({
-      detail: `Couldn't fetch data: ${getErrorMessage(error)}`,
-      life: 3000,
-    });
+    logError(error, "Could not fetch data");
     updatingData.value = false;
   } finally {
     store.stopLoading();
