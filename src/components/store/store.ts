@@ -14,8 +14,15 @@ export const LAND_SEA_MASK_MODES = {
   GLOBE_COLORED: "globe_colored",
 } as const;
 
+export const UPDATE_MODE = {
+  INITIAL_LOAD: "initialLoad",
+  SLIDER_TOGGLE: "sliderToggle",
+} as const;
+
 export type TLandSeaMaskMode =
   (typeof LAND_SEA_MASK_MODES)[keyof typeof LAND_SEA_MASK_MODES];
+
+export type TUpdateMode = (typeof UPDATE_MODE)[keyof typeof UPDATE_MODE];
 
 export const useGlobeControlStore = defineStore("globeControl", {
   state: () => {
@@ -25,8 +32,10 @@ export const useGlobeControlStore = defineStore("globeControl", {
       landSeaMaskChoice: LAND_SEA_MASK_MODES.OFF as TLandSeaMaskMode,
       // when true, use the textured versions; when false, use the greyscale/solid versions
       landSeaMaskUseTexture: false,
+
       timeIndexSlider: 1, // the time index currently selected by the slider
       timeIndexDisplay: 1, // the time index currently shown on the globe (will be updated after loading)
+
       varnameSelector: "-", // the varname currently selected in the dropdown
       varnameDisplay: "-", // the varname currently shown on the globe (will be updated after loading)
       loading: false,
@@ -36,6 +45,9 @@ export const useGlobeControlStore = defineStore("globeControl", {
       invertColormap: true,
       userBoundsLow: undefined as number | undefined,
       userBoundsHigh: undefined as number | undefined,
+      dimSlidersValues: [] as number[],
+      dimSlidersDisplay: [] as number[],
+      isInitializingVariable: false,
     };
   },
   actions: {
@@ -49,8 +61,13 @@ export const useGlobeControlStore = defineStore("globeControl", {
       this.loading = false;
       this.timeIndexDisplay = this.timeIndexSlider;
       this.varnameDisplay = this.varnameSelector;
+      console.log("STOP LoadIng VERFICKTE SHCIESSE");
+      for (let i = 0; i < this.dimSlidersValues.length; i++) {
+        this.dimSlidersDisplay[i] = this.dimSlidersValues[i];
+      }
     },
-    updateVarInfo(varinfo: TVarInfo) {
+    updateVarInfo(varinfo: TVarInfo, updateMode: TUpdateMode) {
+      console.log("STORE: updateVarInfo", updateMode);
       const parameterStore = useUrlParameterStore();
       if (
         parameterStore.paramMinTimeBound !== undefined &&
@@ -62,7 +79,42 @@ export const useGlobeControlStore = defineStore("globeControl", {
         varinfo.timeRange.start = Number(parameterStore.paramMinTimeBound);
         varinfo.timeRange.end = Number(parameterStore.paramMaxTimeBound);
       }
+
+      if (updateMode === UPDATE_MODE.INITIAL_LOAD) {
+        this.isInitializingVariable = true;
+        this.dimSlidersDisplay.splice(0, this.dimSlidersDisplay.length);
+        this.dimSlidersValues.splice(0, this.dimSlidersValues.length);
+        for (let i = 0; i < varinfo.dimRanges.length; i++) {
+          const d = varinfo.dimRanges[i];
+          if (d === null) {
+            this.dimSlidersDisplay.push(null);
+            this.dimSlidersValues.push(null);
+          } else if (d.end === 0) {
+            this.dimSlidersDisplay.push(0);
+            this.dimSlidersValues.push(0);
+          } else {
+            this.dimSlidersDisplay.push(1);
+            this.dimSlidersValues.push(1);
+          }
+          console.log("STORE: foo", this.dimSlidersDisplay[i]);
+          // this.dimSlidersDisplay.push(varinfo.dimRanges[i]?.start ?? 1);
+          // this.dimSlidersValues.push(varinfo.dimRanges[i]?.start ?? 1);
+        }
+        console.log(
+          "STORE: dimSliderValues on UpdateVarInfo",
+          this.dimSlidersValues
+        );
+      }
+
       this.varinfo = varinfo;
+      // console.log("this.updateVarInfo");
+      // this.dimSliders.splice(0, this.dimSliders.length);
+      // for (let i = 0; i < varinfo.dimRanges.length; i++) {
+      //   this.dimSliders.push({
+      //     display: varinfo.dimRanges[i]?.start ?? 1,
+      //     value: varinfo.dimRanges[i]?.start ?? 1,
+      //   });
+      // }
     },
     updateBounds(bounds: TBounds) {
       this.selection = bounds;

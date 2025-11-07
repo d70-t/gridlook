@@ -86,6 +86,7 @@ async function setGridType() {
     return;
   }
   const localGridType = await getGridType();
+  console.log("localGridType", localGridType);
   gridType.value = localGridType;
 }
 

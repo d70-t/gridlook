@@ -35,6 +35,8 @@ const {
   userBoundsHigh,
   landSeaMaskChoice,
   landSeaMaskUseTexture,
+  dimSlidersValues,
+  dimSlidersDisplay,
 } = storeToRefs(store);
 
 const urlParameterStore = useUrlParameterStore();
@@ -55,6 +57,9 @@ const pickedBounds: Ref<TBoundModes> = ref(BOUND_MODES.AUTO);
 
 // Local copy of timeIndexSlider to allow debounced updates
 const localTimeIndexSlider: Ref<number> = ref(timeIndexSlider.value);
+const localSliders = ref<number[]>([]);
+
+const debouncedUpdaters = ref<Array<(value: number) => void>>([]);
 
 const activeBoundsMode = computed(() => {
   if (pickedBounds.value === BOUND_MODES.AUTO) {
@@ -97,9 +102,62 @@ const bounds = computed(() => {
   return undefined;
 });
 
-const timeRange = computed(() => {
-  return varinfo.value?.timeRange ?? { start: 0, end: 1 };
-});
+// const timeRange = computed(() => {
+//   return varinfo.value?.timeRange ?? { start: 0, end: 1 };
+// });
+
+watch(
+  localSliders,
+  (newValues) => {
+    newValues.forEach((value, index) => {
+      // if (value !== oldValues?.[index] && debouncedUpdaters.value[index]) {
+      if (value !== undefined && value !== dimSlidersValues.value[index]) {
+        console.log(
+          "GlobeControls: watch localSliders",
+          newValues[index],
+          "dimslider",
+          dimSlidersValues.value[index]
+        );
+        debouncedUpdaters.value[index](value);
+      }
+    });
+  },
+  { deep: true }
+);
+
+watch(
+  () => varinfo.value,
+  () => {
+    console.log("GlobeControls: watch var info");
+    const newRanges = varinfo.value?.dimRanges;
+    if (newRanges) {
+      console.log("GlobeControls: nochmal new ranges", newRanges);
+      localSliders.value = newRanges.map(
+        (range, index) => dimSlidersValues.value[index] ?? range?.start ?? null
+      );
+
+      // Create stable debounced functions
+      debouncedUpdaters.value = newRanges.map((_, index) => {
+        return debounce((value: number) => {
+          console.log(
+            "GlobeControls: debouncer",
+            dimSlidersValues.value[index]
+          );
+          if (dimSlidersValues.value[index] !== undefined) {
+            console.log(
+              "GlobeControls: SET DIMSLIDER",
+              index,
+              dimSlidersValues.value[index],
+              value
+            );
+            dimSlidersValues.value[index] = value;
+          }
+        }, 1550);
+      });
+    }
+  },
+  { immediate: true }
+);
 
 const debouncedUpdateTimeIndexSlider = debounce(() => {
   timeIndexSlider.value = localTimeIndexSlider.value;
@@ -108,6 +166,18 @@ const debouncedUpdateTimeIndexSlider = debounce(() => {
 watch(localTimeIndexSlider, () => {
   debouncedUpdateTimeIndexSlider();
 });
+
+// Helper to get dimension name
+const getDimName = (index: number): string => {
+  const range = varinfo.value?.dimRanges[index];
+  return range?.name ?? `Dimension ${index}`;
+};
+
+// Helper to check if a dimension should be shown
+const shouldShowDimension = (index: number): boolean => {
+  const range = varinfo.value?.dimRanges[index];
+  return range !== null && range !== undefined;
+};
 
 const currentTimeValue = computed(() => {
   return varinfo.value?.timeinfo?.current;
@@ -281,22 +351,24 @@ if (paramTimeIndex.value) {
           <div class="my-2">Time:</div>
           <div class="is-flex">
             <input
-              v-model.number="localTimeIndexSlider"
+              v-model.number="localSliders[0]"
+              :disabled="varinfo?.dimRanges[0]?.name !== 'time'"
               class="input"
               type="number"
-              :min="timeRange.start"
-              :max="timeRange.end"
+              :min="varinfo?.dimRanges[0]?.start ?? 0"
+              :max="varinfo?.dimRanges[0]?.end ?? 0"
               style="width: 8em"
             />
-            <div class="my-2">/ {{ timeRange.end }}</div>
+            <div class="my-2">/ {{ varinfo?.dimRanges[0]?.end ?? 0 }}</div>
           </div>
         </div>
         <input
-          v-model.number="localTimeIndexSlider"
+          v-model.number="localSliders[0]"
           class="w-100"
           type="range"
-          :min="timeRange.start"
-          :max="timeRange.end"
+          :disabled="varinfo?.dimRanges[0]?.name !== 'time'"
+          :min="varinfo?.dimRanges[0]?.start ?? 0"
+          :max="varinfo?.dimRanges[0]?.end ?? 0"
         />
         <div class="w-100 is-flex is-justify-content-space-between">
           <div>
@@ -305,7 +377,7 @@ if (paramTimeIndex.value) {
             ></span>
           </div>
           <div class="has-text-right">
-            {{ currentVarName }} @ {{ store.timeIndexDisplay }}
+            {{ currentVarName }} @ {{ dimSlidersDisplay[0] }}
             <br />
             <span v-if="currentTimeValue">
               {{ currentTimeValue.format() }}
@@ -316,6 +388,49 @@ if (paramTimeIndex.value) {
         <div class="has-text-right">
           {{ currentVarLongname }} / {{ currentVarUnits }}
         </div>
+      </div>
+    </div>
+    <div v-if="varinfo" class="panel-block">
+      <!-- Generic dimension sliders -->
+      <div class="control">
+        <template v-for="(range, index) in varinfo.dimRanges" :key="index">
+          <div
+            v-if="range && index !== 0"
+            class="mb-2 w-100 is-flex is-justify-content-space-between"
+          >
+            <div class="my-2">
+              {{
+                String(range.name[0]).toUpperCase() +
+                String(range.name).slice(1)
+              }}:
+            </div>
+            <div class="is-flex">
+              <input
+                v-model.number="localSliders[index]"
+                class="input"
+                type="number"
+                :min="range.start"
+                :max="range.end"
+                style="width: 8em"
+              />
+              <div class="my-2">/ {{ range.end }}</div>
+            </div>
+          </div>
+          <input
+            v-if="range && index !== 0"
+            v-model.number="localSliders[index]"
+            class="w-100"
+            type="range"
+            :min="range.start"
+            :max="range.end"
+          />
+          <span v-if="range && index !== 0">
+            display {{ dimSlidersDisplay[index] }}
+          </span>
+          <span v-if="range && index !== 0">
+            value {{ dimSlidersValues[index] }}
+          </span>
+        </template>
       </div>
     </div>
     <div v-if="modelInfo && !isHidden" class="panel-block is-block w-100">

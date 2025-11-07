@@ -16,7 +16,8 @@ export type TVarInfo = {
   timeinfo: EmptyObj | { current: Dayjs; values: Int32Array };
   timeRange: { start: number; end: number };
   bounds: TBounds;
-  attrs: zarr.Attributes; //{ long_name: string; units: string };
+  dimRanges: ({ name: string; start: number; end: number } | null)[];
+  attrs: zarr.Attributes;
 };
 
 export type TDataSource = {

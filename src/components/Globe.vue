@@ -21,7 +21,11 @@ import {
   type ShallowRef,
 } from "vue";
 
-import { useGlobeControlStore } from "./store/store.js";
+import {
+  UPDATE_MODE,
+  useGlobeControlStore,
+  type TUpdateMode,
+} from "./store/store.js";
 import { storeToRefs } from "pinia";
 import type { TSources } from "../types/GlobeTypes.ts";
 import { useLog } from "./utils/logging";
@@ -34,11 +38,14 @@ const props = defineProps<{
 const store = useGlobeControlStore();
 const { logError } = useLog();
 const {
-  timeIndexSlider,
+  // timeIndexSlider,
+  dimSlidersValues,
   varnameSelector,
   colormap,
   invertColormap,
   selection,
+  isInitializingVariable,
+  varinfo,
 } = storeToRefs(store);
 storeToRefs(store);
 
@@ -72,10 +79,16 @@ watch(
 );
 
 watch(
-  () => timeIndexSlider.value,
+  () => dimSlidersValues.value,
   () => {
-    getData();
-  }
+    console.log("GLOBE: watch dimsliders", dimSlidersValues.value);
+    if (isInitializingVariable.value) {
+      isInitializingVariable.value = false;
+      return;
+    }
+    getData(UPDATE_MODE.SLIDER_TOGGLE);
+  },
+  { deep: true }
 );
 
 watch(
@@ -87,6 +100,13 @@ watch(
 
 const bounds = computed(() => {
   return selection.value;
+});
+
+const timeIndexSlider = computed(() => {
+  if (varinfo.value?.dimRanges[0]?.name !== "time") {
+    return -1;
+  }
+  return dimSlidersValues.value[0];
 });
 
 watch(
@@ -165,7 +185,36 @@ function updateColormap() {
   redraw();
 }
 
-async function getData() {
+function createDimensionRanges(
+  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  lastToIgnore: number
+) {
+  const dimensions = datavar.attrs._ARRAY_DIMENSIONS as string[];
+  const shape = datavar.shape;
+  const indices: ({ name: string; start: number; end: number } | null)[] = shape
+    .slice(0, shape.length - lastToIgnore)
+    .map((size, i) => {
+      // console.log(dimensions[i]);
+      if (size === 1) {
+        // return 0;
+        return { name: dimensions[i], start: 0, end: 0 }; // Single element dimension
+      } else {
+        // Placeholder for dimensions that need actual indexing
+        // You'll need to define the logic for each dimension
+        // const dimName = dimensions[i];
+        return { name: dimensions[i], start: 0, end: size - 1 };
+      }
+    });
+
+  for (let i = 0; i < lastToIgnore; i++) {
+    indices.push(null);
+  }
+  return indices;
+  // Add wildcard for last dimension
+}
+
+async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
+  console.log(">>> GET DATA <<<", updateMode);
   store.startLoading();
   try {
     updateCount.value += 1;
@@ -178,7 +227,9 @@ async function getData() {
     const localVarname = varnameSelector.value;
     const currentTimeIndexSliderValue = timeIndexSlider.value;
     const [timevar, datavar] = await Promise.all([
-      getTimeVar(props.datasources!),
+      currentTimeIndexSliderValue === -1
+        ? undefined
+        : getTimeVar(props.datasources!),
       getDataVar(localVarname, props.datasources!),
     ]);
     let timeinfo = {};
@@ -186,7 +237,6 @@ async function getData() {
       const timeattrs = timevar.attrs;
       const timevalues = (await zarr.get(timevar, [null])).data;
       timeinfo = {
-        // attrs: timeattrs,
         values: timevalues,
         current: decodeTime(
           (timevalues as number[])[currentTimeIndexSliderValue],
@@ -195,26 +245,48 @@ async function getData() {
       };
     }
     if (datavar !== undefined) {
-      const rawData = await zarr.get(datavar, [
-        currentTimeIndexSliderValue,
-        null,
-      ]);
+      let dimensionRanges: ({
+        name: string;
+        start: number;
+        end: number;
+      } | null)[] = [];
+      dimensionRanges = createDimensionRanges(datavar, 1);
+      let indices: (number | null)[] = [];
+      if (updateMode === UPDATE_MODE.INITIAL_LOAD) {
+        indices = dimensionRanges.map((d) => {
+          if (d === null) return null;
+          else if (d.end === 0) return 0;
+          return 1;
+        });
+        console.log("initial indices", indices);
+      } else {
+        console.log("dimslidervalues", dimSlidersValues.value);
+        indices = dimSlidersValues.value;
+      }
+
+      const rawData = await zarr.get(datavar, indices);
+      // console.log("rawData", rawData);
       const dataBuffer = data2valueBuffer(rawData);
       mainMesh?.geometry.setAttribute(
         "data_value",
         new THREE.BufferAttribute(dataBuffer.dataValues, 1)
       );
-      store.updateVarInfo({
-        attrs: datavar.attrs,
-        timeinfo,
-        timeRange: { start: 0, end: datavar.shape[0] - 1 },
-        bounds: { low: dataBuffer.dataMin, high: dataBuffer.dataMax },
-      });
+      store.updateVarInfo(
+        {
+          attrs: datavar.attrs,
+          timeinfo,
+          timeRange: { start: 0, end: datavar.shape[0] - 1 },
+          bounds: { low: dataBuffer.dataMin, high: dataBuffer.dataMax },
+          dimRanges: dimensionRanges,
+        },
+        updateMode
+      );
       redraw();
     }
     updatingData.value = false;
     if (updateCount.value !== myUpdatecount) {
-      await getData();
+      console.log("UPDATE COUNT?!");
+      await getData(updateMode);
     }
   } catch (error) {
     logError(error, "Could not fetch data");

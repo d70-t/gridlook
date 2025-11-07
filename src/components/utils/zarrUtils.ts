@@ -27,3 +27,26 @@ export async function findCRSVar(root: zarr.FetchStore, varname: string) {
   }
   return "crs";
 }
+
+export async function getArrayInfo(root: zarr.FetchStore, varname: string) {
+  // Open array from different store types
+  // Or: const store = new zarr.LocalStore('path/to/data.zarr');
+  const array = await zarr.open(root.resolve(varname), { kind: "array" });
+  // console.log("Shape:", array.shape);
+  // console.log("Number of dimensions:", array.shape.length);
+  // console.log("Data type:", array.dtype);
+  const obje = {
+    shape: array.shape,
+    dimensions: array.attrs._ARRAY_DIMENSIONS,
+  };
+  // console.log(obje);
+  // // Calculate total size
+  // const totalSize = array.shape.reduce((a, b) => a * b, 1);
+  // const attrs = array.attrs;
+  // console.log(array, array.attrs);
+  // if (attrs && attrs.dimension_names) {
+  //   console.log("Dimension names:", attrs.dimension_names);
+  // }
+  // console.log("Total elements:", totalSize);
+  return obje;
+}
