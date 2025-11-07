@@ -10,6 +10,10 @@ const URL_PARAMETERS = {
   CAMERA_STATE: "camerastate",
   MASK_MODE: "maskmode",
   MASK_USE_TEXTURE: "maskusetexture",
+
+  DIM_INDICES: "dimIndices",
+  DIM_MIN_BOUNDS: "dimMinBounds",
+  DIM_MAX_BOUNDS: "dimMaxBounds",
 } as const;
 
 type TURLParameterValues = (typeof URL_PARAMETERS)[keyof typeof URL_PARAMETERS];

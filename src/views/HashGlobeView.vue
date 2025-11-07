@@ -38,15 +38,28 @@ const onHashChange = () => {
       userBoundsHigh.value = parseFloat(params.value.boundhigh);
     }
     for (const [key, value] of Object.entries(params.value) as [
-      TURLParameterValues,
+      keyof typeof STORE_PARAM_MAPPING,
       string,
     ][]) {
-      if (STORE_PARAM_MAPPING[key] === undefined) {
+      if (key.startsWith("dimIndices_")) {
+        urlParameterStore[STORE_PARAM_MAPPING.dimIndices][
+          key.substring("dimIndices_".length)
+        ] = value;
+      } else if (key.startsWith("dimMinBounds_")) {
+        urlParameterStore[STORE_PARAM_MAPPING.dimMinBounds][
+          key.substring("dimMinBounds_".length)
+        ] = value;
+      } else if (key.startsWith("dimMaxBounds_")) {
+        urlParameterStore[STORE_PARAM_MAPPING.dimMaxBounds][
+          key.substring("dimMaxBounds_".length)
+        ] = value;
+      } else if (STORE_PARAM_MAPPING[key] === undefined) {
         continue;
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       urlParameterStore[STORE_PARAM_MAPPING[key]] = value as any;
     }
+    console.log("URL PARAMETER STORE", urlParameterStore);
     src.value = resource || defaultSrc.value;
   } else {
     src.value = defaultSrc.value;

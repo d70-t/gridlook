@@ -47,6 +47,8 @@ export const useGlobeControlStore = defineStore("globeControl", {
       userBoundsHigh: undefined as number | undefined,
       dimSlidersValues: [] as number[],
       dimSlidersDisplay: [] as number[],
+      dimSlidersMinBounds: [] as number[],
+      dimSlidersMaxBounds: [] as number[],
       isInitializingVariable: false,
     };
   },
@@ -79,6 +81,28 @@ export const useGlobeControlStore = defineStore("globeControl", {
         varinfo.timeRange.start = Number(parameterStore.paramMinTimeBound);
         varinfo.timeRange.end = Number(parameterStore.paramMaxTimeBound);
       }
+      // for (const range of varinfo.dimRanges) {
+      //   if (
+      //     parameterStore.paramDimMinBounds[range?.name as string] &&
+      //     !isNaN(
+      //       Number(parameterStore.paramDimMinBounds[range?.name as string])
+      //     )
+      //   ) {
+      //     range!.start = Number(
+      //       parameterStore.paramDimMinBounds[range?.name as string]
+      //     );
+      //   }
+      //   if (
+      //     parameterStore.paramDimMaxBounds[range?.name as string] &&
+      //     !isNaN(
+      //       Number(parameterStore.paramDimMaxBounds[range?.name as string])
+      //     )
+      //   ) {
+      //     range!.end = Number(
+      //       parameterStore.paramDimMaxBounds[range?.name as string]
+      //     );
+      //   }
+      // }
 
       if (updateMode === UPDATE_MODE.INITIAL_LOAD) {
         this.isInitializingVariable = true;
@@ -86,19 +110,26 @@ export const useGlobeControlStore = defineStore("globeControl", {
         this.dimSlidersValues.splice(0, this.dimSlidersValues.length);
         for (let i = 0; i < varinfo.dimRanges.length; i++) {
           const d = varinfo.dimRanges[i];
+          /*
+          if (
+            Object.hasOwn(parameterStore.paramDimIndices, d?.name as string)
+          ) {
+            this.dimSlidersDisplay.push(
+              Number(parameterStore.paramDimIndices[d?.name as string])
+            );
+            this.dimSlidersValues.push(
+              Number(parameterStore.paramDimIndices[d?.name as string])
+            );
+          } else */
           if (d === null) {
             this.dimSlidersDisplay.push(null);
             this.dimSlidersValues.push(null);
-          } else if (d.end === 0) {
-            this.dimSlidersDisplay.push(0);
-            this.dimSlidersValues.push(0);
           } else {
-            this.dimSlidersDisplay.push(1);
-            this.dimSlidersValues.push(1);
+            //if (d.end === 0) {
+            this.dimSlidersDisplay.push(d.startPos);
+            this.dimSlidersValues.push(d.startPos);
           }
           console.log("STORE: foo", this.dimSlidersDisplay[i]);
-          // this.dimSlidersDisplay.push(varinfo.dimRanges[i]?.start ?? 1);
-          // this.dimSlidersValues.push(varinfo.dimRanges[i]?.start ?? 1);
         }
         console.log(
           "STORE: dimSliderValues on UpdateVarInfo",

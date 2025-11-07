@@ -1,6 +1,6 @@
 import type { TColorMap } from "@/types/GlobeTypes";
 import { defineStore } from "pinia";
-import type { TURLParameterValues } from "../utils/urlParams";
+// import type { TURLParameterValues } from "../utils/urlParams";
 
 /* Initial values of SOME of the URL parameters.
    They are getting set in the HashGlobeView via the function `onHashChange`
@@ -22,17 +22,22 @@ export const useUrlParameterStore = defineStore("urlParams", {
       paramInvertColormap: undefined as string | undefined,
       paramMaskMode: undefined as string | undefined,
       paramMaskingUseTexture: undefined as string | undefined,
+      paramDimIndices: {} as Record<string, string>,
+      paramDimMinBounds: {} as Record<string, string>,
+      paramDimMaxBounds: {} as Record<string, string>,
     };
   },
 });
 
-type TUrlParameterState = keyof ReturnType<
-  typeof useUrlParameterStore
->["$state"];
+// type TUrlParameterState = keyof ReturnType<
+//   typeof useUrlParameterStore
+// >["$state"];
 
-export const STORE_PARAM_MAPPING: Partial<
-  Record<TURLParameterValues, TUrlParameterState>
-> = {
+// Partial<
+//   Record<TURLParameterValues, TUrlParameterState>
+// > =
+
+export const STORE_PARAM_MAPPING = {
   colormap: "paramColormap",
   varname: "paramVarname",
   timeindex: "paramTimeIndex",
@@ -42,4 +47,7 @@ export const STORE_PARAM_MAPPING: Partial<
   invertcolormap: "paramInvertColormap",
   maskmode: "paramMaskMode",
   maskusetexture: "paramMaskingUseTexture",
-};
+  dimIndices: "paramDimIndices",
+  dimMinBounds: "paramDimMinBounds",
+  dimMaxBounds: "paramDimMaxBounds",
+} as const;

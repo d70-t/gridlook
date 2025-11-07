@@ -10,9 +10,9 @@ const {
   userBoundsHigh,
   userBoundsLow,
   varnameSelector,
-  timeIndexSlider,
   colormap,
   invertColormap,
+  dimSlidersDisplay,
 } = storeToRefs(store);
 
 const urlParameterStore = useUrlParameterStore();
@@ -122,10 +122,24 @@ watch(
 );
 
 watch(
-  () => timeIndexSlider.value,
+  () => dimSlidersDisplay.value,
   () => {
-    changeURLHash({ [URL_PARAMETERS.TIMEINDEX]: timeIndexSlider.value });
-  }
+    const dimension = store.varinfo?.dimRanges;
+    console.log("Display hat sich veraendert", store.dimSlidersDisplay);
+    if (!dimension) {
+      return;
+    }
+    const dimensionValues = {} as Record<string, number>;
+    for (let i = 0; i < dimension?.length; i++) {
+      if (dimension[i] === null) {
+        continue;
+      }
+      dimensionValues[`dimIndices_${dimension[i]?.name}` as string] =
+        store.dimSlidersDisplay[i];
+    }
+    changeURLHash(dimensionValues);
+  },
+  { deep: true }
 );
 
 watch(

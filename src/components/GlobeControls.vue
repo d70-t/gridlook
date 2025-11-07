@@ -133,7 +133,8 @@ watch(
     if (newRanges) {
       console.log("GlobeControls: nochmal new ranges", newRanges);
       localSliders.value = newRanges.map(
-        (range, index) => dimSlidersValues.value[index] ?? range?.start ?? null
+        (range, index) =>
+          dimSlidersValues.value[index] ?? range?.startPos ?? null
       );
 
       // Create stable debounced functions
@@ -166,18 +167,6 @@ const debouncedUpdateTimeIndexSlider = debounce(() => {
 watch(localTimeIndexSlider, () => {
   debouncedUpdateTimeIndexSlider();
 });
-
-// Helper to get dimension name
-const getDimName = (index: number): string => {
-  const range = varinfo.value?.dimRanges[index];
-  return range?.name ?? `Dimension ${index}`;
-};
-
-// Helper to check if a dimension should be shown
-const shouldShowDimension = (index: number): boolean => {
-  const range = varinfo.value?.dimRanges[index];
-  return range !== null && range !== undefined;
-};
 
 const currentTimeValue = computed(() => {
   return varinfo.value?.timeinfo?.current;
@@ -355,11 +344,11 @@ if (paramTimeIndex.value) {
               :disabled="varinfo?.dimRanges[0]?.name !== 'time'"
               class="input"
               type="number"
-              :min="varinfo?.dimRanges[0]?.start ?? 0"
-              :max="varinfo?.dimRanges[0]?.end ?? 0"
+              :min="varinfo?.dimRanges[0]?.minBound ?? 0"
+              :max="varinfo?.dimRanges[0]?.maxBound ?? 0"
               style="width: 8em"
             />
-            <div class="my-2">/ {{ varinfo?.dimRanges[0]?.end ?? 0 }}</div>
+            <div class="my-2">/ {{ varinfo?.dimRanges[0]?.maxBound ?? 0 }}</div>
           </div>
         </div>
         <input
@@ -367,8 +356,8 @@ if (paramTimeIndex.value) {
           class="w-100"
           type="range"
           :disabled="varinfo?.dimRanges[0]?.name !== 'time'"
-          :min="varinfo?.dimRanges[0]?.start ?? 0"
-          :max="varinfo?.dimRanges[0]?.end ?? 0"
+          :min="varinfo?.dimRanges[0]?.minBound ?? 0"
+          :max="varinfo?.dimRanges[0]?.maxBound ?? 0"
         />
         <div class="w-100 is-flex is-justify-content-space-between">
           <div>
@@ -380,7 +369,11 @@ if (paramTimeIndex.value) {
             {{ currentVarName }} @ {{ dimSlidersDisplay[0] }}
             <br />
             <span v-if="currentTimeValue">
-              {{ currentTimeValue.format() }}
+              {{
+                varinfo?.dimRanges[0]?.name === "time"
+                  ? currentTimeValue.format()
+                  : "-"
+              }}
             </span>
             <br />
           </div>
@@ -390,7 +383,7 @@ if (paramTimeIndex.value) {
         </div>
       </div>
     </div>
-    <div v-if="varinfo" class="panel-block">
+    <div v-if="varinfo && varinfo.dimRanges.length > 1" class="panel-block">
       <!-- Generic dimension sliders -->
       <div class="control">
         <template v-for="(range, index) in varinfo.dimRanges" :key="index">
@@ -409,11 +402,11 @@ if (paramTimeIndex.value) {
                 v-model.number="localSliders[index]"
                 class="input"
                 type="number"
-                :min="range.start"
-                :max="range.end"
+                :min="range.minBound"
+                :max="range.maxBound"
                 style="width: 8em"
               />
-              <div class="my-2">/ {{ range.end }}</div>
+              <div class="my-2">/ {{ range.maxBound }}</div>
             </div>
           </div>
           <input
@@ -421,8 +414,8 @@ if (paramTimeIndex.value) {
             v-model.number="localSliders[index]"
             class="w-100"
             type="range"
-            :min="range.start"
-            :max="range.end"
+            :min="range.minBound"
+            :max="range.maxBound"
           />
           <span v-if="range && index !== 0">
             display {{ dimSlidersDisplay[index] }}
