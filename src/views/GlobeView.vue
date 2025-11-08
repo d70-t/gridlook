@@ -295,6 +295,8 @@ async function getGridType() {
       return GRID_TYPES.REGULAR_ROTATED;
     }
     if ((datavar.attrs._ARRAY_DIMENSIONS as unknown[]).length >= 3) {
+      // FIXME: Since we now support multiple dimensions, this will be a false-positive
+      // in some cases
       return GRID_TYPES.REGULAR;
     }
     try {

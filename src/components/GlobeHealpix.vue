@@ -11,13 +11,23 @@ import { decodeTime } from "./utils/timeHandling.ts";
 import { datashaderExample } from "./utils/exampleFormatters.ts";
 import { computed, onBeforeMount, onMounted, ref, watch, type Ref } from "vue";
 
-import { useGlobeControlStore } from "./store/store.js";
+import {
+  UPDATE_MODE,
+  useGlobeControlStore,
+  type TUpdateMode,
+} from "./store/store.js";
 import { storeToRefs } from "pinia";
-import type { TSources, TVarInfo } from "../types/GlobeTypes.ts";
+import type {
+  TDimensionRange,
+  TSources,
+  TVarInfo,
+} from "../types/GlobeTypes.ts";
 import { useToast } from "primevue/usetoast";
 import { useLog } from "./utils/logging";
 import { useSharedGlobeLogic } from "./sharedGlobe.ts";
 import { findCRSVar, getDataSourceStore } from "./utils/zarrUtils.ts";
+import { createDimensionRanges } from "./utils/dimensionHandling.ts";
+import { useUrlParameterStore } from "./store/paramStore.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -27,12 +37,18 @@ const store = useGlobeControlStore();
 const toast = useToast();
 const { logError } = useLog();
 const {
-  timeIndexSlider,
   varnameSelector,
   colormap,
   invertColormap,
   selection,
+  dimSlidersValues,
+  isInitializingVariable,
+  varinfo,
 } = storeToRefs(store);
+
+const urlParameterStore = useUrlParameterStore();
+const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
+  storeToRefs(urlParameterStore);
 
 let canvas: Ref<HTMLCanvasElement | undefined> = ref();
 
@@ -68,10 +84,15 @@ watch(
 );
 
 watch(
-  () => timeIndexSlider.value,
+  () => dimSlidersValues.value,
   () => {
-    getData();
-  }
+    if (isInitializingVariable.value) {
+      isInitializingVariable.value = false;
+      return;
+    }
+    getData(UPDATE_MODE.SLIDER_TOGGLE);
+  },
+  { deep: true }
 );
 
 watch(
@@ -91,6 +112,13 @@ watch(
     updateColormap();
   }
 );
+
+const timeIndexSlider = computed(() => {
+  if (varinfo.value?.dimRanges[0]?.name !== "time") {
+    return 0;
+  }
+  return dimSlidersValues.value[0];
+});
 
 const gridsource = computed(() => {
   if (props.datasources) {
@@ -196,8 +224,10 @@ async function getHealpixData(
   timeValue: number,
   ipix: number,
   numChunks: number,
-  nside: number
+  nside: number,
+  dimensionIndices: (number | null)[]
 ) {
+  const localDimensionIndices = dimensionIndices.slice();
   const chunksize = (12 * nside * nside) / numChunks;
   const pixelStart = ipix * chunksize;
   const pixelEnd = (ipix + 1) * chunksize;
@@ -207,9 +237,12 @@ async function getHealpixData(
   // Global data case: cellCoord is undefined
   if (cellCoord === undefined) {
     // Fetch data directly for this chunk
-    const data = (
-      await zarr.get(datavar, [timeValue, zarr.slice(pixelStart, pixelEnd)])
-    ).data as Float32Array;
+    localDimensionIndices[localDimensionIndices.length - 1] = zarr.slice(
+      pixelStart,
+      pixelEnd
+    );
+    const data = (await zarr.get(datavar, localDimensionIndices))
+      .data as Float32Array;
 
     dataSlice.set(data);
   } else {
@@ -236,6 +269,10 @@ async function getHealpixData(
     // Check if indices are contiguous for optimization
     const start = relevantIndices[0];
     const end = relevantIndices[relevantIndices.length - 1] + 1;
+    localDimensionIndices[localDimensionIndices.length - 1] = zarr.slice(
+      start,
+      end
+    );
     const data = (await zarr.get(datavar, [timeValue, zarr.slice(start, end)]))
       .data as Float32Array;
     const isContiguous =
@@ -390,7 +427,7 @@ function data2texture(
   return texture;
 }
 
-async function getData() {
+async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
   store.startLoading();
   try {
     updateCount.value += 1;
@@ -407,7 +444,12 @@ async function getData() {
       currentTimeIndexSliderValue
     );
     if (datavar !== undefined) {
-      await processDataVar(datavar, currentTimeIndexSliderValue, timeinfo);
+      await processDataVar(
+        datavar,
+        currentTimeIndexSliderValue,
+        timeinfo,
+        updateMode
+      );
     }
     updatingData.value = false;
 
@@ -444,9 +486,32 @@ async function extractTimeInfo(
 async function processDataVar(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
   currentTimeIndexSliderValue: number,
-  timeinfo: Awaited<ReturnType<typeof extractTimeInfo>>
+  timeinfo: Awaited<ReturnType<typeof extractTimeInfo>>,
+  updateMode: TUpdateMode
 ) {
   if (datavar !== undefined) {
+    let dimensionRanges: TDimensionRange[] = [];
+    dimensionRanges = createDimensionRanges(
+      datavar,
+      paramDimIndices.value,
+      paramDimMinBounds.value,
+      paramDimMaxBounds.value,
+      1
+    );
+    let indices: (number | null)[] = [];
+    if (updateMode === UPDATE_MODE.INITIAL_LOAD) {
+      indices = dimensionRanges.map((d) => {
+        if (d === null) {
+          return null;
+        } else {
+          return d.startPos;
+        }
+      });
+      console.log("initial indices", indices);
+    } else {
+      console.log("dimslidervalues", dimSlidersValues.value);
+      indices = dimSlidersValues.value;
+    }
     let dataMin = Number.POSITIVE_INFINITY;
     let dataMax = Number.NEGATIVE_INFINITY;
     const cellCoord = await getCells();
@@ -459,7 +524,8 @@ async function processDataVar(
           currentTimeIndexSliderValue,
           ipix,
           HEALPIX_NUMCHUNKS,
-          nside
+          nside,
+          indices
         );
         if (texData === undefined) {
           const material = mainMeshes[ipix].material as THREE.ShaderMaterial;
@@ -475,18 +541,20 @@ async function processDataVar(
         material.uniforms.data.value.dispose();
         material.uniforms.data.value = texData.texture;
 
-        // Optional: trigger a render here if using manual render loop
         redraw();
-        // If your render loop is auto-updating (via requestAnimationFrame), you may skip redraw()
       })
     );
 
-    store.updateVarInfo({
-      attrs: datavar.attrs,
-      timeinfo,
-      timeRange: { start: 0, end: datavar.shape[0] - 1 },
-      bounds: { low: dataMin, high: dataMax },
-    });
+    store.updateVarInfo(
+      {
+        attrs: datavar.attrs,
+        timeinfo,
+        timeRange: { start: 0, end: datavar.shape[0] - 1 },
+        bounds: { low: dataMin, high: dataMax },
+        dimRanges: dimensionRanges,
+      },
+      updateMode
+    );
   }
 }
 

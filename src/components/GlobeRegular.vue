@@ -11,12 +11,18 @@ import { decodeTime } from "./utils/timeHandling.ts";
 import { datashaderExample } from "./utils/exampleFormatters.ts";
 import { computed, onBeforeMount, onMounted, ref, watch, type Ref } from "vue";
 
-import { useGlobeControlStore } from "./store/store.js";
+import {
+  UPDATE_MODE,
+  useGlobeControlStore,
+  type TUpdateMode,
+} from "./store/store.js";
 import { storeToRefs } from "pinia";
-import type { TSources } from "../types/GlobeTypes.ts";
+import type { TDimensionRange, TSources } from "../types/GlobeTypes.ts";
 import { useToast } from "primevue/usetoast";
 import { useLog } from "./utils/logging";
 import { useSharedGlobeLogic } from "./sharedGlobe.ts";
+import { useUrlParameterStore } from "./store/paramStore.ts";
+import { createDimensionRanges } from "./utils/dimensionHandling.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -27,12 +33,18 @@ const store = useGlobeControlStore();
 const toast = useToast();
 const { logError } = useLog();
 const {
-  timeIndexSlider,
+  dimSlidersValues,
   colormap,
   varnameSelector,
   invertColormap,
   selection,
+  isInitializingVariable,
+  varinfo,
 } = storeToRefs(store);
+
+const urlParameterStore = useUrlParameterStore();
+const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
+  storeToRefs(urlParameterStore);
 
 let canvas: Ref<HTMLCanvasElement | undefined> = ref();
 let box: Ref<HTMLDivElement | undefined> = ref();
@@ -63,10 +75,15 @@ watch(
 );
 
 watch(
-  () => timeIndexSlider.value,
+  () => dimSlidersValues.value,
   () => {
-    getData();
-  }
+    if (isInitializingVariable.value) {
+      isInitializingVariable.value = false;
+      return;
+    }
+    getData(UPDATE_MODE.SLIDER_TOGGLE);
+  },
+  { deep: true }
 );
 
 watch(
@@ -86,6 +103,13 @@ watch(
     updateColormap();
   }
 );
+
+const timeIndexSlider = computed(() => {
+  if (varinfo.value?.dimRanges[0]?.name !== "time") {
+    return 0;
+  }
+  return dimSlidersValues.value[0];
+});
 
 const gridsource = computed(() => {
   if (props.datasources) {
@@ -385,7 +409,7 @@ async function getRotatedNorthPole(): Promise<{ lat: number; lon: number }> {
   return { lat, lon };
 }
 
-async function getData() {
+async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
   store.startLoading();
   try {
     updateCount.value += 1;
@@ -415,6 +439,29 @@ async function getData() {
       };
     }
     if (datavar !== undefined) {
+      let dimensionRanges: TDimensionRange[] = [];
+      dimensionRanges = createDimensionRanges(
+        datavar,
+        paramDimIndices.value,
+        paramDimMinBounds.value,
+        paramDimMaxBounds.value,
+        2
+      );
+      let indices: (number | null)[] = [];
+      if (updateMode === UPDATE_MODE.INITIAL_LOAD) {
+        indices = dimensionRanges.map((d) => {
+          if (d === null) {
+            return null;
+          } else {
+            return d.startPos;
+          }
+        });
+        console.log("initial indices", indices);
+      } else {
+        console.log("dimslidervalues", dimSlidersValues.value);
+        indices = dimSlidersValues.value;
+      }
+
       const rawData = await zarr.get(datavar, [
         currentTimeIndexSliderValue,
         ...Array(datavar.shape.length - 1).fill(null),
@@ -451,12 +498,16 @@ async function getData() {
       mainMesh!.material = material;
       mainMesh!.material.needsUpdate = true;
 
-      store.updateVarInfo({
-        attrs: datavar.attrs,
-        timeinfo,
-        timeRange: { start: 0, end: datavar.shape[0] - 1 },
-        bounds: { low: min, high: max },
-      });
+      store.updateVarInfo(
+        {
+          attrs: datavar.attrs,
+          timeinfo,
+          timeRange: { start: 0, end: datavar.shape[0] - 1 },
+          bounds: { low: min, high: max },
+          dimRanges: dimensionRanges,
+        },
+        updateMode
+      );
       redraw();
     }
     updatingData.value = false;
