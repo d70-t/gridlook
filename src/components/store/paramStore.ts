@@ -14,9 +14,6 @@ export const useUrlParameterStore = defineStore("urlParams", {
   state: () => {
     return {
       paramVarname: undefined as string | undefined,
-      paramTimeIndex: undefined as string | undefined,
-      paramMinTimeBound: undefined as string | undefined,
-      paramMaxTimeBound: undefined as string | undefined,
       paramCameraState: undefined as string | undefined,
       paramColormap: undefined as TColorMap | undefined,
       paramInvertColormap: undefined as string | undefined,
@@ -40,9 +37,6 @@ export const useUrlParameterStore = defineStore("urlParams", {
 export const STORE_PARAM_MAPPING = {
   colormap: "paramColormap",
   varname: "paramVarname",
-  timeindex: "paramTimeIndex",
-  mintimebound: "paramMinTimeBound",
-  maxtimebound: "paramMaxTimeBound",
   camerastate: "paramCameraState",
   invertcolormap: "paramInvertColormap",
   maskmode: "paramMaskMode",

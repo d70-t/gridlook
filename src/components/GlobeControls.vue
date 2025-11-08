@@ -26,7 +26,6 @@ type TBoundModes = (typeof BOUND_MODES)[keyof typeof BOUND_MODES];
 
 const store = useGlobeControlStore();
 const {
-  timeIndexSlider,
   colormap,
   invertColormap,
   varnameSelector,
@@ -42,7 +41,6 @@ const {
 const urlParameterStore = useUrlParameterStore();
 const {
   paramColormap,
-  paramTimeIndex,
   paramInvertColormap,
   paramMaskMode,
   paramMaskingUseTexture,
@@ -55,8 +53,7 @@ const autoColormap: Ref<boolean> = ref(true);
 const defaultBounds: Ref<TBounds> = ref({});
 const pickedBounds: Ref<TBoundModes> = ref(BOUND_MODES.AUTO);
 
-// Local copy of timeIndexSlider to allow debounced updates
-const localTimeIndexSlider: Ref<number> = ref(timeIndexSlider.value);
+// Local copy of of all slider values to allow debounced updates
 const localSliders = ref<number[]>([]);
 
 const debouncedUpdaters = ref<Array<(value: number) => void>>([]);
@@ -159,14 +156,6 @@ watch(
   },
   { immediate: true }
 );
-
-const debouncedUpdateTimeIndexSlider = debounce(() => {
-  timeIndexSlider.value = localTimeIndexSlider.value;
-}, 350);
-
-watch(localTimeIndexSlider, () => {
-  debouncedUpdateTimeIndexSlider();
-});
 
 const currentTimeValue = computed(() => {
   return varinfo.value?.timeinfo?.current;
@@ -277,11 +266,6 @@ if (paramInvertColormap.value) {
   } else if (paramInvertColormap.value === "true") {
     invertColormap.value = true;
   }
-}
-
-if (paramTimeIndex.value) {
-  timeIndexSlider.value = Number(paramTimeIndex.value);
-  localTimeIndexSlider.value = Number(paramTimeIndex.value);
 }
 </script>
 

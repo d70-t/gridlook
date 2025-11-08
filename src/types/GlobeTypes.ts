@@ -12,16 +12,18 @@ export type TSelection = {
   bounds: TBounds;
 };
 
+export type TDimensionRange = {
+  name: string;
+  startPos: number;
+  minBound: number;
+  maxBound: number;
+} | null;
+
 export type TVarInfo = {
   timeinfo: EmptyObj | { current: Dayjs; values: Int32Array };
   timeRange: { start: number; end: number };
   bounds: TBounds;
-  dimRanges: ({
-    name: string;
-    startPos: number;
-    minBound: number;
-    maxBound: number;
-  } | null)[];
+  dimRanges: TDimensionRange[];
   attrs: zarr.Attributes;
 };
 

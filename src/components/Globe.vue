@@ -27,10 +27,11 @@ import {
   type TUpdateMode,
 } from "./store/store.js";
 import { storeToRefs } from "pinia";
-import type { TSources } from "../types/GlobeTypes.ts";
+import type { TDimensionRange, TSources } from "../types/GlobeTypes.ts";
 import { useLog } from "./utils/logging";
 import { useSharedGlobeLogic } from "./sharedGlobe.ts";
 import { useUrlParameterStore } from "./store/paramStore.ts";
+import { createDimensionRanges } from "./utils/dimensionHandling.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -188,72 +189,6 @@ function updateColormap() {
   redraw();
 }
 
-function createDimensionRanges(
-  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
-  presetStarts: Record<string, string>,
-  presetMinBounds: Record<string, string>,
-  presetMaxBounds: Record<string, string>,
-  lastToIgnore: number
-) {
-  const dimensions = datavar.attrs._ARRAY_DIMENSIONS as string[];
-  const shape = datavar.shape;
-  const indices: ({
-    name: string;
-    startPos: number;
-    minBound: number;
-    maxBound: number;
-  } | null)[] = shape.slice(0, shape.length - lastToIgnore).map((size, i) => {
-    // console.log(dimensions[i]);
-    if (size === 1) {
-      // return 0;
-      return { name: dimensions[i], startPos: 0, minBound: 0, maxBound: 0 }; // Single element dimension
-    } else {
-      // Placeholder for dimensions that need actual indexing
-      // You'll need to define the logic for each dimension
-      // const dimName = dimensions[i];
-      let startPos = 0;
-      let minBound = 0;
-      let maxBound = size - 1;
-      if (
-        Object.hasOwn(presetMinBounds, dimensions[i]) &&
-        !isNaN(Number(presetMinBounds[dimensions[i]]))
-      ) {
-        minBound = Number(presetMinBounds[dimensions[i]]);
-      }
-      if (
-        Object.hasOwn(presetMaxBounds, dimensions[i]) &&
-        !isNaN(Number(presetMaxBounds[dimensions[i]]))
-      ) {
-        maxBound = Number(presetMaxBounds[dimensions[i]]);
-      }
-      if (
-        Object.hasOwn(presetStarts, dimensions[i]) &&
-        !isNaN(Number(presetStarts[dimensions[i]]))
-      ) {
-        startPos = Number(presetStarts[dimensions[i]]);
-        if (startPos < minBound) {
-          startPos = minBound;
-        }
-        if (startPos > maxBound) {
-          startPos = maxBound;
-        }
-      }
-      return {
-        name: dimensions[i],
-        startPos,
-        minBound,
-        maxBound,
-      };
-    }
-  });
-
-  for (let i = 0; i < lastToIgnore; i++) {
-    indices.push(null);
-  }
-  return indices;
-  // Add wildcard for last dimension
-}
-
 async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
   console.log(">>> GET DATA <<<", updateMode);
   store.startLoading();
@@ -267,7 +202,6 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
 
     const localVarname = varnameSelector.value;
     const currentTimeIndexSliderValue = timeIndexSlider.value;
-    console.log("currentTimeIndexSliderValue", currentTimeIndexSliderValue);
     const [timevar, datavar] = await Promise.all([
       getTimeVar(props.datasources!),
       getDataVar(localVarname, props.datasources!),
@@ -285,12 +219,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
       };
     }
     if (datavar !== undefined) {
-      let dimensionRanges: ({
-        name: string;
-        startPos: number;
-        minBound: number;
-        maxBound: number;
-      } | null)[] = [];
+      let dimensionRanges: TDimensionRange[] = [];
       dimensionRanges = createDimensionRanges(
         datavar,
         paramDimIndices.value,

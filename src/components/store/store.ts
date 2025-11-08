@@ -1,6 +1,5 @@
 import type { TVarInfo, TColorMap, TBounds } from "@/types/GlobeTypes";
 import { defineStore } from "pinia";
-import { useUrlParameterStore } from "./paramStore";
 
 export const LAND_SEA_MASK_MODES = {
   OFF: "off",
@@ -70,57 +69,12 @@ export const useGlobeControlStore = defineStore("globeControl", {
     },
     updateVarInfo(varinfo: TVarInfo, updateMode: TUpdateMode) {
       console.log("STORE: updateVarInfo", updateMode);
-      const parameterStore = useUrlParameterStore();
-      if (
-        parameterStore.paramMinTimeBound !== undefined &&
-        !isNaN(Number(parameterStore.paramMinTimeBound)) &&
-        parameterStore.paramMaxTimeBound !== undefined &&
-        !isNaN(Number(parameterStore.paramMaxTimeBound))
-      ) {
-        // update the time range if given in URL parameters
-        varinfo.timeRange.start = Number(parameterStore.paramMinTimeBound);
-        varinfo.timeRange.end = Number(parameterStore.paramMaxTimeBound);
-      }
-      // for (const range of varinfo.dimRanges) {
-      //   if (
-      //     parameterStore.paramDimMinBounds[range?.name as string] &&
-      //     !isNaN(
-      //       Number(parameterStore.paramDimMinBounds[range?.name as string])
-      //     )
-      //   ) {
-      //     range!.start = Number(
-      //       parameterStore.paramDimMinBounds[range?.name as string]
-      //     );
-      //   }
-      //   if (
-      //     parameterStore.paramDimMaxBounds[range?.name as string] &&
-      //     !isNaN(
-      //       Number(parameterStore.paramDimMaxBounds[range?.name as string])
-      //     )
-      //   ) {
-      //     range!.end = Number(
-      //       parameterStore.paramDimMaxBounds[range?.name as string]
-      //     );
-      //   }
-      // }
-
       if (updateMode === UPDATE_MODE.INITIAL_LOAD) {
         this.isInitializingVariable = true;
         this.dimSlidersDisplay.splice(0, this.dimSlidersDisplay.length);
         this.dimSlidersValues.splice(0, this.dimSlidersValues.length);
         for (let i = 0; i < varinfo.dimRanges.length; i++) {
           const d = varinfo.dimRanges[i];
-          /*
-          if (
-            Object.hasOwn(parameterStore.paramDimIndices, d?.name as string)
-          ) {
-            this.dimSlidersDisplay.push(
-              Number(parameterStore.paramDimIndices[d?.name as string])
-            );
-            this.dimSlidersValues.push(
-              Number(parameterStore.paramDimIndices[d?.name as string])
-            );
-          } else */
           if (d === null) {
             this.dimSlidersDisplay.push(null);
             this.dimSlidersValues.push(null);
@@ -138,14 +92,6 @@ export const useGlobeControlStore = defineStore("globeControl", {
       }
 
       this.varinfo = varinfo;
-      // console.log("this.updateVarInfo");
-      // this.dimSliders.splice(0, this.dimSliders.length);
-      // for (let i = 0; i < varinfo.dimRanges.length; i++) {
-      //   this.dimSliders.push({
-      //     display: varinfo.dimRanges[i]?.start ?? 1,
-      //     value: varinfo.dimRanges[i]?.start ?? 1,
-      //   });
-      // }
     },
     updateBounds(bounds: TBounds) {
       this.selection = bounds;
