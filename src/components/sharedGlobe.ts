@@ -58,7 +58,6 @@ export function useSharedGlobeLogic(
   watch(
     [() => landSeaMaskChoice.value, () => landSeaMaskUseTexture.value],
     () => {
-      console.log("updating landseamask");
       updateLandSeaMask();
     }
   );
@@ -297,7 +296,13 @@ export function useSharedGlobeLogic(
   });
 
   onBeforeUnmount(() => {
+    scene?.clear();
+    camera?.clear();
+    renderer?.dispose();
     getResizeObserver()?.unobserve(box.value!);
+    scene = undefined;
+    renderer = undefined;
+    camera = undefined;
   });
 
   function makeSnapshot() {
