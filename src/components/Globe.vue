@@ -27,11 +27,11 @@ import {
   type TUpdateMode,
 } from "./store/store.js";
 import { storeToRefs } from "pinia";
-import type { TDimensionRange, TSources } from "../types/GlobeTypes.ts";
+import type { TSources } from "../types/GlobeTypes.ts";
 import { useLog } from "./utils/logging";
 import { useSharedGlobeLogic } from "./sharedGlobe.ts";
 import { useUrlParameterStore } from "./store/paramStore.ts";
-import { createDimensionRanges } from "./utils/dimensionHandling.ts";
+import { getDimensionInfo } from "./utils/dimensionHandling.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -85,7 +85,6 @@ watch(
 watch(
   () => dimSlidersValues.value,
   () => {
-    console.log("GLOBE: watch dimsliders", dimSlidersValues.value);
     if (isInitializingVariable.value) {
       isInitializingVariable.value = false;
       return;
@@ -219,31 +218,16 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
       };
     }
     if (datavar !== undefined) {
-      let dimensionRanges: TDimensionRange[] = [];
-      dimensionRanges = createDimensionRanges(
+      const { dimensionRanges, indices } = getDimensionInfo(
         datavar,
         paramDimIndices.value,
         paramDimMinBounds.value,
         paramDimMaxBounds.value,
+        updateMode === UPDATE_MODE.INITIAL_LOAD ? null : dimSlidersValues.value,
         1
       );
-      let indices: (number | null)[] = [];
-      if (updateMode === UPDATE_MODE.INITIAL_LOAD) {
-        indices = dimensionRanges.map((d) => {
-          if (d === null) {
-            return null;
-          } else {
-            return d.startPos;
-          }
-        });
-        console.log("initial indices", indices);
-      } else {
-        console.log("dimslidervalues", dimSlidersValues.value);
-        indices = dimSlidersValues.value;
-      }
 
       const rawData = await zarr.get(datavar, indices);
-      // console.log("rawData", rawData);
       const dataBuffer = data2valueBuffer(rawData);
       mainMesh?.geometry.setAttribute(
         "data_value",
@@ -263,7 +247,6 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
     }
     updatingData.value = false;
     if (updateCount.value !== myUpdatecount) {
-      console.log("UPDATE COUNT?!");
       await getData(updateMode);
     }
   } catch (error) {

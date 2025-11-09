@@ -36,7 +36,7 @@ import * as zarr from "zarrita";
  * @param {number} lastToIgnore - the number of last dimensions to ignore
  * @returns {TDimensionRange[]} an array of dimension range objects
  */
-export function createDimensionRanges(
+function createDimensionRanges(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
   presetStarts: Record<string, string>,
   presetMinBounds: Record<string, string>,
@@ -93,4 +93,41 @@ export function createDimensionRanges(
     indices.push(null);
   }
   return indices;
+}
+
+export function getDimensionInfo(
+  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  presetStarts: Record<string, string>,
+  presetMinBounds: Record<string, string>,
+  presetMaxBounds: Record<string, string>,
+  sliderValues: number[] | null,
+  lastToIgnore: number
+) {
+  let dimensionRanges: TDimensionRange[] = [];
+  dimensionRanges = createDimensionRanges(
+    datavar,
+    presetStarts,
+    presetMinBounds,
+    presetMaxBounds,
+    lastToIgnore
+  );
+  let indices: (number | null)[] = [];
+  if (sliderValues === null) {
+    // Initial loading
+    indices = dimensionRanges.map((d) => {
+      if (d === null) {
+        return null;
+      } else {
+        return d.startPos;
+      }
+    });
+    console.log("initial indices", indices);
+  } else {
+    console.log("dimslidervalues", sliderValues);
+    indices = sliderValues;
+  }
+  return {
+    dimensionRanges,
+    indices,
+  };
 }

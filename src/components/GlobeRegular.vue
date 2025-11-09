@@ -9,7 +9,15 @@ import {
 } from "./utils/colormapShaders.ts";
 import { decodeTime } from "./utils/timeHandling.ts";
 import { datashaderExample } from "./utils/exampleFormatters.ts";
-import { computed, onBeforeMount, onMounted, ref, watch, type Ref } from "vue";
+import {
+  computed,
+  onBeforeMount,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+  type Ref,
+} from "vue";
 
 import {
   UPDATE_MODE,
@@ -17,12 +25,12 @@ import {
   type TUpdateMode,
 } from "./store/store.js";
 import { storeToRefs } from "pinia";
-import type { TDimensionRange, TSources } from "../types/GlobeTypes.ts";
+import type { TSources } from "../types/GlobeTypes.ts";
 import { useToast } from "primevue/usetoast";
 import { useLog } from "./utils/logging";
 import { useSharedGlobeLogic } from "./sharedGlobe.ts";
 import { useUrlParameterStore } from "./store/paramStore.ts";
-import { createDimensionRanges } from "./utils/dimensionHandling.ts";
+import { getDimensionInfo } from "./utils/dimensionHandling.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -439,33 +447,20 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
       };
     }
     if (datavar !== undefined) {
-      let dimensionRanges: TDimensionRange[] = [];
-      dimensionRanges = createDimensionRanges(
+      const { dimensionRanges, indices } = getDimensionInfo(
         datavar,
         paramDimIndices.value,
         paramDimMinBounds.value,
         paramDimMaxBounds.value,
+        updateMode === UPDATE_MODE.INITIAL_LOAD ? null : dimSlidersValues.value,
         2
       );
-      let indices: (number | null)[] = [];
-      if (updateMode === UPDATE_MODE.INITIAL_LOAD) {
-        indices = dimensionRanges.map((d) => {
-          if (d === null) {
-            return null;
-          } else {
-            return d.startPos;
-          }
-        });
-        console.log("initial indices", indices);
-      } else {
-        console.log("dimslidervalues", dimSlidersValues.value);
-        indices = dimSlidersValues.value;
-      }
 
-      const rawData = await zarr.get(datavar, [
-        currentTimeIndexSliderValue,
-        ...Array(datavar.shape.length - 1).fill(null),
-      ]);
+      const rawData = await zarr.get(datavar, indices);
+      // const rawData = await zarr.get(datavar, [
+      //   currentTimeIndexSliderValue,
+      //   ...Array(datavar.shape.length - 1).fill(null),
+      // ]);
       let min = Number.POSITIVE_INFINITY;
       let max = Number.NEGATIVE_INFINITY;
       for (let i of rawData.data as Float64Array) {
@@ -541,7 +536,6 @@ function copyPythonExample() {
 }
 onMounted(() => {
   getScene()?.add(mainMesh as THREE.Mesh);
-  // scaleBarRef.value.setContext(getCamera(), getRenderer());
 });
 
 onBeforeMount(async () => {
@@ -549,6 +543,10 @@ onBeforeMount(async () => {
   const material = new THREE.ShaderMaterial();
   mainMesh = new THREE.Mesh(geometry, material);
   await datasourceUpdate();
+});
+
+onBeforeUnmount(() => {
+  console.log("before unmount");
 });
 
 defineExpose({ makeSnapshot, copyPythonExample, toggleRotate });

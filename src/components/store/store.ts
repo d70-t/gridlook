@@ -62,7 +62,6 @@ export const useGlobeControlStore = defineStore("globeControl", {
       this.loading = false;
       this.timeIndexDisplay = this.timeIndexSlider;
       this.varnameDisplay = this.varnameSelector;
-      console.log("STOP LoadIng VERFICKTE SHCIESSE");
       for (let i = 0; i < this.dimSlidersValues.length; i++) {
         this.dimSlidersDisplay[i] = this.dimSlidersValues[i];
       }

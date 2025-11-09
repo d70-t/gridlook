@@ -17,16 +17,12 @@ import {
   type TUpdateMode,
 } from "./store/store.js";
 import { storeToRefs } from "pinia";
-import type {
-  TDimensionRange,
-  TSources,
-  TVarInfo,
-} from "../types/GlobeTypes.ts";
+import type { TSources, TVarInfo } from "../types/GlobeTypes.ts";
 import { useToast } from "primevue/usetoast";
 import { useLog } from "./utils/logging";
 import { useSharedGlobeLogic } from "./sharedGlobe.ts";
 import { findCRSVar, getDataSourceStore } from "./utils/zarrUtils.ts";
-import { createDimensionRanges } from "./utils/dimensionHandling.ts";
+import { getDimensionInfo } from "./utils/dimensionHandling.ts";
 import { useUrlParameterStore } from "./store/paramStore.ts";
 
 const props = defineProps<{
@@ -490,28 +486,15 @@ async function processDataVar(
   updateMode: TUpdateMode
 ) {
   if (datavar !== undefined) {
-    let dimensionRanges: TDimensionRange[] = [];
-    dimensionRanges = createDimensionRanges(
+    const { dimensionRanges, indices } = getDimensionInfo(
       datavar,
       paramDimIndices.value,
       paramDimMinBounds.value,
       paramDimMaxBounds.value,
+      updateMode === UPDATE_MODE.INITIAL_LOAD ? null : dimSlidersValues.value,
       1
     );
-    let indices: (number | null)[] = [];
-    if (updateMode === UPDATE_MODE.INITIAL_LOAD) {
-      indices = dimensionRanges.map((d) => {
-        if (d === null) {
-          return null;
-        } else {
-          return d.startPos;
-        }
-      });
-      console.log("initial indices", indices);
-    } else {
-      console.log("dimslidervalues", dimSlidersValues.value);
-      indices = dimSlidersValues.value;
-    }
+
     let dataMin = Number.POSITIVE_INFINITY;
     let dataMax = Number.NEGATIVE_INFINITY;
     const cellCoord = await getCells();
