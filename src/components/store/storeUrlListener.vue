@@ -125,11 +125,10 @@ watch(
   () => dimSlidersDisplay.value,
   () => {
     const dimension = store.varinfo?.dimRanges;
-    console.log("Display hat sich veraendert", store.dimSlidersDisplay);
     if (!dimension) {
       return;
     }
-    const dimensionValues = {} as Record<string, number>;
+    const dimensionValues = {} as Record<string, number | null>;
     for (let i = 0; i < dimension?.length; i++) {
       if (dimension[i] === null) {
         continue;

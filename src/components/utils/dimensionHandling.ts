@@ -100,7 +100,7 @@ export function getDimensionInfo(
   presetStarts: Record<string, string>,
   presetMinBounds: Record<string, string>,
   presetMaxBounds: Record<string, string>,
-  sliderValues: number[] | null,
+  sliderValues: (number | null)[] | null,
   lastToIgnore: number
 ) {
   let dimensionRanges: TDimensionRange[] = [];
@@ -111,7 +111,7 @@ export function getDimensionInfo(
     presetMaxBounds,
     lastToIgnore
   );
-  let indices: (number | null)[] = [];
+  let indices: (number | null | zarr.Slice)[] = [];
   if (sliderValues === null) {
     // Initial loading
     indices = dimensionRanges.map((d) => {

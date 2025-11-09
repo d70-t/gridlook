@@ -212,7 +212,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
       timeinfo = {
         values: timevalues,
         current: decodeTime(
-          (timevalues as number[])[currentTimeIndexSliderValue],
+          (timevalues as number[])[currentTimeIndexSliderValue as number],
           timeattrs
         ),
       };
@@ -263,7 +263,7 @@ function copyPythonExample() {
     datasrc: datasource.value!.store + datasource.value!.dataset,
     gridsrc: gridsource.value!.store + gridsource.value!.dataset,
     varname: varnameSelector.value,
-    timeIndex: timeIndexSlider.value,
+    timeIndex: timeIndexSlider.value as number,
     varbounds: bounds.value,
     colormap: colormap.value,
     invertColormap: invertColormap.value,

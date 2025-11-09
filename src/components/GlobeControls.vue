@@ -150,7 +150,7 @@ watch(
             );
             dimSlidersValues.value[index] = value;
           }
-        }, 1550);
+        }, 550);
       });
     }
   },

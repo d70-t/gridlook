@@ -221,7 +221,7 @@ async function getHealpixData(
   ipix: number,
   numChunks: number,
   nside: number,
-  dimensionIndices: (number | null)[]
+  dimensionIndices: (number | zarr.Slice | null)[]
 ) {
   const localDimensionIndices = dimensionIndices.slice();
   const chunksize = (12 * nside * nside) / numChunks;
@@ -437,12 +437,12 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
     const [timevar, datavar] = await loadTimeAndDataVars(localVarname);
     const timeinfo = await extractTimeInfo(
       timevar,
-      currentTimeIndexSliderValue
+      currentTimeIndexSliderValue as number
     );
     if (datavar !== undefined) {
       await processDataVar(
         datavar,
-        currentTimeIndexSliderValue,
+        currentTimeIndexSliderValue as number,
         timeinfo,
         updateMode
       );
@@ -547,7 +547,7 @@ function copyPythonExample() {
     datasrc: datasource.value!.store + datasource.value!.dataset,
     gridsrc: gridsource.value!.store + gridsource.value!.dataset,
     varname: varnameSelector.value,
-    timeIndex: timeIndexSlider.value,
+    timeIndex: timeIndexSlider.value as number,
     varbounds: bounds.value!,
     colormap: colormap.value,
     invertColormap: invertColormap.value,
