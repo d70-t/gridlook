@@ -2,19 +2,20 @@
   "extends": "@vue/tsconfig/tsconfig.dom.json",
   "include": ["env.d.ts", "src/**/*", "src/**/*.vue"],
   "compilerOptions": {
-    "target": "ES2020",
+    "target": "ES2022",
     "useDefineForClassFields": true,
-    "module": "ESNext",
+    "module": "es2020",
     "types": ["vite/client", "node"],
     "skipLibCheck": true,
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
     },
+    "lib": ["es2022", "dom"],
     "allowJs": true,
 
     /* Bundler mode */
-    "moduleResolution": "node",
+    "moduleResolution": "node10",
     "allowImportingTsExtensions": true,
     "isolatedModules": true,
     "moduleDetection": "force",

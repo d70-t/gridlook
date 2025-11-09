@@ -54,7 +54,7 @@ const defaultBounds: Ref<TBounds> = ref({});
 const pickedBounds: Ref<TBoundModes> = ref(BOUND_MODES.AUTO);
 
 // Local copy of of all slider values to allow debounced updates
-const localSliders = ref<number[]>([]);
+const localSliders = ref<(number | null)[]>([]);
 
 const debouncedUpdaters = ref<Array<(value: number) => void>>([]);
 
@@ -108,7 +108,11 @@ watch(
   (newValues) => {
     newValues.forEach((value, index) => {
       // if (value !== oldValues?.[index] && debouncedUpdaters.value[index]) {
-      if (value !== undefined && value !== dimSlidersValues.value[index]) {
+      if (
+        value !== null &&
+        value !== undefined &&
+        value !== dimSlidersValues.value[index]
+      ) {
         console.log(
           "GlobeControls: watch localSliders",
           newValues[index],
