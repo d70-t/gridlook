@@ -22,6 +22,7 @@ const urlParameterStore = useUrlParameterStore();
 
 const onHashChange = () => {
   if (location.hash.length > 1) {
+    urlParameterStore.$reset();
     // The hash is of the form "#resource::param1=value1::param2=value2::..."
     // We split on "::" to separate the resource from the parameters
     // and then parse the parameters and set the store values accordingly
@@ -59,7 +60,6 @@ const onHashChange = () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       urlParameterStore[STORE_PARAM_MAPPING[key]] = value as any;
     }
-    console.log("URL PARAMETER STORE", urlParameterStore);
     src.value = resource || defaultSrc.value;
   } else {
     src.value = defaultSrc.value;
