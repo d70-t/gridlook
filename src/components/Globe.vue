@@ -189,7 +189,6 @@ function updateColormap() {
 }
 
 async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
-  console.log(">>> GET DATA <<<", updateMode);
   store.startLoading();
   try {
     updateCount.value += 1;

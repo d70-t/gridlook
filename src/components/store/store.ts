@@ -67,7 +67,6 @@ export const useGlobeControlStore = defineStore("globeControl", {
       }
     },
     updateVarInfo(varinfo: TVarInfo, updateMode: TUpdateMode) {
-      console.log("STORE: updateVarInfo", updateMode);
       if (updateMode === UPDATE_MODE.INITIAL_LOAD) {
         this.isInitializingVariable = true;
         this.dimSlidersDisplay.splice(0, this.dimSlidersDisplay.length);
@@ -78,16 +77,10 @@ export const useGlobeControlStore = defineStore("globeControl", {
             this.dimSlidersDisplay.push(null);
             this.dimSlidersValues.push(null);
           } else {
-            //if (d.end === 0) {
             this.dimSlidersDisplay.push(d.startPos);
             this.dimSlidersValues.push(d.startPos);
           }
-          console.log("STORE: foo", this.dimSlidersDisplay[i]);
         }
-        console.log(
-          "STORE: dimSliderValues on UpdateVarInfo",
-          this.dimSlidersValues
-        );
       }
 
       this.varinfo = varinfo;

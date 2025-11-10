@@ -108,12 +108,6 @@ watch(
         value !== undefined &&
         value !== dimSlidersValues.value[index]
       ) {
-        console.log(
-          "GlobeControls: watch localSliders",
-          newValues[index],
-          "dimslider",
-          dimSlidersValues.value[index]
-        );
         debouncedUpdaters.value[index](value);
       }
     });
@@ -124,10 +118,8 @@ watch(
 watch(
   () => varinfo.value,
   () => {
-    console.log("GlobeControls: watch var info");
     const newRanges = varinfo.value?.dimRanges;
     if (newRanges) {
-      console.log("GlobeControls: nochmal new ranges", newRanges);
       localSliders.value = newRanges.map(
         (range, index) =>
           dimSlidersValues.value[index] ?? range?.startPos ?? null
@@ -136,17 +128,7 @@ watch(
       // Create stable debounced functions
       debouncedUpdaters.value = newRanges.map((_, index) => {
         return debounce((value: number) => {
-          console.log(
-            "GlobeControls: debouncer",
-            dimSlidersValues.value[index]
-          );
           if (dimSlidersValues.value[index] !== undefined) {
-            console.log(
-              "GlobeControls: SET DIMSLIDER",
-              index,
-              dimSlidersValues.value[index],
-              value
-            );
             dimSlidersValues.value[index] = value;
           }
         }, 550);

@@ -79,7 +79,6 @@ async function setGridType() {
     datasources.value,
     logError
   );
-  console.log("localGridType", localGridType);
   gridType.value = localGridType;
 }
 

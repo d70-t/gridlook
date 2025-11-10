@@ -35,7 +35,6 @@ export async function getGridType(
   if (!sourceValid) {
     return GRID_TYPES.ERROR;
   }
-  console.log("REGULAR?!?!");
   try {
     try {
       // CHECK IF TRIANGULAR
@@ -66,7 +65,6 @@ export async function getGridType(
           kind: "array",
         }
       );
-      console.log("CRS", crs.attrs);
       if (crs.attrs["grid_mapping_name"] === "healpix") {
         return GRID_TYPES.HEALPIX;
       }
@@ -82,7 +80,6 @@ export async function getGridType(
       isLatitude(dimensions[dimensions.length - 2]) &&
       isLongitude(dimensions[dimensions.length - 1])
     ) {
-      console.log("DIMENSIONS", dimensions);
       return GRID_TYPES.REGULAR;
     }
     try {

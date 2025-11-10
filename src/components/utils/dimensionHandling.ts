@@ -121,9 +121,7 @@ export function getDimensionInfo(
         return d.startPos;
       }
     });
-    console.log("initial indices", indices);
   } else {
-    console.log("dimslidervalues", sliderValues);
     indices = sliderValues;
   }
   return {

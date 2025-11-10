@@ -544,10 +544,6 @@ onBeforeMount(async () => {
   await datasourceUpdate();
 });
 
-onBeforeUnmount(() => {
-  console.log("before unmount");
-});
-
 defineExpose({ makeSnapshot, copyPythonExample, toggleRotate });
 </script>
 

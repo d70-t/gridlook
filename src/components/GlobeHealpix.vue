@@ -450,7 +450,6 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
     updatingData.value = false;
 
     if (updateCount.value !== myUpdatecount) {
-      console.log("HEALPIX: RESTART UPDATE");
       await getData(updateMode);
     }
   } catch (error) {
