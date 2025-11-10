@@ -23,6 +23,7 @@ import { useLog } from "./utils/logging";
 import { useSharedGlobeLogic } from "./sharedGlobe.ts";
 import { useUrlParameterStore } from "./store/paramStore.ts";
 import { getDimensionInfo } from "./utils/dimensionHandling.ts";
+import { findCRSVar, getDataSourceStore } from "./utils/zarrUtils.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -395,17 +396,15 @@ async function getRegularData(
 }
 
 async function getRotatedNorthPole(): Promise<{ lat: number; lon: number }> {
-  const datasource =
-    props.datasources!.levels[0].datasources[varnameSelector.value];
-  const root = zarr.root(new zarr.FetchStore(datasource.store));
-  const info = await zarr.open(
-    root.resolve(datasource.dataset + `/rotated_latitude_longitude`),
+  const root = getDataSourceStore(props.datasources!, varnameSelector.value);
+  const crs = await zarr.open(
+    root.resolve(await findCRSVar(root, varnameSelector.value)),
     {
       kind: "array",
     }
   );
-  const lat = info.attrs["grid_north_pole_latitude"] as number;
-  const lon = info.attrs["grid_north_pole_longitude"] as number;
+  const lat = crs.attrs["grid_north_pole_latitude"] as number;
+  const lon = crs.attrs["grid_north_pole_longitude"] as number;
   return { lat, lon };
 }
 
