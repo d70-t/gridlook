@@ -109,6 +109,7 @@ watch(
 );
 
 async function indexFromZarr(src: string) {
+  // FIXME: Filter out all dimensions and coordinates
   const store = await zarr.withConsolidated(new zarr.FetchStore(src));
   const root = await zarr.open(store, { kind: "group" });
 

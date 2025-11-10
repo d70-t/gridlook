@@ -348,7 +348,14 @@ if (paramInvertColormap.value) {
         </div>
       </div>
     </div>
-    <div v-if="varinfo && varinfo.dimRanges.length > 1" class="panel-block">
+    <div
+      v-if="
+        varinfo &&
+        varinfo.dimRanges.length > 1 &&
+        varinfo.dimRanges.slice(1).some((range) => range && range.maxBound > 0)
+      "
+      class="panel-block"
+    >
       <!-- Generic dimension sliders -->
       <div class="control">
         <template v-for="(range, index) in varinfo.dimRanges" :key="index">
@@ -382,12 +389,6 @@ if (paramInvertColormap.value) {
             :min="range.minBound"
             :max="range.maxBound"
           />
-          <span v-if="range && index !== 0">
-            display {{ dimSlidersDisplay[index] }}
-          </span>
-          <span v-if="range && index !== 0">
-            value {{ dimSlidersValues[index] }}
-          </span>
         </template>
       </div>
     </div>
