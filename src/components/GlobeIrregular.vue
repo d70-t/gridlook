@@ -322,7 +322,6 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
         {
           attrs: datavar.attrs,
           timeinfo,
-          timeRange: { start: 0, end: datavar.shape[0] - 1 },
           bounds: { low: min, high: max },
           dimRanges: dimensionRanges,
         },
@@ -331,7 +330,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
     }
     updatingData.value = false;
     if (updateCount.value !== myUpdatecount) {
-      await getData();
+      await getData(updateMode);
     }
   } catch (error) {
     logError(error, "Could not fetch data");

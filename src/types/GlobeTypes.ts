@@ -21,7 +21,6 @@ export type TDimensionRange = {
 
 export type TVarInfo = {
   timeinfo: EmptyObj | { current: Dayjs; values: Int32Array };
-  timeRange: { start: number; end: number };
   bounds: TBounds;
   dimRanges: TDimensionRange[];
   attrs: zarr.Attributes;
@@ -43,7 +42,6 @@ export type TModelInfo = {
   defaultVar: string;
   title: string;
   colormaps: TColorMap[];
-  timeRange: { start: number; end: number };
 };
 
 export type TSources = {

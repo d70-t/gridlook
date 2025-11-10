@@ -237,7 +237,6 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
         {
           attrs: datavar.attrs,
           timeinfo,
-          timeRange: { start: 0, end: datavar.shape[0] - 1 },
           bounds: { low: dataBuffer.dataMin, high: dataBuffer.dataMax },
           dimRanges: dimensionRanges,
         },

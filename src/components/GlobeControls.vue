@@ -99,15 +99,10 @@ const bounds = computed(() => {
   return undefined;
 });
 
-// const timeRange = computed(() => {
-//   return varinfo.value?.timeRange ?? { start: 0, end: 1 };
-// });
-
 watch(
   localSliders,
   (newValues) => {
     newValues.forEach((value, index) => {
-      // if (value !== oldValues?.[index] && debouncedUpdaters.value[index]) {
       if (
         value !== null &&
         value !== undefined &&

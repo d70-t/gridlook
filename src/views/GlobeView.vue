@@ -57,10 +57,6 @@ const modelInfo = computed(() => {
       vars: datasources.value.levels[0].datasources,
       defaultVar: datasources.value.default_var,
       colormaps: Object.keys(availableColormaps) as TColorMap[],
-      timeRange: {
-        start: 0,
-        end: 1,
-      },
     };
   }
 });
@@ -186,7 +182,7 @@ const updateSrc = async () => {
     indexFromIndex(src),
   ]);
   let lastError = null;
-
+  store.isInitializingVariable = true;
   sourceValid.value = false;
   for (const index of indices) {
     if (index.status === "fulfilled") {

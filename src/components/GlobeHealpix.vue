@@ -450,7 +450,8 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
     updatingData.value = false;
 
     if (updateCount.value !== myUpdatecount) {
-      await getData(); // Restart update if another one queued
+      console.log("HEALPIX: RESTART UPDATE");
+      await getData(updateMode);
     }
   } catch (error) {
     logError(error, "Could not fetch data");
@@ -532,7 +533,6 @@ async function processDataVar(
       {
         attrs: datavar.attrs,
         timeinfo,
-        timeRange: { start: 0, end: datavar.shape[0] - 1 },
         bounds: { low: dataMin, high: dataMax },
         dimRanges: dimensionRanges,
       },
