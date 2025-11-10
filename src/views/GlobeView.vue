@@ -15,21 +15,13 @@ import { useLog } from "../components/utils/logging";
 import { storeToRefs } from "pinia";
 import StoreUrlListener from "../components/store/storeUrlListener.vue";
 import { useUrlParameterStore } from "../components/store/paramStore";
-import { findCRSVar, getDataSourceStore } from "../components/utils/zarrUtils";
+import {
+  getGridType,
+  GRID_TYPES,
+  type T_GRID_TYPES,
+} from "../components/utils/gridTypeDetector";
 
 const props = defineProps<{ src: string }>();
-
-const GRID_TYPES = {
-  REGULAR: "regular",
-  HEALPIX: "healpix",
-  REGULAR_ROTATED: "regular_rotated",
-  TRIANGULAR: "triangular",
-  GAUSSIAN: "gaussian",
-  IRREGULAR: "irregular",
-  ERROR: "error",
-} as const;
-
-type T_GRID_TYPES = (typeof GRID_TYPES)[keyof typeof GRID_TYPES];
 
 const { logError } = useLog();
 const store = useGlobeControlStore();
@@ -81,7 +73,12 @@ async function setGridType() {
   if (!isInitialized.value) {
     return;
   }
-  const localGridType = await getGridType();
+  const localGridType = await getGridType(
+    sourceValid.value,
+    varnameSelector.value,
+    datasources.value,
+    logError
+  );
   console.log("localGridType", localGridType);
   gridType.value = localGridType;
 }
@@ -243,84 +240,6 @@ const toggleRotate = () => {
     globe.value.toggleRotate();
   }
 };
-
-async function getGridType() {
-  // FIXME: This is a clumsy hack to distinguish between different
-  // grid types.
-  if (!sourceValid.value) {
-    return GRID_TYPES.ERROR;
-  }
-  try {
-    try {
-      // CHECK IF TRIANGULAR
-      const gridsource = datasources.value!.levels[0].grid;
-      const gridRoot = zarr.root(new zarr.FetchStore(gridsource.store));
-      const grid = await zarr.open(gridRoot.resolve(gridsource.dataset), {
-        kind: "group",
-      });
-      await zarr.open(grid.resolve("vertex_of_cell"), {
-        kind: "array",
-      });
-      return GRID_TYPES.TRIANGULAR;
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    } catch (e) {
-      /* empty */
-    }
-
-    const root = getDataSourceStore(datasources.value!, varnameSelector.value);
-
-    const datavar = await zarr.open(root.resolve(varnameSelector.value), {
-      kind: "array",
-    });
-
-    try {
-      const crs = await zarr.open(
-        root.resolve(await findCRSVar(root, varnameSelector.value)),
-        {
-          kind: "array",
-        }
-      );
-      if (crs.attrs["grid_mapping_name"] === "healpix") {
-        return GRID_TYPES.HEALPIX;
-      }
-    } catch {
-      /* fall through to other cases */
-    }
-    if (datavar.attrs.grid_mapping === "rotated_latitude_longitude") {
-      return GRID_TYPES.REGULAR_ROTATED;
-    }
-    if ((datavar.attrs._ARRAY_DIMENSIONS as unknown[]).length >= 3) {
-      // FIXME: Since we now support multiple dimensions, this will be a false-positive
-      // in some cases
-      return GRID_TYPES.REGULAR;
-    }
-    try {
-      const gridsource = datasources.value!.levels[0].grid;
-      const gridRoot = zarr.root(new zarr.FetchStore(gridsource.store));
-      const grid = await zarr.open(gridRoot.resolve(gridsource.dataset), {
-        kind: "group",
-      });
-
-      const latitudes = (
-        await zarr.open(grid.resolve("lat"), { kind: "array" }).then(zarr.get)
-      ).data as Float64Array;
-
-      const longitudes = (
-        await zarr.open(grid.resolve("lon"), { kind: "array" }).then(zarr.get)
-      ).data as Float64Array;
-
-      if (latitudes.length === longitudes.length) {
-        return GRID_TYPES.IRREGULAR;
-      }
-    } catch {
-      /* fall through */
-    }
-    return GRID_TYPES.GAUSSIAN;
-  } catch (error) {
-    logError(error, "Could not determine grid type");
-    return GRID_TYPES.ERROR;
-  }
-}
 
 onMounted(async () => {
   isLoading.value = true;
