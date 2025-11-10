@@ -9,15 +9,7 @@ import {
 } from "./utils/colormapShaders.ts";
 import { decodeTime } from "./utils/timeHandling.ts";
 import { datashaderExample } from "./utils/exampleFormatters.ts";
-import {
-  computed,
-  onBeforeMount,
-  onBeforeUnmount,
-  onMounted,
-  ref,
-  watch,
-  type Ref,
-} from "vue";
+import { computed, onBeforeMount, onMounted, ref, watch, type Ref } from "vue";
 
 import {
   UPDATE_MODE,
