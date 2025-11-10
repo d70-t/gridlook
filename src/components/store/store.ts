@@ -31,10 +31,6 @@ export const useGlobeControlStore = defineStore("globeControl", {
       landSeaMaskChoice: LAND_SEA_MASK_MODES.OFF as TLandSeaMaskMode,
       // when true, use the textured versions; when false, use the greyscale/solid versions
       landSeaMaskUseTexture: false,
-
-      timeIndexSlider: 1, // the time index currently selected by the slider
-      timeIndexDisplay: 1, // the time index currently shown on the globe (will be updated after loading)
-
       varnameSelector: "-", // the varname currently selected in the dropdown
       varnameDisplay: "-", // the varname currently shown on the globe (will be updated after loading)
       loading: false,
@@ -60,7 +56,6 @@ export const useGlobeControlStore = defineStore("globeControl", {
     },
     stopLoading() {
       this.loading = false;
-      this.timeIndexDisplay = this.timeIndexSlider;
       this.varnameDisplay = this.varnameSelector;
       for (let i = 0; i < this.dimSlidersValues.length; i++) {
         this.dimSlidersDisplay[i] = this.dimSlidersValues[i];
