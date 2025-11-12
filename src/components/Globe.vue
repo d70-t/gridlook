@@ -2,24 +2,11 @@
 import * as THREE from "three";
 import * as zarr from "zarrita";
 import { grid2buffer, data2valueBuffer } from "./utils/gridlook.ts";
-import {
-  makeColormapMaterial,
-  availableColormaps,
-  calculateColorMapProperties,
-} from "./utils/colormapShaders.ts";
+import { makeColormapMaterial } from "./utils/colormapShaders.ts";
 import { decodeTime } from "./utils/timeHandling.ts";
 
 import { datashaderExample } from "./utils/exampleFormatters.ts";
-import {
-  computed,
-  onBeforeMount,
-  ref,
-  shallowRef,
-  onMounted,
-  watch,
-  type Ref,
-  type ShallowRef,
-} from "vue";
+import { computed, onBeforeMount, ref, onMounted, watch } from "vue";
 
 import {
   UPDATE_MODE,
@@ -53,16 +40,10 @@ const urlParameterStore = useUrlParameterStore();
 const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
   storeToRefs(urlParameterStore);
 
-const datavars: ShallowRef<
-  Record<string, zarr.Array<zarr.DataType, zarr.FetchStore>>
-> = shallowRef({});
 const updateCount = ref(0);
 const updatingData = ref(false);
 
 let mainMesh: THREE.Mesh | undefined = undefined;
-
-let canvas: Ref<HTMLCanvasElement | undefined> = ref();
-let box: Ref<HTMLDivElement | undefined> = ref();
 
 const {
   getScene,
@@ -73,7 +54,10 @@ const {
   getDataVar,
   getTimeVar,
   updateLandSeaMask,
-} = useSharedGlobeLogic(canvas, box);
+  updateColormap,
+  canvas,
+  box,
+} = useSharedGlobeLogic();
 
 watch(
   () => varnameSelector.value,
@@ -115,7 +99,7 @@ const timeIndexSlider = computed(() => {
 watch(
   [() => bounds.value, () => invertColormap.value, () => colormap.value],
   () => {
-    updateColormap();
+    updateColormap([mainMesh]);
   }
 );
 
@@ -144,11 +128,10 @@ const datasource = computed(() => {
 });
 
 async function datasourceUpdate() {
-  datavars.value = {};
   if (props.datasources !== undefined) {
     await Promise.all([fetchGrid(), getData()]);
     updateLandSeaMask();
-    updateColormap();
+    updateColormap([mainMesh]);
   }
 }
 
@@ -169,23 +152,6 @@ async function fetchGrid() {
   } catch (error) {
     logError(error, "Could not fetch grid");
   }
-}
-
-function updateColormap() {
-  const low = bounds.value?.low as number;
-  const high = bounds.value?.high as number;
-  const { addOffset, scaleFactor } = calculateColorMapProperties(
-    low,
-    high,
-    invertColormap.value
-  );
-
-  const myMesh = mainMesh as THREE.Mesh;
-  const material = myMesh.material as THREE.ShaderMaterial;
-  material.uniforms.colormap.value = availableColormaps[colormap.value];
-  material.uniforms.addOffset.value = addOffset;
-  material.uniforms.scaleFactor.value = scaleFactor;
-  redraw();
 }
 
 async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
@@ -227,6 +193,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
       );
 
       const rawData = await zarr.get(datavar, indices);
+
       const dataBuffer = data2valueBuffer(rawData);
       mainMesh?.geometry.setAttribute(
         "data_value",
@@ -288,20 +255,3 @@ defineExpose({ makeSnapshot, copyPythonExample, toggleRotate });
     <canvas ref="canvas" class="globe_canvas"> </canvas>
   </div>
 </template>
-
-<style>
-div.globe_box {
-  height: 100%;
-  width: 100%;
-  padding: 0;
-  margin: 0;
-  overflow: hidden;
-  display: flex;
-  z-index: 0;
-}
-
-div.globe_canvas {
-  padding: 0;
-  margin: 0;
-}
-</style>

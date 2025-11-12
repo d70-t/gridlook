@@ -28,3 +28,18 @@ main {
   white-space: normal;
   word-break: break-word;
 }
+
+div.globe_box {
+  height: 100%;
+  width: 100%;
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+  display: flex;
+  z-index: 0;
+}
+
+div.globe_canvas {
+  padding: 0;
+  margin: 0;
+}

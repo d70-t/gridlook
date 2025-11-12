@@ -2,14 +2,10 @@
 import * as THREE from "three";
 import * as zarr from "zarrita";
 import * as healpix from "@hscmap/healpix";
-import {
-  availableColormaps,
-  calculateColorMapProperties,
-  makeTextureMaterial,
-} from "./utils/colormapShaders.ts";
+import { makeTextureMaterial } from "./utils/colormapShaders.ts";
 import { decodeTime } from "./utils/timeHandling.ts";
 import { datashaderExample } from "./utils/exampleFormatters.ts";
-import { computed, onBeforeMount, onMounted, ref, watch, type Ref } from "vue";
+import { computed, onBeforeMount, onMounted, ref, watch } from "vue";
 
 import {
   UPDATE_MODE,
@@ -46,9 +42,6 @@ const urlParameterStore = useUrlParameterStore();
 const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
   storeToRefs(urlParameterStore);
 
-let canvas: Ref<HTMLCanvasElement | undefined> = ref();
-
-let box: Ref<HTMLDivElement | undefined> = ref();
 const {
   getScene,
   getCamera,
@@ -59,7 +52,10 @@ const {
   getDataVar,
   getTimeVar,
   updateLandSeaMask,
-} = useSharedGlobeLogic(canvas, box);
+  updateColormap,
+  canvas,
+  box,
+} = useSharedGlobeLogic();
 
 const updateCount = ref(0);
 const updatingData = ref(false);
@@ -105,7 +101,7 @@ const bounds = computed(() => {
 watch(
   [() => bounds.value, () => invertColormap.value, () => colormap.value],
   () => {
-    updateColormap();
+    updateColormap(mainMeshes);
   }
 );
 
@@ -138,32 +134,9 @@ async function datasourceUpdate() {
     if (props.datasources !== undefined) {
       await Promise.all([fetchGrid(), getData()]);
       updateLandSeaMask();
-      updateColormap();
+      updateColormap(mainMeshes);
     }
   }
-}
-
-function updateColormap() {
-  const low = bounds.value?.low as number;
-  const high = bounds.value?.high as number;
-  const { addOffset, scaleFactor } = calculateColorMapProperties(
-    low,
-    high,
-    invertColormap.value
-  );
-  for (const myMesh of mainMeshes) {
-    const material = myMesh.material as THREE.ShaderMaterial;
-    if (material?.uniforms.colormap) {
-      material.uniforms.colormap.value = availableColormaps[colormap.value];
-    }
-    if (material?.uniforms.addOffset) {
-      material.uniforms.addOffset.value = addOffset;
-    }
-    if (material?.uniforms.scaleFactor) {
-      material.uniforms.scaleFactor.value = scaleFactor;
-    }
-  }
-  redraw();
 }
 
 async function fetchGrid() {
@@ -601,18 +574,3 @@ defineExpose({ makeSnapshot, copyPythonExample, toggleRotate });
     <canvas ref="canvas" class="globe_canvas"> </canvas>
   </div>
 </template>
-
-<style>
-div.globe_box {
-  height: 100%;
-  width: 100%;
-  padding: 0;
-  margin: 0;
-  overflow: hidden;
-  display: flex;
-}
-div.globe_canvas {
-  padding: 0;
-  margin: 0;
-}
-</style>

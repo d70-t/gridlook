@@ -81,7 +81,12 @@ export async function grid2buffer(grid: zarr.Group<zarr.FetchStore>) {
 export function data2valueBuffer(data: zarr.Chunk<zarr.DataType>) {
   const awaitedData = data;
   const ncells = awaitedData.shape[0];
-  const plotdata = awaitedData.data as Float32Array;
+  let plotdata = awaitedData.data as Float32Array;
+  if (plotdata instanceof Float64Array) {
+    // WebGL doesn't support Float64Array textures
+    // we convert it to Float32Array and accept the loss of precision
+    plotdata = Float32Array.from(plotdata);
+  }
 
   let dataMin = Number.POSITIVE_INFINITY;
   let dataMax = Number.NEGATIVE_INFINITY;

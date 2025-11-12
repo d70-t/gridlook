@@ -1,5 +1,6 @@
 import { storeToRefs } from "pinia";
 import {
+  computed,
   onBeforeUnmount,
   onMounted,
   ref,
@@ -19,14 +20,21 @@ import type { TSources } from "@/types/GlobeTypes.ts";
 import { useUrlParameterStore } from "./store/paramStore.ts";
 import { getLandSeaMask, loadJSON } from "./utils/landSeaMask.ts";
 import debounce from "lodash.debounce";
+import {
+  availableColormaps,
+  calculateColorMapProperties,
+} from "./utils/colormapShaders.ts";
 
-export function useSharedGlobeLogic(
-  canvas: Ref<HTMLCanvasElement | undefined>,
-  box: Ref<HTMLDivElement | undefined>
-) {
+export function useSharedGlobeLogic() {
   const store = useGlobeControlStore();
-  const { showCoastLines, landSeaMaskChoice, landSeaMaskUseTexture } =
-    storeToRefs(store);
+  const {
+    showCoastLines,
+    landSeaMaskChoice,
+    landSeaMaskUseTexture,
+    selection,
+    colormap,
+    invertColormap,
+  } = storeToRefs(store);
 
   const urlParameterStore = useUrlParameterStore();
   const { paramCameraState } = storeToRefs(urlParameterStore);
@@ -35,6 +43,9 @@ export function useSharedGlobeLogic(
   const datavars: ShallowRef<
     Record<string, zarr.Array<zarr.DataType, zarr.FetchStore>>
   > = shallowRef({});
+
+  const canvas: Ref<HTMLCanvasElement | undefined> = ref();
+  const box: Ref<HTMLDivElement | undefined> = ref();
   let coast: THREE.LineSegments | undefined = undefined;
   let landSeaMask: THREE.Mesh | undefined = undefined;
   let scene: THREE.Scene | undefined = undefined;
@@ -61,6 +72,10 @@ export function useSharedGlobeLogic(
       updateLandSeaMask();
     }
   );
+
+  const bounds = computed(() => {
+    return selection.value;
+  });
 
   function getCoast() {
     return coast;
@@ -154,6 +169,31 @@ export function useSharedGlobeLogic(
     landSeaMask = mask;
     if (landSeaMask) {
       scene?.add(landSeaMask);
+    }
+    redraw();
+  }
+
+  function updateColormap(meshes: (THREE.Mesh | THREE.Points | undefined)[]) {
+    if (!meshes) {
+      return;
+    }
+    const low = bounds.value?.low as number;
+    const high = bounds.value?.high as number;
+    const { addOffset, scaleFactor } = calculateColorMapProperties(
+      low,
+      high,
+      invertColormap.value
+    );
+
+    for (const myMesh of meshes) {
+      if (!myMesh) {
+        continue;
+      }
+      const material = myMesh!.material as THREE.ShaderMaterial;
+      material.uniforms.colormap.value = availableColormaps[colormap.value];
+      material.uniforms.addOffset.value = addOffset;
+      material.uniforms.scaleFactor.value = scaleFactor;
+      material.needsUpdate = true;
     }
     redraw();
   }
@@ -453,5 +493,8 @@ export function useSharedGlobeLogic(
     getTimeVar,
     registerUpdateLOD,
     updateLandSeaMask,
+    updateColormap,
+    canvas,
+    box,
   };
 }

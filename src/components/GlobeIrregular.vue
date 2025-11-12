@@ -1,24 +1,11 @@
 <script lang="ts" setup>
 import * as THREE from "three";
 import * as zarr from "zarrita";
-import {
-  makeColormapMaterial,
-  availableColormaps,
-  calculateColorMapProperties,
-} from "./utils/colormapShaders.ts";
+import { makeColormapMaterial } from "./utils/colormapShaders.ts";
 import { decodeTime } from "./utils/timeHandling.ts";
 
 import { datashaderExample } from "./utils/exampleFormatters.ts";
-import {
-  computed,
-  onBeforeMount,
-  ref,
-  shallowRef,
-  onMounted,
-  watch,
-  type Ref,
-  type ShallowRef,
-} from "vue";
+import { computed, onBeforeMount, ref, onMounted, watch } from "vue";
 
 import {
   UPDATE_MODE,
@@ -52,9 +39,6 @@ const urlParameterStore = useUrlParameterStore();
 const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
   storeToRefs(urlParameterStore);
 
-const datavars: ShallowRef<
-  Record<string, zarr.Array<zarr.DataType, zarr.FetchStore>>
-> = shallowRef({});
 const updateCount = ref(0);
 const updatingData = ref(false);
 
@@ -62,20 +46,19 @@ const estimatedSpacing = ref(0);
 
 let points: THREE.Points | undefined = undefined;
 
-let canvas: Ref<HTMLCanvasElement | undefined> = ref();
-let box: Ref<HTMLDivElement | undefined> = ref();
-
 const {
   getScene,
   getCamera,
-  redraw,
   makeSnapshot,
   toggleRotate,
   getDataVar,
   getTimeVar,
   registerUpdateLOD,
   updateLandSeaMask,
-} = useSharedGlobeLogic(canvas, box);
+  updateColormap,
+  canvas,
+  box,
+} = useSharedGlobeLogic();
 
 watch(
   () => varnameSelector.value,
@@ -110,7 +93,7 @@ const bounds = computed(() => {
 watch(
   [() => bounds.value, () => invertColormap.value, () => colormap.value],
   () => {
-    updateColormap();
+    updateColormap([points]);
   }
 );
 
@@ -146,29 +129,11 @@ const datasource = computed(() => {
 });
 
 async function datasourceUpdate() {
-  datavars.value = {};
   if (props.datasources !== undefined) {
     await Promise.all([getData()]);
     updateLandSeaMask();
-    updateColormap();
+    updateColormap([points]);
   }
-}
-
-function updateColormap() {
-  const low = bounds.value?.low as number;
-  const high = bounds.value?.high as number;
-  const { addOffset, scaleFactor } = calculateColorMapProperties(
-    low,
-    high,
-    invertColormap.value
-  );
-
-  const material = points!.material as THREE.ShaderMaterial;
-  material.uniforms.colormap.value = availableColormaps[colormap.value];
-  material.uniforms.addOffset.value = addOffset;
-  material.uniforms.scaleFactor.value = scaleFactor;
-  material.needsUpdate = true;
-  redraw();
 }
 
 function latLonToCartesianFlat(
@@ -202,7 +167,7 @@ function estimateAverageSpacing(positions: Float32Array): number {
   return totalDist / count;
 }
 
-async function getGrid(grid: zarr.Group<zarr.Readable>, data: Float64Array) {
+async function getGrid(grid: zarr.Group<zarr.Readable>, data: Float32Array) {
   // Load latitudes and longitudes arrays (1D)
   const latitudes = (
     await zarr.open(grid.resolve("lat"), { kind: "array" }).then(zarr.get)
@@ -309,15 +274,20 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
       const grid = await zarr.open(root.resolve(gridsource.value!.dataset), {
         kind: "group",
       });
-      const rawData = await zarr.get(datavar, indices);
+      let rawData = (await zarr.get(datavar, indices)).data as Float32Array;
+      if (rawData instanceof Float64Array) {
+        // WebGL doesn't support Float64Array textures
+        // we convert it to Float32Array and accept the loss of precision
+        rawData = Float32Array.from(rawData);
+      }
       let min = Number.POSITIVE_INFINITY;
       let max = Number.NEGATIVE_INFINITY;
-      for (let i of rawData.data as Float64Array) {
+      for (let i of rawData) {
         if (Number.isNaN(i)) continue;
         min = Math.min(min, i);
         max = Math.max(max, i);
       }
-      await getGrid(grid, rawData.data as Float64Array);
+      await getGrid(grid, rawData);
       store.updateVarInfo(
         {
           attrs: datavar.attrs,
@@ -387,20 +357,3 @@ defineExpose({ makeSnapshot, copyPythonExample, toggleRotate });
     <canvas ref="canvas" class="globe_canvas"> </canvas>
   </div>
 </template>
-
-<style>
-div.globe_box {
-  height: 100%;
-  width: 100%;
-  padding: 0;
-  margin: 0;
-  overflow: hidden;
-  display: flex;
-  z-index: 0;
-}
-
-div.globe_canvas {
-  padding: 0;
-  margin: 0;
-}
-</style>

@@ -3,13 +3,12 @@ import * as THREE from "three";
 import * as zarr from "zarrita";
 import type { Readable } from "@zarrita/storage";
 import {
-  availableColormaps,
   calculateColorMapProperties,
   makeTextureMaterial,
 } from "./utils/colormapShaders.ts";
 import { decodeTime } from "./utils/timeHandling.ts";
 import { datashaderExample } from "./utils/exampleFormatters.ts";
-import { computed, onBeforeMount, onMounted, ref, watch, type Ref } from "vue";
+import { computed, onBeforeMount, onMounted, ref, watch } from "vue";
 
 import {
   UPDATE_MODE,
@@ -47,8 +46,6 @@ const urlParameterStore = useUrlParameterStore();
 const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
   storeToRefs(urlParameterStore);
 
-let canvas: Ref<HTMLCanvasElement | undefined> = ref();
-let box: Ref<HTMLDivElement | undefined> = ref();
 const {
   getScene,
   getCamera,
@@ -59,7 +56,10 @@ const {
   getDataVar,
   getTimeVar,
   updateLandSeaMask,
-} = useSharedGlobeLogic(canvas, box);
+  updateColormap,
+  canvas,
+  box,
+} = useSharedGlobeLogic();
 
 const updateCount = ref(0);
 const updatingData = ref(false);
@@ -101,7 +101,7 @@ const bounds = computed(() => {
 watch(
   [() => bounds.value, () => invertColormap.value, () => colormap.value],
   () => {
-    updateColormap();
+    updateColormap([mainMesh]);
   }
 );
 
@@ -138,7 +138,7 @@ async function datasourceUpdate() {
     await getDims(grid);
     await Promise.all([makeGeometry(), getData()]);
     updateLandSeaMask();
-    updateColormap();
+    updateColormap([mainMesh]);
   }
 }
 
@@ -158,24 +158,6 @@ async function getDims(grid: zarr.Group<Readable>) {
   const myLatitudes = latitudesData.data as Float64Array;
   longitudes.value = new Float64Array(new Set(myLongitudes));
   latitudes.value = new Float64Array(new Set(myLatitudes));
-}
-
-function updateColormap() {
-  const low = bounds.value?.low as number;
-  const high = bounds.value?.high as number;
-  const { addOffset, scaleFactor } = calculateColorMapProperties(
-    low,
-    high,
-    invertColormap.value
-  );
-
-  if (mainMesh) {
-    const material = mainMesh!.material as THREE.ShaderMaterial;
-    material.uniforms.colormap.value = availableColormaps[colormap.value];
-    material.uniforms.addOffset.value = addOffset;
-    material.uniforms.scaleFactor.value = scaleFactor;
-    redraw();
-  }
 }
 
 function latLongToXYZ(lat: number, lon: number, radius: number) {
@@ -379,7 +361,7 @@ async function makeGeometry() {
 }
 
 async function getRegularData(
-  arr: Float64Array,
+  arr: Float32Array,
   latCount: number,
   lonCount: number
 ) {
@@ -447,14 +429,16 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
         2
       );
 
-      const rawData = await zarr.get(datavar, indices);
-      // const rawData = await zarr.get(datavar, [
-      //   currentTimeIndexSliderValue,
-      //   ...Array(datavar.shape.length - 1).fill(null),
-      // ]);
+      let rawData = (await zarr.get(datavar, indices)).data as Float32Array;
+      if (rawData instanceof Float64Array) {
+        // WebGL doesn't support Float64Array textures
+        // we convert it to Float32Array and accept the loss of precision
+        rawData = Float32Array.from(rawData);
+      }
+
       let min = Number.POSITIVE_INFINITY;
       let max = Number.NEGATIVE_INFINITY;
-      for (let i of rawData.data as Float64Array) {
+      for (let i of rawData) {
         if (isNaN(i)) {
           continue;
         }
@@ -462,7 +446,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
         max = Math.max(max, i);
       }
       const textures = await getRegularData(
-        rawData.data as Float64Array,
+        rawData,
         latitudes.value.length,
         longitudes.value.length
       );
@@ -544,18 +528,3 @@ defineExpose({ makeSnapshot, copyPythonExample, toggleRotate });
     <!-- <Scale ref="scaleBarRef" /> -->
   </div>
 </template>
-
-<style>
-div.globe_box {
-  height: 100%;
-  width: 100%;
-  padding: 0;
-  margin: 0;
-  overflow: hidden;
-  display: flex;
-}
-div.globe_canvas {
-  padding: 0;
-  margin: 0;
-}
-</style>
