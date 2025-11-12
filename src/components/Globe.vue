@@ -21,11 +21,17 @@ import {
   type ShallowRef,
 } from "vue";
 
-import { useGlobeControlStore } from "./store/store.js";
+import {
+  UPDATE_MODE,
+  useGlobeControlStore,
+  type TUpdateMode,
+} from "./store/store.js";
 import { storeToRefs } from "pinia";
 import type { TSources } from "../types/GlobeTypes.ts";
 import { useLog } from "./utils/logging";
 import { useSharedGlobeLogic } from "./sharedGlobe.ts";
+import { useUrlParameterStore } from "./store/paramStore.ts";
+import { getDimensionInfo } from "./utils/dimensionHandling.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -34,13 +40,18 @@ const props = defineProps<{
 const store = useGlobeControlStore();
 const { logError } = useLog();
 const {
-  timeIndexSlider,
+  dimSlidersValues,
   varnameSelector,
   colormap,
   invertColormap,
   selection,
+  isInitializingVariable,
+  varinfo,
 } = storeToRefs(store);
-storeToRefs(store);
+
+const urlParameterStore = useUrlParameterStore();
+const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
+  storeToRefs(urlParameterStore);
 
 const datavars: ShallowRef<
   Record<string, zarr.Array<zarr.DataType, zarr.FetchStore>>
@@ -72,10 +83,15 @@ watch(
 );
 
 watch(
-  () => timeIndexSlider.value,
+  () => dimSlidersValues.value,
   () => {
-    getData();
-  }
+    if (isInitializingVariable.value) {
+      isInitializingVariable.value = false;
+      return;
+    }
+    getData(UPDATE_MODE.SLIDER_TOGGLE);
+  },
+  { deep: true }
 );
 
 watch(
@@ -87,6 +103,13 @@ watch(
 
 const bounds = computed(() => {
   return selection.value;
+});
+
+const timeIndexSlider = computed(() => {
+  if (varinfo.value?.dimRanges[0]?.name !== "time") {
+    return 0;
+  }
+  return dimSlidersValues.value[0];
 });
 
 watch(
@@ -165,7 +188,7 @@ function updateColormap() {
   redraw();
 }
 
-async function getData() {
+async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
   store.startLoading();
   try {
     updateCount.value += 1;
@@ -186,35 +209,43 @@ async function getData() {
       const timeattrs = timevar.attrs;
       const timevalues = (await zarr.get(timevar, [null])).data;
       timeinfo = {
-        // attrs: timeattrs,
         values: timevalues,
         current: decodeTime(
-          (timevalues as number[])[currentTimeIndexSliderValue],
+          (timevalues as number[])[currentTimeIndexSliderValue as number],
           timeattrs
         ),
       };
     }
     if (datavar !== undefined) {
-      const rawData = await zarr.get(datavar, [
-        currentTimeIndexSliderValue,
-        null,
-      ]);
+      const { dimensionRanges, indices } = getDimensionInfo(
+        datavar,
+        paramDimIndices.value,
+        paramDimMinBounds.value,
+        paramDimMaxBounds.value,
+        updateMode === UPDATE_MODE.INITIAL_LOAD ? null : dimSlidersValues.value,
+        1
+      );
+
+      const rawData = await zarr.get(datavar, indices);
       const dataBuffer = data2valueBuffer(rawData);
       mainMesh?.geometry.setAttribute(
         "data_value",
         new THREE.BufferAttribute(dataBuffer.dataValues, 1)
       );
-      store.updateVarInfo({
-        attrs: datavar.attrs,
-        timeinfo,
-        timeRange: { start: 0, end: datavar.shape[0] - 1 },
-        bounds: { low: dataBuffer.dataMin, high: dataBuffer.dataMax },
-      });
+      store.updateVarInfo(
+        {
+          attrs: datavar.attrs,
+          timeinfo,
+          bounds: { low: dataBuffer.dataMin, high: dataBuffer.dataMax },
+          dimRanges: dimensionRanges,
+        },
+        updateMode
+      );
       redraw();
     }
     updatingData.value = false;
     if (updateCount.value !== myUpdatecount) {
-      await getData();
+      await getData(updateMode);
     }
   } catch (error) {
     logError(error, "Could not fetch data");
@@ -230,7 +261,7 @@ function copyPythonExample() {
     datasrc: datasource.value!.store + datasource.value!.dataset,
     gridsrc: gridsource.value!.store + gridsource.value!.dataset,
     varname: varnameSelector.value,
-    timeIndex: timeIndexSlider.value,
+    timeIndex: timeIndexSlider.value as number,
     varbounds: bounds.value,
     colormap: colormap.value,
     invertColormap: invertColormap.value,

@@ -22,6 +22,7 @@ const urlParameterStore = useUrlParameterStore();
 
 const onHashChange = () => {
   if (location.hash.length > 1) {
+    urlParameterStore.$reset();
     // The hash is of the form "#resource::param1=value1::param2=value2::..."
     // We split on "::" to separate the resource from the parameters
     // and then parse the parameters and set the store values accordingly
@@ -38,10 +39,22 @@ const onHashChange = () => {
       userBoundsHigh.value = parseFloat(params.value.boundhigh);
     }
     for (const [key, value] of Object.entries(params.value) as [
-      TURLParameterValues,
+      keyof typeof STORE_PARAM_MAPPING,
       string,
     ][]) {
-      if (STORE_PARAM_MAPPING[key] === undefined) {
+      if (key.startsWith("dimIndices_")) {
+        urlParameterStore[STORE_PARAM_MAPPING.dimIndices][
+          key.substring("dimIndices_".length)
+        ] = value;
+      } else if (key.startsWith("dimMinBounds_")) {
+        urlParameterStore[STORE_PARAM_MAPPING.dimMinBounds][
+          key.substring("dimMinBounds_".length)
+        ] = value;
+      } else if (key.startsWith("dimMaxBounds_")) {
+        urlParameterStore[STORE_PARAM_MAPPING.dimMaxBounds][
+          key.substring("dimMaxBounds_".length)
+        ] = value;
+      } else if (STORE_PARAM_MAPPING[key] === undefined) {
         continue;
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

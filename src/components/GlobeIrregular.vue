@@ -20,11 +20,17 @@ import {
   type ShallowRef,
 } from "vue";
 
-import { useGlobeControlStore } from "./store/store.js";
+import {
+  UPDATE_MODE,
+  useGlobeControlStore,
+  type TUpdateMode,
+} from "./store/store.js";
 import { storeToRefs } from "pinia";
 import type { TSources } from "../types/GlobeTypes.ts";
 import { useLog } from "./utils/logging";
 import { useSharedGlobeLogic } from "./sharedGlobe.ts";
+import { useUrlParameterStore } from "./store/paramStore.ts";
+import { getDimensionInfo } from "./utils/dimensionHandling.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -33,12 +39,18 @@ const props = defineProps<{
 const store = useGlobeControlStore();
 const { logError } = useLog();
 const {
-  timeIndexSlider,
+  dimSlidersValues,
   colormap,
   varnameSelector,
   invertColormap,
   selection,
+  isInitializingVariable,
+  varinfo,
 } = storeToRefs(store);
+
+const urlParameterStore = useUrlParameterStore();
+const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
+  storeToRefs(urlParameterStore);
 
 const datavars: ShallowRef<
   Record<string, zarr.Array<zarr.DataType, zarr.FetchStore>>
@@ -73,10 +85,15 @@ watch(
 );
 
 watch(
-  () => timeIndexSlider.value,
+  () => dimSlidersValues.value,
   () => {
-    getData();
-  }
+    if (isInitializingVariable.value) {
+      isInitializingVariable.value = false;
+      return;
+    }
+    getData(UPDATE_MODE.SLIDER_TOGGLE);
+  },
+  { deep: true }
 );
 
 watch(
@@ -96,6 +113,13 @@ watch(
     updateColormap();
   }
 );
+
+const timeIndexSlider = computed(() => {
+  if (varinfo.value?.dimRanges[0]?.name !== "time") {
+    return 0;
+  }
+  return dimSlidersValues.value[0];
+});
 
 const colormapMaterial = computed(() => {
   if (invertColormap.value) {
@@ -243,7 +267,7 @@ function updateLOD() {
   material.uniforms.pointSize.value = size;
 }
 
-async function getData() {
+async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
   store.startLoading();
   try {
     updateCount.value += 1;
@@ -266,20 +290,26 @@ async function getData() {
         attrs: timeattrs,
         values: timevalues,
         current: decodeTime(
-          (timevalues as number[])[currentTimeIndexSliderValue],
+          (timevalues as number[])[currentTimeIndexSliderValue as number],
           timeattrs
         ),
       };
     }
     if (datavar !== undefined) {
+      const { dimensionRanges, indices } = getDimensionInfo(
+        datavar,
+        paramDimIndices.value,
+        paramDimMinBounds.value,
+        paramDimMaxBounds.value,
+        updateMode === UPDATE_MODE.INITIAL_LOAD ? null : dimSlidersValues.value,
+        1
+      );
+
       const root = zarr.root(new zarr.FetchStore(gridsource.value!.store));
       const grid = await zarr.open(root.resolve(gridsource.value!.dataset), {
         kind: "group",
       });
-      const rawData = await zarr.get(datavar, [
-        currentTimeIndexSliderValue,
-        ...Array(datavar.shape.length - 1).fill(null),
-      ]);
+      const rawData = await zarr.get(datavar, indices);
       let min = Number.POSITIVE_INFINITY;
       let max = Number.NEGATIVE_INFINITY;
       for (let i of rawData.data as Float64Array) {
@@ -288,16 +318,19 @@ async function getData() {
         max = Math.max(max, i);
       }
       await getGrid(grid, rawData.data as Float64Array);
-      store.updateVarInfo({
-        attrs: datavar.attrs,
-        timeinfo,
-        timeRange: { start: 0, end: datavar.shape[0] - 1 },
-        bounds: { low: min, high: max },
-      });
+      store.updateVarInfo(
+        {
+          attrs: datavar.attrs,
+          timeinfo,
+          bounds: { low: min, high: max },
+          dimRanges: dimensionRanges,
+        },
+        updateMode
+      );
     }
     updatingData.value = false;
     if (updateCount.value !== myUpdatecount) {
-      await getData();
+      await getData(updateMode);
     }
   } catch (error) {
     logError(error, "Could not fetch data");
@@ -313,7 +346,7 @@ function copyPythonExample() {
     datasrc: datasource.value!.store + datasource.value!.dataset,
     gridsrc: gridsource.value!.store + gridsource.value!.dataset,
     varname: varnameSelector.value,
-    timeIndex: timeIndexSlider.value,
+    timeIndex: timeIndexSlider.value as number,
     varbounds: bounds.value!,
     colormap: colormap.value,
     invertColormap: invertColormap.value,

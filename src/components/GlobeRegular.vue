@@ -11,12 +11,19 @@ import { decodeTime } from "./utils/timeHandling.ts";
 import { datashaderExample } from "./utils/exampleFormatters.ts";
 import { computed, onBeforeMount, onMounted, ref, watch, type Ref } from "vue";
 
-import { useGlobeControlStore } from "./store/store.js";
+import {
+  UPDATE_MODE,
+  useGlobeControlStore,
+  type TUpdateMode,
+} from "./store/store.js";
 import { storeToRefs } from "pinia";
 import type { TSources } from "../types/GlobeTypes.ts";
 import { useToast } from "primevue/usetoast";
 import { useLog } from "./utils/logging";
 import { useSharedGlobeLogic } from "./sharedGlobe.ts";
+import { useUrlParameterStore } from "./store/paramStore.ts";
+import { getDimensionInfo } from "./utils/dimensionHandling.ts";
+import { findCRSVar, getDataSourceStore } from "./utils/zarrUtils.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -27,12 +34,18 @@ const store = useGlobeControlStore();
 const toast = useToast();
 const { logError } = useLog();
 const {
-  timeIndexSlider,
+  dimSlidersValues,
   colormap,
   varnameSelector,
   invertColormap,
   selection,
+  isInitializingVariable,
+  varinfo,
 } = storeToRefs(store);
+
+const urlParameterStore = useUrlParameterStore();
+const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
+  storeToRefs(urlParameterStore);
 
 let canvas: Ref<HTMLCanvasElement | undefined> = ref();
 let box: Ref<HTMLDivElement | undefined> = ref();
@@ -63,10 +76,15 @@ watch(
 );
 
 watch(
-  () => timeIndexSlider.value,
+  () => dimSlidersValues.value,
   () => {
-    getData();
-  }
+    if (isInitializingVariable.value) {
+      isInitializingVariable.value = false;
+      return;
+    }
+    getData(UPDATE_MODE.SLIDER_TOGGLE);
+  },
+  { deep: true }
 );
 
 watch(
@@ -86,6 +104,13 @@ watch(
     updateColormap();
   }
 );
+
+const timeIndexSlider = computed(() => {
+  if (varinfo.value?.dimRanges[0]?.name !== "time") {
+    return 0;
+  }
+  return dimSlidersValues.value[0];
+});
 
 const gridsource = computed(() => {
   if (props.datasources) {
@@ -371,21 +396,19 @@ async function getRegularData(
 }
 
 async function getRotatedNorthPole(): Promise<{ lat: number; lon: number }> {
-  const datasource =
-    props.datasources!.levels[0].datasources[varnameSelector.value];
-  const root = zarr.root(new zarr.FetchStore(datasource.store));
-  const info = await zarr.open(
-    root.resolve(datasource.dataset + `/rotated_latitude_longitude`),
+  const root = getDataSourceStore(props.datasources!, varnameSelector.value);
+  const crs = await zarr.open(
+    root.resolve(await findCRSVar(root, varnameSelector.value)),
     {
       kind: "array",
     }
   );
-  const lat = info.attrs["grid_north_pole_latitude"] as number;
-  const lon = info.attrs["grid_north_pole_longitude"] as number;
+  const lat = crs.attrs["grid_north_pole_latitude"] as number;
+  const lon = crs.attrs["grid_north_pole_longitude"] as number;
   return { lat, lon };
 }
 
-async function getData() {
+async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
   store.startLoading();
   try {
     updateCount.value += 1;
@@ -409,16 +432,26 @@ async function getData() {
       timeinfo = {
         values: timevalues,
         current: decodeTime(
-          (timevalues as number[])[currentTimeIndexSliderValue],
+          (timevalues as number[])[currentTimeIndexSliderValue as number],
           timeattrs
         ),
       };
     }
     if (datavar !== undefined) {
-      const rawData = await zarr.get(datavar, [
-        currentTimeIndexSliderValue,
-        ...Array(datavar.shape.length - 1).fill(null),
-      ]);
+      const { dimensionRanges, indices } = getDimensionInfo(
+        datavar,
+        paramDimIndices.value,
+        paramDimMinBounds.value,
+        paramDimMaxBounds.value,
+        updateMode === UPDATE_MODE.INITIAL_LOAD ? null : dimSlidersValues.value,
+        2
+      );
+
+      const rawData = await zarr.get(datavar, indices);
+      // const rawData = await zarr.get(datavar, [
+      //   currentTimeIndexSliderValue,
+      //   ...Array(datavar.shape.length - 1).fill(null),
+      // ]);
       let min = Number.POSITIVE_INFINITY;
       let max = Number.NEGATIVE_INFINITY;
       for (let i of rawData.data as Float64Array) {
@@ -451,17 +484,20 @@ async function getData() {
       mainMesh!.material = material;
       mainMesh!.material.needsUpdate = true;
 
-      store.updateVarInfo({
-        attrs: datavar.attrs,
-        timeinfo,
-        timeRange: { start: 0, end: datavar.shape[0] - 1 },
-        bounds: { low: min, high: max },
-      });
+      store.updateVarInfo(
+        {
+          attrs: datavar.attrs,
+          timeinfo,
+          bounds: { low: min, high: max },
+          dimRanges: dimensionRanges,
+        },
+        updateMode
+      );
       redraw();
     }
     updatingData.value = false;
     if (updateCount.value !== myUpdatecount) {
-      await getData();
+      await getData(updateMode);
     }
   } catch (error) {
     logError(error, "Could not fetch data");
@@ -476,7 +512,7 @@ function copyPythonExample() {
     datasrc: datasource.value!.store + datasource.value!.dataset,
     gridsrc: gridsource.value!.store + gridsource.value!.dataset,
     varname: varnameSelector.value,
-    timeIndex: timeIndexSlider.value,
+    timeIndex: timeIndexSlider.value as number,
     varbounds: bounds.value!,
     colormap: colormap.value,
     invertColormap: invertColormap.value,
@@ -490,7 +526,6 @@ function copyPythonExample() {
 }
 onMounted(() => {
   getScene()?.add(mainMesh as THREE.Mesh);
-  // scaleBarRef.value.setContext(getCamera(), getRenderer());
 });
 
 onBeforeMount(async () => {

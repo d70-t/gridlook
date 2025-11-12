@@ -27,3 +27,12 @@ export async function findCRSVar(root: zarr.FetchStore, varname: string) {
   }
   return "crs";
 }
+
+export async function getArrayInfo(root: zarr.FetchStore, varname: string) {
+  const array = await zarr.open(root.resolve(varname), { kind: "array" });
+  const obje = {
+    shape: array.shape,
+    dimensions: array.attrs._ARRAY_DIMENSIONS,
+  };
+  return obje;
+}
