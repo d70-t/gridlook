@@ -19,6 +19,7 @@ import { useLog } from "./utils/logging";
 import { useSharedGlobeLogic } from "./sharedGlobe.ts";
 import { useUrlParameterStore } from "./store/paramStore.ts";
 import { getDimensionInfo } from "./utils/dimensionHandling.ts";
+import { getFillValue, getMissingValue } from "./utils/zarrUtils.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -193,8 +194,9 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
       );
 
       const rawData = await zarr.get(datavar, indices);
-
-      const dataBuffer = data2valueBuffer(rawData);
+      const missingValue = getMissingValue(datavar);
+      const fillValue = getFillValue(datavar);
+      const dataBuffer = data2valueBuffer(rawData, missingValue, fillValue);
       mainMesh?.geometry.setAttribute(
         "data_value",
         new THREE.BufferAttribute(dataBuffer.dataValues, 1)

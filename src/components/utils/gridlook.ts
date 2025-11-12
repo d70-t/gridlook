@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import * as zarr from "zarrita";
+import type { getFillValue } from "./zarrUtils";
 
 export async function grid2buffer(grid: zarr.Group<zarr.FetchStore>) {
   const [voc, vx, vy, vz] = await Promise.all([
@@ -78,7 +79,11 @@ export async function grid2buffer(grid: zarr.Group<zarr.FetchStore>) {
   return verts;
 }
 
-export function data2valueBuffer(data: zarr.Chunk<zarr.DataType>) {
+export function data2valueBuffer(
+  data: zarr.Chunk<zarr.DataType>,
+  missingValue: number | undefined,
+  fillValue: number | undefined
+) {
   const awaitedData = data;
   const ncells = awaitedData.shape[0];
   let plotdata = awaitedData.data as Float32Array;
@@ -92,6 +97,7 @@ export function data2valueBuffer(data: zarr.Chunk<zarr.DataType>) {
   let dataMax = Number.NEGATIVE_INFINITY;
   for (let i = 0; i < ncells; i++) {
     const v = plotdata[i];
+    if (v === missingValue || v === fillValue) continue;
     if (v < dataMin) dataMin = v;
     if (v > dataMax) dataMax = v;
   }

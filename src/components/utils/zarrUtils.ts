@@ -36,3 +36,26 @@ export async function getArrayInfo(root: zarr.FetchStore, varname: string) {
   };
   return obje;
 }
+
+export function getMissingValue(
+  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>
+) {
+  const attributes = datavar.attrs;
+  if ("missingValue" in attributes) return Number(datavar.attrs.missingValue);
+  if ("missing_value" in attributes) return Number(datavar.attrs.missing_value);
+  else return NaN;
+}
+
+export function getFillValue(
+  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>
+) {
+  const symbols = Object.getOwnPropertySymbols(datavar);
+  const contextSymbol = symbols.find(
+    (sym) => sym.toString() === "Symbol(zarrita.context)"
+  );
+  if (!contextSymbol) return NaN;
+  // FIXME
+  // @ts-expect-error These context symbol is not publicly exposed in the documentation
+  const obj = datavar[contextSymbol];
+  return Number(obj.fill_value);
+}

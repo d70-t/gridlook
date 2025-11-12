@@ -17,7 +17,12 @@ import type { TSources, TVarInfo } from "../types/GlobeTypes.ts";
 import { useToast } from "primevue/usetoast";
 import { useLog } from "./utils/logging";
 import { useSharedGlobeLogic } from "./sharedGlobe.ts";
-import { findCRSVar, getDataSourceStore } from "./utils/zarrUtils.ts";
+import {
+  findCRSVar,
+  getDataSourceStore,
+  getFillValue,
+  getMissingValue,
+} from "./utils/zarrUtils.ts";
 import { getDimensionInfo } from "./utils/dimensionHandling.ts";
 import { useUrlParameterStore } from "./store/paramStore.ts";
 
@@ -266,8 +271,14 @@ async function getHealpixData(
   // Calculate min/max
   let min = Number.POSITIVE_INFINITY;
   let max = Number.NEGATIVE_INFINITY;
+  let missingValue = getMissingValue(datavar);
+  let fillValue = getFillValue(datavar);
   for (let i = 0; i < dataSlice.length; i++) {
-    if (!isNaN(dataSlice[i])) {
+    if (
+      !isNaN(dataSlice[i]) &&
+      dataSlice[i] !== missingValue &&
+      dataSlice[i] !== fillValue
+    ) {
       if (dataSlice[i] < min) min = dataSlice[i];
       if (dataSlice[i] > max) max = dataSlice[i];
     }

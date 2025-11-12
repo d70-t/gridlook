@@ -22,7 +22,12 @@ import { useLog } from "./utils/logging";
 import { useSharedGlobeLogic } from "./sharedGlobe.ts";
 import { useUrlParameterStore } from "./store/paramStore.ts";
 import { getDimensionInfo } from "./utils/dimensionHandling.ts";
-import { findCRSVar, getDataSourceStore } from "./utils/zarrUtils.ts";
+import {
+  findCRSVar,
+  getDataSourceStore,
+  getFillValue,
+  getMissingValue,
+} from "./utils/zarrUtils.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -445,8 +450,10 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
 
       let min = Number.POSITIVE_INFINITY;
       let max = Number.NEGATIVE_INFINITY;
+      const missingValue = getMissingValue(datavar);
+      const fillValue = getFillValue(datavar);
       for (let i of rawData) {
-        if (isNaN(i)) {
+        if (isNaN(i) || i === missingValue || i === fillValue) {
           continue;
         }
         min = Math.min(min, i);
