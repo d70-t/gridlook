@@ -143,16 +143,23 @@ async function datasourceUpdate() {
 }
 
 async function getDims(grid: zarr.Group<Readable>) {
-  const isRotated = props.isRotated;
+  // Assumptions: the last two dimensions of the data array are
+  // latitude and longitude (in this order)
+  const root = getDataSourceStore(props.datasources!, varnameSelector.value);
+  const datavar = await zarr.open(root.resolve(varnameSelector.value), {
+    kind: "array",
+  });
+  const dimensions = datavar.attrs._ARRAY_DIMENSIONS as string[];
+  const latName = dimensions[dimensions.length - 2];
+  const lonName = dimensions[dimensions.length - 1];
+
   const [latitudesData, longitudesData] = await Promise.all([
     zarr
-      .open(grid.resolve(isRotated ? "rlat" : "lat"), {
+      .open(grid.resolve(latName), {
         kind: "array",
       })
       .then(zarr.get),
-    zarr
-      .open(grid.resolve(isRotated ? "rlon" : "lon"), { kind: "array" })
-      .then(zarr.get),
+    zarr.open(grid.resolve(lonName), { kind: "array" }).then(zarr.get),
   ]);
   const myLongitudes = longitudesData.data as Float64Array;
   const myLatitudes = latitudesData.data as Float64Array;
