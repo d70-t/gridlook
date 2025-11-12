@@ -81,10 +81,10 @@ Support for all datasets in the [WCRP Global Hackathon HK25 catalog](https://dig
 Get to know the gridtype *healpix*
 with this ICON amip Dyamond3 simulation PT6h_inst dataset:
 
-- [Level 0](https://s3.eu-dkrz-1.dkrz.cloud/bm1344/gridlook/index.html#https://s3.eu-dkrz-1.dkrz.cloud/wrcp-hackathon/data/ICON/d3hp003.zarr/PT6H_inst_z0_atm)
-- [Level 4](https://s3.eu-dkrz-1.dkrz.cloud/bm1344/gridlook/index.html#https://s3.eu-dkrz-1.dkrz.cloud/wrcp-hackathon/data/ICON/d3hp003.zarr/PT6H_inst_z4_atm)
-- [Level 7](https://s3.eu-dkrz-1.dkrz.cloud/bm1344/gridlook/index.html#https://s3.eu-dkrz-1.dkrz.cloud/wrcp-hackathon/data/ICON/d3hp003.zarr/PT6H_inst_z7_atm)
-- [Level 11](https://s3.eu-dkrz-1.dkrz.cloud/bm1344/gridlook/index.html#https://s3.eu-dkrz-1.dkrz.cloud/wrcp-hackathon/data/ICON/d3hp003.zarr/PT6H_inst_z11_atm) (downloads much data!)
+- [Level 0](https://gridlook.pages.dev/#https://s3.eu-dkrz-1.dkrz.cloud/wrcp-hackathon/data/ICON/d3hp003.zarr/PT6H_inst_z0_atm)
+- [Level 4](https://gridlook.pages.dev/#https://s3.eu-dkrz-1.dkrz.cloud/wrcp-hackathon/data/ICON/d3hp003.zarr/PT6H_inst_z4_atm)
+- [Level 7](https://gridlook.pages.dev/#https://s3.eu-dkrz-1.dkrz.cloud/wrcp-hackathon/data/ICON/d3hp003.zarr/PT6H_inst_z7_atm)
+- [Level 11](https://gridlook.pages.dev/#https://s3.eu-dkrz-1.dkrz.cloud/wrcp-hackathon/data/ICON/d3hp003.zarr/PT6H_inst_z11_atm) (downloads much data!)
 
 ----
 
@@ -94,18 +94,18 @@ Mind that when you are on mobile network or using a mobile device.
 
 ----
 
-2. [🔺 Triangular](https://s3.eu-dkrz-1.dkrz.cloud/bm1344/gridlook/index.html#https://eerie.cloud.dkrz.de/datasets/icon-esm-er.hist-1950.v20240618.atmos.native.2d_monthly_mean/stac)
+2. [🔺 Triangular](https://gridlook.pages.dev/#https://eerie.cloud.dkrz.de/datasets/icon-esm-er.hist-1950.v20240618.atmos.native.2d_monthly_mean/stac)
     Dataset: EERIE ICON hist-1950 tas on R2B8 (10km)
-3. [🌐 Regular (lat x lon)](https://s3.eu-dkrz-1.dkrz.cloud/bm1344/gridlook/index.html#https://storage.googleapis.com/cmip6/CMIP6/HighResMIP/EC-Earth-Consortium/EC-Earth3P-HR/highresSST-present/r1i1p1f1/Amon/pr/gr/v20170811/)
+3. [🌐 Regular (lat x lon)](https://gridlook.pages.dev/#https://storage.googleapis.com/cmip6/CMIP6/HighResMIP/EC-Earth-Consortium/EC-Earth3P-HR/highresSST-present/r1i1p1f1/Amon/pr/gr/v20170811/)
     Dataset: CMIP6 EC-Earth3P-HR highresSST-present pr, 30km.
     -> Support for CMIP
-4. [🧭 Rotated lat x lon](https://s3.eu-dkrz-1.dkrz.cloud/bm1344/gridlook/index.html#https://euro-cordex.s3.amazonaws.com/CMIP5/cordex/output/EUR-11/GERICS/MPI-M-MPI-ESM-LR/historical/r3i1p1/REMO2015/v1/mon/tas/v20190925/)
+4. [🧭 Rotated lat x lon](https://gridlook.pages.dev/#https://euro-cordex.s3.amazonaws.com/CMIP5/cordex/output/EUR-11/GERICS/MPI-M-MPI-ESM-LR/historical/r3i1p1/REMO2015/v1/mon/tas/v20190925/)
     Dataset: CORDEX REMO2015 historical tas on EUR11(12km)
     -> Support for CORDEX
 5. [🌐 Gaussian reduced (decreasing no of longitudes towards poles)](https://s3.eu-dkrz-1.dkrz.cloud/bm1344/gridlook/index.html#https://eerie.cloud.dkrz.de/datasets/ifs-amip-tco1279.hist.v20240901.atmos.native.2D_monthly/stac)
     Dataset: EERIE IFS hist 10fg on TCO1279 (10km)
     --> Support for ERA5
-6. [🪢 Irregular](https://s3.eu-dkrz-1.dkrz.cloud/bm1344/gridlook/index.html#https://cmip6-pds.s3.amazonaws.com/CMIP6/CMIP/AWI/AWI-CM-1-1-MR/historical/r1i1p1f1/Oday/tos/gn/v20181218/)
+6. [🪢 Irregular](https://gridlook.pages.dev/#https://cmip6-pds.s3.amazonaws.com/CMIP6/CMIP/AWI/AWI-CM-1-1-MR/historical/r1i1p1f1/Oday/tos/gn/v20181218/)
     Dataset: CMIP6 AWI-CM-1-1-MR historical tos, 25km.
 
 ---
@@ -114,9 +114,9 @@ Mind that when you are on mobile network or using a mobile device.
 
 - 📱 Embed in web apps — even works on mobile
 - 🧬 Understand model internals
-    (e.g., [ring-shaped precipitation in IFS](https://s3.eu-dkrz-1.dkrz.cloud/bm1344/gridlook/index.html#https://s3.eu-dkrz-1.dkrz.cloud/wrcp-hackathon/data/IFS-FESOM/hourly_healpix2048.zarr))
+    (e.g., [ring-shaped precipitation in IFS](https://gridlook.pages.dev/#https://s3.eu-dkrz-1.dkrz.cloud/wrcp-hackathon/data/IFS-FESOM/hourly_healpix2048.zarr))
 - 🐛 Find bugs or diagnose outputs
-    (e.g., [Amazon River temperature anomaly in CMIP6 MPI-ESM1-2](https://s3.eu-dkrz-1.dkrz.cloud/bm1344/gridlook/index.html#https://storage.googleapis.com/cmip6/CMIP6/ScenarioMIP/DKRZ/MPI-ESM1-2-HR/ssp370/r1i1p1f1/Amon/tas/gn/v20190710/))
+    (e.g., [Amazon River temperature anomaly in CMIP6 MPI-ESM1-2](https://gridlook.pages.dev/#https://storage.googleapis.com/cmip6/CMIP6/ScenarioMIP/DKRZ/MPI-ESM1-2-HR/ssp370/r1i1p1f1/Amon/tas/gn/v20190710/))
 
 ----
 
@@ -192,7 +192,7 @@ For CORS-enabled locations:
 2. Store zarr datasets in DKRZ cloud storage: [swift](https://docs.dkrz.de/doc/datastorage/swift/index.html) (until 2026) and [s3](https://docs.dkrz.de/doc/datastorage/minio/index.html) soon.
 
 ```shell
-cdo -f nc4c copy INPUT OUTPUT #reformat to zarr
+cdo -f nczarr copy INPUT OUTPUT #reformat to zarr
 module load swift #login
 swift upload BUCKET OUTPUT
 ```
