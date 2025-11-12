@@ -194,9 +194,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
       );
 
       const rawData = await zarr.get(datavar, indices);
-      const missingValue = getMissingValue(datavar);
-      const fillValue = getFillValue(datavar);
-      const dataBuffer = data2valueBuffer(rawData, missingValue, fillValue);
+      const dataBuffer = data2valueBuffer(rawData, datavar);
       mainMesh?.geometry.setAttribute(
         "data_value",
         new THREE.BufferAttribute(dataBuffer.dataValues, 1)

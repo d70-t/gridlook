@@ -19,6 +19,7 @@ import { useLog } from "./utils/logging";
 import { useSharedGlobeLogic } from "./sharedGlobe.ts";
 import {
   findCRSVar,
+  getDataBounds,
   getDataSourceStore,
   getFillValue,
   getMissingValue,
@@ -268,22 +269,7 @@ async function getHealpixData(
     }
   }
 
-  // Calculate min/max
-  let min = Number.POSITIVE_INFINITY;
-  let max = Number.NEGATIVE_INFINITY;
-  let missingValue = getMissingValue(datavar);
-  let fillValue = getFillValue(datavar);
-  for (let i = 0; i < dataSlice.length; i++) {
-    if (
-      !isNaN(dataSlice[i]) &&
-      dataSlice[i] !== missingValue &&
-      dataSlice[i] !== fillValue
-    ) {
-      if (dataSlice[i] < min) min = dataSlice[i];
-      if (dataSlice[i] > max) max = dataSlice[i];
-    }
-  }
-
+  let { min, max } = getDataBounds(datavar, dataSlice);
   return { texture: data2texture(dataSlice, {}), min, max };
 }
 

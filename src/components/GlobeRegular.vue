@@ -24,6 +24,7 @@ import { useUrlParameterStore } from "./store/paramStore.ts";
 import { getDimensionInfo } from "./utils/dimensionHandling.ts";
 import {
   findCRSVar,
+  getDataBounds,
   getDataSourceStore,
   getFillValue,
   getMissingValue,
@@ -448,17 +449,6 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
         rawData = Float32Array.from(rawData);
       }
 
-      let min = Number.POSITIVE_INFINITY;
-      let max = Number.NEGATIVE_INFINITY;
-      const missingValue = getMissingValue(datavar);
-      const fillValue = getFillValue(datavar);
-      for (let i of rawData) {
-        if (isNaN(i) || i === missingValue || i === fillValue) {
-          continue;
-        }
-        min = Math.min(min, i);
-        max = Math.max(max, i);
-      }
       const textures = await getRegularData(
         rawData,
         latitudes.value.length,
@@ -482,6 +472,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
       mainMesh!.material = material;
       mainMesh!.material.needsUpdate = true;
 
+      const { min, max } = getDataBounds(datavar, rawData);
       store.updateVarInfo(
         {
           attrs: datavar.attrs,

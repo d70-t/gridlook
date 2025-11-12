@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import * as zarr from "zarrita";
+import { getDataBounds } from "./zarrUtils";
 
 export async function grid2buffer(grid: zarr.Group<zarr.FetchStore>) {
   const [voc, vx, vy, vz] = await Promise.all([
@@ -80,8 +81,7 @@ export async function grid2buffer(grid: zarr.Group<zarr.FetchStore>) {
 
 export function data2valueBuffer(
   data: zarr.Chunk<zarr.DataType>,
-  missingValue: number | undefined,
-  fillValue: number | undefined
+  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>
 ) {
   const awaitedData = data;
   const ncells = awaitedData.shape[0];
@@ -92,15 +92,7 @@ export function data2valueBuffer(
     plotdata = Float32Array.from(plotdata);
   }
 
-  let dataMin = Number.POSITIVE_INFINITY;
-  let dataMax = Number.NEGATIVE_INFINITY;
-  for (let i = 0; i < ncells; i++) {
-    const v = plotdata[i];
-    if (v === missingValue || v === fillValue) continue;
-    if (v < dataMin) dataMin = v;
-    if (v > dataMax) dataMax = v;
-  }
-
+  let { min, max } = getDataBounds(datavar, plotdata);
   const dataValues = new Float32Array(ncells * 3);
 
   for (let i = 0; i < ncells; i++) {
@@ -110,5 +102,5 @@ export function data2valueBuffer(
     dataValues[baseIndex + 1] = v;
     dataValues[baseIndex + 2] = v;
   }
-  return { dataValues: dataValues, dataMin: dataMin, dataMax: dataMax };
+  return { dataValues: dataValues, dataMin: min, dataMax: max };
 }
