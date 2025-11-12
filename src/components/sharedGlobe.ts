@@ -24,6 +24,7 @@ import {
   availableColormaps,
   calculateColorMapProperties,
 } from "./utils/colormapShaders.ts";
+import { useEventListener } from "@vueuse/core";
 
 export function useSharedGlobeLogic() {
   const store = useGlobeControlStore();
@@ -273,62 +274,76 @@ export function useSharedGlobeLogic() {
   }
 
   onMounted(() => {
-    const canvasValue = canvas.value as HTMLCanvasElement;
-
     mouseDown = false;
+    useEventListener(
+      canvas.value,
+      "wheel",
+      () => {
+        mouseDown = true;
+        animationLoop();
+        mouseDown = false;
+      },
+      { passive: true }
+    );
 
-    canvasValue.addEventListener("wheel", () => {
-      mouseDown = true;
-      animationLoop();
-      mouseDown = false;
-    });
+    useEventListener(
+      canvas.value,
+      "mouseup",
+      () => {
+        mouseDown = false;
+      },
+      { passive: true }
+    );
 
-    canvasValue.addEventListener("mouseup", () => {
-      mouseDown = false;
-    });
+    useEventListener(
+      canvas.value,
+      "mousedown",
+      () => {
+        mouseDown = true;
+        animationLoop();
+      },
+      { passive: true }
+    );
 
-    canvasValue.addEventListener("mousedown", () => {
-      mouseDown = true;
-      animationLoop();
-    });
-
-    canvasValue.addEventListener(
+    useEventListener(
+      canvas.value,
       "touchstart",
       () => {
         mouseDown = true;
         animationLoop();
       },
-      {
-        passive: true,
-      }
+      { passive: true }
     );
 
-    canvasValue.addEventListener(
+    useEventListener(
+      canvas.value,
       "touchend",
       () => {
         mouseDown = false;
       },
-      {
-        passive: true,
-      }
+      { passive: true }
     );
 
-    box.value!.addEventListener("keydown", (e: KeyboardEvent) => {
-      if (
-        e.key === "ArrowRight" ||
-        e.key === "ArrowLeft" ||
-        e.key === "ArrowUp" ||
-        e.key === "ArrowDown" ||
-        e.key === "+" ||
-        e.key === "-"
-      ) {
-        mouseDown = true;
-        handleKeyDown(e, getOrbitControls()!);
-        animationLoop();
-        mouseDown = false;
-      }
-    });
-
+    useEventListener(
+      box.value,
+      "keydown",
+      (e: KeyboardEvent) => {
+        if (
+          e.key === "ArrowRight" ||
+          e.key === "ArrowLeft" ||
+          e.key === "ArrowUp" ||
+          e.key === "ArrowDown" ||
+          e.key === "+" ||
+          e.key === "-"
+        ) {
+          mouseDown = true;
+          handleKeyDown(e, getOrbitControls()!);
+          animationLoop();
+          mouseDown = false;
+        }
+      },
+      { passive: true }
+    );
     initEssentials();
     setResizeObserver(new ResizeObserver(onCanvasResize));
     getResizeObserver()?.observe(box.value!);

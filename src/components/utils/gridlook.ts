@@ -1,6 +1,5 @@
 import * as THREE from "three";
 import * as zarr from "zarrita";
-import type { getFillValue } from "./zarrUtils";
 
 export async function grid2buffer(grid: zarr.Group<zarr.FetchStore>) {
   const [voc, vx, vy, vz] = await Promise.all([
