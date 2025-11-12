@@ -26,8 +26,6 @@ import {
   findCRSVar,
   getDataBounds,
   getDataSourceStore,
-  getFillValue,
-  getMissingValue,
 } from "./utils/zarrUtils.ts";
 
 const props = defineProps<{

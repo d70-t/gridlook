@@ -21,8 +21,6 @@ import {
   findCRSVar,
   getDataBounds,
   getDataSourceStore,
-  getFillValue,
-  getMissingValue,
 } from "./utils/zarrUtils.ts";
 import { getDimensionInfo } from "./utils/dimensionHandling.ts";
 import { useUrlParameterStore } from "./store/paramStore.ts";

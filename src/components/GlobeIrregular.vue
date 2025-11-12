@@ -18,11 +18,7 @@ import { useLog } from "./utils/logging";
 import { useSharedGlobeLogic } from "./sharedGlobe.ts";
 import { useUrlParameterStore } from "./store/paramStore.ts";
 import { getDimensionInfo } from "./utils/dimensionHandling.ts";
-import {
-  getDataBounds,
-  getFillValue,
-  getMissingValue,
-} from "./utils/zarrUtils.ts";
+import { getDataBounds } from "./utils/zarrUtils.ts";
 
 const props = defineProps<{
   datasources?: TSources;
