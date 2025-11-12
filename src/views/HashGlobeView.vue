@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { ref, onMounted, onBeforeMount, type Ref } from "vue";
+import { ref, onBeforeMount, type Ref } from "vue";
 import GlobeView from "./GlobeView.vue";
 import { useGlobeControlStore } from "../components/store/store";
 import { storeToRefs } from "pinia";

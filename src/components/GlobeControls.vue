@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import ColorBar from "@/components/ColorBar.vue";
-import { computed, onMounted, onUnmounted, ref, watch, type Ref } from "vue";
+import { computed, onMounted, ref, watch, type Ref } from "vue";
 import { useGlobeControlStore } from "./store/store.ts";
 import { storeToRefs } from "pinia";
 import debounce from "lodash.debounce";

@@ -92,7 +92,7 @@ export function data2valueBuffer(
     plotdata = Float32Array.from(plotdata);
   }
 
-  let { min, max } = getDataBounds(datavar, plotdata);
+  const { min, max } = getDataBounds(datavar, plotdata);
   const dataValues = new Float32Array(ncells * 3);
 
   for (let i = 0; i < ncells; i++) {
