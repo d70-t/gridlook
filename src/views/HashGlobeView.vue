@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { ref, onMounted, onBeforeMount, type Ref } from "vue";
+import { ref, onBeforeMount, type Ref } from "vue";
 import GlobeView from "./GlobeView.vue";
 import { useGlobeControlStore } from "../components/store/store";
 import { storeToRefs } from "pinia";
@@ -8,6 +8,7 @@ import {
   STORE_PARAM_MAPPING,
   useUrlParameterStore,
 } from "../components/store/paramStore";
+import { useEventListener } from "@vueuse/core";
 
 type TParams = Partial<Record<TURLParameterValues, string>>;
 
@@ -66,9 +67,7 @@ const onHashChange = () => {
   }
 };
 
-onMounted(() => {
-  window.addEventListener("hashchange", onHashChange);
-});
+useEventListener(window, "hashchange", onHashChange);
 
 onBeforeMount(() => {
   onHashChange();
