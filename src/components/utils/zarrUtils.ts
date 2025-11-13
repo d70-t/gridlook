@@ -42,10 +42,10 @@ export function getMissingValue(
 ) {
   const attributes = datavar.attrs;
   if (Object.hasOwn(attributes, "missingValue")) {
-    return Number(datavar.attrs.missingValue);
+    return Number(attributes.missingValue);
   }
   if (Object.hasOwn(attributes, "missing_value")) {
-    return Number(datavar.attrs.missing_value);
+    return Number(attributes.missing_value);
   }
   return NaN;
 }
@@ -59,7 +59,7 @@ export function getFillValue(
   );
   if (!contextSymbol) return NaN;
   // FIXME
-  // @ts-expect-error These context symbol is not publicly exposed in the documentation
+  // @ts-expect-error This context symbol is not publicly exposed in the documentation
   const obj = datavar[contextSymbol];
   return Number(obj.fill_value);
 }

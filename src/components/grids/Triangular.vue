@@ -1,24 +1,24 @@
 <script lang="ts" setup>
 import * as THREE from "three";
 import * as zarr from "zarrita";
-import { grid2buffer, data2valueBuffer } from "./utils/gridlook.ts";
-import { makeColormapMaterial } from "./utils/colormapShaders.ts";
-import { decodeTime } from "./utils/timeHandling.ts";
+import { grid2buffer, data2valueBuffer } from "../utils/gridlook.ts";
+import { makeColormapMaterial } from "../utils/colormapShaders.ts";
+import { decodeTime } from "../utils/timeHandling.ts";
 
-import { datashaderExample } from "./utils/exampleFormatters.ts";
+import { datashaderExample } from "../utils/exampleFormatters.ts";
 import { computed, onBeforeMount, ref, onMounted, watch } from "vue";
 
 import {
   UPDATE_MODE,
   useGlobeControlStore,
   type TUpdateMode,
-} from "./store/store.js";
+} from "../store/store.js";
 import { storeToRefs } from "pinia";
-import type { TSources } from "../types/GlobeTypes.ts";
-import { useLog } from "./utils/logging";
-import { useSharedGlobeLogic } from "./sharedGlobe.ts";
-import { useUrlParameterStore } from "./store/paramStore.ts";
-import { getDimensionInfo } from "./utils/dimensionHandling.ts";
+import type { TSources } from "../../types/GlobeTypes.ts";
+import { useLog } from "../utils/logging";
+import { useSharedGridLogic } from "./useSharedGridLogic.ts";
+import { useUrlParameterStore } from "../store/paramStore.ts";
+import { getDimensionInfo } from "../utils/dimensionHandling.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -57,7 +57,7 @@ const {
   updateColormap,
   canvas,
   box,
-} = useSharedGlobeLogic();
+} = useSharedGridLogic();
 
 watch(
   () => varnameSelector.value,

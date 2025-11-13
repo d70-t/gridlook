@@ -9,24 +9,24 @@ import {
   type Ref,
   type ShallowRef,
 } from "vue";
-import { LAND_SEA_MASK_MODES, useGlobeControlStore } from "./store/store";
-import { geojson2geometry } from "./utils/geojson.ts";
+import { LAND_SEA_MASK_MODES, useGlobeControlStore } from "../store/store.ts";
+import { geojson2geometry } from "../utils/geojson.ts";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
-import { handleKeyDown } from "./utils/OrbitControlsAddOn.ts";
-import { useLog } from "./utils/logging";
+import { handleKeyDown } from "../utils/OrbitControlsAddOn.ts";
+import { useLog } from "../utils/logging.ts";
 import * as zarr from "zarrita";
 import type { TSources } from "@/types/GlobeTypes.ts";
-import { useUrlParameterStore } from "./store/paramStore.ts";
-import { getLandSeaMask, loadJSON } from "./utils/landSeaMask.ts";
+import { useUrlParameterStore } from "../store/paramStore.ts";
+import { getLandSeaMask, loadJSON } from "../utils/landSeaMask.ts";
 import debounce from "lodash.debounce";
 import {
   availableColormaps,
   calculateColorMapProperties,
-} from "./utils/colormapShaders.ts";
+} from "../utils/colormapShaders.ts";
 import { useEventListener } from "@vueuse/core";
 
-export function useSharedGlobeLogic() {
+export function useSharedGridLogic() {
   const store = useGlobeControlStore();
   const {
     showCoastLines,

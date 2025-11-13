@@ -2,28 +2,28 @@
 import * as THREE from "three";
 import * as zarr from "zarrita";
 import * as healpix from "@hscmap/healpix";
-import { makeTextureMaterial } from "./utils/colormapShaders.ts";
-import { decodeTime } from "./utils/timeHandling.ts";
-import { datashaderExample } from "./utils/exampleFormatters.ts";
+import { makeTextureMaterial } from "../utils/colormapShaders.ts";
+import { decodeTime } from "../utils/timeHandling.ts";
+import { datashaderExample } from "../utils/exampleFormatters.ts";
 import { computed, onBeforeMount, onMounted, ref, watch } from "vue";
 
 import {
   UPDATE_MODE,
   useGlobeControlStore,
   type TUpdateMode,
-} from "./store/store.js";
+} from "../store/store.js";
 import { storeToRefs } from "pinia";
-import type { TSources, TVarInfo } from "../types/GlobeTypes.ts";
+import type { TSources, TVarInfo } from "../../types/GlobeTypes.ts";
 import { useToast } from "primevue/usetoast";
-import { useLog } from "./utils/logging";
-import { useSharedGlobeLogic } from "./sharedGlobe.ts";
+import { useLog } from "../utils/logging";
+import { useSharedGridLogic } from "./useSharedGridLogic.ts";
 import {
   findCRSVar,
   getDataBounds,
   getDataSourceStore,
-} from "./utils/zarrUtils.ts";
-import { getDimensionInfo } from "./utils/dimensionHandling.ts";
-import { useUrlParameterStore } from "./store/paramStore.ts";
+} from "../utils/zarrUtils.ts";
+import { getDimensionInfo } from "../utils/dimensionHandling.ts";
+import { useUrlParameterStore } from "../store/paramStore.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -59,7 +59,7 @@ const {
   updateColormap,
   canvas,
   box,
-} = useSharedGlobeLogic();
+} = useSharedGridLogic();
 
 const updateCount = ref(0);
 const updatingData = ref(false);
