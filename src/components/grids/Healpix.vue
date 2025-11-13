@@ -347,13 +347,16 @@ function getUnshuffleIndex(
   unshuffleIndex: { [key: number]: Float32Array }
 ): Float32Array {
   if (unshuffleIndex[size] === undefined) {
-    let temp = [];
+    const len = size * size;
+    const temp = new Float32Array(len);
+    let idx = 0;
+
     for (let i = 0; i < size; ++i) {
       for (let j = 0; j < size; ++j) {
-        temp.push(healpix.bit_combine(j, i));
+        temp[idx++] = healpix.bit_combine(j, i);
       }
     }
-    unshuffleIndex[size] = new Float32Array(temp);
+    unshuffleIndex[size] = temp;
   }
   return unshuffleIndex[size];
 }
