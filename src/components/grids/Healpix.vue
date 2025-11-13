@@ -2,7 +2,10 @@
 import * as THREE from "three";
 import * as zarr from "zarrita";
 import * as healpix from "@hscmap/healpix";
-import { makeTextureMaterial } from "../utils/colormapShaders.ts";
+import {
+  calculateColorMapProperties,
+  makeTextureMaterial,
+} from "../utils/colormapShaders.ts";
 import { decodeTime } from "../utils/timeHandling.ts";
 import { datashaderExample } from "../utils/exampleFormatters.ts";
 import { computed, onBeforeMount, onMounted, ref, watch } from "vue";
@@ -534,18 +537,15 @@ onMounted(() => {
 });
 
 onBeforeMount(async () => {
-  const gridStep = 64 + 1;
   const low = bounds.value?.low as number;
   const high = bounds.value?.high as number;
-  let scaleFactor: number;
-  let addOffset: number;
-  if (invertColormap.value) {
-    scaleFactor = -1 / (high - low);
-    addOffset = -high * scaleFactor;
-  } else {
-    scaleFactor = 1 / (high - low);
-    addOffset = -low * scaleFactor;
-  }
+  const { addOffset, scaleFactor } = calculateColorMapProperties(
+    low,
+    high,
+    invertColormap.value
+  );
+
+  const gridStep = 64 + 1;
   for (let ipix = 0; ipix < HEALPIX_NUMCHUNKS; ++ipix) {
     const material = makeTextureMaterial(
       new THREE.Texture(),
