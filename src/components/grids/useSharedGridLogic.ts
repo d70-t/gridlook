@@ -324,26 +324,21 @@ export function useSharedGridLogic() {
       { passive: true }
     );
 
-    useEventListener(
-      box.value,
-      "keydown",
-      (e: KeyboardEvent) => {
-        if (
-          e.key === "ArrowRight" ||
-          e.key === "ArrowLeft" ||
-          e.key === "ArrowUp" ||
-          e.key === "ArrowDown" ||
-          e.key === "+" ||
-          e.key === "-"
-        ) {
-          mouseDown = true;
-          handleKeyDown(e, getOrbitControls()!);
-          animationLoop();
-          mouseDown = false;
-        }
-      },
-      { passive: true }
-    );
+    useEventListener(box.value, "keydown", (e: KeyboardEvent) => {
+      if (
+        e.key === "ArrowRight" ||
+        e.key === "ArrowLeft" ||
+        e.key === "ArrowUp" ||
+        e.key === "ArrowDown" ||
+        e.key === "+" ||
+        e.key === "-"
+      ) {
+        mouseDown = true;
+        handleKeyDown(e, getOrbitControls()!);
+        animationLoop();
+        mouseDown = false;
+      }
+    });
     initEssentials();
     setResizeObserver(new ResizeObserver(onCanvasResize));
     getResizeObserver()?.observe(box.value!);
