@@ -219,14 +219,14 @@ function isLongitudeGlobal(lons: Float64Array): boolean {
   const n = lons.length;
   if (n < 2) return false;
 
-  const delta = lons[1] - lons[0];
+  // Use unwrapped longitudes to check span
+  const span = Math.abs(lons[n - 1] - lons[0]);
 
-  // Compute total span covered by all steps (delta * (n - 1))
-  const span = Math.abs(delta * (n - 1));
+  // Estimate the grid spacing
+  const avgDelta = span / (n - 1);
 
-  // Normalize the span to [0, 360]
-  const normalizedSpan = span % 360;
-  return normalizedSpan + delta > 359.5;
+  // Check if span + one grid cell covers 360°
+  return span + avgDelta > 359.5;
 }
 
 /**
@@ -305,11 +305,15 @@ function generateGridIndices(
   return indices;
 }
 
+function normalizeLongitudes(lons: Float64Array): Float64Array {
+  // Normalize longitudes to [0, 360)
+  return Float64Array.from(lons, (lon) => ((lon % 360) + 360) % 360);
+}
+
 async function getGaussianGrid() {
   const isRotated = props.isRotated;
-
+  let lons = normalizeLongitudes(longitudes.value);
   let lats = latitudes.value;
-  let lons = longitudes.value.map((lon) => (lon + 360) % 360);
 
   // Check if latitudes are descending and reverse if necessary
   let isLatReversed = lats[0] > lats[lats.length - 1];
@@ -317,10 +321,12 @@ async function getGaussianGrid() {
     lats = Float64Array.from(lats).reverse();
   }
 
-  const isGlobal = isLongitudeGlobal(lons);
+  const isGlobal = isLongitudeGlobal(longitudes.value);
 
   if (isGlobal) {
-    lons = new Float64Array(new Set([...lons, 360]));
+    // Add a duplicate of the first longitude + 360 to close the globe
+    const firstLon = lons[0];
+    lons = new Float64Array([...lons, firstLon + 360]);
   }
 
   const radius = 1.0;
@@ -330,7 +336,6 @@ async function getGaussianGrid() {
     poleLat = rotatedNorthPole.lat;
     poleLon = rotatedNorthPole.lon;
   }
-
   const { vertices, uvs } = generateGridVerticesAndUVs(
     lats,
     lons,
