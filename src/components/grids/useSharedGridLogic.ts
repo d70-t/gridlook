@@ -16,7 +16,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 import { handleKeyDown } from "../utils/OrbitControlsAddOn.ts";
 import { useLog } from "../utils/logging.ts";
 import * as zarr from "zarrita";
-import type { TSources } from "@/types/GlobeTypes.ts";
+import type { TSources, TTimeInfo } from "@/types/GlobeTypes.ts";
 import { useUrlParameterStore } from "../store/paramStore.ts";
 import { getLandSeaMask, loadJSON } from "../utils/landSeaMask.ts";
 import debounce from "lodash.debounce";
@@ -25,6 +25,7 @@ import {
   calculateColorMapProperties,
 } from "../utils/colormapShaders.ts";
 import { useEventListener } from "@vueuse/core";
+import { decodeTime } from "../utils/timeHandling.ts";
 
 export function useSharedGridLogic() {
   const store = useGlobeControlStore();
@@ -401,6 +402,19 @@ export function useSharedGridLogic() {
     return await getDataVar("time", datasources);
   }
 
+  async function extractTimeInfo(
+    timevar: zarr.Array<zarr.DataType, zarr.FetchStore> | undefined,
+    index: number
+  ): Promise<TTimeInfo> {
+    if (!timevar) return {};
+
+    const timevalues = (await zarr.get(timevar, [null])).data as Int32Array;
+    return {
+      values: timevalues,
+      current: decodeTime(timevalues[index], timevar.attrs),
+    };
+  }
+
   type TCameraState = {
     position: number[];
     quaternion: number[];
@@ -504,6 +518,7 @@ export function useSharedGridLogic() {
     registerUpdateLOD,
     updateLandSeaMask,
     updateColormap,
+    extractTimeInfo,
     canvas,
     box,
   };

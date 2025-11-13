@@ -6,7 +6,6 @@ import {
   calculateColorMapProperties,
   makeTextureMaterial,
 } from "../utils/colormapShaders.ts";
-import { decodeTime } from "../utils/timeHandling.ts";
 import { datashaderExample } from "../utils/exampleFormatters.ts";
 import { computed, onBeforeMount, onMounted, ref, watch } from "vue";
 
@@ -16,7 +15,7 @@ import {
   type TUpdateMode,
 } from "../store/store.js";
 import { storeToRefs } from "pinia";
-import type { TSources, TVarInfo } from "../../types/GlobeTypes.ts";
+import type { TSources } from "../../types/GlobeTypes.ts";
 import { useToast } from "primevue/usetoast";
 import { useLog } from "../utils/logging";
 import { useSharedGridLogic } from "./useSharedGridLogic.ts";
@@ -60,6 +59,7 @@ const {
   getTimeVar,
   updateLandSeaMask,
   updateColormap,
+  extractTimeInfo,
   canvas,
   box,
 } = useSharedGridLogic();
@@ -436,18 +436,6 @@ async function loadTimeAndDataVars(varname: string) {
     getTimeVar(props.datasources!),
     getDataVar(varname, props.datasources!),
   ]);
-}
-
-async function extractTimeInfo(
-  timevar: zarr.Array<zarr.DataType, zarr.FetchStore> | undefined,
-  index: number
-): Promise<TVarInfo["timeinfo"]> {
-  if (!timevar) return {};
-  const timevalues = (await zarr.get(timevar, [null])).data as Int32Array;
-  return {
-    values: timevalues,
-    current: decodeTime(timevalues[index], timevar.attrs),
-  };
 }
 
 async function processDataVar(

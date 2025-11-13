@@ -3,7 +3,6 @@ import * as THREE from "three";
 import * as zarr from "zarrita";
 import { grid2buffer, data2valueBuffer } from "../utils/gridlook.ts";
 import { makeColormapMaterial } from "../utils/colormapShaders.ts";
-import { decodeTime } from "../utils/timeHandling.ts";
 
 import { datashaderExample } from "../utils/exampleFormatters.ts";
 import { computed, onBeforeMount, ref, onMounted, watch } from "vue";
@@ -55,6 +54,7 @@ const {
   getTimeVar,
   updateLandSeaMask,
   updateColormap,
+  extractTimeInfo,
   canvas,
   box,
 } = useSharedGridLogic();
@@ -165,23 +165,14 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
     updatingData.value = true;
 
     const localVarname = varnameSelector.value;
-    const currentTimeIndexSliderValue = timeIndexSlider.value;
     const [timevar, datavar] = await Promise.all([
       getTimeVar(props.datasources!),
       getDataVar(localVarname, props.datasources!),
     ]);
-    let timeinfo = {};
-    if (timevar !== undefined) {
-      const timeattrs = timevar.attrs;
-      const timevalues = (await zarr.get(timevar, [null])).data;
-      timeinfo = {
-        values: timevalues,
-        current: decodeTime(
-          (timevalues as number[])[currentTimeIndexSliderValue as number],
-          timeattrs
-        ),
-      };
-    }
+
+    const currentTimeIndexSliderValue = timeIndexSlider.value as number;
+    let timeinfo = await extractTimeInfo(timevar, currentTimeIndexSliderValue);
+
     if (datavar !== undefined) {
       const { dimensionRanges, indices } = getDimensionInfo(
         datavar,
