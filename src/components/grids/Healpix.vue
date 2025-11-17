@@ -249,7 +249,7 @@ async function getHealpixData(
       start,
       end
     );
-    const data = (await zarr.get(datavar, [timeValue, zarr.slice(start, end)]))
+    const data = (await zarr.get(datavar, localDimensionIndices))
       .data as Float32Array;
     const isContiguous =
       relevantIndices.length > 1 &&
