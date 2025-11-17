@@ -197,7 +197,6 @@ async function getCells() {
 async function getHealpixData(
   datavar: zarr.Array<zarr.DataType>,
   cellCoord: number[] | undefined, // Optional - undefined for global data
-  timeValue: number,
   ipix: number,
   numChunks: number,
   nside: number,
@@ -414,12 +413,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
       currentTimeIndexSliderValue as number
     );
     if (datavar !== undefined) {
-      await processDataVar(
-        datavar,
-        currentTimeIndexSliderValue as number,
-        timeinfo,
-        updateMode
-      );
+      await processDataVar(datavar, timeinfo, updateMode);
     }
     updatingData.value = false;
 
@@ -443,7 +437,6 @@ async function loadTimeAndDataVars(varname: string) {
 
 async function processDataVar(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
-  currentTimeIndexSliderValue: number,
   timeinfo: Awaited<ReturnType<typeof extractTimeInfo>>,
   updateMode: TUpdateMode
 ) {
@@ -466,7 +459,6 @@ async function processDataVar(
         const texData = await getHealpixData(
           datavar,
           cellCoord,
-          currentTimeIndexSliderValue,
           ipix,
           HEALPIX_NUMCHUNKS,
           nside,
