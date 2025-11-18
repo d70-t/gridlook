@@ -1,5 +1,6 @@
 import { storeToRefs } from "pinia";
 import {
+  computed,
   onBeforeUnmount,
   onMounted,
   ref,
@@ -8,25 +9,34 @@ import {
   type Ref,
   type ShallowRef,
 } from "vue";
-import { LAND_SEA_MASK_MODES, useGlobeControlStore } from "./store/store";
-import { geojson2geometry } from "./utils/geojson.ts";
+import { LAND_SEA_MASK_MODES, useGlobeControlStore } from "../store/store.ts";
+import { geojson2geometry } from "../utils/geojson.ts";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
-import { handleKeyDown } from "./utils/OrbitControlsAddOn.ts";
-import { useLog } from "./utils/logging";
+import { handleKeyDown } from "../utils/OrbitControlsAddOn.ts";
+import { useLog } from "../utils/logging.ts";
 import * as zarr from "zarrita";
-import type { TSources } from "@/types/GlobeTypes.ts";
-import { useUrlParameterStore } from "./store/paramStore.ts";
-import { getLandSeaMask, loadJSON } from "./utils/landSeaMask.ts";
+import type { TSources, TTimeInfo } from "@/types/GlobeTypes.ts";
+import { useUrlParameterStore } from "../store/paramStore.ts";
+import { getLandSeaMask, loadJSON } from "../utils/landSeaMask.ts";
 import debounce from "lodash.debounce";
+import {
+  availableColormaps,
+  calculateColorMapProperties,
+} from "../utils/colormapShaders.ts";
+import { useEventListener } from "@vueuse/core";
+import { decodeTime } from "../utils/timeHandling.ts";
 
-export function useSharedGlobeLogic(
-  canvas: Ref<HTMLCanvasElement | undefined>,
-  box: Ref<HTMLDivElement | undefined>
-) {
+export function useSharedGridLogic() {
   const store = useGlobeControlStore();
-  const { showCoastLines, landSeaMaskChoice, landSeaMaskUseTexture } =
-    storeToRefs(store);
+  const {
+    showCoastLines,
+    landSeaMaskChoice,
+    landSeaMaskUseTexture,
+    selection,
+    colormap,
+    invertColormap,
+  } = storeToRefs(store);
 
   const urlParameterStore = useUrlParameterStore();
   const { paramCameraState } = storeToRefs(urlParameterStore);
@@ -35,6 +45,9 @@ export function useSharedGlobeLogic(
   const datavars: ShallowRef<
     Record<string, zarr.Array<zarr.DataType, zarr.FetchStore>>
   > = shallowRef({});
+
+  const canvas: Ref<HTMLCanvasElement | undefined> = ref();
+  const box: Ref<HTMLDivElement | undefined> = ref();
   let coast: THREE.LineSegments | undefined = undefined;
   let landSeaMask: THREE.Mesh | undefined = undefined;
   let scene: THREE.Scene | undefined = undefined;
@@ -61,6 +74,10 @@ export function useSharedGlobeLogic(
       updateLandSeaMask();
     }
   );
+
+  const bounds = computed(() => {
+    return selection.value;
+  });
 
   function getCoast() {
     return coast;
@@ -158,6 +175,31 @@ export function useSharedGlobeLogic(
     redraw();
   }
 
+  function updateColormap(meshes: (THREE.Mesh | THREE.Points | undefined)[]) {
+    if (!meshes) {
+      return;
+    }
+    const low = bounds.value?.low as number;
+    const high = bounds.value?.high as number;
+    const { addOffset, scaleFactor } = calculateColorMapProperties(
+      low,
+      high,
+      invertColormap.value
+    );
+
+    for (const myMesh of meshes) {
+      if (!myMesh) {
+        continue;
+      }
+      const material = myMesh!.material as THREE.ShaderMaterial;
+      material.uniforms.colormap.value = availableColormaps[colormap.value];
+      material.uniforms.addOffset.value = addOffset;
+      material.uniforms.scaleFactor.value = scaleFactor;
+      material.needsUpdate = true;
+    }
+    redraw();
+  }
+
   function initEssentials() {
     // from: https://stackoverflow.com/a/65732553
     scene = new THREE.Scene();
@@ -233,47 +275,57 @@ export function useSharedGlobeLogic(
   }
 
   onMounted(() => {
-    const canvasValue = canvas.value as HTMLCanvasElement;
-
     mouseDown = false;
+    useEventListener(
+      canvas.value,
+      "wheel",
+      () => {
+        mouseDown = true;
+        animationLoop();
+        mouseDown = false;
+      },
+      { passive: true }
+    );
 
-    canvasValue.addEventListener("wheel", () => {
-      mouseDown = true;
-      animationLoop();
-      mouseDown = false;
-    });
+    useEventListener(
+      canvas.value,
+      "mouseup",
+      () => {
+        mouseDown = false;
+      },
+      { passive: true }
+    );
 
-    canvasValue.addEventListener("mouseup", () => {
-      mouseDown = false;
-    });
+    useEventListener(
+      canvas.value,
+      "mousedown",
+      () => {
+        mouseDown = true;
+        animationLoop();
+      },
+      { passive: true }
+    );
 
-    canvasValue.addEventListener("mousedown", () => {
-      mouseDown = true;
-      animationLoop();
-    });
-
-    canvasValue.addEventListener(
+    useEventListener(
+      canvas.value,
       "touchstart",
       () => {
         mouseDown = true;
         animationLoop();
       },
-      {
-        passive: true,
-      }
+      { passive: true }
     );
 
-    canvasValue.addEventListener(
+    useEventListener(
+      canvas.value,
       "touchend",
       () => {
         mouseDown = false;
       },
-      {
-        passive: true,
-      }
+      { passive: true }
     );
 
-    box.value!.addEventListener("keydown", (e: KeyboardEvent) => {
+    useEventListener(box.value, "keydown", (e: KeyboardEvent) => {
       if (
         e.key === "ArrowRight" ||
         e.key === "ArrowLeft" ||
@@ -288,7 +340,6 @@ export function useSharedGlobeLogic(
         mouseDown = false;
       }
     });
-
     initEssentials();
     setResizeObserver(new ResizeObserver(onCanvasResize));
     getResizeObserver()?.observe(box.value!);
@@ -349,6 +400,19 @@ export function useSharedGlobeLogic(
 
   async function getTimeVar(datasources: TSources) {
     return await getDataVar("time", datasources);
+  }
+
+  async function extractTimeInfo(
+    timevar: zarr.Array<zarr.DataType, zarr.FetchStore> | undefined,
+    index: number
+  ): Promise<TTimeInfo> {
+    if (!timevar) return {};
+
+    const timevalues = (await zarr.get(timevar, [null])).data as Int32Array;
+    return {
+      values: timevalues,
+      current: decodeTime(timevalues[index], timevar.attrs),
+    };
   }
 
   type TCameraState = {
@@ -453,5 +517,9 @@ export function useSharedGlobeLogic(
     getTimeVar,
     registerUpdateLOD,
     updateLandSeaMask,
+    updateColormap,
+    extractTimeInfo,
+    canvas,
+    box,
   };
 }

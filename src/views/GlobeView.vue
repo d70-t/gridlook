@@ -1,10 +1,10 @@
 <script lang="ts" setup>
 import * as zarr from "zarrita";
 import AboutView from "@/views/AboutView.vue";
-import GlobeHealpix from "@/components/GlobeHealpix.vue";
-import GlobeRegular from "@/components/GlobeRegular.vue";
-import GlobeIrregular from "@/components/GlobeIrregular.vue";
-import Globe from "@/components/Globe.vue";
+import GridHealpix from "@/components/grids/Healpix.vue";
+import GridRegular from "@/components/grids/Regular.vue";
+import GridIrregular from "@/components/grids/Irregular.vue";
+import GridTriangular from "@/components/grids/Triangular.vue";
 import GlobeControls from "@/components/GlobeControls.vue";
 import { availableColormaps } from "@/components/utils/colormapShaders.js";
 import { ref, computed, watch, onMounted, type Ref } from "vue";
@@ -13,25 +13,27 @@ import { useGlobeControlStore } from "../components/store/store";
 import Toast from "primevue/toast";
 import { useLog } from "../components/utils/logging";
 import { storeToRefs } from "pinia";
-import StoreUrlListener from "../components/store/storeUrlListener.vue";
 import { useUrlParameterStore } from "../components/store/paramStore";
 import {
   getGridType,
   GRID_TYPES,
   type T_GRID_TYPES,
 } from "../components/utils/gridTypeDetector";
+import { useUrlSync } from "../components/store/useUrlSync";
 
 const props = defineProps<{ src: string }>();
 
+useUrlSync();
 const { logError } = useLog();
 const store = useGlobeControlStore();
+
 const { varnameSelector, loading, colormap, invertColormap } =
   storeToRefs(store);
 
 const urlParameterStore = useUrlParameterStore();
 const { paramVarname } = storeToRefs(urlParameterStore);
 
-const globe: Ref<typeof Globe | null> = ref(null);
+const globe: Ref<typeof GridTriangular | null> = ref(null);
 const globeKey = ref(0);
 const globeControlKey = ref(0);
 const isLoading = ref(false);
@@ -55,17 +57,17 @@ const modelInfo = computed(() => {
 
 const currentGlobeComponent = computed(() => {
   if (gridType.value === GRID_TYPES.HEALPIX) {
-    return GlobeHealpix;
+    return GridHealpix;
   } else if (
     gridType.value === GRID_TYPES.REGULAR_ROTATED ||
     gridType.value === GRID_TYPES.REGULAR
   ) {
-    return GlobeRegular;
+    return GridRegular;
   } else if (gridType.value === GRID_TYPES.TRIANGULAR) {
-    return Globe;
+    return GridTriangular;
   } else {
     // Irregular later
-    return GlobeIrregular;
+    return GridIrregular;
   }
 });
 
@@ -79,6 +81,7 @@ async function setGridType() {
     datasources.value,
     logError
   );
+  console.log("getGridType", localGridType);
   gridType.value = localGridType;
 }
 
@@ -253,7 +256,6 @@ onMounted(async () => {
 
 <template>
   <main>
-    <StoreUrlListener />
     <Toast unstyled>
       <template #container="{ message, closeCallback }">
         <div class="message is-danger" style="max-width: 400px">

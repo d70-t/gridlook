@@ -1,11 +1,12 @@
 <script lang="ts" setup>
 import ColorBar from "@/components/ColorBar.vue";
-import { computed, onMounted, onUnmounted, ref, watch, type Ref } from "vue";
+import { computed, onMounted, ref, watch, type Ref } from "vue";
 import { useGlobeControlStore } from "./store/store.ts";
 import { storeToRefs } from "pinia";
 import debounce from "lodash.debounce";
 import type { TModelInfo, TBounds } from "../types/GlobeTypes.js";
 import { useUrlParameterStore } from "./store/paramStore.ts";
+import { useEventListener } from "@vueuse/core";
 
 const props = defineProps<{ modelInfo?: TModelInfo }>();
 
@@ -209,13 +210,7 @@ const MOBILE_VIEW_THRESHOLD = 769; // px
 
 onMounted(() => {
   isMobileView.value = window.innerWidth < MOBILE_VIEW_THRESHOLD;
-  window.addEventListener("resize", () => {
-    isMobileView.value = window.innerWidth < MOBILE_VIEW_THRESHOLD;
-  });
-});
-
-onUnmounted(() => {
-  window.removeEventListener("resize", () => {
+  useEventListener(window, "resize", () => {
     isMobileView.value = window.innerWidth < MOBILE_VIEW_THRESHOLD;
   });
 });

@@ -24,6 +24,58 @@ function isLatitude(name: string) {
   return name === "lat" || name === "latitude";
 }
 
+async function checkTriangularGrid(
+  datasources: TSources | undefined
+): Promise<boolean> {
+  try {
+    const gridsource = datasources!.levels[0].grid;
+    const gridRoot = zarr.root(new zarr.FetchStore(gridsource.store));
+    const grid = await zarr.open(gridRoot.resolve(gridsource.dataset), {
+      kind: "group",
+    });
+    await zarr.open(grid.resolve("vertex_of_cell"), {
+      kind: "array",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function checkHealpixGrid(crs: zarr.Array<zarr.DataType, zarr.FetchStore>) {
+  return crs.attrs["grid_mapping_name"] === "healpix";
+}
+
+function checkRegularRotatedGrid(
+  crs: zarr.Array<zarr.DataType, zarr.FetchStore>
+) {
+  return crs.attrs["grid_mapping_name"] === "rotated_latitude_longitude";
+}
+
+async function checkIrregularGrid(datasources: TSources | undefined) {
+  try {
+    const gridsource = datasources!.levels[0].grid;
+    const gridRoot = zarr.root(new zarr.FetchStore(gridsource.store));
+    const grid = await zarr.open(gridRoot.resolve(gridsource.dataset), {
+      kind: "group",
+    });
+    const latitudes = (
+      await zarr.open(grid.resolve("lat"), { kind: "array" }).then(zarr.get)
+    ).data as Float64Array;
+
+    const longitudes = (
+      await zarr.open(grid.resolve("lon"), { kind: "array" }).then(zarr.get)
+    ).data as Float64Array;
+
+    if (latitudes.length === longitudes.length) {
+      return true;
+    }
+  } catch {
+    /* fall through */
+  }
+  return false;
+}
+
 export async function getGridType(
   sourceValid: boolean,
   varnameSelector: string,
@@ -35,23 +87,12 @@ export async function getGridType(
   if (!sourceValid) {
     return GRID_TYPES.ERROR;
   }
-  try {
-    try {
-      // CHECK IF TRIANGULAR
-      const gridsource = datasources!.levels[0].grid;
-      const gridRoot = zarr.root(new zarr.FetchStore(gridsource.store));
-      const grid = await zarr.open(gridRoot.resolve(gridsource.dataset), {
-        kind: "group",
-      });
-      await zarr.open(grid.resolve("vertex_of_cell"), {
-        kind: "array",
-      });
-      return GRID_TYPES.TRIANGULAR;
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    } catch (e) {
-      /* empty */
-    }
 
+  if (await checkTriangularGrid(datasources)) {
+    return GRID_TYPES.TRIANGULAR;
+  }
+
+  try {
     const root = getDataSourceStore(datasources!, varnameSelector);
 
     const datavar = await zarr.open(root.resolve(varnameSelector), {
@@ -65,10 +106,10 @@ export async function getGridType(
           kind: "array",
         }
       );
-      if (crs.attrs["grid_mapping_name"] === "healpix") {
+      if (checkHealpixGrid(crs)) {
         return GRID_TYPES.HEALPIX;
       }
-      if (crs.attrs["grid_mapping_name"] === "rotated_latitude_longitude") {
+      if (checkRegularRotatedGrid(crs)) {
         return GRID_TYPES.REGULAR_ROTATED;
       }
     } catch {
@@ -82,25 +123,8 @@ export async function getGridType(
     ) {
       return GRID_TYPES.REGULAR;
     }
-    try {
-      const gridsource = datasources!.levels[0].grid;
-      const gridRoot = zarr.root(new zarr.FetchStore(gridsource.store));
-      const grid = await zarr.open(gridRoot.resolve(gridsource.dataset), {
-        kind: "group",
-      });
-      const latitudes = (
-        await zarr.open(grid.resolve("lat"), { kind: "array" }).then(zarr.get)
-      ).data as Float64Array;
-
-      const longitudes = (
-        await zarr.open(grid.resolve("lon"), { kind: "array" }).then(zarr.get)
-      ).data as Float64Array;
-
-      if (latitudes.length === longitudes.length) {
-        return GRID_TYPES.IRREGULAR;
-      }
-    } catch {
-      /* fall through */
+    if (await checkIrregularGrid(datasources)) {
+      return GRID_TYPES.IRREGULAR;
     }
     return GRID_TYPES.GAUSSIAN;
   } catch (error) {

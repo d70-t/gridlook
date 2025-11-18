@@ -3,27 +3,29 @@ import * as THREE from "three";
 import * as zarr from "zarrita";
 import * as healpix from "@hscmap/healpix";
 import {
-  availableColormaps,
   calculateColorMapProperties,
   makeTextureMaterial,
-} from "./utils/colormapShaders.ts";
-import { decodeTime } from "./utils/timeHandling.ts";
-import { datashaderExample } from "./utils/exampleFormatters.ts";
-import { computed, onBeforeMount, onMounted, ref, watch, type Ref } from "vue";
+} from "../utils/colormapShaders.ts";
+import { datashaderExample } from "../utils/exampleFormatters.ts";
+import { computed, onBeforeMount, onMounted, ref, watch } from "vue";
 
 import {
   UPDATE_MODE,
   useGlobeControlStore,
   type TUpdateMode,
-} from "./store/store.js";
+} from "../store/store.js";
 import { storeToRefs } from "pinia";
-import type { TSources, TVarInfo } from "../types/GlobeTypes.ts";
+import type { TSources } from "../../types/GlobeTypes.ts";
 import { useToast } from "primevue/usetoast";
-import { useLog } from "./utils/logging";
-import { useSharedGlobeLogic } from "./sharedGlobe.ts";
-import { findCRSVar, getDataSourceStore } from "./utils/zarrUtils.ts";
-import { getDimensionInfo } from "./utils/dimensionHandling.ts";
-import { useUrlParameterStore } from "./store/paramStore.ts";
+import { useLog } from "../utils/logging";
+import { useSharedGridLogic } from "./useSharedGridLogic.ts";
+import {
+  findCRSVar,
+  getDataBounds,
+  getDataSourceStore,
+} from "../utils/zarrUtils.ts";
+import { getDimensionInfo } from "../utils/dimensionHandling.ts";
+import { useUrlParameterStore } from "../store/paramStore.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -46,9 +48,6 @@ const urlParameterStore = useUrlParameterStore();
 const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
   storeToRefs(urlParameterStore);
 
-let canvas: Ref<HTMLCanvasElement | undefined> = ref();
-
-let box: Ref<HTMLDivElement | undefined> = ref();
 const {
   getScene,
   getCamera,
@@ -59,7 +58,11 @@ const {
   getDataVar,
   getTimeVar,
   updateLandSeaMask,
-} = useSharedGlobeLogic(canvas, box);
+  updateColormap,
+  extractTimeInfo,
+  canvas,
+  box,
+} = useSharedGridLogic();
 
 const updateCount = ref(0);
 const updatingData = ref(false);
@@ -105,7 +108,7 @@ const bounds = computed(() => {
 watch(
   [() => bounds.value, () => invertColormap.value, () => colormap.value],
   () => {
-    updateColormap();
+    updateColormap(mainMeshes);
   }
 );
 
@@ -138,32 +141,9 @@ async function datasourceUpdate() {
     if (props.datasources !== undefined) {
       await Promise.all([fetchGrid(), getData()]);
       updateLandSeaMask();
-      updateColormap();
+      updateColormap(mainMeshes);
     }
   }
-}
-
-function updateColormap() {
-  const low = bounds.value?.low as number;
-  const high = bounds.value?.high as number;
-  const { addOffset, scaleFactor } = calculateColorMapProperties(
-    low,
-    high,
-    invertColormap.value
-  );
-  for (const myMesh of mainMeshes) {
-    const material = myMesh.material as THREE.ShaderMaterial;
-    if (material?.uniforms.colormap) {
-      material.uniforms.colormap.value = availableColormaps[colormap.value];
-    }
-    if (material?.uniforms.addOffset) {
-      material.uniforms.addOffset.value = addOffset;
-    }
-    if (material?.uniforms.scaleFactor) {
-      material.uniforms.scaleFactor.value = scaleFactor;
-    }
-  }
-  redraw();
 }
 
 async function fetchGrid() {
@@ -217,7 +197,6 @@ async function getCells() {
 async function getHealpixData(
   datavar: zarr.Array<zarr.DataType>,
   cellCoord: number[] | undefined, // Optional - undefined for global data
-  timeValue: number,
   ipix: number,
   numChunks: number,
   nside: number,
@@ -269,7 +248,7 @@ async function getHealpixData(
       start,
       end
     );
-    const data = (await zarr.get(datavar, [timeValue, zarr.slice(start, end)]))
+    const data = (await zarr.get(datavar, localDimensionIndices))
       .data as Float32Array;
     const isContiguous =
       relevantIndices.length > 1 &&
@@ -290,16 +269,7 @@ async function getHealpixData(
     }
   }
 
-  // Calculate min/max
-  let min = Number.POSITIVE_INFINITY;
-  let max = Number.NEGATIVE_INFINITY;
-  for (let i = 0; i < dataSlice.length; i++) {
-    if (!isNaN(dataSlice[i])) {
-      if (dataSlice[i] < min) min = dataSlice[i];
-      if (dataSlice[i] > max) max = dataSlice[i];
-    }
-  }
-
+  let { min, max } = getDataBounds(datavar, dataSlice);
   return { texture: data2texture(dataSlice, {}), min, max };
 }
 
@@ -376,13 +346,16 @@ function getUnshuffleIndex(
   unshuffleIndex: { [key: number]: Float32Array }
 ): Float32Array {
   if (unshuffleIndex[size] === undefined) {
-    let temp = [];
+    const len = size * size;
+    const temp = new Float32Array(len);
+    let idx = 0;
+
     for (let i = 0; i < size; ++i) {
       for (let j = 0; j < size; ++j) {
-        temp.push(healpix.bit_combine(j, i));
+        temp[idx++] = healpix.bit_combine(j, i);
       }
     }
-    unshuffleIndex[size] = new Float32Array(temp);
+    unshuffleIndex[size] = temp;
   }
   return unshuffleIndex[size];
 }
@@ -440,12 +413,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
       currentTimeIndexSliderValue as number
     );
     if (datavar !== undefined) {
-      await processDataVar(
-        datavar,
-        currentTimeIndexSliderValue as number,
-        timeinfo,
-        updateMode
-      );
+      await processDataVar(datavar, timeinfo, updateMode);
     }
     updatingData.value = false;
 
@@ -467,21 +435,8 @@ async function loadTimeAndDataVars(varname: string) {
   ]);
 }
 
-async function extractTimeInfo(
-  timevar: zarr.Array<zarr.DataType, zarr.FetchStore> | undefined,
-  index: number
-): Promise<TVarInfo["timeinfo"]> {
-  if (!timevar) return {};
-  const timevalues = (await zarr.get(timevar, [null])).data as Int32Array;
-  return {
-    values: timevalues,
-    current: decodeTime(timevalues[index], timevar.attrs),
-  };
-}
-
 async function processDataVar(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
-  currentTimeIndexSliderValue: number,
   timeinfo: Awaited<ReturnType<typeof extractTimeInfo>>,
   updateMode: TUpdateMode
 ) {
@@ -504,7 +459,6 @@ async function processDataVar(
         const texData = await getHealpixData(
           datavar,
           cellCoord,
-          currentTimeIndexSliderValue,
           ipix,
           HEALPIX_NUMCHUNKS,
           nside,
@@ -566,18 +520,15 @@ onMounted(() => {
 });
 
 onBeforeMount(async () => {
-  const gridStep = 64 + 1;
   const low = bounds.value?.low as number;
   const high = bounds.value?.high as number;
-  let scaleFactor: number;
-  let addOffset: number;
-  if (invertColormap.value) {
-    scaleFactor = -1 / (high - low);
-    addOffset = -high * scaleFactor;
-  } else {
-    scaleFactor = 1 / (high - low);
-    addOffset = -low * scaleFactor;
-  }
+  const { addOffset, scaleFactor } = calculateColorMapProperties(
+    low,
+    high,
+    invertColormap.value
+  );
+
+  const gridStep = 64 + 1;
   for (let ipix = 0; ipix < HEALPIX_NUMCHUNKS; ++ipix) {
     const material = makeTextureMaterial(
       new THREE.Texture(),
@@ -601,18 +552,3 @@ defineExpose({ makeSnapshot, copyPythonExample, toggleRotate });
     <canvas ref="canvas" class="globe_canvas"> </canvas>
   </div>
 </template>
-
-<style>
-div.globe_box {
-  height: 100%;
-  width: 100%;
-  padding: 0;
-  margin: 0;
-  overflow: hidden;
-  display: flex;
-}
-div.globe_canvas {
-  padding: 0;
-  margin: 0;
-}
-</style>
