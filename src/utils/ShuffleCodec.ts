@@ -22,21 +22,19 @@ interface ShuffleConfig {
  * This codec combines byte shuffling with zlib compression.
  */
 export class ShuffleCodec {
-  private elementSize: number;
+  private elementsize: number;
   kind = "bytes_to_bytes";
 
-  static fromConfig(configuration: ShuffleConfig = {}) {
-    return new ShuffleCodec(configuration);
+  static fromConfig(): ShuffleCodec {
+    return new ShuffleCodec();
   }
 
-  constructor(configuration: ShuffleConfig = {}) {
-    const { elementSize = 4 } = configuration;
-
-    this.elementSize = elementSize;
+  constructor({ elementSize = 4 }: ShuffleConfig = {}) {
+    this.elementsize = elementSize;
   }
 
   async decode(data: Uint8Array): Promise<Uint8Array> {
-    return unshuffle(data, this.elementSize);
+    return unshuffle(data, this.elementsize);
   }
 
   /**
