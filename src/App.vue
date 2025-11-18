@@ -1,6 +1,7 @@
 <script setup lang="ts">
 //import { RouterLink, RouterView } from 'vue-router'
 import HashGlobeView from "@/views/HashGlobeView.vue";
+import "./components/utils/ShuffleCodec";
 </script>
 
 <template>
