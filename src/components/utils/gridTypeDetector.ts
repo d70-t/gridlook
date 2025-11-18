@@ -7,7 +7,7 @@ export const GRID_TYPES = {
   HEALPIX: "healpix",
   REGULAR_ROTATED: "regular_rotated",
   TRIANGULAR: "triangular",
-  GAUSSIAN: "gaussian",
+  GAUSSIAN_REDUCED: "gaussian_reduced",
   IRREGULAR: "irregular",
   ERROR: "error",
 } as const;
@@ -16,12 +16,32 @@ export type T_GRID_TYPES = (typeof GRID_TYPES)[keyof typeof GRID_TYPES];
 
 function isLongitude(name: string) {
   // FIXME: Need to check for unit later
-  return name === "lon" || name === "longitude";
+  // having "rlon" here is a workaround to catch rotated regular grids if the have no CRS-var
+  return name === "lon" || name === "longitude" || name === "rlon";
 }
 
 function isLatitude(name: string) {
   // FIXME: Need to check for unit later
-  return name === "lat" || name === "latitude";
+  // having "rlat" here is a workaround to catch rotated regular grids if the have no CRS-var
+  return name === "lat" || name === "latitude" || name === "rlat";
+}
+
+async function getLatLonData(datasources: TSources | undefined) {
+  const gridsource = datasources!.levels[0].grid;
+  const gridRoot = zarr.root(new zarr.FetchStore(gridsource.store));
+  const grid = await zarr.open(gridRoot.resolve(gridsource.dataset), {
+    kind: "group",
+  });
+  // FIXME: lat and lon are currently hardcoded
+  const latitudes = (
+    await zarr.open(grid.resolve("lat"), { kind: "array" }).then(zarr.get)
+  ).data as Float64Array;
+
+  const longitudes = (
+    await zarr.open(grid.resolve("lon"), { kind: "array" }).then(zarr.get)
+  ).data as Float64Array;
+
+  return [latitudes, longitudes];
 }
 
 async function checkTriangularGrid(
@@ -52,28 +72,17 @@ function checkRegularRotatedGrid(
   return crs.attrs["grid_mapping_name"] === "rotated_latitude_longitude";
 }
 
-async function checkIrregularGrid(datasources: TSources | undefined) {
-  try {
-    const gridsource = datasources!.levels[0].grid;
-    const gridRoot = zarr.root(new zarr.FetchStore(gridsource.store));
-    const grid = await zarr.open(gridRoot.resolve(gridsource.dataset), {
-      kind: "group",
-    });
-    const latitudes = (
-      await zarr.open(grid.resolve("lat"), { kind: "array" }).then(zarr.get)
-    ).data as Float64Array;
+function checkGaussianGrid(latitudes: Float64Array, longitudes: Float64Array) {
+  const uniqueLatsNum = new Set(latitudes).size;
+  const uniqueLonsNum = new Set(longitudes).size;
 
-    const longitudes = (
-      await zarr.open(grid.resolve("lon"), { kind: "array" }).then(zarr.get)
-    ).data as Float64Array;
+  return uniqueLatsNum * uniqueLonsNum !== latitudes.length * longitudes.length;
+}
 
-    if (latitudes.length === longitudes.length) {
-      return true;
-    }
-  } catch {
-    /* fall through */
+function checkIrregularGrid(latitudes: Float64Array, longitudes: Float64Array) {
+  if (latitudes.length === longitudes.length) {
+    return true;
   }
-  return false;
 }
 
 export async function getGridType(
@@ -117,16 +126,23 @@ export async function getGridType(
     }
     const dimensions = datavar.attrs._ARRAY_DIMENSIONS as string[];
     if (
-      dimensions.length >= 3 &&
+      dimensions.length >= 2 &&
       isLatitude(dimensions[dimensions.length - 2]) &&
       isLongitude(dimensions[dimensions.length - 1])
     ) {
       return GRID_TYPES.REGULAR;
     }
-    if (await checkIrregularGrid(datasources)) {
+
+    const [latitudes, longitudes] = await getLatLonData(datasources);
+
+    if (checkGaussianGrid(latitudes, longitudes)) {
+      return GRID_TYPES.GAUSSIAN_REDUCED;
+    }
+
+    if (checkIrregularGrid(latitudes, longitudes)) {
       return GRID_TYPES.IRREGULAR;
     }
-    return GRID_TYPES.GAUSSIAN;
+    return GRID_TYPES.ERROR;
   } catch (error) {
     logError(error, "Could not determine grid type");
     return GRID_TYPES.ERROR;

@@ -5,6 +5,7 @@ import GridHealpix from "@/components/grids/Healpix.vue";
 import GridRegular from "@/components/grids/Regular.vue";
 import GridIrregular from "@/components/grids/Irregular.vue";
 import GridTriangular from "@/components/grids/Triangular.vue";
+import GridGaussianReduced from "@/components/grids/GaussianReduced.vue";
 import GlobeControls from "@/components/GlobeControls.vue";
 import { availableColormaps } from "@/components/utils/colormapShaders.js";
 import { ref, computed, watch, onMounted, type Ref } from "vue";
@@ -30,6 +31,7 @@ const store = useGlobeControlStore();
 const { varnameSelector, loading, colormap, invertColormap } =
   storeToRefs(store);
 
+const isDev = import.meta.env.MODE === "development";
 const urlParameterStore = useUrlParameterStore();
 const { paramVarname } = storeToRefs(urlParameterStore);
 
@@ -65,6 +67,8 @@ const currentGlobeComponent = computed(() => {
     return GridRegular;
   } else if (gridType.value === GRID_TYPES.TRIANGULAR) {
     return GridTriangular;
+  } else if (gridType.value === GRID_TYPES.GAUSSIAN_REDUCED) {
+    return GridGaussianReduced;
   } else {
     // Irregular later
     return GridIrregular;
@@ -301,6 +305,9 @@ onMounted(async () => {
     />
     <div v-if="isLoading || loading" class="top-right-loader loader" />
     <AboutView />
+    <div v-if="isDev" class="dev-gridtype p-2 is-size-7">
+      Grid Type: {{ gridType }}
+    </div>
   </main>
 </template>
 
@@ -315,5 +322,14 @@ div.top-right-loader {
   height: 40px;
   width: 40px;
   z-index: 1000;
+}
+
+.dev-gridtype {
+  position: fixed;
+  border-radius: 0.375rem;
+  background-color: #f3f4f6d8;
+  bottom: 18px;
+  left: 18px;
+  z-index: 8;
 }
 </style>
