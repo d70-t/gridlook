@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { ref, onMounted, onBeforeMount, type Ref } from "vue";
+import { ref, onBeforeMount, type Ref } from "vue";
 import GlobeView from "./GlobeView.vue";
 import { useGlobeControlStore } from "../components/store/store";
 import { storeToRefs } from "pinia";
@@ -8,6 +8,7 @@ import {
   STORE_PARAM_MAPPING,
   useUrlParameterStore,
 } from "../components/store/paramStore";
+import { useEventListener } from "@vueuse/core";
 
 type TParams = Partial<Record<TURLParameterValues, string>>;
 
@@ -22,6 +23,7 @@ const urlParameterStore = useUrlParameterStore();
 
 const onHashChange = () => {
   if (location.hash.length > 1) {
+    urlParameterStore.$reset();
     // The hash is of the form "#resource::param1=value1::param2=value2::..."
     // We split on "::" to separate the resource from the parameters
     // and then parse the parameters and set the store values accordingly
@@ -38,10 +40,22 @@ const onHashChange = () => {
       userBoundsHigh.value = parseFloat(params.value.boundhigh);
     }
     for (const [key, value] of Object.entries(params.value) as [
-      TURLParameterValues,
+      keyof typeof STORE_PARAM_MAPPING,
       string,
     ][]) {
-      if (STORE_PARAM_MAPPING[key] === undefined) {
+      if (key.startsWith("dimIndices_")) {
+        urlParameterStore[STORE_PARAM_MAPPING.dimIndices][
+          key.substring("dimIndices_".length)
+        ] = value;
+      } else if (key.startsWith("dimMinBounds_")) {
+        urlParameterStore[STORE_PARAM_MAPPING.dimMinBounds][
+          key.substring("dimMinBounds_".length)
+        ] = value;
+      } else if (key.startsWith("dimMaxBounds_")) {
+        urlParameterStore[STORE_PARAM_MAPPING.dimMaxBounds][
+          key.substring("dimMaxBounds_".length)
+        ] = value;
+      } else if (STORE_PARAM_MAPPING[key] === undefined) {
         continue;
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -53,9 +67,7 @@ const onHashChange = () => {
   }
 };
 
-onMounted(() => {
-  window.addEventListener("hashchange", onHashChange);
-});
+useEventListener(window, "hashchange", onHashChange);
 
 onBeforeMount(() => {
   onHashChange();

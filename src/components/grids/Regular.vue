@@ -3,20 +3,29 @@ import * as THREE from "three";
 import * as zarr from "zarrita";
 import type { Readable } from "@zarrita/storage";
 import {
-  availableColormaps,
   calculateColorMapProperties,
   makeTextureMaterial,
-} from "./utils/colormapShaders.ts";
-import { decodeTime } from "./utils/timeHandling.ts";
-import { datashaderExample } from "./utils/exampleFormatters.ts";
-import { computed, onBeforeMount, onMounted, ref, watch, type Ref } from "vue";
+} from "../utils/colormapShaders.ts";
+import { datashaderExample } from "../utils/exampleFormatters.ts";
+import { computed, onBeforeMount, onMounted, ref, watch } from "vue";
 
-import { useGlobeControlStore } from "./store/store.js";
+import {
+  UPDATE_MODE,
+  useGlobeControlStore,
+  type TUpdateMode,
+} from "../store/store.js";
 import { storeToRefs } from "pinia";
-import type { TSources } from "../types/GlobeTypes.ts";
+import type { TSources } from "../../types/GlobeTypes.ts";
 import { useToast } from "primevue/usetoast";
-import { useLog } from "./utils/logging";
-import { useSharedGlobeLogic } from "./sharedGlobe.ts";
+import { useLog } from "../utils/logging";
+import { useSharedGridLogic } from "./useSharedGridLogic.ts";
+import { useUrlParameterStore } from "../store/paramStore.ts";
+import { getDimensionInfo } from "../utils/dimensionHandling.ts";
+import {
+  findCRSVar,
+  getDataBounds,
+  getDataSourceStore,
+} from "../utils/zarrUtils.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -27,15 +36,19 @@ const store = useGlobeControlStore();
 const toast = useToast();
 const { logError } = useLog();
 const {
-  timeIndexSlider,
+  dimSlidersValues,
   colormap,
   varnameSelector,
   invertColormap,
   selection,
+  isInitializingVariable,
+  varinfo,
 } = storeToRefs(store);
 
-let canvas: Ref<HTMLCanvasElement | undefined> = ref();
-let box: Ref<HTMLDivElement | undefined> = ref();
+const urlParameterStore = useUrlParameterStore();
+const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
+  storeToRefs(urlParameterStore);
+
 const {
   getScene,
   getCamera,
@@ -46,7 +59,11 @@ const {
   getDataVar,
   getTimeVar,
   updateLandSeaMask,
-} = useSharedGlobeLogic(canvas, box);
+  updateColormap,
+  extractTimeInfo,
+  canvas,
+  box,
+} = useSharedGridLogic();
 
 const updateCount = ref(0);
 const updatingData = ref(false);
@@ -63,10 +80,15 @@ watch(
 );
 
 watch(
-  () => timeIndexSlider.value,
+  () => dimSlidersValues.value,
   () => {
-    getData();
-  }
+    if (isInitializingVariable.value) {
+      isInitializingVariable.value = false;
+      return;
+    }
+    getData(UPDATE_MODE.SLIDER_TOGGLE);
+  },
+  { deep: true }
 );
 
 watch(
@@ -83,9 +105,16 @@ const bounds = computed(() => {
 watch(
   [() => bounds.value, () => invertColormap.value, () => colormap.value],
   () => {
-    updateColormap();
+    updateColormap([mainMesh]);
   }
 );
+
+const timeIndexSlider = computed(() => {
+  if (varinfo.value?.dimRanges[0]?.name !== "time") {
+    return 0;
+  }
+  return dimSlidersValues.value[0];
+});
 
 const gridsource = computed(() => {
   if (props.datasources) {
@@ -113,44 +142,33 @@ async function datasourceUpdate() {
     await getDims(grid);
     await Promise.all([makeGeometry(), getData()]);
     updateLandSeaMask();
-    updateColormap();
+    updateColormap([mainMesh]);
   }
 }
 
 async function getDims(grid: zarr.Group<Readable>) {
-  const isRotated = props.isRotated;
+  // Assumptions: the last two dimensions of the data array are
+  // latitude and longitude (in this order)
+  const root = getDataSourceStore(props.datasources!, varnameSelector.value);
+  const datavar = await zarr.open(root.resolve(varnameSelector.value), {
+    kind: "array",
+  });
+  const dimensions = datavar.attrs._ARRAY_DIMENSIONS as string[];
+  const latName = dimensions[dimensions.length - 2];
+  const lonName = dimensions[dimensions.length - 1];
+
   const [latitudesData, longitudesData] = await Promise.all([
     zarr
-      .open(grid.resolve(isRotated ? "rlat" : "lat"), {
+      .open(grid.resolve(latName), {
         kind: "array",
       })
       .then(zarr.get),
-    zarr
-      .open(grid.resolve(isRotated ? "rlon" : "lon"), { kind: "array" })
-      .then(zarr.get),
+    zarr.open(grid.resolve(lonName), { kind: "array" }).then(zarr.get),
   ]);
   const myLongitudes = longitudesData.data as Float64Array;
   const myLatitudes = latitudesData.data as Float64Array;
   longitudes.value = new Float64Array(new Set(myLongitudes));
   latitudes.value = new Float64Array(new Set(myLatitudes));
-}
-
-function updateColormap() {
-  const low = bounds.value?.low as number;
-  const high = bounds.value?.high as number;
-  const { addOffset, scaleFactor } = calculateColorMapProperties(
-    low,
-    high,
-    invertColormap.value
-  );
-
-  if (mainMesh) {
-    const material = mainMesh!.material as THREE.ShaderMaterial;
-    material.uniforms.colormap.value = availableColormaps[colormap.value];
-    material.uniforms.addOffset.value = addOffset;
-    material.uniforms.scaleFactor.value = scaleFactor;
-    redraw();
-  }
 }
 
 function latLongToXYZ(lat: number, lon: number, radius: number) {
@@ -201,14 +219,14 @@ function isLongitudeGlobal(lons: Float64Array): boolean {
   const n = lons.length;
   if (n < 2) return false;
 
-  const delta = lons[1] - lons[0];
+  // Use unwrapped longitudes to check span
+  const span = Math.abs(lons[n - 1] - lons[0]);
 
-  // Compute total span covered by all steps (delta * (n - 1))
-  const span = Math.abs(delta * (n - 1));
+  // Estimate the grid spacing
+  const avgDelta = span / (n - 1);
 
-  // Normalize the span to [0, 360]
-  const normalizedSpan = span % 360;
-  return normalizedSpan + delta > 359.5;
+  // Check if span + one grid cell covers 360°
+  return span + avgDelta > 359.5;
 }
 
 /**
@@ -287,11 +305,15 @@ function generateGridIndices(
   return indices;
 }
 
+function normalizeLongitudes(lons: Float64Array): Float64Array {
+  // Normalize longitudes to [0, 360)
+  return Float64Array.from(lons, (lon) => ((lon % 360) + 360) % 360);
+}
+
 async function getGaussianGrid() {
   const isRotated = props.isRotated;
-
+  let lons = normalizeLongitudes(longitudes.value);
   let lats = latitudes.value;
-  let lons = longitudes.value.map((lon) => (lon + 360) % 360);
 
   // Check if latitudes are descending and reverse if necessary
   let isLatReversed = lats[0] > lats[lats.length - 1];
@@ -299,10 +321,12 @@ async function getGaussianGrid() {
     lats = Float64Array.from(lats).reverse();
   }
 
-  const isGlobal = isLongitudeGlobal(lons);
+  const isGlobal = isLongitudeGlobal(longitudes.value);
 
   if (isGlobal) {
-    lons = new Float64Array(new Set([...lons, 360]));
+    // Add a duplicate of the first longitude + 360 to close the globe
+    const firstLon = lons[0];
+    lons = new Float64Array([...lons, firstLon + 360]);
   }
 
   const radius = 1.0;
@@ -312,7 +336,6 @@ async function getGaussianGrid() {
     poleLat = rotatedNorthPole.lat;
     poleLon = rotatedNorthPole.lon;
   }
-
   const { vertices, uvs } = generateGridVerticesAndUVs(
     lats,
     lons,
@@ -354,7 +377,7 @@ async function makeGeometry() {
 }
 
 async function getRegularData(
-  arr: Float64Array,
+  arr: Float32Array,
   latCount: number,
   lonCount: number
 ) {
@@ -371,21 +394,19 @@ async function getRegularData(
 }
 
 async function getRotatedNorthPole(): Promise<{ lat: number; lon: number }> {
-  const datasource =
-    props.datasources!.levels[0].datasources[varnameSelector.value];
-  const root = zarr.root(new zarr.FetchStore(datasource.store));
-  const info = await zarr.open(
-    root.resolve(datasource.dataset + `/rotated_latitude_longitude`),
+  const root = getDataSourceStore(props.datasources!, varnameSelector.value);
+  const crs = await zarr.open(
+    root.resolve(await findCRSVar(root, varnameSelector.value)),
     {
       kind: "array",
     }
   );
-  const lat = info.attrs["grid_north_pole_latitude"] as number;
-  const lon = info.attrs["grid_north_pole_longitude"] as number;
+  const lat = crs.attrs["grid_north_pole_latitude"] as number;
+  const lon = crs.attrs["grid_north_pole_longitude"] as number;
   return { lat, lon };
 }
 
-async function getData() {
+async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
   store.startLoading();
   try {
     updateCount.value += 1;
@@ -396,40 +417,34 @@ async function getData() {
     updatingData.value = true;
 
     const localVarname = varnameSelector.value;
-    const currentTimeIndexSliderValue = timeIndexSlider.value;
+
     const [timevar, datavar] = await Promise.all([
       getTimeVar(props.datasources!),
       getDataVar(localVarname, props.datasources!),
     ]);
 
-    let timeinfo = {};
-    if (timevar !== undefined) {
-      const timeattrs = timevar.attrs;
-      const timevalues = (await zarr.get(timevar, [null])).data;
-      timeinfo = {
-        values: timevalues,
-        current: decodeTime(
-          (timevalues as number[])[currentTimeIndexSliderValue],
-          timeattrs
-        ),
-      };
-    }
+    const currentTimeIndexSliderValue = timeIndexSlider.value as number;
+    let timeinfo = await extractTimeInfo(timevar, currentTimeIndexSliderValue);
+
     if (datavar !== undefined) {
-      const rawData = await zarr.get(datavar, [
-        currentTimeIndexSliderValue,
-        ...Array(datavar.shape.length - 1).fill(null),
-      ]);
-      let min = Number.POSITIVE_INFINITY;
-      let max = Number.NEGATIVE_INFINITY;
-      for (let i of rawData.data as Float64Array) {
-        if (isNaN(i)) {
-          continue;
-        }
-        min = Math.min(min, i);
-        max = Math.max(max, i);
+      const { dimensionRanges, indices } = getDimensionInfo(
+        datavar,
+        paramDimIndices.value,
+        paramDimMinBounds.value,
+        paramDimMaxBounds.value,
+        updateMode === UPDATE_MODE.INITIAL_LOAD ? null : dimSlidersValues.value,
+        2
+      );
+
+      let rawData = (await zarr.get(datavar, indices)).data as Float32Array;
+      if (rawData instanceof Float64Array) {
+        // WebGL doesn't support Float64Array textures
+        // we convert it to Float32Array and accept the loss of precision
+        rawData = Float32Array.from(rawData);
       }
+
       const textures = await getRegularData(
-        rawData.data as Float64Array,
+        rawData,
         latitudes.value.length,
         longitudes.value.length
       );
@@ -451,17 +466,21 @@ async function getData() {
       mainMesh!.material = material;
       mainMesh!.material.needsUpdate = true;
 
-      store.updateVarInfo({
-        attrs: datavar.attrs,
-        timeinfo,
-        timeRange: { start: 0, end: datavar.shape[0] - 1 },
-        bounds: { low: min, high: max },
-      });
+      const { min, max } = getDataBounds(datavar, rawData);
+      store.updateVarInfo(
+        {
+          attrs: datavar.attrs,
+          timeinfo,
+          bounds: { low: min, high: max },
+          dimRanges: dimensionRanges,
+        },
+        updateMode
+      );
       redraw();
     }
     updatingData.value = false;
     if (updateCount.value !== myUpdatecount) {
-      await getData();
+      await getData(updateMode);
     }
   } catch (error) {
     logError(error, "Could not fetch data");
@@ -476,7 +495,7 @@ function copyPythonExample() {
     datasrc: datasource.value!.store + datasource.value!.dataset,
     gridsrc: gridsource.value!.store + gridsource.value!.dataset,
     varname: varnameSelector.value,
-    timeIndex: timeIndexSlider.value,
+    timeIndex: timeIndexSlider.value as number,
     varbounds: bounds.value!,
     colormap: colormap.value,
     invertColormap: invertColormap.value,
@@ -490,7 +509,6 @@ function copyPythonExample() {
 }
 onMounted(() => {
   getScene()?.add(mainMesh as THREE.Mesh);
-  // scaleBarRef.value.setContext(getCamera(), getRenderer());
 });
 
 onBeforeMount(async () => {
@@ -509,18 +527,3 @@ defineExpose({ makeSnapshot, copyPythonExample, toggleRotate });
     <!-- <Scale ref="scaleBarRef" /> -->
   </div>
 </template>
-
-<style>
-div.globe_box {
-  height: 100%;
-  width: 100%;
-  padding: 0;
-  margin: 0;
-  overflow: hidden;
-  display: flex;
-}
-div.globe_canvas {
-  padding: 0;
-  margin: 0;
-}
-</style>

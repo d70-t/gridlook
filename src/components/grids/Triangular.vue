@@ -1,31 +1,23 @@
 <script lang="ts" setup>
 import * as THREE from "three";
 import * as zarr from "zarrita";
-import { grid2buffer, data2valueBuffer } from "./utils/gridlook.ts";
-import {
-  makeColormapMaterial,
-  availableColormaps,
-  calculateColorMapProperties,
-} from "./utils/colormapShaders.ts";
-import { decodeTime } from "./utils/timeHandling.ts";
+import { grid2buffer, data2valueBuffer } from "../utils/gridlook.ts";
+import { makeColormapMaterial } from "../utils/colormapShaders.ts";
 
-import { datashaderExample } from "./utils/exampleFormatters.ts";
-import {
-  computed,
-  onBeforeMount,
-  ref,
-  shallowRef,
-  onMounted,
-  watch,
-  type Ref,
-  type ShallowRef,
-} from "vue";
+import { datashaderExample } from "../utils/exampleFormatters.ts";
+import { computed, onBeforeMount, ref, onMounted, watch } from "vue";
 
-import { useGlobeControlStore } from "./store/store.js";
+import {
+  UPDATE_MODE,
+  useGlobeControlStore,
+  type TUpdateMode,
+} from "../store/store.js";
 import { storeToRefs } from "pinia";
-import type { TSources } from "../types/GlobeTypes.ts";
-import { useLog } from "./utils/logging";
-import { useSharedGlobeLogic } from "./sharedGlobe.ts";
+import type { TSources } from "../../types/GlobeTypes.ts";
+import { useLog } from "../utils/logging";
+import { useSharedGridLogic } from "./useSharedGridLogic.ts";
+import { useUrlParameterStore } from "../store/paramStore.ts";
+import { getDimensionInfo } from "../utils/dimensionHandling.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -34,24 +26,23 @@ const props = defineProps<{
 const store = useGlobeControlStore();
 const { logError } = useLog();
 const {
-  timeIndexSlider,
+  dimSlidersValues,
   varnameSelector,
   colormap,
   invertColormap,
   selection,
+  isInitializingVariable,
+  varinfo,
 } = storeToRefs(store);
-storeToRefs(store);
 
-const datavars: ShallowRef<
-  Record<string, zarr.Array<zarr.DataType, zarr.FetchStore>>
-> = shallowRef({});
+const urlParameterStore = useUrlParameterStore();
+const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
+  storeToRefs(urlParameterStore);
+
 const updateCount = ref(0);
 const updatingData = ref(false);
 
 let mainMesh: THREE.Mesh | undefined = undefined;
-
-let canvas: Ref<HTMLCanvasElement | undefined> = ref();
-let box: Ref<HTMLDivElement | undefined> = ref();
 
 const {
   getScene,
@@ -62,7 +53,11 @@ const {
   getDataVar,
   getTimeVar,
   updateLandSeaMask,
-} = useSharedGlobeLogic(canvas, box);
+  updateColormap,
+  extractTimeInfo,
+  canvas,
+  box,
+} = useSharedGridLogic();
 
 watch(
   () => varnameSelector.value,
@@ -72,10 +67,15 @@ watch(
 );
 
 watch(
-  () => timeIndexSlider.value,
+  () => dimSlidersValues.value,
   () => {
-    getData();
-  }
+    if (isInitializingVariable.value) {
+      isInitializingVariable.value = false;
+      return;
+    }
+    getData(UPDATE_MODE.SLIDER_TOGGLE);
+  },
+  { deep: true }
 );
 
 watch(
@@ -89,10 +89,17 @@ const bounds = computed(() => {
   return selection.value;
 });
 
+const timeIndexSlider = computed(() => {
+  if (varinfo.value?.dimRanges[0]?.name !== "time") {
+    return 0;
+  }
+  return dimSlidersValues.value[0];
+});
+
 watch(
   [() => bounds.value, () => invertColormap.value, () => colormap.value],
   () => {
-    updateColormap();
+    updateColormap([mainMesh]);
   }
 );
 
@@ -121,11 +128,10 @@ const datasource = computed(() => {
 });
 
 async function datasourceUpdate() {
-  datavars.value = {};
   if (props.datasources !== undefined) {
     await Promise.all([fetchGrid(), getData()]);
     updateLandSeaMask();
-    updateColormap();
+    updateColormap([mainMesh]);
   }
 }
 
@@ -148,24 +154,7 @@ async function fetchGrid() {
   }
 }
 
-function updateColormap() {
-  const low = bounds.value?.low as number;
-  const high = bounds.value?.high as number;
-  const { addOffset, scaleFactor } = calculateColorMapProperties(
-    low,
-    high,
-    invertColormap.value
-  );
-
-  const myMesh = mainMesh as THREE.Mesh;
-  const material = myMesh.material as THREE.ShaderMaterial;
-  material.uniforms.colormap.value = availableColormaps[colormap.value];
-  material.uniforms.addOffset.value = addOffset;
-  material.uniforms.scaleFactor.value = scaleFactor;
-  redraw();
-}
-
-async function getData() {
+async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
   store.startLoading();
   try {
     updateCount.value += 1;
@@ -176,45 +165,44 @@ async function getData() {
     updatingData.value = true;
 
     const localVarname = varnameSelector.value;
-    const currentTimeIndexSliderValue = timeIndexSlider.value;
     const [timevar, datavar] = await Promise.all([
       getTimeVar(props.datasources!),
       getDataVar(localVarname, props.datasources!),
     ]);
-    let timeinfo = {};
-    if (timevar !== undefined) {
-      const timeattrs = timevar.attrs;
-      const timevalues = (await zarr.get(timevar, [null])).data;
-      timeinfo = {
-        // attrs: timeattrs,
-        values: timevalues,
-        current: decodeTime(
-          (timevalues as number[])[currentTimeIndexSliderValue],
-          timeattrs
-        ),
-      };
-    }
+
+    const currentTimeIndexSliderValue = timeIndexSlider.value as number;
+    let timeinfo = await extractTimeInfo(timevar, currentTimeIndexSliderValue);
+
     if (datavar !== undefined) {
-      const rawData = await zarr.get(datavar, [
-        currentTimeIndexSliderValue,
-        null,
-      ]);
-      const dataBuffer = data2valueBuffer(rawData);
+      const { dimensionRanges, indices } = getDimensionInfo(
+        datavar,
+        paramDimIndices.value,
+        paramDimMinBounds.value,
+        paramDimMaxBounds.value,
+        updateMode === UPDATE_MODE.INITIAL_LOAD ? null : dimSlidersValues.value,
+        1
+      );
+
+      const rawData = await zarr.get(datavar, indices);
+      const dataBuffer = data2valueBuffer(rawData, datavar);
       mainMesh?.geometry.setAttribute(
         "data_value",
         new THREE.BufferAttribute(dataBuffer.dataValues, 1)
       );
-      store.updateVarInfo({
-        attrs: datavar.attrs,
-        timeinfo,
-        timeRange: { start: 0, end: datavar.shape[0] - 1 },
-        bounds: { low: dataBuffer.dataMin, high: dataBuffer.dataMax },
-      });
+      store.updateVarInfo(
+        {
+          attrs: datavar.attrs,
+          timeinfo,
+          bounds: { low: dataBuffer.dataMin, high: dataBuffer.dataMax },
+          dimRanges: dimensionRanges,
+        },
+        updateMode
+      );
       redraw();
     }
     updatingData.value = false;
     if (updateCount.value !== myUpdatecount) {
-      await getData();
+      await getData(updateMode);
     }
   } catch (error) {
     logError(error, "Could not fetch data");
@@ -230,7 +218,7 @@ function copyPythonExample() {
     datasrc: datasource.value!.store + datasource.value!.dataset,
     gridsrc: gridsource.value!.store + gridsource.value!.dataset,
     varname: varnameSelector.value,
-    timeIndex: timeIndexSlider.value,
+    timeIndex: timeIndexSlider.value as number,
     varbounds: bounds.value,
     colormap: colormap.value,
     invertColormap: invertColormap.value,
@@ -257,20 +245,3 @@ defineExpose({ makeSnapshot, copyPythonExample, toggleRotate });
     <canvas ref="canvas" class="globe_canvas"> </canvas>
   </div>
 </template>
-
-<style>
-div.globe_box {
-  height: 100%;
-  width: 100%;
-  padding: 0;
-  margin: 0;
-  overflow: hidden;
-  display: flex;
-  z-index: 0;
-}
-
-div.globe_canvas {
-  padding: 0;
-  margin: 0;
-}
-</style>

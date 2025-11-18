@@ -1,6 +1,5 @@
 import type { TVarInfo, TColorMap, TBounds } from "@/types/GlobeTypes";
 import { defineStore } from "pinia";
-import { useUrlParameterStore } from "./paramStore";
 
 export const LAND_SEA_MASK_MODES = {
   OFF: "off",
@@ -14,8 +13,15 @@ export const LAND_SEA_MASK_MODES = {
   GLOBE_COLORED: "globe_colored",
 } as const;
 
+export const UPDATE_MODE = {
+  INITIAL_LOAD: "initialLoad",
+  SLIDER_TOGGLE: "sliderToggle",
+} as const;
+
 export type TLandSeaMaskMode =
   (typeof LAND_SEA_MASK_MODES)[keyof typeof LAND_SEA_MASK_MODES];
+
+export type TUpdateMode = (typeof UPDATE_MODE)[keyof typeof UPDATE_MODE];
 
 export const useGlobeControlStore = defineStore("globeControl", {
   state: () => {
@@ -25,8 +31,6 @@ export const useGlobeControlStore = defineStore("globeControl", {
       landSeaMaskChoice: LAND_SEA_MASK_MODES.OFF as TLandSeaMaskMode,
       // when true, use the textured versions; when false, use the greyscale/solid versions
       landSeaMaskUseTexture: false,
-      timeIndexSlider: 1, // the time index currently selected by the slider
-      timeIndexDisplay: 1, // the time index currently shown on the globe (will be updated after loading)
       varnameSelector: "-", // the varname currently selected in the dropdown
       varnameDisplay: "-", // the varname currently shown on the globe (will be updated after loading)
       loading: false,
@@ -36,6 +40,11 @@ export const useGlobeControlStore = defineStore("globeControl", {
       invertColormap: true,
       userBoundsLow: undefined as number | undefined,
       userBoundsHigh: undefined as number | undefined,
+      dimSlidersValues: [] as (number | null)[],
+      dimSlidersDisplay: [] as (number | null)[],
+      dimSlidersMinBounds: [] as number[],
+      dimSlidersMaxBounds: [] as number[],
+      isInitializingVariable: false,
     };
   },
   actions: {
@@ -47,21 +56,28 @@ export const useGlobeControlStore = defineStore("globeControl", {
     },
     stopLoading() {
       this.loading = false;
-      this.timeIndexDisplay = this.timeIndexSlider;
       this.varnameDisplay = this.varnameSelector;
-    },
-    updateVarInfo(varinfo: TVarInfo) {
-      const parameterStore = useUrlParameterStore();
-      if (
-        parameterStore.paramMinTimeBound !== undefined &&
-        !isNaN(Number(parameterStore.paramMinTimeBound)) &&
-        parameterStore.paramMaxTimeBound !== undefined &&
-        !isNaN(Number(parameterStore.paramMaxTimeBound))
-      ) {
-        // update the time range if given in URL parameters
-        varinfo.timeRange.start = Number(parameterStore.paramMinTimeBound);
-        varinfo.timeRange.end = Number(parameterStore.paramMaxTimeBound);
+      for (let i = 0; i < this.dimSlidersValues.length; i++) {
+        this.dimSlidersDisplay[i] = this.dimSlidersValues[i];
       }
+    },
+    updateVarInfo(varinfo: TVarInfo, updateMode: TUpdateMode) {
+      if (updateMode === UPDATE_MODE.INITIAL_LOAD) {
+        this.isInitializingVariable = true;
+        this.dimSlidersDisplay.splice(0, this.dimSlidersDisplay.length);
+        this.dimSlidersValues.splice(0, this.dimSlidersValues.length);
+        for (let i = 0; i < varinfo.dimRanges.length; i++) {
+          const d = varinfo.dimRanges[i];
+          if (d === null) {
+            this.dimSlidersDisplay.push(null);
+            this.dimSlidersValues.push(null);
+          } else {
+            this.dimSlidersDisplay.push(d.startPos);
+            this.dimSlidersValues.push(d.startPos);
+          }
+        }
+      }
+
       this.varinfo = varinfo;
     },
     updateBounds(bounds: TBounds) {

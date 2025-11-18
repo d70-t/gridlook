@@ -12,11 +12,20 @@ export type TSelection = {
   bounds: TBounds;
 };
 
+export type TDimensionRange = {
+  name: string;
+  startPos: number;
+  minBound: number;
+  maxBound: number;
+} | null;
+
+export type TTimeInfo = EmptyObj | { current: Dayjs; values: Int32Array };
+
 export type TVarInfo = {
-  timeinfo: EmptyObj | { current: Dayjs; values: Int32Array };
-  timeRange: { start: number; end: number };
+  timeinfo: TTimeInfo;
   bounds: TBounds;
-  attrs: zarr.Attributes; //{ long_name: string; units: string };
+  dimRanges: TDimensionRange[];
+  attrs: zarr.Attributes;
 };
 
 export type TDataSource = {
@@ -35,7 +44,6 @@ export type TModelInfo = {
   defaultVar: string;
   title: string;
   colormaps: TColorMap[];
-  timeRange: { start: number; end: number };
 };
 
 export type TSources = {

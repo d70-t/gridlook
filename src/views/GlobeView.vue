@@ -1,10 +1,10 @@
 <script lang="ts" setup>
 import * as zarr from "zarrita";
 import AboutView from "@/views/AboutView.vue";
-import GlobeHealpix from "@/components/GlobeHealpix.vue";
-import GlobeRegular from "@/components/GlobeRegular.vue";
-import GlobeIrregular from "@/components/GlobeIrregular.vue";
-import Globe from "@/components/Globe.vue";
+import GridHealpix from "@/components/grids/Healpix.vue";
+import GridRegular from "@/components/grids/Regular.vue";
+import GridIrregular from "@/components/grids/Irregular.vue";
+import GridTriangular from "@/components/grids/Triangular.vue";
 import GlobeControls from "@/components/GlobeControls.vue";
 import { availableColormaps } from "@/components/utils/colormapShaders.js";
 import { ref, computed, watch, onMounted, type Ref } from "vue";
@@ -13,33 +13,27 @@ import { useGlobeControlStore } from "../components/store/store";
 import Toast from "primevue/toast";
 import { useLog } from "../components/utils/logging";
 import { storeToRefs } from "pinia";
-import StoreUrlListener from "../components/store/storeUrlListener.vue";
 import { useUrlParameterStore } from "../components/store/paramStore";
-import { findCRSVar, getDataSourceStore } from "../components/utils/zarrUtils";
+import {
+  getGridType,
+  GRID_TYPES,
+  type T_GRID_TYPES,
+} from "../components/utils/gridTypeDetector";
+import { useUrlSync } from "../components/store/useUrlSync";
 
 const props = defineProps<{ src: string }>();
 
-const GRID_TYPES = {
-  REGULAR: "regular",
-  HEALPIX: "healpix",
-  REGULAR_ROTATED: "regular_rotated",
-  TRIANGULAR: "triangular",
-  GAUSSIAN: "gaussian",
-  IRREGULAR: "irregular",
-  ERROR: "error",
-} as const;
-
-type T_GRID_TYPES = (typeof GRID_TYPES)[keyof typeof GRID_TYPES];
-
+useUrlSync();
 const { logError } = useLog();
 const store = useGlobeControlStore();
+
 const { varnameSelector, loading, colormap, invertColormap } =
   storeToRefs(store);
 
 const urlParameterStore = useUrlParameterStore();
 const { paramVarname } = storeToRefs(urlParameterStore);
 
-const globe: Ref<typeof Globe | null> = ref(null);
+const globe: Ref<typeof GridTriangular | null> = ref(null);
 const globeKey = ref(0);
 const globeControlKey = ref(0);
 const isLoading = ref(false);
@@ -57,27 +51,23 @@ const modelInfo = computed(() => {
       vars: datasources.value.levels[0].datasources,
       defaultVar: datasources.value.default_var,
       colormaps: Object.keys(availableColormaps) as TColorMap[],
-      timeRange: {
-        start: 0,
-        end: 1,
-      },
     };
   }
 });
 
 const currentGlobeComponent = computed(() => {
   if (gridType.value === GRID_TYPES.HEALPIX) {
-    return GlobeHealpix;
+    return GridHealpix;
   } else if (
     gridType.value === GRID_TYPES.REGULAR_ROTATED ||
     gridType.value === GRID_TYPES.REGULAR
   ) {
-    return GlobeRegular;
+    return GridRegular;
   } else if (gridType.value === GRID_TYPES.TRIANGULAR) {
-    return Globe;
+    return GridTriangular;
   } else {
     // Irregular later
-    return GlobeIrregular;
+    return GridIrregular;
   }
 });
 
@@ -85,7 +75,13 @@ async function setGridType() {
   if (!isInitialized.value) {
     return;
   }
-  const localGridType = await getGridType();
+  const localGridType = await getGridType(
+    sourceValid.value,
+    varnameSelector.value,
+    datasources.value,
+    logError
+  );
+  console.log("getGridType", localGridType);
   gridType.value = localGridType;
 }
 
@@ -99,7 +95,6 @@ watch(
     globeKey.value += 1;
     globeControlKey.value += 1;
     store.$reset();
-    urlParameterStore.$reset();
     await updateSrc();
 
     isLoading.value = false;
@@ -117,6 +112,7 @@ watch(
 );
 
 async function indexFromZarr(src: string) {
+  // FIXME: Filter out all dimensions and coordinates
   const store = await zarr.withConsolidated(new zarr.FetchStore(src));
   const root = await zarr.open(store, { kind: "group" });
 
@@ -186,7 +182,7 @@ const updateSrc = async () => {
     indexFromIndex(src),
   ]);
   let lastError = null;
-
+  store.isInitializingVariable = true;
   sourceValid.value = false;
   for (const index of indices) {
     if (index.status === "fulfilled") {
@@ -248,82 +244,6 @@ const toggleRotate = () => {
   }
 };
 
-async function getGridType() {
-  // FIXME: This is a clumsy hack to distinguish between different
-  // grid types.
-  if (!sourceValid.value) {
-    return GRID_TYPES.ERROR;
-  }
-  try {
-    try {
-      // CHECK IF TRIANGULAR
-      const gridsource = datasources.value!.levels[0].grid;
-      const gridRoot = zarr.root(new zarr.FetchStore(gridsource.store));
-      const grid = await zarr.open(gridRoot.resolve(gridsource.dataset), {
-        kind: "group",
-      });
-      await zarr.open(grid.resolve("vertex_of_cell"), {
-        kind: "array",
-      });
-      return GRID_TYPES.TRIANGULAR;
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    } catch (e) {
-      /* empty */
-    }
-
-    const root = getDataSourceStore(datasources.value!, varnameSelector.value);
-
-    const datavar = await zarr.open(root.resolve(varnameSelector.value), {
-      kind: "array",
-    });
-
-    try {
-      const crs = await zarr.open(
-        root.resolve(await findCRSVar(root, varnameSelector.value)),
-        {
-          kind: "array",
-        }
-      );
-      if (crs.attrs["grid_mapping_name"] === "healpix") {
-        return GRID_TYPES.HEALPIX;
-      }
-    } catch {
-      /* fall through to other cases */
-    }
-    if (datavar.attrs.grid_mapping === "rotated_latitude_longitude") {
-      return GRID_TYPES.REGULAR_ROTATED;
-    }
-    if ((datavar.attrs._ARRAY_DIMENSIONS as unknown[]).length >= 3) {
-      return GRID_TYPES.REGULAR;
-    }
-    try {
-      const gridsource = datasources.value!.levels[0].grid;
-      const gridRoot = zarr.root(new zarr.FetchStore(gridsource.store));
-      const grid = await zarr.open(gridRoot.resolve(gridsource.dataset), {
-        kind: "group",
-      });
-
-      const latitudes = (
-        await zarr.open(grid.resolve("lat"), { kind: "array" }).then(zarr.get)
-      ).data as Float64Array;
-
-      const longitudes = (
-        await zarr.open(grid.resolve("lon"), { kind: "array" }).then(zarr.get)
-      ).data as Float64Array;
-
-      if (latitudes.length === longitudes.length) {
-        return GRID_TYPES.IRREGULAR;
-      }
-    } catch {
-      /* fall through */
-    }
-    return GRID_TYPES.GAUSSIAN;
-  } catch (error) {
-    logError(error, "Could not determine grid type");
-    return GRID_TYPES.ERROR;
-  }
-}
-
 onMounted(async () => {
   isLoading.value = true;
   await updateSrc();
@@ -336,7 +256,6 @@ onMounted(async () => {
 
 <template>
   <main>
-    <StoreUrlListener />
     <Toast unstyled>
       <template #container="{ message, closeCallback }">
         <div class="message is-danger" style="max-width: 400px">
