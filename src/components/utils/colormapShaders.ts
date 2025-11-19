@@ -1066,6 +1066,82 @@ const dataOnTextureVertexShader = `
     }
     `;
 
+const densityAwareVertexShader = `
+    uniform float basePointSize;
+    uniform float minPointSize;
+    uniform float maxPointSize;
+
+    attribute float data_value;
+
+    varying float v_value;
+
+    void main() {
+      v_value = data_value;
+
+      vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+      gl_Position = projectionMatrix * mvPosition;
+
+      float distance = length(mvPosition.xyz);
+
+      // Reduce point size in dense areas
+      float densityFactor = 1.0 / (0.1);
+
+      float sizeFactor = (basePointSize * densityFactor) / distance;
+
+      gl_PointSize = clamp(sizeFactor, minPointSize, maxPointSize);
+    }
+`;
+
+const pointFalloffFragmentShader = `
+${shaders}
+
+varying float v_value;
+uniform float addOffset;
+uniform float scaleFactor;
+uniform int colormap;
+
+void main() {
+    vec2 uv = gl_PointCoord * 2.0 - 1.0;
+    float r2 = dot(uv, uv);
+
+    // Soft circular splat using Gaussian falloff
+    float falloff = exp(-r2 * 4.0); // Adjust the 4.0 as needed (sharpness)
+    // if (falloff < 0.01) discard; // Optional: discard transparent fragments
+
+    // Normalize scalar value for color mapping
+    float normalized_value = clamp(addOffset + scaleFactor * v_value, 0.0, 1.0);
+   // gl_FragColor.a = 1.0;
+   // float normalized_value = clamp(addOffset + scaleFactor * v_value, 0.0, 1.0);
+
+    ${distinguishShaders}
+    gl_FragColor.a = falloff;
+}`;
+
+export function makeIrregularGridMaterial(
+  colormap: TColorMap = "turbo",
+  addOffset: 1.0 | 0.0 = 0.0,
+  scaleFactor: -1.0 | 1.0 = 1.0
+) {
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      addOffset: { value: addOffset },
+      scaleFactor: { value: scaleFactor },
+      basePointSize: { value: 5.0 },
+      minPointSize: { value: 1.0 },
+      maxPointSize: { value: 10.0 },
+      pointFalloff: { value: 12.0 }, // softness control; higher = tighter
+      colormap: { value: availableColormaps[colormap] },
+      //   cameraPosition: { value: new THREE.Vector3() },
+    },
+    transparent: true,
+    depthWrite: false,
+    depthTest: true,
+    vertexShader: densityAwareVertexShader,
+    fragmentShader: pointFalloffFragmentShader,
+  });
+  return material;
+}
+
 export function makeColormapMaterial(
   colormap: TColorMap = "turbo",
   addOffset: 1.0 | 0.0 = 0.0,

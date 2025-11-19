@@ -76,7 +76,10 @@ function checkGaussianGrid(latitudes: Float64Array, longitudes: Float64Array) {
   const uniqueLatsNum = new Set(latitudes).size;
   const uniqueLonsNum = new Set(longitudes).size;
 
-  return uniqueLatsNum * uniqueLonsNum !== latitudes.length * longitudes.length;
+  return (
+    uniqueLatsNum * uniqueLonsNum !== latitudes.length * longitudes.length &&
+    latitudes[0] === latitudes[1]
+  );
 }
 
 function checkIrregularGrid(latitudes: Float64Array, longitudes: Float64Array) {

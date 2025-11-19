@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import * as THREE from "three";
 import * as zarr from "zarrita";
-import { makeColormapMaterial } from "../utils/colormapShaders.ts";
+import { makeIrregularGridMaterial } from "../utils/colormapShaders.ts";
 
 import { datashaderExample } from "../utils/exampleFormatters.ts";
 import { computed, onBeforeMount, ref, onMounted, watch } from "vue";
@@ -13,7 +13,7 @@ import {
 } from "../store/store.js";
 import { storeToRefs } from "pinia";
 import type { TSources } from "../../types/GlobeTypes.ts";
-import { useLog } from "../utils/logging";
+import { useLog } from "../utils/logging.ts";
 import { useSharedGridLogic } from "./useSharedGridLogic.ts";
 import { useUrlParameterStore } from "../store/paramStore.ts";
 import { getDimensionInfo } from "../utils/dimensionHandling.ts";
@@ -107,9 +107,9 @@ const timeIndexSlider = computed(() => {
 
 const colormapMaterial = computed(() => {
   if (invertColormap.value) {
-    return makeColormapMaterial(colormap.value, 1.0, -1.0);
+    return makeIrregularGridMaterial(colormap.value, 1.0, -1.0);
   } else {
-    return makeColormapMaterial(colormap.value, 0.0, 1.0);
+    return makeIrregularGridMaterial(colormap.value, 0.0, 1.0);
   }
 });
 
@@ -151,21 +151,51 @@ function latLonToCartesianFlat(
   out[offset + 2] = radius * Math.sin(latRad);
 }
 
-function estimateAverageSpacing(positions: Float32Array): number {
-  /*
-    Estimate average spacing between points based on first 10 points
-  */
-  let totalDist = 0;
+function estimateAverageSpacing(
+  positions: Float32Array,
+  sampleSize = 100000
+): number {
+  const numPoints = positions.length / 3;
+  const samples = Math.min(sampleSize, numPoints);
+
+  let totalDistance = 0;
   let count = 0;
-  for (let i = 0; i < positions.length - 6 && count < 10; i += 3) {
-    const dx = positions[i] - positions[i + 3];
-    const dy = positions[i + 1] - positions[i + 4];
-    const dz = positions[i + 2] - positions[i + 5];
-    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    totalDist += dist;
-    count++;
+
+  // Sample random points and find nearest neighbor distance
+  for (let i = 0; i < samples; i++) {
+    const idx = Math.floor(Math.random() * numPoints) * 3;
+    const x1 = positions[idx];
+    const y1 = positions[idx + 1];
+    const z1 = positions[idx + 2];
+
+    let minDist = Infinity;
+
+    // Check against a subset of other points
+    for (let j = 0; j < Math.min(100, numPoints); j++) {
+      if (i === j) continue;
+
+      const jdx = Math.floor(Math.random() * numPoints) * 3;
+      const x2 = positions[jdx];
+      const y2 = positions[jdx + 1];
+      const z2 = positions[jdx + 2];
+
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const dz = z2 - z1;
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+      if (dist > 0 && dist < minDist) {
+        minDist = dist;
+      }
+    }
+
+    if (minDist !== Infinity) {
+      totalDistance += minDist;
+      count++;
+    }
   }
-  return totalDist / count;
+
+  return count > 0 ? totalDistance / count : 0.01;
 }
 
 async function getGrid(grid: zarr.Group<zarr.Readable>, data: Float32Array) {
@@ -213,24 +243,35 @@ async function getGrid(grid: zarr.Group<zarr.Readable>, data: Float32Array) {
 }
 
 function updateLOD() {
-  /* FIXME: Points do not scale automatically when the camera zooms in.
-  This is a hack to make the points bigger when the camera is close by
-  taking into acount some the distance of some arbitrary points (estimatedSpacing)
-  the distance of the camera (cameraDistance) and some scaling factor (k).
+  const avgSpacing = estimatedSpacing.value;
+  const globeRadius = 1;
+  const camera = getCamera()!;
+  const cameraDistance = camera.position.length();
 
-  The size will vary between 0.5 and 30, which is probably not the best way to do it.
-  It would be better to have the size also depend on the screen size aswell.
-   */
-  const cameraDistance = getCamera()!.position.length();
-  const k = 70000; // tweak this value to taste
-  const size = THREE.MathUtils.clamp(
-    (k * estimatedSpacing.value) / cameraDistance,
-    0.5,
-    30 // maybe something dynamic, depending on the screen size?
-  );
+  // Calculate field of view factor
+  const fov = (camera as THREE.PerspectiveCamera).fov || 50;
+  const fovFactor = Math.tan((fov * Math.PI) / 360);
+
+  // Base point size calculation:
+  // - Proportional to average spacing to prevent overlap
+  // - Adjusted for camera distance
+  // - Scaled by viewport size
+  const viewportHeight = window.innerHeight;
+
+  // This is the key formula: converts world-space spacing to screen pixels
+  // The magic number 0.8 prevents excessive overlap (tune between 0.5-1.5)
+  const basePointSize = (avgSpacing * viewportHeight * 0.8) / (2 * fovFactor);
+
+  // Define reasonable bounds based on zoom level
+  const zoomFactor = globeRadius / cameraDistance;
+  const minPointSize = Math.max(1.0, 2.0 * zoomFactor);
+  const maxPointSize = Math.min(10.0, 50.0 * zoomFactor);
   const material: THREE.ShaderMaterial = points!
     .material as THREE.ShaderMaterial;
-  material.uniforms.pointSize.value = size;
+  // Update shader uniforms
+  material.uniforms.basePointSize.value = basePointSize;
+  material.uniforms.minPointSize.value = minPointSize;
+  material.uniforms.maxPointSize.value = maxPointSize;
 }
 
 async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
