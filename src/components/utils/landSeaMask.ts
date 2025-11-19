@@ -125,7 +125,7 @@ function createSphereMesh(
   radius: number,
   transparent = true
 ) {
-  const geometry = new THREE.SphereGeometry(radius, 128, 64);
+  const geometry = new THREE.SphereGeometry(radius, 64, 64);
   const material = new THREE.MeshBasicMaterial({
     map: texture,
     transparent,
@@ -133,6 +133,7 @@ function createSphereMesh(
   });
   const mesh = new THREE.Mesh(geometry, material);
   mesh.name = "mask";
+  mesh.renderOrder = 1;
   mesh.rotation.x = Math.PI / 2;
   return mesh;
 }
@@ -163,30 +164,12 @@ async function getTexturedLandSeaMask({ invert = false } = {}) {
   return createSphereMesh(texture, 1.002);
 }
 
-async function getGlobeTexture() {
-  // Show the full globe texture, no geojson masking, radius 0.9999
-  const radius = 0.99;
-  const geometry = new THREE.SphereGeometry(radius, 128, 64);
-  const img = await loadImage(albedo);
-  const texture = new THREE.Texture(img);
-  texture.needsUpdate = true;
-  const material = new THREE.MeshBasicMaterial({
-    map: texture,
-    transparent: false,
-    side: THREE.FrontSide,
-  });
-  const landSeaMask = new THREE.Mesh(geometry, material);
-  landSeaMask.name = "globe_texture";
-  landSeaMask.rotation.x = Math.PI / 2;
-  return landSeaMask;
-}
-
 /**
  * Create a grey mask to be used with the globe.
  * If invert is true, the land will be grey and the sea will be transparent.
  * If invert is false, the sea will be grey and the land will be transparent.
  */
-async function getSolidMask({ invert = false } = {}) {
+async function getSolidLandSeaMask({ invert = false } = {}) {
   const { canvas, ctx, width, height } = createStandardCanvas();
   const { land, path } = await createLandProjection(ctx, width, height);
 
@@ -213,7 +196,7 @@ async function getSolidMask({ invert = false } = {}) {
   return createSphereMesh(texture, 1.002);
 }
 
-async function getSolidColoredGlobe() {
+async function getSolidGlobe() {
   // Globe colored: solid blue ocean, grey land. Use radius 0.9999
   const radius = 0.999;
   const width = 4096;
@@ -246,7 +229,7 @@ async function getSolidColoredGlobe() {
   texture.anisotropy = 16;
   texture.needsUpdate = true;
 
-  const geometry = new THREE.SphereGeometry(radius, 128, 64);
+  const geometry = new THREE.SphereGeometry(radius, 64, 64);
   const material = new THREE.MeshBasicMaterial({
     map: texture,
     transparent: false,
@@ -255,6 +238,27 @@ async function getSolidColoredGlobe() {
   const landSeaMask = new THREE.Mesh(geometry, material);
   landSeaMask.name = "mask";
   landSeaMask.rotation.x = Math.PI / 2;
+  landSeaMask.renderOrder = 1;
+  return landSeaMask;
+}
+
+async function getTexturedGlobe() {
+  // Show the full globe texture, no geojson masking, radius 0.9999
+  const radius = 0.999;
+  const geometry = new THREE.SphereGeometry(radius, 64, 64);
+  const img = await loadImage(albedo);
+  const texture = new THREE.Texture(img);
+  texture.needsUpdate = true;
+  const material = new THREE.MeshBasicMaterial({
+    map: texture,
+    transparent: false,
+    side: THREE.FrontSide,
+  });
+  console.log("foo");
+  const landSeaMask = new THREE.Mesh(geometry, material);
+  landSeaMask.name = "globe_texture";
+  landSeaMask.rotation.x = Math.PI / 2;
+  landSeaMask.renderOrder = 1;
   return landSeaMask;
 }
 
@@ -277,10 +281,12 @@ export async function getLandSeaMask(
         getTexturedLandSeaMask({ invert: false }),
       [LAND_SEA_MASK_MODES.LAND]: () =>
         getTexturedLandSeaMask({ invert: true }),
-      [LAND_SEA_MASK_MODES.SEA_GREY]: () => getSolidMask({ invert: false }),
-      [LAND_SEA_MASK_MODES.LAND_GREY]: () => getSolidMask({ invert: true }),
-      [LAND_SEA_MASK_MODES.GLOBE]: () => getGlobeTexture(),
-      [LAND_SEA_MASK_MODES.GLOBE_COLORED]: () => getSolidColoredGlobe(),
+      [LAND_SEA_MASK_MODES.SEA_GREY]: () =>
+        getSolidLandSeaMask({ invert: false }),
+      [LAND_SEA_MASK_MODES.LAND_GREY]: () =>
+        getSolidLandSeaMask({ invert: true }),
+      [LAND_SEA_MASK_MODES.GLOBE]: () => getTexturedGlobe(),
+      [LAND_SEA_MASK_MODES.GLOBE_COLORED]: () => getSolidGlobe(),
       [LAND_SEA_MASK_MODES.OFF]: () => undefined,
     } as const;
 
