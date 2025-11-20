@@ -175,12 +175,21 @@ async function indexFromZarr(src: string) {
 
 async function indexFromIndex(src: string) {
   const res = await fetch(src);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch index from ${src}: ${res.statusText}`);
+  } else if (res.status >= 400) {
+    throw new Error(`Index not found at ${src}`);
+  }
   return await res.json();
 }
 
 const updateSrc = async () => {
   const src = props.src;
 
+  // FIXME: Trying zarr and json-index in parallel and picking the first that
+  // works. If both fail, we log the last error which is from the json-index.
+  // This leads to confusing error messages if the zarr source is supposed to
+  // work but fails for some reason.
   const indices = await Promise.allSettled([
     indexFromZarr(src),
     indexFromIndex(src),
