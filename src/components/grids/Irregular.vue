@@ -17,7 +17,7 @@ import { useLog } from "../utils/logging.ts";
 import { useSharedGridLogic } from "./useSharedGridLogic.ts";
 import { useUrlParameterStore } from "../store/paramStore.ts";
 import { getDimensionInfo } from "../utils/dimensionHandling.ts";
-import { getDataBounds } from "../utils/zarrUtils.ts";
+import { getDataBounds, getLatLonData } from "../utils/zarrUtils.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -206,15 +206,15 @@ function estimateAverageSpacing(
   return totalWeight > 0 ? totalDistance / totalWeight : 0.01;
 }
 
-async function getGrid(grid: zarr.Group<zarr.Readable>, data: Float32Array) {
+async function getGrid(
+  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  data: Float32Array
+) {
   // Load latitudes and longitudes arrays (1D)
-  const latitudes = (
-    await zarr.open(grid.resolve("lat"), { kind: "array" }).then(zarr.get)
-  ).data as Float64Array;
-
-  const longitudes = (
-    await zarr.open(grid.resolve("lon"), { kind: "array" }).then(zarr.get)
-  ).data as Float64Array;
+  const [latitudes, longitudes] = await getLatLonData(
+    datavar,
+    props.datasources
+  );
 
   const N = latitudes.length;
 
@@ -308,10 +308,6 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
         1
       );
 
-      const root = zarr.root(new zarr.FetchStore(gridsource.value!.store));
-      const grid = await zarr.open(root.resolve(gridsource.value!.dataset), {
-        kind: "group",
-      });
       let rawData = (await zarr.get(datavar, indices)).data as Float32Array;
       if (rawData instanceof Float64Array) {
         // WebGL doesn't support Float64Array textures
@@ -320,7 +316,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
       }
 
       let { min, max } = getDataBounds(datavar, rawData);
-      await getGrid(grid, rawData);
+      await getGrid(datavar, rawData);
       store.updateVarInfo(
         {
           attrs: datavar.attrs,

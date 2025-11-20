@@ -1,5 +1,11 @@
 import * as zarr from "zarrita";
-import { findCRSVar, getDataSourceStore } from "./zarrUtils";
+import {
+  findCRSVar,
+  getDataSourceStore,
+  getLatLonData,
+  isLatitude,
+  isLongitude,
+} from "./zarrUtils";
 import type { TSources } from "@/types/GlobeTypes";
 
 export const GRID_TYPES = {
@@ -13,36 +19,6 @@ export const GRID_TYPES = {
 } as const;
 
 export type T_GRID_TYPES = (typeof GRID_TYPES)[keyof typeof GRID_TYPES];
-
-function isLongitude(name: string) {
-  // FIXME: Need to check for unit later
-  // having "rlon" here is a workaround to catch rotated regular grids if the have no CRS-var
-  return name === "lon" || name === "longitude" || name === "rlon";
-}
-
-function isLatitude(name: string) {
-  // FIXME: Need to check for unit later
-  // having "rlat" here is a workaround to catch rotated regular grids if the have no CRS-var
-  return name === "lat" || name === "latitude" || name === "rlat";
-}
-
-async function getLatLonData(datasources: TSources | undefined) {
-  const gridsource = datasources!.levels[0].grid;
-  const gridRoot = zarr.root(new zarr.FetchStore(gridsource.store));
-  const grid = await zarr.open(gridRoot.resolve(gridsource.dataset), {
-    kind: "group",
-  });
-  // FIXME: lat and lon are currently hardcoded
-  const latitudes = (
-    await zarr.open(grid.resolve("lat"), { kind: "array" }).then(zarr.get)
-  ).data as Float64Array;
-
-  const longitudes = (
-    await zarr.open(grid.resolve("lon"), { kind: "array" }).then(zarr.get)
-  ).data as Float64Array;
-
-  return [latitudes, longitudes];
-}
 
 async function checkTriangularGrid(
   datasources: TSources | undefined
@@ -136,7 +112,7 @@ export async function getGridType(
       return GRID_TYPES.REGULAR;
     }
 
-    const [latitudes, longitudes] = await getLatLonData(datasources);
+    const [latitudes, longitudes] = await getLatLonData(datavar, datasources);
 
     if (checkGaussianGrid(latitudes, longitudes)) {
       return GRID_TYPES.GAUSSIAN_REDUCED;
