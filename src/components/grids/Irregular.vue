@@ -153,28 +153,36 @@ function latLonToCartesianFlat(
 
 function estimateAverageSpacing(
   positions: Float32Array,
-  sampleSize = 100000
+  sampleSize = 5000
 ): number {
   const numPoints = positions.length / 3;
-  const samples = Math.min(sampleSize, numPoints);
+  const stride = Math.max(1, Math.floor(numPoints / sampleSize));
 
   let totalDistance = 0;
-  let count = 0;
+  let totalWeight = 0;
 
-  // Sample random points and find nearest neighbor distance
-  for (let i = 0; i < samples; i++) {
-    const idx = Math.floor(Math.random() * numPoints) * 3;
+  for (let i = 0; i < numPoints; i += stride) {
+    const idx = i * 3;
     const x1 = positions[idx];
     const y1 = positions[idx + 1];
     const z1 = positions[idx + 2];
 
+    // Latitude weighting
+    const lat = Math.asin(z1);
+    const weight = Math.cos(lat);
+    if (weight < 0.1) continue;
+
     let minDist = Infinity;
 
-    // Check against a subset of other points
-    for (let j = 0; j < Math.min(100, numPoints); j++) {
+    // Check local neighborhood (points before and after)
+    const neighborhoodSize = 50;
+    const start = Math.max(0, i - neighborhoodSize);
+    const end = Math.min(numPoints, i + neighborhoodSize);
+
+    for (let j = start; j < end; j++) {
       if (i === j) continue;
 
-      const jdx = Math.floor(Math.random() * numPoints) * 3;
+      const jdx = j * 3;
       const x2 = positions[jdx];
       const y2 = positions[jdx + 1];
       const z2 = positions[jdx + 2];
@@ -190,12 +198,12 @@ function estimateAverageSpacing(
     }
 
     if (minDist !== Infinity) {
-      totalDistance += minDist;
-      count++;
+      totalDistance += minDist * weight;
+      totalWeight += weight;
     }
   }
 
-  return count > 0 ? totalDistance / count : 0.01;
+  return totalWeight > 0 ? totalDistance / totalWeight : 0.01;
 }
 
 async function getGrid(grid: zarr.Group<zarr.Readable>, data: Float32Array) {
@@ -247,28 +255,27 @@ function updateLOD() {
   const globeRadius = 1;
   const camera = getCamera()!;
   const cameraDistance = camera.position.length();
-
-  // Calculate field of view factor
-  const fov = (camera as THREE.PerspectiveCamera).fov || 50;
-  const fovFactor = Math.tan((fov * Math.PI) / 360);
-
-  // Base point size calculation:
-  // - Proportional to average spacing to prevent overlap
-  // - Adjusted for camera distance
-  // - Scaled by viewport size
   const viewportHeight = window.innerHeight;
 
-  // This is the key formula: converts world-space spacing to screen pixels
-  // The magic number 0.8 prevents excessive overlap (tune between 0.5-1.5)
-  const basePointSize = (avgSpacing * viewportHeight * 0.8) / (2 * fovFactor);
+  // Use logarithmic scaling for better distribution across orders of magnitude
+  // This maps:
+  // 0.00007 → ~0.15
+  // 0.003   → ~0.70
+  const logSpacing = Math.log10(avgSpacing);
+  const normalizedSpacing = Math.max(0.2, Math.min(1.0, (logSpacing + 4) / 3)); // Tune these numbers
 
-  // Define reasonable bounds based on zoom level
   const zoomFactor = globeRadius / cameraDistance;
-  const minPointSize = Math.max(1.0, 2.0 * zoomFactor);
-  const maxPointSize = Math.min(10.0, 50.0 * zoomFactor);
+
+  // Use avgSpacing directly in base calculation for better scaling
+  const basePointSize =
+    avgSpacing * viewportHeight * zoomFactor * normalizedSpacing * 400; // Tune multiplier
+
+  // Adjust min/max with both zoom and density
+  const minPointSize = Math.max(0.8, 3.0 * zoomFactor * normalizedSpacing);
+  const maxPointSize = Math.min(25.0, 80.0 * zoomFactor * normalizedSpacing);
+
   const material: THREE.ShaderMaterial = points!
     .material as THREE.ShaderMaterial;
-  // Update shader uniforms
   material.uniforms.basePointSize.value = basePointSize;
   material.uniforms.minPointSize.value = minPointSize;
   material.uniforms.maxPointSize.value = maxPointSize;

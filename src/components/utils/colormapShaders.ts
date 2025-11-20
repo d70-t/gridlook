@@ -1084,9 +1084,8 @@ const densityAwareVertexShader = `
       float distance = length(mvPosition.xyz);
 
       // Reduce point size in dense areas
-      float densityFactor = 1.0 / (0.1);
 
-      float sizeFactor = (basePointSize * densityFactor) / distance;
+      float sizeFactor = (basePointSize);
 
       gl_PointSize = clamp(sizeFactor, minPointSize, maxPointSize);
     }
@@ -1102,18 +1101,17 @@ uniform int colormap;
 
 void main() {
     vec2 uv = gl_PointCoord * 2.0 - 1.0;
-    float r2 = dot(uv, uv);
-
-    // Soft circular splat using Gaussian falloff
-    float falloff = exp(-r2 * 4.0); // Adjust the 4.0 as needed (sharpness)
-    // if (falloff < 0.01) discard; // Optional: discard transparent fragments
 
     // Normalize scalar value for color mapping
     float normalized_value = clamp(addOffset + scaleFactor * v_value, 0.0, 1.0);
-   // gl_FragColor.a = 1.0;
-   // float normalized_value = clamp(addOffset + scaleFactor * v_value, 0.0, 1.0);
 
     ${distinguishShaders}
+
+    float r2 = dot(uv, uv);
+    // Soft circular splat using Gaussian falloff
+    float falloff = exp(-r2 * 2.0); // Adjust the 4.0 as needed (sharpness)
+    if (falloff < 0.01) discard; // Optional: discard transparent fragments
+
     gl_FragColor.a = falloff;
 }`;
 
@@ -1129,9 +1127,7 @@ export function makeIrregularGridMaterial(
       basePointSize: { value: 5.0 },
       minPointSize: { value: 1.0 },
       maxPointSize: { value: 10.0 },
-      pointFalloff: { value: 12.0 }, // softness control; higher = tighter
       colormap: { value: availableColormaps[colormap] },
-      //   cameraPosition: { value: new THREE.Vector3() },
     },
     transparent: true,
     depthWrite: false,
