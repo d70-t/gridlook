@@ -17,12 +17,7 @@ import { useLog } from "../utils/logging.ts";
 import { useSharedGridLogic } from "./useSharedGridLogic.ts";
 import { useUrlParameterStore } from "../store/paramStore.ts";
 import { getDimensionInfo } from "../utils/dimensionHandling.ts";
-import { getDataBounds } from "../utils/zarrUtils.ts";
-
-/**
- * Gaussian reduced grids
- * FIXME: "lat" and "lon" are currently hardcoded. It would be great to make this more generic
- */
+import { getDataBounds, getLatLonData } from "../utils/zarrUtils.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -149,15 +144,14 @@ function latLonToCartesianFlat(
   out[offset + 2] = radius * Math.sin(latRad);
 }
 
-async function getGrid(grid: zarr.Group<zarr.Readable>, data: Float32Array) {
-  let latitudes = (
-    await zarr.open(grid.resolve("lat"), { kind: "array" }).then(zarr.get)
-  ).data as Float64Array;
-
-  let longitudes = (
-    await zarr.open(grid.resolve("lon"), { kind: "array" }).then(zarr.get)
-  ).data as Float64Array;
-
+async function getGrid(
+  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  data: Float32Array
+) {
+  const [latitudes, longitudes] = await getLatLonData(
+    datavar,
+    props.datasources
+  );
   const { rows, uniqueLats } = buildRows(latitudes, longitudes, data);
   const totalBatches = Math.ceil((uniqueLats.length - 1) / BATCH_SIZE);
 
@@ -287,10 +281,6 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
         1
       );
 
-      const root = zarr.root(new zarr.FetchStore(gridsource.value!.store));
-      const grid = await zarr.open(root.resolve(gridsource.value!.dataset), {
-        kind: "group",
-      });
       let rawData = (await zarr.get(datavar, indices)).data as Float32Array;
       if (rawData instanceof Float64Array) {
         // WebGL doesn't support Float64Array textures
@@ -298,7 +288,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
         rawData = Float32Array.from(rawData);
       }
       let { min, max } = getDataBounds(datavar, rawData);
-      await getGrid(grid, rawData);
+      await getGrid(datavar, rawData);
       store.updateVarInfo(
         {
           attrs: datavar.attrs,

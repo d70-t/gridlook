@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import * as THREE from "three";
 import * as zarr from "zarrita";
-import { makeColormapMaterial } from "../utils/colormapShaders.ts";
+import { makeIrregularGridMaterial } from "../utils/colormapShaders.ts";
 
 import { datashaderExample } from "../utils/exampleFormatters.ts";
 import { computed, onBeforeMount, ref, onMounted, watch } from "vue";
@@ -13,11 +13,11 @@ import {
 } from "../store/store.js";
 import { storeToRefs } from "pinia";
 import type { TSources } from "../../types/GlobeTypes.ts";
-import { useLog } from "../utils/logging";
+import { useLog } from "../utils/logging.ts";
 import { useSharedGridLogic } from "./useSharedGridLogic.ts";
 import { useUrlParameterStore } from "../store/paramStore.ts";
 import { getDimensionInfo } from "../utils/dimensionHandling.ts";
-import { getDataBounds } from "../utils/zarrUtils.ts";
+import { getDataBounds, getLatLonData } from "../utils/zarrUtils.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -107,9 +107,9 @@ const timeIndexSlider = computed(() => {
 
 const colormapMaterial = computed(() => {
   if (invertColormap.value) {
-    return makeColormapMaterial(colormap.value, 1.0, -1.0);
+    return makeIrregularGridMaterial(colormap.value, 1.0, -1.0);
   } else {
-    return makeColormapMaterial(colormap.value, 0.0, 1.0);
+    return makeIrregularGridMaterial(colormap.value, 0.0, 1.0);
   }
 });
 
@@ -151,32 +151,70 @@ function latLonToCartesianFlat(
   out[offset + 2] = radius * Math.sin(latRad);
 }
 
-function estimateAverageSpacing(positions: Float32Array): number {
-  /*
-    Estimate average spacing between points based on first 10 points
-  */
-  let totalDist = 0;
-  let count = 0;
-  for (let i = 0; i < positions.length - 6 && count < 10; i += 3) {
-    const dx = positions[i] - positions[i + 3];
-    const dy = positions[i + 1] - positions[i + 4];
-    const dz = positions[i + 2] - positions[i + 5];
-    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    totalDist += dist;
-    count++;
+function estimateAverageSpacing(
+  positions: Float32Array,
+  sampleSize = 5000
+): number {
+  const numPoints = positions.length / 3;
+  const stride = Math.max(1, Math.floor(numPoints / sampleSize));
+
+  let totalDistance = 0;
+  let totalWeight = 0;
+
+  for (let i = 0; i < numPoints; i += stride) {
+    const idx = i * 3;
+    const x1 = positions[idx];
+    const y1 = positions[idx + 1];
+    const z1 = positions[idx + 2];
+
+    // Latitude weighting
+    const lat = Math.asin(z1);
+    const weight = Math.cos(lat);
+    if (weight < 0.1) continue;
+
+    let minDist = Infinity;
+
+    // Check local neighborhood (points before and after)
+    const neighborhoodSize = 50;
+    const start = Math.max(0, i - neighborhoodSize);
+    const end = Math.min(numPoints, i + neighborhoodSize);
+
+    for (let j = start; j < end; j++) {
+      if (i === j) continue;
+
+      const jdx = j * 3;
+      const x2 = positions[jdx];
+      const y2 = positions[jdx + 1];
+      const z2 = positions[jdx + 2];
+
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const dz = z2 - z1;
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+      if (dist > 0 && dist < minDist) {
+        minDist = dist;
+      }
+    }
+
+    if (minDist !== Infinity) {
+      totalDistance += minDist * weight;
+      totalWeight += weight;
+    }
   }
-  return totalDist / count;
+
+  return totalWeight > 0 ? totalDistance / totalWeight : 0.01;
 }
 
-async function getGrid(grid: zarr.Group<zarr.Readable>, data: Float32Array) {
+async function getGrid(
+  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  data: Float32Array
+) {
   // Load latitudes and longitudes arrays (1D)
-  const latitudes = (
-    await zarr.open(grid.resolve("lat"), { kind: "array" }).then(zarr.get)
-  ).data as Float64Array;
-
-  const longitudes = (
-    await zarr.open(grid.resolve("lon"), { kind: "array" }).then(zarr.get)
-  ).data as Float64Array;
+  const [latitudes, longitudes] = await getLatLonData(
+    datavar,
+    props.datasources
+  );
 
   const N = latitudes.length;
 
@@ -213,24 +251,34 @@ async function getGrid(grid: zarr.Group<zarr.Readable>, data: Float32Array) {
 }
 
 function updateLOD() {
-  /* FIXME: Points do not scale automatically when the camera zooms in.
-  This is a hack to make the points bigger when the camera is close by
-  taking into acount some the distance of some arbitrary points (estimatedSpacing)
-  the distance of the camera (cameraDistance) and some scaling factor (k).
+  const avgSpacing = estimatedSpacing.value;
+  const globeRadius = 1;
+  const camera = getCamera()!;
+  const cameraDistance = camera.position.length();
+  const viewportHeight = window.innerHeight;
 
-  The size will vary between 0.5 and 30, which is probably not the best way to do it.
-  It would be better to have the size also depend on the screen size aswell.
-   */
-  const cameraDistance = getCamera()!.position.length();
-  const k = 70000; // tweak this value to taste
-  const size = THREE.MathUtils.clamp(
-    (k * estimatedSpacing.value) / cameraDistance,
-    0.5,
-    30 // maybe something dynamic, depending on the screen size?
-  );
+  // Use logarithmic scaling for better distribution across orders of magnitude
+  // This maps:
+  // 0.00007 → ~0.15
+  // 0.003   → ~0.70
+  const logSpacing = Math.log10(avgSpacing);
+  const normalizedSpacing = Math.max(0.2, Math.min(1.0, (logSpacing + 4) / 3)); // Tune these numbers
+
+  const zoomFactor = globeRadius / cameraDistance;
+
+  // Use avgSpacing directly in base calculation for better scaling
+  const basePointSize =
+    avgSpacing * viewportHeight * zoomFactor * normalizedSpacing * 400; // Tune multiplier
+
+  // Adjust min/max with both zoom and density
+  const minPointSize = Math.max(0.8, 3.0 * zoomFactor * normalizedSpacing);
+  const maxPointSize = Math.min(25.0, 80.0 * zoomFactor * normalizedSpacing);
+
   const material: THREE.ShaderMaterial = points!
     .material as THREE.ShaderMaterial;
-  material.uniforms.pointSize.value = size;
+  material.uniforms.basePointSize.value = basePointSize;
+  material.uniforms.minPointSize.value = minPointSize;
+  material.uniforms.maxPointSize.value = maxPointSize;
 }
 
 async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
@@ -260,10 +308,6 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
         1
       );
 
-      const root = zarr.root(new zarr.FetchStore(gridsource.value!.store));
-      const grid = await zarr.open(root.resolve(gridsource.value!.dataset), {
-        kind: "group",
-      });
       let rawData = (await zarr.get(datavar, indices)).data as Float32Array;
       if (rawData instanceof Float64Array) {
         // WebGL doesn't support Float64Array textures
@@ -272,7 +316,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
       }
 
       let { min, max } = getDataBounds(datavar, rawData);
-      await getGrid(grid, rawData);
+      await getGrid(datavar, rawData);
       store.updateVarInfo(
         {
           attrs: datavar.attrs,
@@ -310,7 +354,7 @@ function copyPythonExample() {
 }
 
 onMounted(() => {
-  let sphereGeometry = new THREE.SphereGeometry(0.999, 64, 64);
+  let sphereGeometry = new THREE.SphereGeometry(0.99, 64, 64);
   const earthMat = new THREE.MeshBasicMaterial({ color: 0x000000 }); // black color
 
   // it is quite likely that the data points do not cover the whole globe

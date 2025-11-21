@@ -64,6 +64,64 @@ export function getFillValue(
   return Number(obj.fill_value);
 }
 
+export function isLongitude(name: string) {
+  // FIXME: Need to check for unit later
+  // having "rlon" here is a workaround to catch rotated regular grids if the have no CRS-var
+  return name === "lon" || name === "longitude" || name === "rlon";
+}
+
+export function isLatitude(name: string) {
+  // FIXME: Need to check for unit later
+  // having "rlat" here is a workaround to catch rotated regular grids if the have no CRS-var
+  return name === "lat" || name === "latitude" || name === "rlat";
+}
+
+export async function getLatLonData(
+  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  datasources: TSources | undefined
+) {
+  const gridsource = datasources!.levels[0].grid;
+  const gridRoot = zarr.root(new zarr.FetchStore(gridsource.store));
+  const grid = await zarr.open(gridRoot.resolve(gridsource.dataset), {
+    kind: "group",
+  });
+  const coordinates = datavar.attrs.coordinates as string;
+  console.log("corrdinates", coordinates);
+  let latitudeName: string | null = null;
+  let longitudeName: string | null = null;
+  if (coordinates) {
+    const coordNames = coordinates.split(" ");
+    for (const coordName of coordNames) {
+      if (isLatitude(coordName)) {
+        latitudeName = coordName;
+      } else if (isLongitude(coordName)) {
+        longitudeName = coordName;
+      }
+    }
+  }
+  // Fallback to standard names
+  if (!latitudeName) {
+    latitudeName = "lat";
+  }
+  if (!longitudeName) {
+    longitudeName = "lon";
+  }
+  console.log("grid", grid, grid.attrs);
+  const latitudes = (
+    await zarr
+      .open(grid.resolve(latitudeName), { kind: "array" })
+      .then(zarr.get)
+  ).data as Float64Array;
+
+  const longitudes = (
+    await zarr
+      .open(grid.resolve(longitudeName), { kind: "array" })
+      .then(zarr.get)
+  ).data as Float64Array;
+
+  return [latitudes, longitudes];
+}
+
 export function getDataBounds(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
   data: Float32Array<ArrayBufferLike>
