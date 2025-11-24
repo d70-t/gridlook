@@ -354,20 +354,7 @@ function copyPythonExample() {
 }
 
 onMounted(() => {
-  let sphereGeometry = new THREE.SphereGeometry(0.99, 64, 64);
-  const earthMat = new THREE.MeshBasicMaterial({ color: 0x000000 }); // black color
-
-  // it is quite likely that the data points do not cover the whole globe
-  // in order to avoid some ugly transparency issues, we add an opaque black
-  // sphere underneath
-  const globeMesh = new THREE.Mesh(sphereGeometry, earthMat);
-  globeMesh.geometry.attributes.position.needsUpdate = true;
-  globeMesh.rotation.x = Math.PI / 2;
-  globeMesh.geometry.computeBoundingBox();
-  globeMesh.geometry.computeBoundingSphere();
-
   getScene()?.add(points as THREE.Points);
-  getScene()?.add(globeMesh);
 });
 
 onBeforeMount(async () => {
