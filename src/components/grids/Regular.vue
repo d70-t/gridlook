@@ -468,7 +468,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
       mainMesh!.material = material;
       mainMesh!.material.needsUpdate = true;
 
-      let timeinfo = await getTimeInfo(
+      const timeinfo = await getTimeInfo(
         props.datasources!,
         dimensionRanges,
         currentTimeIndexSliderValue
