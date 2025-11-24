@@ -129,7 +129,8 @@ const datasource = computed(() => {
 
 async function datasourceUpdate() {
   if (props.datasources !== undefined) {
-    await Promise.all([fetchGrid(), getData()]);
+    await fetchGrid();
+    await getData();
     updateLandSeaMask();
     updateColormap(meshes);
   }
