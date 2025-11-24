@@ -261,12 +261,6 @@ function copyPythonExample() {
   navigator.clipboard.writeText(example);
 }
 
-onMounted(() => {
-  for (const mesh of meshes) {
-    getScene()?.add(mesh);
-  }
-});
-
 onBeforeMount(async () => {
   await datasourceUpdate();
 });
