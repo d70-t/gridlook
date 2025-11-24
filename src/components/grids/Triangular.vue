@@ -220,7 +220,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
         offset += nVerts;
       }
 
-      let timeinfo = await getTimeInfo(
+      const timeinfo = await getTimeInfo(
         props.datasources!,
         dimensionRanges,
         currentTimeIndexSliderValue
