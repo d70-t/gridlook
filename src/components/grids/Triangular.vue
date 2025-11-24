@@ -137,7 +137,7 @@ async function datasourceUpdate() {
 }
 
 // Split triangles into batches for multiple meshes
-const BATCH_SIZE = 3000000; // triangles per mesh (tune as needed)
+const BATCH_SIZE = 3000000; // number of triangles per mesh (tune as needed)
 
 async function fetchGrid() {
   try {
