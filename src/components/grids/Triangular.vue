@@ -5,7 +5,7 @@ import { grid2buffer, data2valueBuffer } from "../utils/gridlook.ts";
 import { makeColormapMaterial } from "../utils/colormapShaders.ts";
 
 import { datashaderExample } from "../utils/exampleFormatters.ts";
-import { computed, onBeforeMount, ref, onMounted, watch } from "vue";
+import { computed, onBeforeMount, ref, watch } from "vue";
 
 import {
   UPDATE_MODE,
