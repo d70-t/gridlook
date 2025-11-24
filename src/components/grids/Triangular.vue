@@ -5,7 +5,7 @@ import { grid2buffer, data2valueBuffer } from "../utils/gridlook.ts";
 import { makeColormapMaterial } from "../utils/colormapShaders.ts";
 
 import { datashaderExample } from "../utils/exampleFormatters.ts";
-import { computed, onBeforeMount, ref, onMounted, watch } from "vue";
+import { computed, onBeforeMount, ref, watch } from "vue";
 
 import {
   UPDATE_MODE,
@@ -14,7 +14,7 @@ import {
 } from "../store/store.js";
 import { storeToRefs } from "pinia";
 import type { TSources } from "../../types/GlobeTypes.ts";
-import { useLog } from "../utils/logging";
+import { useLog } from "../utils/logging.ts";
 import { useSharedGridLogic } from "./useSharedGridLogic.ts";
 import { useUrlParameterStore } from "../store/paramStore.ts";
 import { getDimensionInfo } from "../utils/dimensionHandling.ts";
@@ -42,7 +42,7 @@ const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
 const updateCount = ref(0);
 const updatingData = ref(false);
 
-let mainMesh: THREE.Mesh | undefined = undefined;
+let meshes: THREE.Mesh[] = [];
 
 const {
   getScene,
@@ -99,7 +99,7 @@ const timeIndexSlider = computed(() => {
 watch(
   [() => bounds.value, () => invertColormap.value, () => colormap.value],
   () => {
-    updateColormap([mainMesh]);
+    updateColormap(meshes);
   }
 );
 
@@ -129,11 +129,15 @@ const datasource = computed(() => {
 
 async function datasourceUpdate() {
   if (props.datasources !== undefined) {
-    await Promise.all([fetchGrid(), getData()]);
+    await fetchGrid();
+    await getData();
     updateLandSeaMask();
-    updateColormap([mainMesh]);
+    updateColormap(meshes);
   }
 }
+
+// Split triangles into batches for multiple meshes
+const BATCH_SIZE = 3000000; // number of triangles per mesh (tune as needed)
 
 async function fetchGrid() {
   try {
@@ -142,12 +146,29 @@ async function fetchGrid() {
       kind: "group",
     });
     const verts = await grid2buffer(grid);
-    const myMesh = mainMesh as THREE.Mesh;
-    myMesh.geometry.setAttribute(
-      "position",
-      new THREE.BufferAttribute(verts, 3)
-    );
-    myMesh.geometry.computeBoundingSphere();
+
+    // Remove old meshes from scene
+    for (const mesh of meshes) {
+      getScene()?.remove(mesh);
+      mesh.geometry.dispose();
+    }
+    meshes.length = 0;
+
+    const nTriangles = verts.length / 9;
+    for (let i = 0; i < nTriangles; i += BATCH_SIZE) {
+      const count = Math.min(BATCH_SIZE, nTriangles - i);
+      const geometry = new THREE.BufferGeometry();
+      // Each triangle has 9 values (3 vertices * 3 coords)
+      const batchVerts = verts.subarray(i * 9, (i + count) * 9);
+      geometry.setAttribute(
+        "position",
+        new THREE.BufferAttribute(batchVerts, 3)
+      );
+      geometry.computeBoundingSphere();
+      const mesh = new THREE.Mesh(geometry, colormapMaterial.value);
+      meshes.push(mesh);
+      getScene()?.add(mesh);
+    }
     redraw();
   } catch (error) {
     logError(error, "Could not fetch grid");
@@ -185,10 +206,24 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
 
       const rawData = await zarr.get(datavar, indices);
       const dataBuffer = data2valueBuffer(rawData, datavar);
-      mainMesh?.geometry.setAttribute(
-        "data_value",
-        new THREE.BufferAttribute(dataBuffer.dataValues, 1)
-      );
+      // Distribute data values to each mesh
+      let offset = 0;
+      for (const mesh of meshes) {
+        const nVerts = mesh.geometry.getAttribute("position").count;
+        // Each triangle has 3 vertices, each vertex has a value
+        const meshData = dataBuffer.dataValues.subarray(
+          offset,
+          offset + nVerts
+        );
+        mesh.geometry.setAttribute(
+          "data_value",
+          new THREE.BufferAttribute(meshData, 1)
+        );
+        const material = mesh.material as THREE.ShaderMaterial;
+        material.uniforms.missingValue.value = dataBuffer.missingValue;
+        material.uniforms.fillValue.value = dataBuffer.fillValue;
+        offset += nVerts;
+      }
       store.updateVarInfo(
         {
           attrs: datavar.attrs,
@@ -226,14 +261,7 @@ function copyPythonExample() {
   navigator.clipboard.writeText(example);
 }
 
-onMounted(() => {
-  getScene()?.add(mainMesh as THREE.Mesh);
-});
-
 onBeforeMount(async () => {
-  const geometry = new THREE.BufferGeometry();
-  const material = colormapMaterial.value;
-  mainMesh = new THREE.Mesh(geometry, material);
   await datasourceUpdate();
 });
 

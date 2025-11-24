@@ -17,7 +17,7 @@ import {
 import { storeToRefs } from "pinia";
 import type { TSources } from "../../types/GlobeTypes.ts";
 import { useToast } from "primevue/usetoast";
-import { useLog } from "../utils/logging";
+import { useLog } from "../utils/logging.ts";
 import { useSharedGridLogic } from "./useSharedGridLogic.ts";
 import { useUrlParameterStore } from "../store/paramStore.ts";
 import { getDimensionInfo } from "../utils/dimensionHandling.ts";
@@ -462,11 +462,17 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
         addOffset,
         scaleFactor
       );
+      const { min, max, missingValue, fillValue } = getDataBounds(
+        datavar,
+        rawData
+      );
+      // Set missing/fill values as uniforms for the shader
+      material.uniforms.missingValue.value = missingValue;
+      material.uniforms.fillValue.value = fillValue;
 
       mainMesh!.material = material;
       mainMesh!.material.needsUpdate = true;
 
-      const { min, max } = getDataBounds(datavar, rawData);
       store.updateVarInfo(
         {
           attrs: datavar.attrs,

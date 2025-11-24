@@ -231,6 +231,22 @@ export function useSharedGridLogic() {
     // under the texture when zoomed in
     orbitControls.minDistance = 1.1;
     orbitControls.enablePan = false;
+
+    // Depending on the dataset it happens that the data does not cover
+    // the full globe. In order to avoid some ugly transparency issues, we add
+    // an opaque black sphere underneath. As a side effect, we have also an actual
+    // SphereGeometry in use, which might be useful for Raytracing in the future.
+    // FIXME: As soon as we have other projections than the globe, this needs to be
+    // adapted accordingly.
+    const sphereGeometry = new THREE.SphereGeometry(0.99, 64, 64);
+    const earthMat = new THREE.MeshBasicMaterial({ color: 0x000000 }); // black color
+    const globeMesh = new THREE.Mesh(sphereGeometry, earthMat);
+    globeMesh.geometry.attributes.position.needsUpdate = true;
+    globeMesh.rotation.x = Math.PI / 2;
+    globeMesh.geometry.computeBoundingBox();
+    globeMesh.geometry.computeBoundingSphere();
+
+    getScene()?.add(globeMesh);
     updateCoastlines();
   }
 

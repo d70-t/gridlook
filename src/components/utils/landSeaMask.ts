@@ -254,7 +254,6 @@ async function getTexturedGlobe() {
     transparent: false,
     side: THREE.FrontSide,
   });
-  console.log("foo");
   const landSeaMask = new THREE.Mesh(geometry, material);
   landSeaMask.name = "globe_texture";
   landSeaMask.rotation.x = Math.PI / 2;
