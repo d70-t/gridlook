@@ -1011,7 +1011,7 @@ varying vec2 vUv;
 void main() {
     gl_FragColor.a = 1.0;
     float v_value = texture(data, vUv).r;
-    if (!(v_value == v_value) || v_value == fillValue || v_value == missingValue) {
+    if (isnan(v_value) || v_value == fillValue || v_value == missingValue) {
         gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
         return;
     }
@@ -1033,7 +1033,7 @@ uniform float missingValue;
 uniform float fillValue;
 
 void main() {
-    if (!(v_value == v_value) || v_value == fillValue || v_value == missingValue) {
+    if (isnan(v_value) || v_value == fillValue || v_value == missingValue) {
         gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
         return;
     }
@@ -1123,7 +1123,7 @@ void main() {
     if (falloff < 0.01) discard; // Optional: discard transparent fragments
 
 
-    if (!(v_value == v_value) || v_value == fillValue || v_value == missingValue) {
+    if (isnan(v_value) || v_value == fillValue || v_value == missingValue) {
         gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
         return;
     }
