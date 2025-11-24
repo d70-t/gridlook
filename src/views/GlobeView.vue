@@ -115,10 +115,9 @@ watch(
 );
 
 async function indexFromZarr(src: string) {
-  // FIXME: Filter out all dimensions and coordinates
   const store = await zarr.withConsolidated(new zarr.FetchStore(src));
   const root = await zarr.open(store, { kind: "group" });
-
+  const dimensions = new Set<string>();
   const candidates = await Promise.allSettled(
     store.contents().map(async ({ path, kind }) => {
       const varname = path.slice(1);
@@ -126,12 +125,32 @@ async function indexFromZarr(src: string) {
         return {};
       }
       let variable = await zarr.open(root.resolve(path), { kind: "array" });
+      if (variable.attrs?._ARRAY_DIMENSIONS) {
+        let arrayDims = variable.attrs._ARRAY_DIMENSIONS as string[];
+        for (let dim of arrayDims) {
+          dimensions.add(dim);
+        }
+      }
+      if (variable.attrs.coordinates) {
+        let coords = variable.attrs.coordinates as string;
+        for (let coord of coords.split(" ")) {
+          dimensions.add(coord);
+        }
+      }
       if (
-        variable.shape.length >= 2 &&
         variable.attrs?._ARRAY_DIMENSIONS &&
         variable.attrs?._ARRAY_DIMENSIONS instanceof Array &&
+        ((variable.attrs._ARRAY_DIMENSIONS.includes("time") &&
+          variable.shape.length >= 2) ||
+          (!variable.attrs._ARRAY_DIMENSIONS.includes("time") &&
+            variable.shape.length >= 1)) &&
         !varname.includes("bnds") &&
-        variable.attrs?._ARRAY_DIMENSIONS[0] === "time"
+        !varname.includes("bounds") &&
+        !varname.includes("vertices") &&
+        !varname.includes("latitude") &&
+        !varname.includes("longitude") &&
+        varname !== "lat" &&
+        varname !== "lon"
       ) {
         return {
           [varname]: {
@@ -150,6 +169,12 @@ async function indexFromZarr(src: string) {
   const datasources = candidates
     .filter((promise) => promise.status === "fulfilled")
     .map((promise) => promise.value)
+    .filter((obj) => {
+      // Filter out all dimensions and coordinates
+      return (
+        Object.keys(obj).length > 0 && !dimensions.has(Object.keys(obj)[0])
+      );
+    })
     .reduce((a, b) => {
       return { ...a, ...b };
     }, {});
