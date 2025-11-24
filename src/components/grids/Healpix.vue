@@ -56,10 +56,9 @@ const {
   toggleRotate,
   resetDataVars,
   getDataVar,
-  getTimeVar,
+  getTimeInfo,
   updateLandSeaMask,
   updateColormap,
-  extractTimeInfo,
   canvas,
   box,
 } = useSharedGridLogic();
@@ -422,14 +421,11 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
     }
     updatingData.value = true;
     const localVarname = varnameSelector.value;
-    const currentTimeIndexSliderValue = timeIndexSlider.value;
-    const [timevar, datavar] = await loadTimeAndDataVars(localVarname);
-    const timeinfo = await extractTimeInfo(
-      timevar,
-      currentTimeIndexSliderValue as number
-    );
+
+    const datavar = await getDataVar(localVarname, props.datasources!);
+
     if (datavar !== undefined) {
-      await processDataVar(datavar, timeinfo, updateMode);
+      await processDataVar(datavar, updateMode);
     }
     updatingData.value = false;
 
@@ -444,16 +440,8 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
   }
 }
 
-async function loadTimeAndDataVars(varname: string) {
-  return await Promise.all([
-    getTimeVar(props.datasources!),
-    getDataVar(varname, props.datasources!),
-  ]);
-}
-
 async function processDataVar(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
-  timeinfo: Awaited<ReturnType<typeof extractTimeInfo>>,
   updateMode: TUpdateMode
 ) {
   if (datavar !== undefined) {
@@ -498,6 +486,13 @@ async function processDataVar(
 
         redraw();
       })
+    );
+
+    const currentTimeIndexSliderValue = timeIndexSlider.value as number;
+    const timeinfo = await getTimeInfo(
+      props.datasources!,
+      dimensionRanges,
+      currentTimeIndexSliderValue
     );
 
     store.updateVarInfo(

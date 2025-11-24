@@ -57,10 +57,9 @@ const {
   toggleRotate,
   resetDataVars,
   getDataVar,
-  getTimeVar,
+  getTimeInfo,
   updateLandSeaMask,
   updateColormap,
-  extractTimeInfo,
   canvas,
   box,
 } = useSharedGridLogic();
@@ -418,13 +417,9 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
 
     const localVarname = varnameSelector.value;
 
-    const [timevar, datavar] = await Promise.all([
-      getTimeVar(props.datasources!),
-      getDataVar(localVarname, props.datasources!),
-    ]);
+    const datavar = await getDataVar(localVarname, props.datasources!);
 
     const currentTimeIndexSliderValue = timeIndexSlider.value as number;
-    let timeinfo = await extractTimeInfo(timevar, currentTimeIndexSliderValue);
 
     if (datavar !== undefined) {
       const { dimensionRanges, indices } = getDimensionInfo(
@@ -472,6 +467,12 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
 
       mainMesh!.material = material;
       mainMesh!.material.needsUpdate = true;
+
+      const timeinfo = await getTimeInfo(
+        props.datasources!,
+        dimensionRanges,
+        currentTimeIndexSliderValue
+      );
 
       store.updateVarInfo(
         {
