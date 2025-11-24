@@ -315,7 +315,13 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
         rawData = Float32Array.from(rawData);
       }
 
-      let { min, max } = getDataBounds(datavar, rawData);
+      let { min, max, fillValue, missingValue } = getDataBounds(
+        datavar,
+        rawData
+      );
+      const material = points!.material as THREE.ShaderMaterial;
+      material.uniforms.fillValue.value = fillValue;
+      material.uniforms.missingValue.value = missingValue;
       await getGrid(datavar, rawData);
       store.updateVarInfo(
         {

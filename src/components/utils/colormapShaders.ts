@@ -1001,6 +1001,8 @@ ${shaders}
 
 uniform float addOffset;
 uniform float scaleFactor;
+uniform float missingValue;
+uniform float fillValue;
 uniform int colormap;
 uniform sampler2D data;
 
@@ -1009,6 +1011,10 @@ varying vec2 vUv;
 void main() {
     gl_FragColor.a = 1.0;
     float v_value = texture(data, vUv).r;
+    if (!(v_value == v_value) || v_value == fillValue || v_value == missingValue) {
+        gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
+        return;
+    }
     float normalized_value = clamp(addOffset + scaleFactor * v_value, 0.0, 1.0);
 
     ${distinguishShaders}
@@ -1023,12 +1029,17 @@ varying float v_value;
 uniform float addOffset;
 uniform float scaleFactor;
 uniform int colormap;
+uniform float missingValue;
+uniform float fillValue;
 
 void main() {
-    gl_FragColor.a = 1.0;
+    if (!(v_value == v_value) || v_value == fillValue || v_value == missingValue) {
+        gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
+        return;
+    }
     float normalized_value = clamp(addOffset + scaleFactor * v_value, 0.0, 1.0);
-
     ${distinguishShaders}
+    gl_FragColor.a = 1.0;
 }`;
 
 const dataOnMeshVertexShader = `
@@ -1098,20 +1109,26 @@ varying float v_value;
 uniform float addOffset;
 uniform float scaleFactor;
 uniform int colormap;
+uniform float fillValue;
+uniform float missingValue;
 
 void main() {
     vec2 uv = gl_PointCoord * 2.0 - 1.0;
 
     // Normalize scalar value for color mapping
     float normalized_value = clamp(addOffset + scaleFactor * v_value, 0.0, 1.0);
-
-    ${distinguishShaders}
-
     float r2 = dot(uv, uv);
     // Soft circular splat using Gaussian falloff
     float falloff = exp(-r2 * 2.0); // Adjust the 4.0 as needed (sharpness)
     if (falloff < 0.01) discard; // Optional: discard transparent fragments
 
+
+    if (!(v_value == v_value) || v_value == fillValue || v_value == missingValue) {
+        gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
+        return;
+    }
+
+    ${distinguishShaders}
     gl_FragColor.a = falloff;
 }`;
 
@@ -1127,6 +1144,8 @@ export function makeIrregularGridMaterial(
       basePointSize: { value: 5.0 },
       minPointSize: { value: 1.0 },
       maxPointSize: { value: 10.0 },
+      fillValue: { value: Number.POSITIVE_INFINITY }, // will be set properly by caller
+      missingValue: { value: Number.POSITIVE_INFINITY }, // will be set properly by caller
       colormap: { value: availableColormaps[colormap] },
     },
     transparent: true,
@@ -1149,8 +1168,10 @@ export function makeColormapMaterial(
       scaleFactor: { value: scaleFactor },
       pointSize: { value: 0.0 },
       colormap: { value: availableColormaps[colormap] },
+      fillValue: { value: Number.POSITIVE_INFINITY }, // will be set properly by caller
+      missingValue: { value: Number.POSITIVE_INFINITY }, // will be set properly by caller
     },
-
+    transparent: true,
     vertexShader: dataOnMeshVertexShader,
     fragmentShader: colormapFragmentShader,
   });
@@ -1186,22 +1207,15 @@ export function makeTextureMaterial(
       addOffset: { value: addOffset },
       scaleFactor: { value: scaleFactor },
       colormap: { value: availableColormaps[colormap] },
+      fillValue: { value: Number.POSITIVE_INFINITY }, // will be set properly by caller
+      missingValue: { value: Number.POSITIVE_INFINITY }, // will be set properly by caller
       data: { value: texture },
     },
-
+    transparent: true,
     vertexShader: dataOnTextureVertexShader,
     fragmentShader: healPixColormapFragmentShader,
   });
   return material;
-}
-
-export function makeLutGeometry() {
-  const geometry = new THREE.PlaneGeometry(0.1, 1).translate(0.95, 0, 0);
-  geometry.setAttribute(
-    "data_value",
-    new THREE.BufferAttribute(Float32Array.from([1, 1, 0, 0]), 1)
-  );
-  return geometry;
 }
 
 export function calculateColorMapProperties(

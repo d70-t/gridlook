@@ -86,7 +86,6 @@ export async function getLatLonData(
     kind: "group",
   });
   const coordinates = datavar.attrs.coordinates as string;
-  console.log("corrdinates", coordinates);
   let latitudeName: string | null = null;
   let longitudeName: string | null = null;
   if (coordinates) {
@@ -106,7 +105,6 @@ export async function getLatLonData(
   if (!longitudeName) {
     longitudeName = "lon";
   }
-  console.log("grid", grid, grid.attrs);
   const latitudes = (
     await zarr
       .open(grid.resolve(latitudeName), { kind: "array" })
@@ -144,6 +142,10 @@ export function getDataBounds(
   if (max === Number.NEGATIVE_INFINITY) {
     max = NaN;
   }
-
-  return { min: min, max: max };
+  return {
+    min: min,
+    max: max,
+    fillValue: fillValue,
+    missingValue: missingValue,
+  };
 }

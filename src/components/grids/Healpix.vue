@@ -17,7 +17,7 @@ import {
 import { storeToRefs } from "pinia";
 import type { TSources } from "../../types/GlobeTypes.ts";
 import { useToast } from "primevue/usetoast";
-import { useLog } from "../utils/logging";
+import { useLog } from "../utils/logging.ts";
 import { useSharedGridLogic } from "./useSharedGridLogic.ts";
 import {
   findCRSVar,
@@ -222,7 +222,7 @@ async function getHealpixData(
     dataSlice.set(data);
   } else {
     // Limited-area data case: need to map cellCoord to global positions
-    // dataSlice.fill(NaN);
+    dataSlice.fill(NaN);
 
     // Find which indices in cellCoord fall within this chunk's range
     const relevantIndices: number[] = [];
@@ -238,7 +238,17 @@ async function getHealpixData(
 
     // Only fetch data if this chunk has any relevant cells
     if (relevantIndices.length === 0) {
-      return undefined;
+      let { min, max, missingValue, fillValue } = getDataBounds(
+        datavar,
+        dataSlice
+      );
+      return {
+        texture: data2texture(dataSlice, {}),
+        min,
+        max,
+        missingValue,
+        fillValue,
+      };
     }
 
     // Check if indices are contiguous for optimization
@@ -269,8 +279,14 @@ async function getHealpixData(
     }
   }
 
-  let { min, max } = getDataBounds(datavar, dataSlice);
-  return { texture: data2texture(dataSlice, {}), min, max };
+  let { min, max, missingValue, fillValue } = getDataBounds(datavar, dataSlice);
+  return {
+    texture: data2texture(dataSlice, {}),
+    min,
+    max,
+    missingValue,
+    fillValue,
+  };
 }
 
 function distanceSquared(
@@ -471,10 +487,12 @@ async function processDataVar(
         }
 
         // Update global data range
-        dataMin = Math.min(dataMin, texData.min);
-        dataMax = Math.max(dataMax, texData.max);
+        dataMin = dataMin > texData.min ? texData.min : dataMin;
+        dataMax = dataMax < texData.max ? texData.max : dataMax;
 
         const material = mainMeshes[ipix].material as THREE.ShaderMaterial;
+        material.uniforms.missingValue.value = texData.missingValue;
+        material.uniforms.fillValue.value = texData.fillValue;
         material.uniforms.data.value.dispose();
         material.uniforms.data.value = texData.texture;
 

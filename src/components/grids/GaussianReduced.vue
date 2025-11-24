@@ -287,7 +287,15 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
         // we convert it to Float32Array and accept the loss of precision
         rawData = Float32Array.from(rawData);
       }
-      let { min, max } = getDataBounds(datavar, rawData);
+      let { min, max, missingValue, fillValue } = getDataBounds(
+        datavar,
+        rawData
+      );
+      for (let mesh of meshes) {
+        const material = mesh.material as THREE.ShaderMaterial;
+        material.uniforms.missingValue.value = missingValue;
+        material.uniforms.fillValue.value = fillValue;
+      }
       await getGrid(datavar, rawData);
       store.updateVarInfo(
         {
