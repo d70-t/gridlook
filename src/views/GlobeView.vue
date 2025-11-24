@@ -114,6 +114,31 @@ watch(
   }
 );
 
+function isValidVariable(varname: string, variable: zarr.Array<zarr.DataType>) {
+  const EXCLUDED_VAR_PATTERNS = [
+    "bnds",
+    "bounds",
+    "vertices",
+    "latitude",
+    "longitude",
+  ] as const;
+
+  const dims = variable.attrs?._ARRAY_DIMENSIONS;
+  if (!Array.isArray(dims)) return false;
+
+  const hasTime = dims.includes("time");
+  const shapeValid = hasTime
+    ? variable.shape.length >= 2
+    : variable.shape.length >= 1;
+
+  const hasExcludedName = EXCLUDED_VAR_PATTERNS.some((pattern) =>
+    varname.includes(pattern)
+  );
+  const isLatLon = varname === "lat" || varname === "lon";
+
+  return shapeValid && !hasExcludedName && !isLatLon;
+}
+
 async function indexFromZarr(src: string) {
   const store = await zarr.withConsolidated(new zarr.FetchStore(src));
   const root = await zarr.open(store, { kind: "group" });
@@ -137,21 +162,7 @@ async function indexFromZarr(src: string) {
           dimensions.add(coord);
         }
       }
-      if (
-        variable.attrs?._ARRAY_DIMENSIONS &&
-        variable.attrs?._ARRAY_DIMENSIONS instanceof Array &&
-        ((variable.attrs._ARRAY_DIMENSIONS.includes("time") &&
-          variable.shape.length >= 2) ||
-          (!variable.attrs._ARRAY_DIMENSIONS.includes("time") &&
-            variable.shape.length >= 1)) &&
-        !varname.includes("bnds") &&
-        !varname.includes("bounds") &&
-        !varname.includes("vertices") &&
-        !varname.includes("latitude") &&
-        !varname.includes("longitude") &&
-        varname !== "lat" &&
-        varname !== "lon"
-      ) {
+      if (isValidVariable(varname, variable)) {
         return {
           [varname]: {
             store: src,
