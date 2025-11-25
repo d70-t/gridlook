@@ -105,17 +105,13 @@ export async function getLatLonData(
   if (!longitudeName) {
     longitudeName = "lon";
   }
-  const latitudes = (
-    await zarr
-      .open(grid.resolve(latitudeName), { kind: "array" })
-      .then(zarr.get)
-  ).data as Float64Array;
+  const latitudes = await zarr
+    .open(grid.resolve(latitudeName), { kind: "array" })
+    .then(zarr.get);
 
-  const longitudes = (
-    await zarr
-      .open(grid.resolve(longitudeName), { kind: "array" })
-      .then(zarr.get)
-  ).data as Float64Array;
+  const longitudes = await zarr
+    .open(grid.resolve(longitudeName), { kind: "array" })
+    .then(zarr.get);
 
   return [latitudes, longitudes];
 }

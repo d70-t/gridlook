@@ -6,6 +6,7 @@ import GridRegular from "@/components/grids/Regular.vue";
 import GridIrregular from "@/components/grids/Irregular.vue";
 import GridTriangular from "@/components/grids/Triangular.vue";
 import GridGaussianReduced from "@/components/grids/GaussianReduced.vue";
+import GridCurvilinear from "@/components/grids/Curvilinear.vue";
 import GlobeControls from "@/components/GlobeControls.vue";
 import { availableColormaps } from "@/components/utils/colormapShaders.js";
 import { ref, computed, watch, onMounted, type Ref } from "vue";
@@ -58,21 +59,17 @@ const modelInfo = computed(() => {
 });
 
 const currentGlobeComponent = computed(() => {
-  if (gridType.value === GRID_TYPES.HEALPIX) {
-    return GridHealpix;
-  } else if (
-    gridType.value === GRID_TYPES.REGULAR_ROTATED ||
-    gridType.value === GRID_TYPES.REGULAR
-  ) {
-    return GridRegular;
-  } else if (gridType.value === GRID_TYPES.TRIANGULAR) {
-    return GridTriangular;
-  } else if (gridType.value === GRID_TYPES.GAUSSIAN_REDUCED) {
-    return GridGaussianReduced;
-  } else {
-    // Irregular later
-    return GridIrregular;
-  }
+  const gridMapping = {
+    [GRID_TYPES.HEALPIX]: GridHealpix,
+    [GRID_TYPES.REGULAR]: GridRegular,
+    [GRID_TYPES.REGULAR_ROTATED]: GridRegular,
+    [GRID_TYPES.TRIANGULAR]: GridTriangular,
+    [GRID_TYPES.GAUSSIAN_REDUCED]: GridGaussianReduced,
+    [GRID_TYPES.IRREGULAR]: GridIrregular,
+    [GRID_TYPES.CURVILINEAR]: GridCurvilinear,
+  };
+
+  return gridMapping[gridType.value as keyof typeof gridMapping];
 });
 
 async function setGridType() {

@@ -210,10 +210,12 @@ async function getGrid(
   data: Float32Array
 ) {
   // Load latitudes and longitudes arrays (1D)
-  const [latitudes, longitudes] = await getLatLonData(
+  const [latitudesVar, longitudesVar] = await getLatLonData(
     datavar,
     props.datasources
   );
+  const latitudes = latitudesVar.data as Float32Array;
+  const longitudes = longitudesVar.data as Float32Array;
 
   const N = latitudes.length;
 

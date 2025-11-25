@@ -147,10 +147,13 @@ async function getGrid(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
   data: Float32Array
 ) {
-  const [latitudes, longitudes] = await getLatLonData(
+  const [latitudesVar, longitudesVar] = await getLatLonData(
     datavar,
     props.datasources
   );
+  const latitudes = latitudesVar.data as Float64Array;
+  const longitudes = longitudesVar.data as Float64Array;
+
   const { rows, uniqueLats } = buildRows(latitudes, longitudes, data);
   const totalBatches = Math.ceil((uniqueLats.length - 1) / BATCH_SIZE);
 
