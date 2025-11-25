@@ -52,11 +52,10 @@ const {
   makeSnapshot,
   toggleRotate,
   getDataVar,
-  getTimeVar,
+  getTimeInfo,
   registerUpdateLOD,
   updateLandSeaMask,
   updateColormap,
-  extractTimeInfo,
   canvas,
   box,
 } = useSharedGridLogic();
@@ -292,11 +291,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
     updatingData.value = true;
     const localVarname = varnameSelector.value;
     const currentTimeIndexSliderValue = timeIndexSlider.value as number;
-    const [timevar, datavar] = await Promise.all([
-      getTimeVar(props.datasources!),
-      getDataVar(localVarname, props.datasources!),
-    ]);
-    let timeinfo = await extractTimeInfo(timevar, currentTimeIndexSliderValue);
+    const datavar = await getDataVar(localVarname, props.datasources!);
 
     if (datavar !== undefined) {
       const { dimensionRanges, indices } = getDimensionInfo(
@@ -323,6 +318,11 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
       material.uniforms.fillValue.value = fillValue;
       material.uniforms.missingValue.value = missingValue;
       await getGrid(datavar, rawData);
+      const timeinfo = await getTimeInfo(
+        props.datasources!,
+        dimensionRanges,
+        currentTimeIndexSliderValue
+      );
       store.updateVarInfo(
         {
           attrs: datavar.attrs,

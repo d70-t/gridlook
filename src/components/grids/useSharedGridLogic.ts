@@ -16,7 +16,11 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 import { handleKeyDown } from "../utils/OrbitControlsAddOn.ts";
 import { useLog } from "../utils/logging.ts";
 import * as zarr from "zarrita";
-import type { TSources, TTimeInfo } from "@/types/GlobeTypes.ts";
+import type {
+  TDimensionRange,
+  TSources,
+  TTimeInfo,
+} from "@/types/GlobeTypes.ts";
 import { useUrlParameterStore } from "../store/paramStore.ts";
 import { getLandSeaMask, loadJSON } from "../utils/landSeaMask.ts";
 import debounce from "lodash.debounce";
@@ -414,10 +418,6 @@ export function useSharedGridLogic() {
     return datavars.value[myVarname];
   }
 
-  async function getTimeVar(datasources: TSources) {
-    return await getDataVar("time", datasources);
-  }
-
   async function extractTimeInfo(
     timevar: zarr.Array<zarr.DataType, zarr.FetchStore> | undefined,
     index: number
@@ -429,6 +429,18 @@ export function useSharedGridLogic() {
       values: timevalues,
       current: decodeTime(timevalues[index], timevar.attrs),
     };
+  }
+
+  async function getTimeInfo(
+    datasources: TSources,
+    dimensionRanges: TDimensionRange[],
+    index: number
+  ): Promise<TTimeInfo> {
+    if (dimensionRanges[0]?.name !== "time") {
+      return {};
+    }
+    const timevar = await getDataVar("time", datasources);
+    return await extractTimeInfo(timevar, index);
   }
 
   type TCameraState = {
@@ -530,11 +542,10 @@ export function useSharedGridLogic() {
     makeSnapshot,
     resetDataVars,
     getDataVar,
-    getTimeVar,
+    getTimeInfo,
     registerUpdateLOD,
     updateLandSeaMask,
     updateColormap,
-    extractTimeInfo,
     canvas,
     box,
   };

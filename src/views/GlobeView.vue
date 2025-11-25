@@ -114,11 +114,35 @@ watch(
   }
 );
 
+function isValidVariable(varname: string, variable: zarr.Array<zarr.DataType>) {
+  const EXCLUDED_VAR_PATTERNS = [
+    "bnds",
+    "bounds",
+    "vertices",
+    "latitude",
+    "longitude",
+  ] as const;
+
+  const dims = variable.attrs?._ARRAY_DIMENSIONS;
+  if (!Array.isArray(dims)) return false;
+
+  const hasTime = dims.includes("time");
+  const shapeValid = hasTime
+    ? variable.shape.length >= 2
+    : variable.shape.length >= 1;
+
+  const hasExcludedName = EXCLUDED_VAR_PATTERNS.some((pattern) =>
+    varname.includes(pattern)
+  );
+  const isLatLon = varname === "lat" || varname === "lon";
+
+  return shapeValid && !hasExcludedName && !isLatLon;
+}
+
 async function indexFromZarr(src: string) {
-  // FIXME: Filter out all dimensions and coordinates
   const store = await zarr.withConsolidated(new zarr.FetchStore(src));
   const root = await zarr.open(store, { kind: "group" });
-
+  const dimensions = new Set<string>();
   const candidates = await Promise.allSettled(
     store.contents().map(async ({ path, kind }) => {
       const varname = path.slice(1);
@@ -126,13 +150,19 @@ async function indexFromZarr(src: string) {
         return {};
       }
       let variable = await zarr.open(root.resolve(path), { kind: "array" });
-      if (
-        variable.shape.length >= 2 &&
-        variable.attrs?._ARRAY_DIMENSIONS &&
-        variable.attrs?._ARRAY_DIMENSIONS instanceof Array &&
-        !varname.includes("bnds") &&
-        variable.attrs?._ARRAY_DIMENSIONS[0] === "time"
-      ) {
+      if (variable.attrs?._ARRAY_DIMENSIONS) {
+        let arrayDims = variable.attrs._ARRAY_DIMENSIONS as string[];
+        for (let dim of arrayDims) {
+          dimensions.add(dim);
+        }
+      }
+      if (variable.attrs.coordinates) {
+        let coords = variable.attrs.coordinates as string;
+        for (let coord of coords.split(" ")) {
+          dimensions.add(coord);
+        }
+      }
+      if (isValidVariable(varname, variable)) {
         return {
           [varname]: {
             store: src,
@@ -150,6 +180,12 @@ async function indexFromZarr(src: string) {
   const datasources = candidates
     .filter((promise) => promise.status === "fulfilled")
     .map((promise) => promise.value)
+    .filter((obj) => {
+      // Filter out all dimensions and coordinates
+      return (
+        Object.keys(obj).length > 0 && !dimensions.has(Object.keys(obj)[0])
+      );
+    })
     .reduce((a, b) => {
       return { ...a, ...b };
     }, {});
