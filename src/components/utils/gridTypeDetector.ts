@@ -70,7 +70,6 @@ function checkCurvilinear(
 function checkGaussianGrid(latitudes: Float64Array, longitudes: Float64Array) {
   const uniqueLatsNum = new Set(latitudes).size;
   const uniqueLonsNum = new Set(longitudes).size;
-  console.log(latitudes, longitudes);
 
   return (
     uniqueLatsNum * uniqueLonsNum !== latitudes.length * longitudes.length &&

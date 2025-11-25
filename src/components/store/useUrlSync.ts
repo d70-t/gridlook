@@ -21,6 +21,8 @@ export function useUrlSync() {
   function changeURLHash(
     entries: Partial<Record<TURLParameterValues, string | number>>
   ) {
+    // Reset dimension parameters to avoid stale values during updates
+    urlParameterStore.paramDimIndices = {};
     // usage of history.replaceState to avoid triggering hashchange event which is
     // handled in the HashGlobeView component and is used for initial loading of
     // the resource and parameters. Otherwise it would trigger an infinite loop
@@ -33,6 +35,7 @@ export function useUrlSync() {
         params.delete(key);
         continue;
       }
+
       params.set(key, value as string);
     }
 

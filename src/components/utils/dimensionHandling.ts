@@ -1,5 +1,6 @@
 import type { TDimensionRange } from "@/types/GlobeTypes";
 import * as zarr from "zarrita";
+import { UPDATE_MODE, type TUpdateMode } from "../store/store";
 
 /**
  * Creates an array of dimension range objects from a given zarray.
@@ -101,7 +102,9 @@ export function getDimensionInfo(
   presetMinBounds: Record<string, string>,
   presetMaxBounds: Record<string, string>,
   sliderValues: (number | null)[] | null,
-  lastToIgnore: number
+  lastToIgnore: number,
+  oldDimRanges: TDimensionRange[] | undefined,
+  updateMode: TUpdateMode
 ) {
   let dimensionRanges: TDimensionRange[] = [];
   dimensionRanges = createDimensionRanges(
@@ -121,8 +124,23 @@ export function getDimensionInfo(
         return d.startPos;
       }
     });
-  } else {
+  } else if (updateMode === UPDATE_MODE.SLIDER_TOGGLE) {
     indices = sliderValues;
+  } else {
+    for (let i = 0; i < dimensionRanges.length; i++) {
+      const dimension = dimensionRanges[i];
+      const sliderValue = sliderValues[i];
+      if (dimension === null) {
+        indices.push(null);
+      } else if (
+        dimension?.name === oldDimRanges?.[i]?.name &&
+        dimension?.maxBound === oldDimRanges?.[i]?.maxBound
+      ) {
+        indices.push(sliderValue);
+      } else {
+        indices.push(dimension.startPos);
+      }
+    }
   }
   return {
     dimensionRanges,

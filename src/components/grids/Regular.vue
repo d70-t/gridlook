@@ -427,8 +427,10 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
         paramDimIndices.value,
         paramDimMinBounds.value,
         paramDimMaxBounds.value,
-        updateMode === UPDATE_MODE.INITIAL_LOAD ? null : dimSlidersValues.value,
-        2
+        dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
+        2,
+        varinfo.value?.dimRanges,
+        updateMode
       );
 
       let rawData = (await zarr.get(datavar, indices)).data as Float32Array;
@@ -481,6 +483,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
           bounds: { low: min, high: max },
           dimRanges: dimensionRanges,
         },
+        indices as number[],
         updateMode
       );
       redraw();
