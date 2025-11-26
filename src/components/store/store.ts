@@ -59,44 +59,15 @@ export const useGlobeControlStore = defineStore("globeControl", {
         this.dimSlidersDisplay[i] = this.dimSlidersValues[i];
       }
     },
-    updateVarInfo(varinfo: TVarInfo, updateMode: TUpdateMode) {
+    updateVarInfo(
+      varinfo: TVarInfo,
+      indices: number[],
+      updateMode: TUpdateMode
+    ) {
       if (updateMode === UPDATE_MODE.INITIAL_LOAD) {
         this.isInitializingVariable = true;
-        const oldDimSlidersValues = this.dimSlidersValues.slice();
-        const oldDimSlidersDisplay = this.dimSlidersDisplay.slice();
-        const oldDimRanges = this.varinfo?.dimRanges;
-        const newDimRanges = varinfo.dimRanges;
-
-        this.dimSlidersDisplay.splice(0, this.dimSlidersDisplay.length);
-        this.dimSlidersValues.splice(0, this.dimSlidersValues.length);
-        for (let i = 0; i < varinfo.dimRanges.length; i++) {
-          const d = varinfo.dimRanges[i];
-          if (d === null) {
-            this.dimSlidersDisplay.push(null);
-            this.dimSlidersValues.push(null);
-          } else {
-            if (
-              oldDimRanges &&
-              i < oldDimRanges.length &&
-              i < oldDimSlidersValues.length &&
-              oldDimRanges[i]?.name === newDimRanges[i]?.name &&
-              oldDimRanges[i]?.maxBound === newDimRanges[i]?.maxBound
-            ) {
-              // keep old value if dimension is the same and maxBound (=length) didn't change
-              const oldValue = oldDimSlidersValues[i] as number;
-              if (oldValue >= d.minBound && oldValue <= d.maxBound) {
-                this.dimSlidersValues.push(oldValue);
-                this.dimSlidersDisplay.push(oldDimSlidersDisplay[i]);
-              } else {
-                this.dimSlidersDisplay.push(d.startPos);
-                this.dimSlidersValues.push(d.startPos);
-              }
-            } else {
-              this.dimSlidersDisplay.push(d.startPos);
-              this.dimSlidersValues.push(d.startPos);
-            }
-          }
-        }
+        this.dimSlidersValues = indices;
+        this.dimSlidersDisplay = indices;
       }
 
       this.varinfo = varinfo;

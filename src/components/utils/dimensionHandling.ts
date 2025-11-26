@@ -1,5 +1,6 @@
 import type { TDimensionRange } from "@/types/GlobeTypes";
 import * as zarr from "zarrita";
+import { UPDATE_MODE, type TUpdateMode } from "../store/store";
 
 /**
  * Creates an array of dimension range objects from a given zarray.
@@ -92,6 +93,14 @@ function createDimensionRanges(
     // Add wildcard (null) for last dimension
     indices.push(null);
   }
+  /*
+   * IMPORTANT: presetStarts need to be reset outside of this function after use.
+   * Otherwise, stale values might persist.
+   */
+  const keys = Object.keys(presetStarts);
+  for (const key of keys) {
+    delete presetStarts[key];
+  }
   return indices;
 }
 
@@ -100,8 +109,10 @@ export function getDimensionInfo(
   presetStarts: Record<string, string>,
   presetMinBounds: Record<string, string>,
   presetMaxBounds: Record<string, string>,
-  sliderValues: (number | null)[] | null,
-  lastToIgnore: number
+  oldSliderValues: (number | null)[] | null,
+  lastToIgnore: number,
+  oldDimRanges: TDimensionRange[] | undefined,
+  updateMode: TUpdateMode
 ) {
   let dimensionRanges: TDimensionRange[] = [];
   dimensionRanges = createDimensionRanges(
@@ -112,7 +123,12 @@ export function getDimensionInfo(
     lastToIgnore
   );
   let indices: (number | null | zarr.Slice)[] = [];
-  if (sliderValues === null) {
+  if (
+    oldSliderValues === null ||
+    // just a security measure, we should not reach this case
+    // and expect oldSliderValues to have the same length as oldDimRanges
+    oldSliderValues.length !== oldDimRanges?.length
+  ) {
     // Initial loading
     indices = dimensionRanges.map((d) => {
       if (d === null) {
@@ -121,8 +137,23 @@ export function getDimensionInfo(
         return d.startPos;
       }
     });
+  } else if (updateMode === UPDATE_MODE.SLIDER_TOGGLE) {
+    indices = oldSliderValues;
   } else {
-    indices = sliderValues;
+    for (let i = 0; i < dimensionRanges.length; i++) {
+      const dimension = dimensionRanges[i];
+      const sliderValue = oldSliderValues[i];
+      if (dimension === null) {
+        indices.push(null);
+      } else if (
+        dimension?.name === oldDimRanges?.[i]?.name &&
+        dimension?.maxBound === oldDimRanges?.[i]?.maxBound
+      ) {
+        indices.push(sliderValue);
+      } else {
+        indices.push(dimension.startPos);
+      }
+    }
   }
   return {
     dimensionRanges,

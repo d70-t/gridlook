@@ -450,8 +450,10 @@ async function processDataVar(
       paramDimIndices.value,
       paramDimMinBounds.value,
       paramDimMaxBounds.value,
-      updateMode === UPDATE_MODE.INITIAL_LOAD ? null : dimSlidersValues.value,
-      1
+      dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
+      1,
+      varinfo.value?.dimRanges,
+      updateMode
     );
 
     let dataMin = Number.POSITIVE_INFINITY;
@@ -502,6 +504,7 @@ async function processDataVar(
         bounds: { low: dataMin, high: dataMax },
         dimRanges: dimensionRanges,
       },
+      indices as number[],
       updateMode
     );
   }

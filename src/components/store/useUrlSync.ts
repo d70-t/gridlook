@@ -33,6 +33,7 @@ export function useUrlSync() {
         params.delete(key);
         continue;
       }
+
       params.set(key, value as string);
     }
 

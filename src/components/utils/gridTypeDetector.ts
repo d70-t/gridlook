@@ -15,6 +15,7 @@ export const GRID_TYPES = {
   TRIANGULAR: "triangular",
   GAUSSIAN_REDUCED: "gaussian_reduced",
   IRREGULAR: "irregular",
+  CURVILINEAR: "curvilinear",
   ERROR: "error",
 } as const;
 
@@ -46,6 +47,24 @@ function checkRegularRotatedGrid(
   crs: zarr.Array<zarr.DataType, zarr.FetchStore>
 ) {
   return crs.attrs["grid_mapping_name"] === "rotated_latitude_longitude";
+}
+
+function checkCurvilinear(
+  latitudesVar: zarr.Chunk<zarr.DataType>,
+  longitudesVar: zarr.Chunk<zarr.DataType>
+) {
+  const latitudes = latitudesVar.data as Float64Array;
+  const longitudes = longitudesVar.data as Float64Array;
+
+  const uniqueLatsNum = new Set(latitudes).size;
+  const uniqueLonsNum = new Set(longitudes).size;
+
+  return (
+    latitudesVar.shape.length === 2 &&
+    longitudesVar.shape.length === 2 &&
+    uniqueLatsNum !== latitudes.length &&
+    uniqueLonsNum !== longitudes.length
+  );
 }
 
 function checkGaussianGrid(latitudes: Float64Array, longitudes: Float64Array) {
@@ -112,7 +131,15 @@ export async function getGridType(
       return GRID_TYPES.REGULAR;
     }
 
-    const [latitudes, longitudes] = await getLatLonData(datavar, datasources);
+    const [latitudesVar, longitudesVar] = await getLatLonData(
+      datavar,
+      datasources
+    );
+    const latitudes = latitudesVar.data as Float64Array;
+    const longitudes = longitudesVar.data as Float64Array;
+    if (checkCurvilinear(latitudesVar, longitudesVar)) {
+      return GRID_TYPES.CURVILINEAR;
+    }
 
     if (checkGaussianGrid(latitudes, longitudes)) {
       return GRID_TYPES.GAUSSIAN_REDUCED;

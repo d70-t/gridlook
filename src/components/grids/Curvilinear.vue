@@ -128,7 +128,7 @@ async function datasourceUpdate() {
   }
 }
 
-const BATCH_SIZE = 64; // Adjust based on memory and browser limits
+const BATCH_SIZE = 30;
 
 function latLonToCartesianFlat(
   lat: number,
@@ -152,11 +152,24 @@ async function getGrid(
     datavar,
     props.datasources
   );
+
   const latitudes = latitudesVar.data as Float64Array;
   const longitudes = longitudesVar.data as Float64Array;
-  const { rows, uniqueLats } = buildRows(latitudes, longitudes, data);
-  const totalBatches = Math.ceil((uniqueLats.length - 1) / BATCH_SIZE);
+  const [nj, ni] = latitudesVar.shape; // [j, i]
 
+  await buildCurvilinearGeometry(latitudes, longitudes, data, nj, ni);
+}
+
+async function buildCurvilinearGeometry(
+  latitudes: Float64Array, // 2D array flattened: lat values at each (j,i) grid point
+  longitudes: Float64Array, // 2D array flattened: lon values at each (j,i) grid point
+  data: Float32Array, // 2D array flattened: data values at each (j,i) grid point
+  nj: number, // Number of rows in the grid (j dimension)
+  ni: number // Number of columns in the grid (i dimension)
+) {
+  // Clean up: remove old meshes from scene and dispose their geometries
+
+  const totalBatches = Math.ceil((nj - 1) / BATCH_SIZE);
   if (meshes.length > totalBatches) {
     // we have more meshes than needed
     // Seems like the grid has changed to a smaller size
@@ -167,78 +180,93 @@ async function getGrid(
     meshes.length = 0; // Clear our mesh array
   }
 
+  // Calculate total number of batches
+
   for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
-    const lStart = batchIndex * BATCH_SIZE;
-    const lEnd = Math.min(lStart + BATCH_SIZE, uniqueLats.length - 1);
-    let totalCells = 0;
+    const jStart = batchIndex * BATCH_SIZE;
+    const jEnd = Math.min(jStart + BATCH_SIZE, nj - 1);
 
-    // Precompute total number of cells (quads) in this batch
-    for (let l = lStart; l < lEnd; l++) {
-      totalCells += rows[uniqueLats[l]].length;
-    }
+    // Calculate cells in this batch
+    const batchCells = (jEnd - jStart) * ni;
 
-    const positions = new Float32Array(totalCells * 4 * 3);
-    const dataValues = new Float32Array(totalCells * 4);
-    const indices = new Uint32Array(totalCells * 6);
+    // Pre-allocate arrays for this batch's Three.js geometry
+    // Each cell becomes a quad (4 vertices), each vertex has 3 coordinates (x,y,z)
+    const positions = new Float32Array(batchCells * 4 * 3);
+    // Each vertex gets a data value for the colormap shader
+    const dataValues = new Float32Array(batchCells * 4);
+    // Each quad is made of 2 triangles, each triangle needs 3 indices
+    const indices = new Uint32Array(batchCells * 6);
 
-    let vtxOffset = 0;
-    let idxOffset = 0;
-    let cellIndex = 0;
+    // Track our current position in the output arrays
+    let vtxOffset = 0; // Offset into positions array (increments by 12 per cell)
+    let idxOffset = 0; // Offset into indices array (increments by 6 per cell)
+    let cellIndex = 0; // Current cell number (used for vertex indexing)
 
-    for (let l = lStart; l < lEnd; l++) {
-      const lat1 = uniqueLats[l];
-      const lat2 = uniqueLats[l + 1];
-      const row1 = rows[lat1];
+    // Main loop: iterate through grid cells in this batch
+    // j goes from jStart to jEnd-1 (we need j+1 to exist for each cell)
+    // i goes from 0 to ni-1 (full width, with wraparound for last column)
+    for (let j = jStart; j < jEnd; j++) {
+      for (let i = 0; i < ni; i++) {
+        // Convert 2D grid coordinates (j,i) to 1D array indices
+        // The 2D arrays are flattened in row-major order: index = j * ni + i
 
-      for (let i = 0; i < row1.length; i++) {
-        const cell = row1[i];
-        const nextCell = row1[(i + 1) % row1.length];
-        const lon1 = cell.lon;
-        const lon2 = nextCell.lon;
-        const dLon = (lon2 - lon1 + 360) % 360;
+        // Calculate indices for the 4 corners of this grid cell:
+        // 00 = bottom-left, 01 = bottom-right, 10 = top-left, 11 = top-right
+        const idx00 = j * ni + i; // Current position (j, i)
+        const idx01 = j * ni + ((i + 1) % ni); // Next column with wraparound (j, i+1)
+        const idx10 = (j + 1) * ni + i; // Next row (j+1, i)
+        const idx11 = (j + 1) * ni + ((i + 1) % ni); // Next row + column (j+1, i+1)
 
-        const EPSILON = 0.002; // Small overlap in degrees in order to avoid z-fighting
-        latLonToCartesianFlat(lat1, lon1 + EPSILON, positions, vtxOffset);
-        latLonToCartesianFlat(
-          lat1,
-          lon1 - dLon - EPSILON,
-          positions,
-          vtxOffset + 3
-        );
-        latLonToCartesianFlat(
-          lat2 - EPSILON,
-          lon1 - dLon - EPSILON,
-          positions,
-          vtxOffset + 6
-        );
-        latLonToCartesianFlat(
-          lat2 - EPSILON,
-          lon1 + EPSILON,
-          positions,
-          vtxOffset + 9
-        );
+        // Extract latitude and longitude values for each corner of the cell
+        const lat00 = latitudes[idx00];
+        const lon00 = longitudes[idx00];
+        const lat01 = latitudes[idx01];
+        const lon01 = longitudes[idx01];
+        const lat10 = latitudes[idx10];
+        const lon10 = longitudes[idx10];
+        const lat11 = latitudes[idx11];
+        const lon11 = longitudes[idx11];
 
-        // Data value
-        dataValues.fill(cell.value, cellIndex * 4, cellIndex * 4 + 4);
+        // Convert lat/lon to 3D Cartesian coordinates and store in positions array
+        // Vertices are arranged counter-clockwise: 00 -> 01 -> 11 -> 10
+        // This creates proper triangle winding for Three.js rendering
+        latLonToCartesianFlat(lat00, lon00, positions, vtxOffset); // Bottom-left
+        latLonToCartesianFlat(lat01, lon01, positions, vtxOffset + 3); // Bottom-right
+        latLonToCartesianFlat(lat11, lon11, positions, vtxOffset + 6); // Top-right
+        latLonToCartesianFlat(lat10, lon10, positions, vtxOffset + 9); // Top-left
 
-        // Indices for two triangles
-        const v = cellIndex * 4;
+        // Assign data value to all 4 vertices of this cell
+        // We use the data value from the bottom-left corner (idx00)
+        const dataValue = data[idx00];
+        dataValues.fill(dataValue, cellIndex * 4, cellIndex * 4 + 4);
+
+        // Create triangle indices to form a quad from our 4 vertices
+        // Each quad is split into 2 triangles:
+        // Triangle 1: vertices 0, 1, 2 (bottom-left, bottom-right, top-right)
+        // Triangle 2: vertices 0, 2, 3 (bottom-left, top-right, top-left)
+        // This creates counter-clockwise winding for proper rendering
+        const v = cellIndex * 4; // Base vertex index for this cell
         indices.set([v, v + 1, v + 2, v, v + 2, v + 3], idxOffset);
 
-        // Offsets
-        vtxOffset += 12;
-        idxOffset += 6;
-        cellIndex++;
+        // Move to next position in arrays for the next cell
+        vtxOffset += 12; // 4 vertices × 3 coordinates = 12 floats
+        idxOffset += 6; // 2 triangles × 3 indices = 6 indices
+        cellIndex++; // Increment cell counter
       }
     }
-
-    // Build geometry
+    // Create Three.js BufferGeometry from our arrays for this batch
     const geometry = new THREE.BufferGeometry();
+
+    // Set vertex positions (x, y, z coordinates for each vertex)
     geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+
+    // Set data values for colormap shader (one value per vertex)
     geometry.setAttribute(
       "data_value",
       new THREE.BufferAttribute(dataValues, 1)
     );
+
+    // Set triangle indices (which vertices form each triangle)
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
 
     if (meshes[batchIndex]) {
@@ -252,20 +280,6 @@ async function getGrid(
   }
 }
 
-function buildRows(lats: Float64Array, lons: Float64Array, data: Float32Array) {
-  const rows: Record<number, { lon: number; value: number }[]> = {};
-  for (let i = 0; i < lats.length; i++) {
-    const lat = lats[i];
-    if (!rows[lat]) rows[lat] = [];
-    rows[lat].push({ lon: lons[i], value: data[i] });
-  }
-
-  const uniqueLats = Object.keys(rows)
-    .map(Number)
-    .sort((a, b) => b - a);
-  return { rows, uniqueLats };
-}
-
 async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
   store.startLoading();
   try {
@@ -276,7 +290,6 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
     }
     updatingData.value = true;
     const localVarname = varnameSelector.value;
-    const currentTimeIndexSliderValue = timeIndexSlider.value as number;
     const datavar = await getDataVar(localVarname, props.datasources!);
 
     if (datavar !== undefined) {
@@ -286,7 +299,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
         paramDimMinBounds.value,
         paramDimMaxBounds.value,
         dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
-        1,
+        2, // For curvilinear grids, we expect 2 spatial dimensions (j, i)
         varinfo.value?.dimRanges,
         updateMode
       );
@@ -311,6 +324,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
         material.uniforms.fillValue.value = fillValue;
       }
 
+      const currentTimeIndexSliderValue = timeIndexSlider.value as number;
       const timeinfo = await getTimeInfo(
         props.datasources!,
         dimensionRanges,

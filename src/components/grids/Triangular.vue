@@ -187,16 +187,16 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
     const localVarname = varnameSelector.value;
     const datavar = await getDataVar(localVarname, props.datasources!);
 
-    const currentTimeIndexSliderValue = timeIndexSlider.value as number;
-
     if (datavar !== undefined) {
       const { dimensionRanges, indices } = getDimensionInfo(
         datavar,
         paramDimIndices.value,
         paramDimMinBounds.value,
         paramDimMaxBounds.value,
-        updateMode === UPDATE_MODE.INITIAL_LOAD ? null : dimSlidersValues.value,
-        1
+        dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
+        1,
+        varinfo.value?.dimRanges,
+        updateMode
       );
 
       const rawData = await zarr.get(datavar, indices);
@@ -220,6 +220,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
         offset += nVerts;
       }
 
+      const currentTimeIndexSliderValue = timeIndexSlider.value as number;
       const timeinfo = await getTimeInfo(
         props.datasources!,
         dimensionRanges,
@@ -232,6 +233,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
           bounds: { low: dataBuffer.dataMin, high: dataBuffer.dataMax },
           dimRanges: dimensionRanges,
         },
+        indices as number[],
         updateMode
       );
       redraw();
