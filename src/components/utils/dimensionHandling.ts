@@ -30,9 +30,6 @@ import { UPDATE_MODE, type TUpdateMode } from "../store/store";
  * CF standard, which would sort the dimensions by its size. This might be a
  * problem in the future.
  *
- * IMPORTANT: presetStarts need to be reset outside of this function after use.
- * Otherwise, stale values might persist.
- *
  * @param {zarr.Array<zarr.DataType, zarr.FetchStore>} datavar - the zarray to process
  * @param {Record<string, string>} presetStarts - optional preset starting positions
  * @param {Record<string, string>} presetMinBounds - optional preset minimum bounds
@@ -95,6 +92,14 @@ function createDimensionRanges(
   for (let i = 0; i < lastToIgnore; i++) {
     // Add wildcard (null) for last dimension
     indices.push(null);
+  }
+  /*
+   * IMPORTANT: presetStarts need to be reset outside of this function after use.
+   * Otherwise, stale values might persist.
+   */
+  const keys = Object.keys(presetStarts);
+  for (const key of keys) {
+    delete presetStarts[key];
   }
   return indices;
 }
