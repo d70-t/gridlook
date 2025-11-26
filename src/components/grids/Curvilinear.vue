@@ -4,7 +4,7 @@ import * as zarr from "zarrita";
 import { makeColormapMaterial } from "../utils/colormapShaders.ts";
 
 import { datashaderExample } from "../utils/exampleFormatters.ts";
-import { computed, onBeforeMount, onUnmounted, ref, watch } from "vue";
+import { computed, onBeforeMount, ref, watch } from "vue";
 
 import {
   UPDATE_MODE,
