@@ -3,7 +3,6 @@ import * as THREE from "three";
 import * as zarr from "zarrita";
 import { makeIrregularGridMaterial } from "../utils/colormapShaders.ts";
 
-import { datashaderExample } from "../utils/exampleFormatters.ts";
 import { computed, onBeforeMount, ref, onMounted, watch } from "vue";
 
 import {
@@ -109,22 +108,6 @@ const colormapMaterial = computed(() => {
     return makeIrregularGridMaterial(colormap.value, 1.0, -1.0);
   } else {
     return makeIrregularGridMaterial(colormap.value, 0.0, 1.0);
-  }
-});
-
-const gridsource = computed(() => {
-  if (props.datasources) {
-    return props.datasources.levels[0].grid;
-  } else {
-    return undefined;
-  }
-});
-
-const datasource = computed(() => {
-  if (props.datasources) {
-    return props.datasources.levels[0].datasources[varnameSelector.value];
-  } else {
-    return undefined;
   }
 });
 
@@ -350,20 +333,6 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
   }
 }
 
-function copyPythonExample() {
-  const example = datashaderExample({
-    cameraPosition: getCamera()!.position,
-    datasrc: datasource.value!.store + datasource.value!.dataset,
-    gridsrc: gridsource.value!.store + gridsource.value!.dataset,
-    varname: varnameSelector.value,
-    timeIndex: timeIndexSlider.value as number,
-    varbounds: bounds.value!,
-    colormap: colormap.value,
-    invertColormap: invertColormap.value,
-  });
-  navigator.clipboard.writeText(example);
-}
-
 onMounted(() => {
   getScene()?.add(points as THREE.Points);
 });
@@ -376,7 +345,7 @@ onBeforeMount(async () => {
   registerUpdateLOD(updateLOD);
 });
 
-defineExpose({ makeSnapshot, copyPythonExample, toggleRotate });
+defineExpose({ makeSnapshot, toggleRotate });
 </script>
 
 <template>

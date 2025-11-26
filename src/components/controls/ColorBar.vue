@@ -5,7 +5,7 @@ import * as THREE from "three";
 import {
   makeLutMaterial,
   availableColormaps,
-} from "./utils/colormapShaders.ts";
+} from "../utils/colormapShaders.ts";
 
 const props = withDefaults(
   defineProps<{

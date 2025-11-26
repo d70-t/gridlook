@@ -277,12 +277,6 @@ const makeSnapshot = () => {
   }
 };
 
-const makeExample = () => {
-  if (globe.value) {
-    globe.value.copyPythonExample();
-  }
-};
-
 const toggleRotate = () => {
   if (globe.value) {
     globe.value.toggleRotate();
@@ -322,7 +316,6 @@ onMounted(async () => {
       :key="globeControlKey"
       :model-info="modelInfo"
       @on-snapshot="makeSnapshot"
-      @on-example="makeExample"
       @on-rotate="toggleRotate"
     />
     <div v-if="isLoading" class="mx-auto loader"></div>
