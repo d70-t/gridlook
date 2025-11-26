@@ -81,6 +81,7 @@ watch(
 const bounds = computed(() => {
   return selection.value;
 });
+
 const timeIndexSlider = computed(() => {
   if (varinfo.value?.dimRanges[0]?.name !== "time") {
     return 0;

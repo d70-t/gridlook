@@ -30,6 +30,9 @@ import { UPDATE_MODE, type TUpdateMode } from "../store/store";
  * CF standard, which would sort the dimensions by its size. This might be a
  * problem in the future.
  *
+ * IMPORTANT: presetStarts need to be reset outside of this function after use.
+ * Otherwise, stale values might persist.
+ *
  * @param {zarr.Array<zarr.DataType, zarr.FetchStore>} datavar - the zarray to process
  * @param {Record<string, string>} presetStarts - optional preset starting positions
  * @param {Record<string, string>} presetMinBounds - optional preset minimum bounds
