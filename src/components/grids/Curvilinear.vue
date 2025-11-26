@@ -290,7 +290,6 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
     }
     updatingData.value = true;
     const localVarname = varnameSelector.value;
-    const currentTimeIndexSliderValue = timeIndexSlider.value as number;
     const datavar = await getDataVar(localVarname, props.datasources!);
 
     if (datavar !== undefined) {
@@ -325,6 +324,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
         material.uniforms.fillValue.value = fillValue;
       }
 
+      const currentTimeIndexSliderValue = timeIndexSlider.value as number;
       const timeinfo = await getTimeInfo(
         props.datasources!,
         dimensionRanges,

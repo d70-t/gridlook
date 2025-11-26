@@ -109,7 +109,7 @@ export function getDimensionInfo(
   presetStarts: Record<string, string>,
   presetMinBounds: Record<string, string>,
   presetMaxBounds: Record<string, string>,
-  sliderValues: (number | null)[] | null,
+  oldSliderValues: (number | null)[] | null,
   lastToIgnore: number,
   oldDimRanges: TDimensionRange[] | undefined,
   updateMode: TUpdateMode
@@ -123,7 +123,12 @@ export function getDimensionInfo(
     lastToIgnore
   );
   let indices: (number | null | zarr.Slice)[] = [];
-  if (sliderValues === null) {
+  if (
+    oldSliderValues === null ||
+    // just a security measure, we should not reach this case
+    // and expect oldSliderValues to have the same length as oldDimRanges
+    oldSliderValues.length !== oldDimRanges?.length
+  ) {
     // Initial loading
     indices = dimensionRanges.map((d) => {
       if (d === null) {
@@ -133,11 +138,11 @@ export function getDimensionInfo(
       }
     });
   } else if (updateMode === UPDATE_MODE.SLIDER_TOGGLE) {
-    indices = sliderValues;
+    indices = oldSliderValues;
   } else {
     for (let i = 0; i < dimensionRanges.length; i++) {
       const dimension = dimensionRanges[i];
-      const sliderValue = sliderValues[i];
+      const sliderValue = oldSliderValues[i];
       if (dimension === null) {
         indices.push(null);
       } else if (
