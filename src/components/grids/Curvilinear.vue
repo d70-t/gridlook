@@ -4,7 +4,7 @@ import * as zarr from "zarrita";
 import { makeColormapMaterial } from "../utils/colormapShaders.ts";
 
 import { datashaderExample } from "../utils/exampleFormatters.ts";
-import { computed, onBeforeMount, ref, watch } from "vue";
+import { computed, onBeforeMount, onUnmounted, ref, watch } from "vue";
 
 import {
   UPDATE_MODE,
@@ -168,14 +168,19 @@ async function buildCurvilinearGeometry(
   ni: number // Number of columns in the grid (i dimension)
 ) {
   // Clean up: remove old meshes from scene and dispose their geometries
-  for (const mesh of meshes) {
-    mesh.geometry.dispose(); // Free GPU memory
-    getScene()?.remove(mesh); // Remove from Three.js scene
+
+  const totalBatches = Math.ceil((nj - 1) / BATCH_SIZE);
+  if (meshes.length > totalBatches) {
+    // we have more meshes than needed
+    // Seems like the grid has changed to a smaller size
+    for (const mesh of meshes) {
+      mesh.geometry.dispose(); // Free GPU memory
+      getScene()?.remove(mesh); // Remove from Three.js scene
+    }
+    meshes.length = 0; // Clear our mesh array
   }
-  meshes.length = 0; // Clear our mesh array
 
   // Calculate total number of batches
-  const totalBatches = Math.ceil((nj - 1) / BATCH_SIZE);
 
   for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
     const jStart = batchIndex * BATCH_SIZE;
@@ -264,9 +269,14 @@ async function buildCurvilinearGeometry(
     // Set triangle indices (which vertices form each triangle)
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
 
-    const mesh = new THREE.Mesh(geometry, colormapMaterial.value);
-    meshes.push(mesh);
-    getScene()?.add(mesh);
+    if (meshes[batchIndex]) {
+      meshes[batchIndex].geometry.dispose();
+      meshes[batchIndex].geometry = geometry;
+    } else {
+      const mesh = new THREE.Mesh(geometry, colormapMaterial.value);
+      meshes.push(mesh);
+      getScene()?.add(mesh);
+    }
   }
 }
 
@@ -301,16 +311,19 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
         // we convert it to Float32Array and accept the loss of precision
         rawData = Float32Array.from(rawData);
       }
+
       let { min, max, missingValue, fillValue } = getDataBounds(
         datavar,
         rawData
       );
+
+      await getGrid(datavar, rawData);
+
       for (let mesh of meshes) {
         const material = mesh.material as THREE.ShaderMaterial;
         material.uniforms.missingValue.value = missingValue;
         material.uniforms.fillValue.value = fillValue;
       }
-      await getGrid(datavar, rawData);
 
       const timeinfo = await getTimeInfo(
         props.datasources!,

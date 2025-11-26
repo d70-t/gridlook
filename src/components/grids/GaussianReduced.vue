@@ -4,7 +4,7 @@ import * as zarr from "zarrita";
 import { makeColormapMaterial } from "../utils/colormapShaders.ts";
 
 import { datashaderExample } from "../utils/exampleFormatters.ts";
-import { computed, onBeforeMount, ref, watch } from "vue";
+import { computed, onBeforeMount, onUnmounted, ref, watch } from "vue";
 
 import {
   UPDATE_MODE,
@@ -154,9 +154,18 @@ async function getGrid(
   );
   const latitudes = latitudesVar.data as Float64Array;
   const longitudes = longitudesVar.data as Float64Array;
-
   const { rows, uniqueLats } = buildRows(latitudes, longitudes, data);
   const totalBatches = Math.ceil((uniqueLats.length - 1) / BATCH_SIZE);
+
+  if (meshes.length > totalBatches) {
+    // we have more meshes than needed
+    // Seems like the grid has changed to a smaller size
+    for (const mesh of meshes) {
+      mesh.geometry.dispose(); // Free GPU memory
+      getScene()?.remove(mesh); // Remove from Three.js scene
+    }
+    meshes.length = 0; // Clear our mesh array
+  }
 
   for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
     const lStart = batchIndex * BATCH_SIZE;
@@ -288,16 +297,19 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
         // we convert it to Float32Array and accept the loss of precision
         rawData = Float32Array.from(rawData);
       }
+
       let { min, max, missingValue, fillValue } = getDataBounds(
         datavar,
         rawData
       );
+
+      await getGrid(datavar, rawData);
+
       for (let mesh of meshes) {
         const material = mesh.material as THREE.ShaderMaterial;
         material.uniforms.missingValue.value = missingValue;
         material.uniforms.fillValue.value = fillValue;
       }
-      await getGrid(datavar, rawData);
 
       const timeinfo = await getTimeInfo(
         props.datasources!,
