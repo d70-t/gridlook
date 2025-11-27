@@ -65,7 +65,6 @@ watch(localTimeValue, (newValue) => {
     debouncedTimeUpdater.value(newValue);
   }
 });
-console.log("currentTimeValue", currentTimeValue.value);
 </script>
 
 <template>

@@ -6,7 +6,7 @@ import type { TModelInfo, TBounds } from "../types/GlobeTypes.js";
 import { useUrlParameterStore } from "./store/paramStore.ts";
 import { useEventListener } from "@vueuse/core";
 
-// Import new components
+// Import control components
 import VariableSelector from "./controls/VariableSelector.vue";
 import TimeControls from "./controls/TimeControls.vue";
 import DimensionSliders from "./controls/DimensionSliders.vue";
@@ -15,12 +15,22 @@ import ColormapControls from "./controls/ColormapControls.vue";
 import MaskControls from "./controls/MaskControls.vue";
 import ActionControls from "./controls/ActionControls.vue";
 
-defineProps<{ modelInfo?: TModelInfo }>();
+const props = defineProps<{ modelInfo?: TModelInfo }>();
 
 defineEmits<{
   onSnapshot: [];
   onRotate: [];
 }>();
+
+// Bounds management types
+const BOUND_MODES = {
+  AUTO: "auto",
+  DATA: "data",
+  DEFAULT: "default",
+  USER: "user",
+} as const;
+
+type TBoundModes = (typeof BOUND_MODES)[keyof typeof BOUND_MODES];
 
 const store = useGlobeControlStore();
 const {
@@ -29,7 +39,17 @@ const {
   varnameSelector,
   landSeaMaskChoice,
   landSeaMaskUseTexture,
+  varinfo,
+  userBoundsLow,
+  userBoundsHigh,
 } = storeToRefs(store);
+
+// Bounds logic state
+const pickedBoundsMode = ref<TBoundModes>(BOUND_MODES.AUTO);
+const defaultBounds = ref<TBounds>({});
+
+// Colormap logic state
+const autoColormap = ref<boolean>(true);
 
 const urlParameterStore = useUrlParameterStore();
 const {
@@ -43,9 +63,63 @@ const menuCollapsed: Ref<boolean> = ref(false);
 const mobileMenuCollapsed: Ref<boolean> = ref(true);
 const isMobileView: Ref<boolean> = ref(false);
 
-// Component refs
-const boundsControlsRef = ref<InstanceType<typeof BoundsControls>>();
-const colormapControlsRef = ref<InstanceType<typeof ColormapControls>>();
+// Bounds computed properties
+const dataBounds = computed(() => {
+  return varinfo.value?.bounds ?? {};
+});
+
+const activeBoundsMode = computed(() => {
+  if (pickedBoundsMode.value === BOUND_MODES.AUTO) {
+    if (
+      userBoundsLow.value !== undefined &&
+      userBoundsHigh.value !== undefined &&
+      // if the input-fields are empty, they are interpreted as "" instead of a number
+      (userBoundsHigh.value as unknown as string) !== "" &&
+      (userBoundsLow.value as unknown as string) !== ""
+    ) {
+      return BOUND_MODES.USER;
+    } else if (
+      defaultBounds.value.low !== undefined &&
+      defaultBounds.value.high !== undefined
+    ) {
+      return BOUND_MODES.DEFAULT;
+    } else {
+      return BOUND_MODES.DATA;
+    }
+  } else {
+    return pickedBoundsMode.value;
+  }
+});
+
+const currentBounds = computed(() => {
+  if (activeBoundsMode.value === BOUND_MODES.DATA) {
+    return dataBounds.value;
+  } else if (activeBoundsMode.value === BOUND_MODES.USER) {
+    return {
+      low: userBoundsLow.value,
+      high: userBoundsHigh.value,
+    };
+  } else if (activeBoundsMode.value === BOUND_MODES.DEFAULT) {
+    return defaultBounds.value;
+  }
+  return undefined;
+});
+
+// Bounds management functions
+const setDefaultBounds = () => {
+  const defaultConfig = props.modelInfo?.vars[varnameSelector.value];
+  defaultBounds.value = defaultConfig?.default_range ?? {};
+};
+
+// Colormap management functions
+const setDefaultColormap = () => {
+  const defaultColormap =
+    props.modelInfo?.vars[varnameSelector.value]?.default_colormap;
+  if (autoColormap.value && defaultColormap !== undefined) {
+    invertColormap.value = defaultColormap.inverted || false;
+    colormap.value = defaultColormap.name;
+  }
+};
 
 const isHidden = computed(() => {
   return (
@@ -56,16 +130,24 @@ const isHidden = computed(() => {
 watch(
   () => varnameSelector.value,
   () => {
-    boundsControlsRef.value?.setDefaultBounds();
-    colormapControlsRef.value?.setDefaultColormap();
-    store.updateBounds(boundsControlsRef.value?.bounds as TBounds);
+    setDefaultBounds();
+    setDefaultColormap();
+    store.updateBounds(currentBounds.value as TBounds);
   }
 );
 
 watch(
-  () => boundsControlsRef.value?.bounds,
+  () => currentBounds.value,
   () => {
-    store.updateBounds(boundsControlsRef.value?.bounds as TBounds);
+    store.updateBounds(currentBounds.value as TBounds);
+  },
+  { deep: true }
+);
+
+watch(
+  () => autoColormap.value,
+  () => {
+    setDefaultColormap();
   }
 );
 
@@ -102,8 +184,8 @@ if (paramMaskMode.value) {
 
 // Initialize bounds and colormap when component mounts
 onMounted(() => {
-  boundsControlsRef.value?.setDefaultBounds();
-  store.updateBounds(boundsControlsRef.value?.bounds as TBounds);
+  setDefaultBounds();
+  store.updateBounds(currentBounds.value as TBounds);
 
   if (paramColormap.value) {
     colormap.value = paramColormap.value;
@@ -169,15 +251,21 @@ onMounted(() => {
     <!-- Bounds Controls -->
     <BoundsControls
       v-if="modelInfo && !isHidden"
-      ref="boundsControlsRef"
-      :model-info="modelInfo"
+      :picked-bounds-mode="pickedBoundsMode"
+      :active-bounds-mode="activeBoundsMode"
+      :data-bounds="dataBounds"
+      :default-bounds="defaultBounds"
+      :current-bounds="currentBounds"
+      :bound-modes="BOUND_MODES"
+      @update:picked-bounds-mode="pickedBoundsMode = $event as TBoundModes"
     />
 
     <!-- Colormap Controls -->
     <ColormapControls
       v-if="modelInfo && !isHidden"
-      ref="colormapControlsRef"
       :model-info="modelInfo"
+      :auto-colormap="autoColormap"
+      @update:auto-colormap="autoColormap = $event"
     />
 
     <!-- Mask Controls -->

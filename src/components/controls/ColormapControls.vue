@@ -1,39 +1,20 @@
 <script lang="ts" setup>
-import { ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { useGlobeControlStore } from "../store/store.ts";
 import ColorBar from "./ColorBar.vue";
 import type { TModelInfo } from "@/types/GlobeTypes.js";
 
-const props = defineProps<{
+defineProps<{
   modelInfo: TModelInfo;
+  autoColormap: boolean;
+}>();
+
+defineEmits<{
+  "update:autoColormap": [value: boolean];
 }>();
 
 const store = useGlobeControlStore();
-const { colormap, invertColormap, varnameSelector } = storeToRefs(store);
-
-const autoColormap = ref<boolean>(true);
-
-const setDefaultColormap = () => {
-  const defaultColormap =
-    props.modelInfo?.vars[varnameSelector.value]?.default_colormap;
-  if (autoColormap.value && defaultColormap !== undefined) {
-    invertColormap.value = defaultColormap.inverted || false;
-    colormap.value = defaultColormap.name;
-  }
-};
-
-watch(
-  () => autoColormap.value,
-  () => {
-    setDefaultColormap();
-  }
-);
-
-// Expose setDefaultColormap for parent component
-defineExpose({
-  setDefaultColormap,
-});
+const { colormap, invertColormap } = storeToRefs(store);
 </script>
 
 <template>
@@ -66,7 +47,17 @@ defineExpose({
       </div>
       <div class="column"></div>
       <div class="column has-text-right py-2">
-        <input id="auto_colormap" v-model="autoColormap" type="checkbox" />
+        <input
+          id="auto_colormap"
+          :checked="autoColormap"
+          type="checkbox"
+          @change="
+            $emit(
+              'update:autoColormap',
+              ($event.target as HTMLInputElement).checked
+            )
+          "
+        />
         <label for="auto_colormap">auto</label>
       </div>
     </div>
