@@ -18,6 +18,7 @@ import type { TSources } from "../../types/GlobeTypes.ts";
 import { useLog } from "../utils/logging.ts";
 import { useSharedGridLogic } from "./useSharedGridLogic.ts";
 import {
+  castDataVarToFloat32,
   findCRSVar,
   getDataBounds,
   getDataSourceStore,
@@ -373,11 +374,7 @@ function data2texture(
   unshuffleIndex: { [key: number]: Float32Array }
 ) {
   const size = Math.floor(Math.sqrt(arr.length));
-  if (arr instanceof Float64Array) {
-    // WebGL doesn't support Float64Array textures
-    // we convert it to Float32Array and accept the loss of precision
-    arr = Float32Array.from(arr);
-  }
+  arr = castDataVarToFloat32(arr);
   const mortonArr = unshuffleMortonArray(arr, unshuffleIndex);
   const texture = new THREE.DataTexture(
     mortonArr,

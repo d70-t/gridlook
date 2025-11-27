@@ -16,7 +16,11 @@ import { useLog } from "../utils/logging.ts";
 import { useSharedGridLogic } from "./useSharedGridLogic.ts";
 import { useUrlParameterStore } from "../store/paramStore.ts";
 import { getDimensionInfo } from "../utils/dimensionHandling.ts";
-import { getDataBounds, getLatLonData } from "../utils/zarrUtils.ts";
+import {
+  castDataVarToFloat32,
+  getDataBounds,
+  getLatLonData,
+} from "../utils/zarrUtils.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -290,7 +294,9 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
         updateMode
       );
 
-      let rawData = (await zarr.get(datavar, indices)).data as Float32Array;
+      let rawData = castDataVarToFloat32(
+        (await zarr.get(datavar, indices)).data
+      );
       if (rawData instanceof Float64Array) {
         // WebGL doesn't support Float64Array textures
         // we convert it to Float32Array and accept the loss of precision

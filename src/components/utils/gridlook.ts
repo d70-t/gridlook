@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import * as zarr from "zarrita";
-import { getDataBounds } from "./zarrUtils";
+import { castDataVarToFloat32, getDataBounds } from "./zarrUtils";
 
 export async function grid2buffer(grid: zarr.Group<zarr.FetchStore>) {
   const [voc, vx, vy, vz] = await Promise.all([
@@ -85,12 +85,7 @@ export function data2valueBuffer(
 ) {
   const awaitedData = data;
   const ncells = awaitedData.shape[0];
-  let plotdata = awaitedData.data as Float32Array;
-  if (plotdata instanceof Float64Array) {
-    // WebGL doesn't support Float64Array textures
-    // we convert it to Float32Array and accept the loss of precision
-    plotdata = Float32Array.from(plotdata);
-  }
+  const plotdata = castDataVarToFloat32(awaitedData.data);
 
   const { min, max, missingValue, fillValue } = getDataBounds(
     datavar,

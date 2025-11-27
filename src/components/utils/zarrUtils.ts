@@ -145,3 +145,36 @@ export function getDataBounds(
     missingValue: missingValue,
   };
 }
+/**
+ * Gridlook cannot handle Float64 and integer types in textures, so cast to Float32
+ */
+export function castDataVarToFloat32(
+  rawData:
+    | unknown[]
+    | Int8Array<ArrayBufferLike>
+    | Int16Array<ArrayBufferLike>
+    | Int32Array<ArrayBufferLike>
+    | BigInt64Array<ArrayBufferLike>
+    | Uint8Array<ArrayBufferLike>
+    | Uint16Array<ArrayBufferLike>
+    | Uint32Array<ArrayBufferLike>
+    | BigUint64Array<ArrayBufferLike>
+    | Float32Array<ArrayBufferLike>
+    | Float64Array<ArrayBufferLike>
+    | zarr.BoolArray
+    | zarr.UnicodeStringArray
+    | zarr.ByteStringArray
+    | zarr.Chunk<zarr.DataType>
+) {
+  if (
+    rawData instanceof Float64Array ||
+    rawData instanceof Int32Array ||
+    rawData instanceof Int16Array ||
+    rawData instanceof Uint16Array ||
+    rawData instanceof Uint8Array
+  ) {
+    console.log("Casting data to Float32Array");
+    return Float32Array.from(rawData);
+  }
+  return rawData as Float32Array;
+}
