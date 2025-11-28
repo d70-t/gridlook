@@ -143,7 +143,57 @@ async function getGrid(
   const longitudes = longitudesVar.data as Float64Array;
   const [nj, ni] = latitudesVar.shape; // [j, i]
 
-  await buildCurvilinearGeometry(latitudes, longitudes, data, nj, ni);
+  // Detect potential mirroring issues by analyzing longitude progression
+  const shouldFlipLongitude = detectLongitudeFlip(longitudes, ni);
+
+  await buildCurvilinearGeometry(
+    latitudes,
+    longitudes,
+    data,
+    nj,
+    ni,
+    shouldFlipLongitude
+  );
+}
+
+/**
+ * Detects if the longitude ordering needs to be flipped to prevent horizontal mirroring
+ */
+function detectLongitudeFlip(longitudes: Float64Array, ni: number): boolean {
+  // Sample the first row to understand longitude progression
+  const firstRowLons = [];
+  for (let i = 0; i < ni; i++) {
+    firstRowLons.push(longitudes[0 * ni + i]);
+  }
+
+  // Check longitude progression
+  let increasingCount = 0;
+  let decreasingCount = 0;
+
+  for (let i = 0; i < firstRowLons.length - 1; i++) {
+    let diff = firstRowLons[i + 1] - firstRowLons[i];
+
+    // Handle longitude wraparound (crossing 180° or 0°)
+    if (diff > 180) {
+      diff = diff - 360;
+    } else if (diff < -180) {
+      diff = diff + 360;
+    }
+
+    if (diff > 0) {
+      increasingCount++;
+    } else if (diff < 0) {
+      decreasingCount++;
+    }
+  }
+
+  // If majority of longitude differences are decreasing, flip the ordering
+  return decreasingCount > increasingCount;
+
+  // console.log(
+  //   `Longitude analysis: ${increasingCount} increasing, ${decreasingCount} decreasing`
+  // );
+  // console.log(`Longitude flip needed: ${shouldFlip}`);
 }
 
 async function buildCurvilinearGeometry(
@@ -151,7 +201,8 @@ async function buildCurvilinearGeometry(
   longitudes: Float64Array, // 2D array flattened: lon values at each (j,i) grid point
   data: Float32Array, // 2D array flattened: data values at each (j,i) grid point
   nj: number, // Number of rows in the grid (j dimension)
-  ni: number // Number of columns in the grid (i dimension)
+  ni: number, // Number of columns in the grid (i dimension)
+  flipLongitude: boolean = false // Whether to flip longitude ordering
 ) {
   // Clean up: remove old meshes from scene and dispose their geometries
 
@@ -197,11 +248,20 @@ async function buildCurvilinearGeometry(
         // The 2D arrays are flattened in row-major order: index = j * ni + i
 
         // Calculate indices for the 4 corners of this grid cell:
-        // 00 = bottom-left, 01 = bottom-right, 10 = top-left, 11 = top-right
+        // Handle longitude ordering based on flip flag
+        let iNext;
+        if (flipLongitude) {
+          // For datasets with decreasing longitude, reverse the progression
+          iNext = i === 0 ? ni - 1 : i - 1;
+        } else {
+          // Normal progression: wraparound for longitude
+          iNext = (i + 1) % ni;
+        }
+
         const idx00 = j * ni + i; // Current position (j, i)
-        const idx01 = j * ni + ((i + 1) % ni); // Next column with wraparound (j, i+1)
+        const idx01 = j * ni + iNext; // Next/previous column based on flip (j, i±1)
         const idx10 = (j + 1) * ni + i; // Next row (j+1, i)
-        const idx11 = (j + 1) * ni + ((i + 1) % ni); // Next row + column (j+1, i+1)
+        const idx11 = (j + 1) * ni + iNext; // Next row + column (j+1, i±1)
 
         // Extract latitude and longitude values for each corner of the cell
         const lat00 = latitudes[idx00];
