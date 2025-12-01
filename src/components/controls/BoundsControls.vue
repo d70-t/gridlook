@@ -24,8 +24,8 @@ const { userBoundsLow, userBoundsHigh } = storeToRefs(store);
 </script>
 
 <template>
-  <div class="panel-block w-100">
-    <div>
+  <div class="panel-block w-100 no-bottom-border">
+    <div class="w-100">
       <!-- Header -->
       <div class="columns has-text-weight-bold is-mobile compact-row">
         <div class="column">range</div>
@@ -165,6 +165,9 @@ const { userBoundsLow, userBoundsHigh } = storeToRefs(store);
   padding-top: 0.1rem;
   padding-bottom: 0.1rem;
   margin-bottom: 0.1rem;
+  // margin-left: 0;
+  // transparent border in order to prevent layout shift when active
+  border-left: 3px solid transparent;
 
   & > .column {
     padding-top: 0.1rem;
@@ -174,8 +177,14 @@ const { userBoundsLow, userBoundsHigh } = storeToRefs(store);
 
 .active-row.active {
   background-color: lightgreen;
+  border-left: #2e7d32 3px solid;
   @media (prefers-color-scheme: dark) {
+    border-left: lightgreen solid;
     background-color: #2e7d32;
   }
+}
+
+.no-bottom-border {
+  border-bottom: none !important;
 }
 </style>

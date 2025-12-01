@@ -43,3 +43,14 @@ div.globe_canvas {
   padding: 0;
   margin: 0;
 }
+
+.compact-row {
+  padding-top: 0.1rem;
+  padding-bottom: 0.1rem;
+  margin-bottom: 0.1rem;
+
+  & > .column {
+    padding-top: 0.1rem;
+    padding-bottom: 0.1rem;
+  }
+}

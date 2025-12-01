@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { computed, onMounted, ref, watch, type Ref } from "vue";
+import { computed, onBeforeMount, onMounted, ref, watch, type Ref } from "vue";
 import { useGlobeControlStore } from "./store/store.ts";
 import { storeToRefs } from "pinia";
 import type { TModelInfo, TBounds } from "../types/GlobeTypes.js";
@@ -63,7 +63,6 @@ const menuCollapsed: Ref<boolean> = ref(false);
 const mobileMenuCollapsed: Ref<boolean> = ref(true);
 const isMobileView: Ref<boolean> = ref(false);
 
-// Bounds computed properties
 const dataBounds = computed(() => {
   return varinfo.value?.bounds ?? {};
 });
@@ -105,13 +104,11 @@ const currentBounds = computed(() => {
   return undefined;
 });
 
-// Bounds management functions
 const setDefaultBounds = () => {
   const defaultConfig = props.modelInfo?.vars[varnameSelector.value];
   defaultBounds.value = defaultConfig?.default_range ?? {};
 };
 
-// Colormap management functions
 const setDefaultColormap = () => {
   const defaultColormap =
     props.modelInfo?.vars[varnameSelector.value]?.default_colormap;
@@ -161,7 +158,7 @@ function toggleMobileMenu() {
 
 const MOBILE_VIEW_THRESHOLD = 769; // px
 
-onMounted(() => {
+onBeforeMount(() => {
   isMobileView.value = window.innerWidth < MOBILE_VIEW_THRESHOLD;
   useEventListener(window, "resize", () => {
     isMobileView.value = window.innerWidth < MOBILE_VIEW_THRESHOLD;
@@ -214,71 +211,56 @@ onMounted(() => {
     >
       <button
         type="button"
-        class="button is-primary is-hidden-tablet mr-1"
+        class="button is-primary is-hidden-tablet p-3"
         @click="toggleMobileMenu"
       >
         <i class="fa-solid fa-bars"></i>
       </button>
-      <div v-if="modelInfo" class="mobile-title text-wrap">
+      <div
+        v-if="modelInfo"
+        class="mobile-title text-wrap is-flex is-align-items-center"
+        style="display: flex; align-items: center"
+      >
         {{ modelInfo.title }}
       </div>
       <div v-else>no data available</div>
-      <button type="button" class="is-hidden-mobile">
+      <button type="button" class="is-hidden-mobile" @click="toggleMenu">
         <i
           class="fa-solid"
           :class="{
-            'fa-angle-down': menuCollapsed,
-            'fa-angle-up': !menuCollapsed,
+            'fa-angle-right': menuCollapsed,
+            'fa-angle-left': !menuCollapsed,
           }"
-          @click="toggleMenu"
         ></i>
       </button>
     </div>
 
-    <!-- Variable Selector -->
-    <VariableSelector
-      v-if="modelInfo && !isHidden"
-      v-model="varnameSelector"
-      :model-info="modelInfo"
-    />
-
-    <!-- Time Controls -->
-    <TimeControls v-if="modelInfo && !isHidden" />
-
-    <!-- Dimension Sliders -->
-    <DimensionSliders v-if="modelInfo && !isHidden" />
-
-    <!-- Bounds Controls -->
-    <BoundsControls
-      v-if="modelInfo && !isHidden"
-      :picked-bounds-mode="pickedBoundsMode"
-      :active-bounds-mode="activeBoundsMode"
-      :data-bounds="dataBounds"
-      :default-bounds="defaultBounds"
-      :current-bounds="currentBounds"
-      :bound-modes="BOUND_MODES"
-      @update:picked-bounds-mode="pickedBoundsMode = $event as TBoundModes"
-    />
-
-    <!-- Colormap Controls -->
-    <ColormapControls
-      v-if="modelInfo && !isHidden"
-      :model-info="modelInfo"
-      :auto-colormap="autoColormap"
-      @update:auto-colormap="autoColormap = $event"
-    />
-
-    <!-- Mask Controls -->
-    <MaskControls
-      v-if="modelInfo && !isHidden"
-      @on-rotate="() => $emit('onRotate')"
-    />
-
-    <!-- Action Controls -->
-    <ActionControls
-      v-if="modelInfo && !isHidden"
-      @on-snapshot="() => $emit('onSnapshot')"
-    />
+    <Transition name="slide">
+      <div v-if="modelInfo && !isHidden" className="">
+        <VariableSelector v-model="varnameSelector" :model-info="modelInfo" />
+        <TimeControls />
+        <DimensionSliders />
+        <BoundsControls
+          :picked-bounds-mode="pickedBoundsMode"
+          :active-bounds-mode="activeBoundsMode"
+          :data-bounds="dataBounds"
+          :default-bounds="defaultBounds"
+          :current-bounds="currentBounds"
+          :bound-modes="BOUND_MODES"
+          @update:picked-bounds-mode="pickedBoundsMode = $event as TBoundModes"
+        />
+        <ColormapControls
+          :model-info="modelInfo"
+          :auto-colormap="autoColormap"
+          @update:auto-colormap="autoColormap = $event"
+        />
+        <MaskControls />
+        <ActionControls
+          @on-snapshot="() => $emit('onSnapshot')"
+          @on-rotate="() => $emit('onRotate')"
+        />
+      </div>
+    </Transition>
   </nav>
 </template>
 
@@ -289,16 +271,20 @@ onMounted(() => {
   position: fixed;
   top: 0;
   left: 0;
-  width: 25rem;
+  width: 24rem;
   max-height: 100vh; // Full screen height limit
   overflow-y: auto;
   overflow-x: hidden;
   border-radius: 0 0 bulmaUt.$radius bulmaUt.$radius !important;
-  // background-color: white;
   z-index: 9;
 
   .panel-block {
     background-color: white;
+    padding: 0.75em 0.8em;
+  }
+
+  .column {
+    padding: 0.5em;
   }
 
   input {
@@ -306,6 +292,10 @@ onMounted(() => {
   }
 
   .panel-heading {
+    padding-left: 16px;
+    padding-right: 16px;
+    padding-top: 12px;
+    padding-bottom: 12px;
     border-radius: 0;
   }
 
@@ -314,17 +304,6 @@ onMounted(() => {
     height: auto;
     right: 0;
     border-radius: 0 !important;
-    animation: 0.45s ease-out 0s 1 slideInFromTop;
-
-    @keyframes slideInFromTop {
-      from {
-        transform: translateY(-100%);
-      }
-
-      to {
-        transform: translateY(0);
-      }
-    }
 
     &.panel {
       border-radius: 0 !important;
@@ -348,6 +327,28 @@ onMounted(() => {
     .panel-heading {
       background-color: rgb(15, 15, 15);
       color: white;
+    }
+  }
+
+  .slide-enter-active,
+  .slide-leave-active {
+    transition: all 0.3s ease-out;
+  }
+
+  .slide-enter-from,
+  .slide-leave-to {
+    transform: translateX(-400px);
+  }
+
+  @media only screen and (max-width: bulmaUt.$tablet) {
+    .slide-enter-active,
+    .slide-leave-active {
+      transition: all 0.3s ease-out;
+    }
+
+    .slide-enter-from,
+    .slide-leave-to {
+      transform: translateY(-400px);
     }
   }
 }

@@ -45,7 +45,6 @@ const { colormap, invertColormap } = storeToRefs(store);
         <input id="invert_colormap" v-model="invertColormap" type="checkbox" />
         <label for="invert_colormap">invert</label>
       </div>
-      <div class="column"></div>
       <div class="column has-text-right py-2">
         <input
           id="auto_colormap"
@@ -66,17 +65,6 @@ const { colormap, invertColormap } = storeToRefs(store);
 
 <style lang="scss" scoped>
 @use "bulma/sass/utilities" as bulmaUt;
-
-.compact-row {
-  padding-top: 0.1rem;
-  padding-bottom: 0.1rem;
-  margin-bottom: 0.1rem;
-
-  & > .column {
-    padding-top: 0.1rem;
-    padding-bottom: 0.1rem;
-  }
-}
 
 .hcolormap {
   max-height: 2.5em;
