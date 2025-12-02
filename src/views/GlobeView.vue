@@ -87,13 +87,13 @@ async function setGridType() {
 watch(
   () => props.src,
   async () => {
-    console.log("source changed!");
     // Rerender controls and globe and reset store
     // if new data is provided
     gridType.value = undefined;
     globeKey.value += 1;
     globeControlKey.value += 1;
     store.$reset();
+    // stop loading is handled in the grid components after data load
     store.startLoading();
     await updateSrc();
   }
@@ -282,7 +282,7 @@ const toggleRotate = () => {
 };
 
 onMounted(async () => {
-  console.log("GlobeView mounted");
+  // stop loading is handled in the grid components after data load
   store.startLoading();
   await updateSrc();
   isInitialized.value = true;
