@@ -189,11 +189,6 @@ function detectLongitudeFlip(longitudes: Float64Array, ni: number): boolean {
 
   // If majority of longitude differences are decreasing, flip the ordering
   return decreasingCount > increasingCount;
-
-  // console.log(
-  //   `Longitude analysis: ${increasingCount} increasing, ${decreasingCount} decreasing`
-  // );
-  // console.log(`Longitude flip needed: ${shouldFlip}`);
 }
 
 async function buildCurvilinearGeometry(
