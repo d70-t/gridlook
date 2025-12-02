@@ -173,7 +173,6 @@ export function castDataVarToFloat32(
     rawData instanceof Uint16Array ||
     rawData instanceof Uint8Array
   ) {
-    console.log("Casting data to Float32Array");
     return Float32Array.from(rawData);
   }
   return rawData as Float32Array;

@@ -30,6 +30,10 @@ import {
 } from "../utils/colormapShaders.ts";
 import { useEventListener } from "@vueuse/core";
 import { decodeTime } from "../utils/timeHandling.ts";
+import {
+  CONTROL_PANEL_WIDTH,
+  MOBILE_BREAKPOINT,
+} from "../utils/viewConstants.ts";
 
 export function useSharedGridLogic() {
   const store = useGlobeControlStore();
@@ -40,6 +44,7 @@ export function useSharedGridLogic() {
     selection,
     colormap,
     invertColormap,
+    controlPanelVisible,
   } = storeToRefs(store);
 
   const urlParameterStore = useUrlParameterStore();
@@ -69,6 +74,14 @@ export function useSharedGridLogic() {
     () => showCoastLines.value,
     () => {
       updateCoastlines();
+    }
+  );
+
+  // Watch for control panel visibility changes and trigger resize
+  watch(
+    () => controlPanelVisible.value,
+    () => {
+      updateCameraForPanel();
     }
   );
 
@@ -254,24 +267,99 @@ export function useSharedGridLogic() {
     updateCoastlines();
   }
 
+  let init = true;
+  let currentOffset = 0;
+  let targetOffset = 0;
+
+  function updateCameraForPanel() {
+    const camera = getCamera();
+    if (!camera || !box.value) return;
+
+    const isMobile = window.innerWidth < MOBILE_BREAKPOINT;
+    const panelWidth =
+      !isMobile && controlPanelVisible.value ? CONTROL_PANEL_WIDTH : 0;
+    const { width: boxWidth } = box.value.getBoundingClientRect();
+
+    // Calculate target offset
+    targetOffset = panelWidth > 0 ? panelWidth / boxWidth / 2 : 0;
+    currentOffset = init ? targetOffset : currentOffset;
+    init = false;
+
+    animateCamera();
+  }
+
+  function animateCamera() {
+    const camera = getCamera();
+    if (!camera || !box.value) {
+      return;
+    }
+
+    currentOffset = THREE.MathUtils.lerp(currentOffset, targetOffset, 0.1);
+
+    // Stop animation when close enough
+    if (Math.abs(targetOffset - currentOffset) < 0.001) {
+      currentOffset = targetOffset;
+    }
+
+    // Apply the projection matrix with current offset
+    const aspect = camera.aspect;
+    const fov = (camera.fov * Math.PI) / 180;
+    const near = camera.near;
+    const far = camera.far;
+
+    const top = near * Math.tan(fov / 2);
+    const bottom = -top;
+    const right = top * aspect;
+    const left = -right;
+
+    const shiftAmount = (right - left) * currentOffset;
+    const shiftedLeft = left - shiftAmount;
+    const shiftedRight = right - shiftAmount;
+
+    camera.projectionMatrix.makePerspective(
+      shiftedLeft,
+      shiftedRight,
+      top,
+      bottom,
+      near,
+      far
+    );
+
+    redraw();
+
+    // Continue animation
+    if (currentOffset !== targetOffset) {
+      requestAnimationFrame(animateCamera);
+    }
+  }
+
   function onCanvasResize() {
     if (!box.value) {
       return;
     }
     const { width: boxWidth, height: boxHeight } =
       box.value.getBoundingClientRect();
+
     if (boxWidth !== width.value || boxHeight !== height.value) {
       getResizeObserver()?.unobserve(box.value);
+
       const aspect = boxWidth / boxHeight;
       getCamera()!.aspect = aspect;
       getCamera()!.updateProjectionMatrix();
+
+      const myRenderer = getRenderer() as THREE.WebGLRenderer;
+      if (myRenderer) {
+        myRenderer.setSize(boxWidth, boxHeight);
+      }
+
       width.value = boxWidth;
       height.value = boxHeight;
-      const myRenderer = getRenderer() as THREE.WebGLRenderer;
-      if (width.value !== undefined && height.value !== undefined) {
-        myRenderer.setSize(width.value, height.value);
-      }
+
+      // Update camera offset for panel
+      updateCameraForPanel();
+
       redraw();
+
       if (box.value) {
         getResizeObserver()!.observe(box.value);
       }
@@ -360,17 +448,19 @@ export function useSharedGridLogic() {
         mouseDown = false;
       }
     });
+
     initEssentials();
     setResizeObserver(new ResizeObserver(onCanvasResize));
     getResizeObserver()?.observe(box.value!);
-    onCanvasResize();
   });
 
   onBeforeUnmount(() => {
     scene?.clear();
     camera?.clear();
     renderer?.dispose();
-    getResizeObserver()?.unobserve(box.value!);
+    if (box.value) {
+      getResizeObserver()?.unobserve(box.value!);
+    }
     scene = undefined;
     renderer = undefined;
     camera = undefined;

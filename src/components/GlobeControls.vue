@@ -14,6 +14,7 @@ import BoundsControls from "./controls/BoundsControls.vue";
 import ColormapControls from "./controls/ColormapControls.vue";
 import MaskControls from "./controls/MaskControls.vue";
 import ActionControls from "./controls/ActionControls.vue";
+import { MOBILE_BREAKPOINT } from "./utils/viewConstants.ts";
 
 const props = defineProps<{ modelInfo?: TModelInfo }>();
 
@@ -150,18 +151,18 @@ watch(
 
 function toggleMenu() {
   menuCollapsed.value = !menuCollapsed.value;
+  store.setControlPanelVisible(!menuCollapsed.value);
 }
 
 function toggleMobileMenu() {
   mobileMenuCollapsed.value = !mobileMenuCollapsed.value;
+  store.setControlPanelVisible(!mobileMenuCollapsed.value);
 }
 
-const MOBILE_VIEW_THRESHOLD = 769; // px
-
 onBeforeMount(() => {
-  isMobileView.value = window.innerWidth < MOBILE_VIEW_THRESHOLD;
+  isMobileView.value = window.innerWidth < MOBILE_BREAKPOINT;
   useEventListener(window, "resize", () => {
-    isMobileView.value = window.innerWidth < MOBILE_VIEW_THRESHOLD;
+    isMobileView.value = window.innerWidth < MOBILE_BREAKPOINT;
   });
 });
 
@@ -196,6 +197,12 @@ onMounted(() => {
       invertColormap.value = true;
     }
   }
+
+  // Initialize control panel visibility
+  const initiallyVisible = isMobileView.value
+    ? !mobileMenuCollapsed.value
+    : !menuCollapsed.value;
+  store.setControlPanelVisible(initiallyVisible);
 });
 </script>
 
