@@ -56,17 +56,17 @@ function close() {
       </div>
     </div>
   </Teleport>
-  <div class="about-corner-link is-small">
+  <div class="about-corner-link">
     <button
       class="button is-info"
       aria-label="About"
       type="button"
       @click="open"
     >
-      <span class="icon is-small">
+      <span class="icon">
         <i class="fa-solid fa-circle-info"></i>
       </span>
-      &nbsp; About
+      <span>About</span>
     </button>
   </div>
 </template>

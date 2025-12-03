@@ -43,6 +43,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
       dimSlidersValues: [] as (number | null)[],
       dimSlidersDisplay: [] as (number | null)[],
       isInitializingVariable: false,
+      controlPanelVisible: true,
     };
   },
   actions: {
@@ -74,6 +75,9 @@ export const useGlobeControlStore = defineStore("globeControl", {
     },
     updateBounds(bounds: TBounds) {
       this.selection = bounds;
+    },
+    setControlPanelVisible(visible: boolean) {
+      this.controlPanelVisible = visible;
     },
   },
 });

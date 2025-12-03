@@ -39,7 +39,6 @@ const { paramVarname } = storeToRefs(urlParameterStore);
 const globe: Ref<typeof GridTriangular | null> = ref(null);
 const globeKey = ref(0);
 const globeControlKey = ref(0);
-const isLoading = ref(false);
 const isInitialized = ref(false);
 const sourceValid = ref(false);
 const datasources: Ref<TSources | undefined> = ref(undefined);
@@ -90,14 +89,13 @@ watch(
   async () => {
     // Rerender controls and globe and reset store
     // if new data is provided
-    isLoading.value = true;
     gridType.value = undefined;
     globeKey.value += 1;
     globeControlKey.value += 1;
     store.$reset();
+    // stop loading is handled in the grid components after data load
+    store.startLoading();
     await updateSrc();
-
-    isLoading.value = false;
   }
 );
 
@@ -277,12 +275,6 @@ const makeSnapshot = () => {
   }
 };
 
-const makeExample = () => {
-  if (globe.value) {
-    globe.value.copyPythonExample();
-  }
-};
-
 const toggleRotate = () => {
   if (globe.value) {
     globe.value.toggleRotate();
@@ -290,12 +282,11 @@ const toggleRotate = () => {
 };
 
 onMounted(async () => {
-  isLoading.value = true;
+  // stop loading is handled in the grid components after data load
+  store.startLoading();
   await updateSrc();
   isInitialized.value = true;
   await setGridType();
-
-  isLoading.value = false;
 });
 </script>
 
@@ -322,19 +313,23 @@ onMounted(async () => {
       :key="globeControlKey"
       :model-info="modelInfo"
       @on-snapshot="makeSnapshot"
-      @on-example="makeExample"
       @on-rotate="toggleRotate"
     />
-    <div v-if="isLoading" class="mx-auto loader"></div>
+
+    <div v-if="loading" class="top-right-loader loader" />
     <section
-      v-else-if="gridType === GRID_TYPES.ERROR"
-      class="hero is-fullheight is-flex is-align-items-center is-justify-content-center"
+      v-if="gridType === GRID_TYPES.ERROR"
+      class="hero is-fullheight"
+      style="background: linear-gradient(135deg, #f8fafc 60%, #ffe5e5 100%)"
     >
-      <div
-        class="notification is-danger is-light has-text-centered mx-auto"
-        style="max-width: 400px"
-      >
-        An error occurred. Possibly missing or not supported data.
+      <div class="hero-body">
+        <div class="container has-text-centered">
+          <p class="title pb-4">Error</p>
+          <p class="subtitle" style="color: #333">
+            Sorry, we couldn't load your data. Please check the source and try
+            again.
+          </p>
+        </div>
       </div>
     </section>
     <currentGlobeComponent
@@ -344,7 +339,6 @@ onMounted(async () => {
       :datasources="datasources"
       :is-rotated="gridType === GRID_TYPES.REGULAR_ROTATED"
     />
-    <div v-if="isLoading || loading" class="top-right-loader loader" />
     <AboutView />
     <div v-if="isDev" class="dev-gridtype p-2 is-size-7">
       Grid Type: {{ gridType }}
@@ -358,8 +352,8 @@ main {
 }
 div.top-right-loader {
   position: absolute;
-  top: 4px;
-  right: 4px;
+  top: 10px;
+  right: 10px;
   height: 40px;
   width: 40px;
   z-index: 1000;

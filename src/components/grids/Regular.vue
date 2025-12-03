@@ -6,7 +6,6 @@ import {
   calculateColorMapProperties,
   makeTextureMaterial,
 } from "../utils/colormapShaders.ts";
-import { datashaderExample } from "../utils/exampleFormatters.ts";
 import { computed, onBeforeMount, onMounted, ref, watch } from "vue";
 
 import {
@@ -16,12 +15,12 @@ import {
 } from "../store/store.js";
 import { storeToRefs } from "pinia";
 import type { TSources } from "../../types/GlobeTypes.ts";
-import { useToast } from "primevue/usetoast";
 import { useLog } from "../utils/logging.ts";
 import { useSharedGridLogic } from "./useSharedGridLogic.ts";
 import { useUrlParameterStore } from "../store/paramStore.ts";
 import { getDimensionInfo } from "../utils/dimensionHandling.ts";
 import {
+  castDataVarToFloat32,
   findCRSVar,
   getDataBounds,
   getDataSourceStore,
@@ -33,7 +32,6 @@ const props = defineProps<{
 }>();
 
 const store = useGlobeControlStore();
-const toast = useToast();
 const { logError } = useLog();
 const {
   dimSlidersValues,
@@ -51,7 +49,6 @@ const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
 
 const {
   getScene,
-  getCamera,
   redraw,
   makeSnapshot,
   toggleRotate,
@@ -118,14 +115,6 @@ const timeIndexSlider = computed(() => {
 const gridsource = computed(() => {
   if (props.datasources) {
     return props.datasources.levels[0].grid;
-  } else {
-    return undefined;
-  }
-});
-
-const datasource = computed(() => {
-  if (props.datasources) {
-    return props.datasources.levels[0].datasources[varnameSelector.value];
   } else {
     return undefined;
   }
@@ -433,12 +422,9 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
         updateMode
       );
 
-      let rawData = (await zarr.get(datavar, indices)).data as Float32Array;
-      if (rawData instanceof Float64Array) {
-        // WebGL doesn't support Float64Array textures
-        // we convert it to Float32Array and accept the loss of precision
-        rawData = Float32Array.from(rawData);
-      }
+      let rawData = castDataVarToFloat32(
+        (await zarr.get(datavar, indices)).data
+      );
 
       const textures = await getRegularData(
         rawData,
@@ -499,24 +485,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
     store.stopLoading();
   }
 }
-function copyPythonExample() {
-  const example = datashaderExample({
-    cameraPosition: getCamera()!.position,
-    datasrc: datasource.value!.store + datasource.value!.dataset,
-    gridsrc: gridsource.value!.store + gridsource.value!.dataset,
-    varname: varnameSelector.value,
-    timeIndex: timeIndexSlider.value as number,
-    varbounds: bounds.value!,
-    colormap: colormap.value,
-    invertColormap: invertColormap.value,
-  });
-  navigator.clipboard.writeText(example);
-  toast.add({
-    detail: `Copied into clipboard`,
-    life: 3000,
-    severity: "success",
-  });
-}
+
 onMounted(() => {
   getScene()?.add(mainMesh as THREE.Mesh);
 });
@@ -528,7 +497,7 @@ onBeforeMount(async () => {
   await datasourceUpdate();
 });
 
-defineExpose({ makeSnapshot, copyPythonExample, toggleRotate });
+defineExpose({ makeSnapshot, toggleRotate });
 </script>
 
 <template>

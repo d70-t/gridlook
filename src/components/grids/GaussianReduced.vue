@@ -3,7 +3,6 @@ import * as THREE from "three";
 import * as zarr from "zarrita";
 import { makeColormapMaterial } from "../utils/colormapShaders.ts";
 
-import { datashaderExample } from "../utils/exampleFormatters.ts";
 import { computed, onBeforeMount, ref, watch } from "vue";
 
 import {
@@ -17,7 +16,11 @@ import { useLog } from "../utils/logging.ts";
 import { useSharedGridLogic } from "./useSharedGridLogic.ts";
 import { useUrlParameterStore } from "../store/paramStore.ts";
 import { getDimensionInfo } from "../utils/dimensionHandling.ts";
-import { getDataBounds, getLatLonData } from "../utils/zarrUtils.ts";
+import {
+  castDataVarToFloat32,
+  getDataBounds,
+  getLatLonData,
+} from "../utils/zarrUtils.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -47,7 +50,6 @@ let meshes: THREE.Mesh[] = [];
 
 const {
   getScene,
-  getCamera,
   redraw,
   makeSnapshot,
   toggleRotate,
@@ -101,22 +103,6 @@ const colormapMaterial = computed(() => {
     return makeColormapMaterial(colormap.value, 1.0, -1.0);
   } else {
     return makeColormapMaterial(colormap.value, 0.0, 1.0);
-  }
-});
-
-const gridsource = computed(() => {
-  if (props.datasources) {
-    return props.datasources.levels[0].grid;
-  } else {
-    return undefined;
-  }
-});
-
-const datasource = computed(() => {
-  if (props.datasources) {
-    return props.datasources.levels[0].datasources[varnameSelector.value];
-  } else {
-    return undefined;
   }
 });
 
@@ -291,12 +277,9 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
         updateMode
       );
 
-      let rawData = (await zarr.get(datavar, indices)).data as Float32Array;
-      if (rawData instanceof Float64Array) {
-        // WebGL doesn't support Float64Array textures
-        // we convert it to Float32Array and accept the loss of precision
-        rawData = Float32Array.from(rawData);
-      }
+      let rawData = castDataVarToFloat32(
+        (await zarr.get(datavar, indices)).data
+      );
 
       let { min, max, missingValue, fillValue } = getDataBounds(
         datavar,
@@ -341,25 +324,11 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
   }
 }
 
-function copyPythonExample() {
-  const example = datashaderExample({
-    cameraPosition: getCamera()!.position,
-    datasrc: datasource.value!.store + datasource.value!.dataset,
-    gridsrc: gridsource.value!.store + gridsource.value!.dataset,
-    varname: varnameSelector.value,
-    timeIndex: timeIndexSlider.value as number,
-    varbounds: bounds.value!,
-    colormap: colormap.value!,
-    invertColormap: invertColormap.value,
-  });
-  navigator.clipboard.writeText(example);
-}
-
 onBeforeMount(async () => {
   await datasourceUpdate();
 });
 
-defineExpose({ makeSnapshot, copyPythonExample, toggleRotate });
+defineExpose({ makeSnapshot, toggleRotate });
 </script>
 
 <template>

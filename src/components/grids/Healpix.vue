@@ -6,7 +6,6 @@ import {
   calculateColorMapProperties,
   makeTextureMaterial,
 } from "../utils/colormapShaders.ts";
-import { datashaderExample } from "../utils/exampleFormatters.ts";
 import { computed, onBeforeMount, onMounted, ref, watch } from "vue";
 
 import {
@@ -16,10 +15,10 @@ import {
 } from "../store/store.js";
 import { storeToRefs } from "pinia";
 import type { TSources } from "../../types/GlobeTypes.ts";
-import { useToast } from "primevue/usetoast";
 import { useLog } from "../utils/logging.ts";
 import { useSharedGridLogic } from "./useSharedGridLogic.ts";
 import {
+  castDataVarToFloat32,
   findCRSVar,
   getDataBounds,
   getDataSourceStore,
@@ -32,7 +31,6 @@ const props = defineProps<{
 }>();
 
 const store = useGlobeControlStore();
-const toast = useToast();
 const { logError } = useLog();
 const {
   varnameSelector,
@@ -50,7 +48,6 @@ const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
 
 const {
   getScene,
-  getCamera,
   redraw,
   makeSnapshot,
   toggleRotate,
@@ -116,22 +113,6 @@ const timeIndexSlider = computed(() => {
     return 0;
   }
   return dimSlidersValues.value[0];
-});
-
-const gridsource = computed(() => {
-  if (props.datasources) {
-    return props.datasources.levels[0].grid;
-  } else {
-    return undefined;
-  }
-});
-
-const datasource = computed(() => {
-  if (props.datasources) {
-    return props.datasources.levels[0].datasources[varnameSelector.value];
-  } else {
-    return undefined;
-  }
 });
 
 async function datasourceUpdate() {
@@ -393,11 +374,7 @@ function data2texture(
   unshuffleIndex: { [key: number]: Float32Array }
 ) {
   const size = Math.floor(Math.sqrt(arr.length));
-  if (arr instanceof Float64Array) {
-    // WebGL doesn't support Float64Array textures
-    // we convert it to Float32Array and accept the loss of precision
-    arr = Float32Array.from(arr);
-  }
+  arr = castDataVarToFloat32(arr);
   const mortonArr = unshuffleMortonArray(arr, unshuffleIndex);
   const texture = new THREE.DataTexture(
     mortonArr,
@@ -510,25 +487,6 @@ async function processDataVar(
   }
 }
 
-function copyPythonExample() {
-  const example = datashaderExample({
-    cameraPosition: getCamera()!.position,
-    datasrc: datasource.value!.store + datasource.value!.dataset,
-    gridsrc: gridsource.value!.store + gridsource.value!.dataset,
-    varname: varnameSelector.value,
-    timeIndex: timeIndexSlider.value as number,
-    varbounds: bounds.value!,
-    colormap: colormap.value,
-    invertColormap: invertColormap.value,
-  });
-  navigator.clipboard.writeText(example);
-  toast.add({
-    detail: `Copied into clipboard`,
-    life: 3000,
-    severity: "success",
-  });
-}
-
 onMounted(() => {
   for (let ipix = 0; ipix < HEALPIX_NUMCHUNKS; ++ipix) {
     getScene()!.add(mainMeshes[ipix]);
@@ -560,7 +518,7 @@ onBeforeMount(async () => {
   await datasourceUpdate();
 });
 
-defineExpose({ makeSnapshot, copyPythonExample, toggleRotate });
+defineExpose({ makeSnapshot, toggleRotate });
 </script>
 
 <template>

@@ -1,5 +1,12 @@
+/**
+ *  NOT IN USE: This module provides a function to generate a Python code example.
+ *  It still might work with the triangular grid type, but needs to be adapted to the
+ *  current codebase.
+ */
+
 import type { TBounds, TColorMap } from "../../types/GlobeTypes";
 import * as THREE from "three";
+
 function rad2deg(r: number) {
   return (r * 180) / Math.PI;
 }
