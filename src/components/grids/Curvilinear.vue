@@ -134,21 +134,21 @@ async function getGrid(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
   data: Float32Array
 ) {
-  const [latitudesVar, longitudesVar] = await getLatLonData(
+  const { latitudes, longitudes } = await getLatLonData(
     datavar,
     props.datasources
   );
 
-  const latitudes = latitudesVar.data as Float64Array;
-  const longitudes = longitudesVar.data as Float64Array;
-  const [nj, ni] = latitudesVar.shape; // [j, i]
+  const latitudesData = latitudes.data as Float64Array;
+  const longitudesData = longitudes.data as Float64Array;
+  const [nj, ni] = latitudes.shape; // [j, i]
 
   // Detect potential mirroring issues by analyzing longitude progression
-  const shouldFlipLongitude = detectLongitudeFlip(longitudes, ni);
+  const shouldFlipLongitude = detectLongitudeFlip(longitudesData, ni);
 
   await buildCurvilinearGeometry(
-    latitudes,
-    longitudes,
+    latitudesData,
+    longitudesData,
     data,
     nj,
     ni,

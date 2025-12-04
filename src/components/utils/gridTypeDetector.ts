@@ -131,21 +131,19 @@ export async function getGridType(
       return GRID_TYPES.REGULAR;
     }
 
-    const [latitudesVar, longitudesVar] = await getLatLonData(
-      datavar,
-      datasources
-    );
-    const latitudes = latitudesVar.data as Float64Array;
-    const longitudes = longitudesVar.data as Float64Array;
-    if (checkCurvilinear(latitudesVar, longitudesVar)) {
+    const { latitudes, longitudes } = await getLatLonData(datavar, datasources);
+    const latitudesData = latitudes.data as Float64Array;
+    const longitudesData = longitudes.data as Float64Array;
+
+    if (checkCurvilinear(latitudes, longitudes)) {
       return GRID_TYPES.CURVILINEAR;
     }
 
-    if (checkGaussianGrid(latitudes, longitudes)) {
+    if (checkGaussianGrid(latitudesData, longitudesData)) {
       return GRID_TYPES.GAUSSIAN_REDUCED;
     }
 
-    if (checkIrregularGrid(latitudes, longitudes)) {
+    if (checkIrregularGrid(latitudesData, longitudesData)) {
       return GRID_TYPES.IRREGULAR;
     }
     return GRID_TYPES.ERROR;
