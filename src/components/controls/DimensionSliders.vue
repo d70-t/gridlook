@@ -35,7 +35,7 @@ watch(
     if (newRanges) {
       // Initialize local sliders for non-time dimensions (skip index 0 which is time)
       localSliders.value = newRanges.map((range, index) =>
-        index === 0
+        range?.name === "time"
           ? null
           : (dimSlidersValues.value[index] ?? range?.startPos ?? null)
       );
@@ -43,7 +43,10 @@ watch(
       // Create stable debounced functions for non-time dimensions
       debouncedUpdaters.value = newRanges.map((_, index) => {
         return debounce((value: number) => {
-          if (dimSlidersValues.value[index] !== undefined && index !== 0) {
+          if (
+            dimSlidersValues.value[index] !== undefined &&
+            newRanges[index]?.name !== "time"
+          ) {
             dimSlidersValues.value[index] = value;
           }
         }, 550);
@@ -59,7 +62,7 @@ watch(
   (newValues) => {
     newValues.forEach((value, index) => {
       if (
-        index !== 0 && // Skip time dimension
+        varinfo.value?.dimRanges[index]?.name !== "time" &&
         value !== null &&
         value !== undefined &&
         value !== dimSlidersValues.value[index]
@@ -78,7 +81,7 @@ watch(
     <div class="control">
       <template v-for="(range, index) in varinfo!.dimRanges" :key="index">
         <div
-          v-if="range && index !== 0"
+          v-if="range"
           class="mb-2 w-100 is-flex is-justify-content-space-between"
         >
           <div class="my-2">
@@ -99,7 +102,7 @@ watch(
           </div>
         </div>
         <input
-          v-if="range && index !== 0"
+          v-if="range"
           v-model.number="localSliders[index]"
           class="w-100"
           type="range"
