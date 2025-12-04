@@ -294,8 +294,9 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
         updateMode
       );
 
+      let myindices = [1, null, 1];
       let rawData = castDataVarToFloat32(
-        (await zarr.get(datavar, indices)).data
+        (await zarr.get(datavar, myindices)).data
       );
       if (rawData instanceof Float64Array) {
         // WebGL doesn't support Float64Array textures

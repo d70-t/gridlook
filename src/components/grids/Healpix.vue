@@ -428,7 +428,7 @@ async function processDataVar(
       paramDimMinBounds.value,
       paramDimMaxBounds.value,
       dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
-      1,
+      [datavar.shape.length - 1],
       varinfo.value?.dimRanges,
       updateMode
     );

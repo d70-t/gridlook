@@ -417,7 +417,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
         paramDimMinBounds.value,
         paramDimMaxBounds.value,
         dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
-        2,
+        [datavar.shape.length - 2, datavar.shape.length - 1],
         varinfo.value?.dimRanges,
         updateMode
       );
