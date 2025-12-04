@@ -81,7 +81,7 @@ watch(
     <div class="control">
       <template v-for="(range, index) in varinfo!.dimRanges" :key="index">
         <div
-          v-if="range"
+          v-if="range && range.name !== 'time'"
           class="mb-2 w-100 is-flex is-justify-content-space-between"
         >
           <div class="my-2">
@@ -102,7 +102,7 @@ watch(
           </div>
         </div>
         <input
-          v-if="range"
+          v-if="range && range.name !== 'time'"
           v-model.number="localSliders[index]"
           class="w-100"
           type="range"
