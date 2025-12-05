@@ -134,13 +134,13 @@ async function getGrid(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
   data: Float32Array
 ) {
-  const [latitudesVar, longitudesVar] = await getLatLonData(
+  const { latitudes, longitudes } = await getLatLonData(
     datavar,
     props.datasources
   );
-  const latitudes = latitudesVar.data as Float64Array;
-  const longitudes = longitudesVar.data as Float64Array;
-  const { rows, uniqueLats } = buildRows(latitudes, longitudes, data);
+  const latitudesData = latitudes.data as Float64Array;
+  const longitudesData = longitudes.data as Float64Array;
+  const { rows, uniqueLats } = buildRows(latitudesData, longitudesData, data);
   const totalBatches = Math.ceil((uniqueLats.length - 1) / BATCH_SIZE);
 
   if (meshes.length > totalBatches) {
@@ -272,7 +272,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
         paramDimMinBounds.value,
         paramDimMaxBounds.value,
         dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
-        1,
+        [datavar.shape.length - 1],
         varinfo.value?.dimRanges,
         updateMode
       );

@@ -42,57 +42,58 @@ function createDimensionRanges(
   presetStarts: Record<string, string>,
   presetMinBounds: Record<string, string>,
   presetMaxBounds: Record<string, string>,
-  lastToIgnore: number
+  indicesToIgnore: number[]
 ) {
   const dimensions = datavar.attrs._ARRAY_DIMENSIONS as string[];
   const shape = datavar.shape;
-  const indices: TDimensionRange[] = shape
-    .slice(0, shape.length - lastToIgnore)
-    .map((size, i) => {
-      if (size === 1) {
-        // Single element dimension
-        return { name: dimensions[i], startPos: 0, minBound: 0, maxBound: 0 };
-      } else {
-        let startPos = 0;
-        let minBound = 0;
-        let maxBound = size - 1;
-        if (
-          Object.hasOwn(presetMinBounds, dimensions[i]) &&
-          !isNaN(Number(presetMinBounds[dimensions[i]]))
-        ) {
-          minBound = Number(presetMinBounds[dimensions[i]]);
-        }
-        if (
-          Object.hasOwn(presetMaxBounds, dimensions[i]) &&
-          !isNaN(Number(presetMaxBounds[dimensions[i]]))
-        ) {
-          maxBound = Number(presetMaxBounds[dimensions[i]]);
-        }
-        if (
-          Object.hasOwn(presetStarts, dimensions[i]) &&
-          !isNaN(Number(presetStarts[dimensions[i]]))
-        ) {
-          startPos = Number(presetStarts[dimensions[i]]);
-          if (startPos < minBound) {
-            startPos = minBound;
-          }
-          if (startPos > maxBound) {
-            startPos = maxBound;
-          }
-        }
-        return {
-          name: dimensions[i],
-          startPos,
-          minBound,
-          maxBound,
-        };
+  const indices: TDimensionRange[] = shape.map((size, i) => {
+    if (indicesToIgnore.includes(i)) {
+      return null;
+    }
+    if (size === 1) {
+      // Single element dimension
+      return { name: dimensions[i], startPos: 0, minBound: 0, maxBound: 0 };
+    } else {
+      let startPos = 0;
+      let minBound = 0;
+      let maxBound = size - 1;
+      if (
+        Object.hasOwn(presetMinBounds, dimensions[i]) &&
+        !isNaN(Number(presetMinBounds[dimensions[i]]))
+      ) {
+        minBound = Number(presetMinBounds[dimensions[i]]);
       }
-    });
+      if (
+        Object.hasOwn(presetMaxBounds, dimensions[i]) &&
+        !isNaN(Number(presetMaxBounds[dimensions[i]]))
+      ) {
+        maxBound = Number(presetMaxBounds[dimensions[i]]);
+      }
+      if (
+        Object.hasOwn(presetStarts, dimensions[i]) &&
+        !isNaN(Number(presetStarts[dimensions[i]]))
+      ) {
+        startPos = Number(presetStarts[dimensions[i]]);
+        if (startPos < minBound) {
+          startPos = minBound;
+        }
+        if (startPos > maxBound) {
+          startPos = maxBound;
+        }
+      }
+      return {
+        name: dimensions[i],
+        startPos,
+        minBound,
+        maxBound,
+      };
+    }
+  });
 
-  for (let i = 0; i < lastToIgnore; i++) {
-    // Add wildcard (null) for last dimension
-    indices.push(null);
-  }
+  // for (let i = 0; i < lastToIgnore; i++) {
+  //   // Add wildcard (null) for last dimension
+  //   indices.push(null);
+  // }
   /*
    * IMPORTANT: presetStarts need to be reset outside of this function after use.
    * Otherwise, stale values might persist.
@@ -110,7 +111,7 @@ export function getDimensionInfo(
   presetMinBounds: Record<string, string>,
   presetMaxBounds: Record<string, string>,
   oldSliderValues: (number | null)[] | null,
-  lastToIgnore: number,
+  indicesToIgnore: number[],
   oldDimRanges: TDimensionRange[] | undefined,
   updateMode: TUpdateMode
 ) {
@@ -120,7 +121,7 @@ export function getDimensionInfo(
     presetStarts,
     presetMinBounds,
     presetMaxBounds,
-    lastToIgnore
+    indicesToIgnore
   );
   let indices: (number | null | zarr.Slice)[] = [];
   if (

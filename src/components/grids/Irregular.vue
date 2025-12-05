@@ -193,14 +193,10 @@ function estimateAverageSpacing(
 }
 
 async function getGrid(
-  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  latitudesVar: zarr.Chunk<zarr.DataType>,
+  longitudesVar: zarr.Chunk<zarr.DataType>,
   data: Float32Array
 ) {
-  // Load latitudes and longitudes arrays (1D)
-  const [latitudesVar, longitudesVar] = await getLatLonData(
-    datavar,
-    props.datasources
-  );
   const latitudes = latitudesVar.data as Float32Array;
   const longitudes = longitudesVar.data as Float32Array;
 
@@ -281,15 +277,28 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
     const localVarname = varnameSelector.value;
     const currentTimeIndexSliderValue = timeIndexSlider.value as number;
     const datavar = await getDataVar(localVarname, props.datasources!);
-
     if (datavar !== undefined) {
+      // Load latitudes and longitudes arrays (1D)
+      const { latitudes, longitudes, latitudesAttrs, longitudesAttrs } =
+        await getLatLonData(datavar, props.datasources);
+      const dimensions = datavar.attrs._ARRAY_DIMENSIONS as string[];
+      const geoDims: number[] = [];
+      for (let i = 0; i < dimensions.length; i++) {
+        let latDims = latitudesAttrs._ARRAY_DIMENSIONS as string[];
+        let lonDims = longitudesAttrs._ARRAY_DIMENSIONS as string[];
+        if (latDims.includes(dimensions[i])) {
+          geoDims.push(i);
+        } else if (lonDims.includes(dimensions[i])) {
+          geoDims.push(i);
+        }
+      }
       const { dimensionRanges, indices } = getDimensionInfo(
         datavar,
         paramDimIndices.value,
         paramDimMinBounds.value,
         paramDimMaxBounds.value,
         dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
-        1,
+        geoDims,
         varinfo.value?.dimRanges,
         updateMode
       );
@@ -310,7 +319,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
       const material = points!.material as THREE.ShaderMaterial;
       material.uniforms.fillValue.value = fillValue;
       material.uniforms.missingValue.value = missingValue;
-      await getGrid(datavar, rawData);
+      await getGrid(latitudes, longitudes, rawData);
       const timeinfo = await getTimeInfo(
         props.datasources!,
         dimensionRanges,

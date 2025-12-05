@@ -14,16 +14,10 @@ const { landSeaMaskChoice, landSeaMaskUseTexture } = storeToRefs(store);
           <div class="control has-icons-left">
             <div class="select">
               <select id="land_sea_mask" v-model="landSeaMaskChoice">
-                <option value="off">
-                  <i class="fas fa-mask"></i> -- Land/Sea Mask --
-                </option>
-                <option value="land">
-                  <i class="fas fa-mountain"></i> Land
-                </option>
-                <option value="sea"><i class="fas fa-water"></i> Sea</option>
-                <option value="globe">
-                  <i class="fas fa-globe"></i> Globe
-                </option>
+                <option value="off">-- Land/Sea Mask --</option>
+                <option value="land">Land</option>
+                <option value="sea">Sea</option>
+                <option value="globe">Globe</option>
               </select>
             </div>
             <span class="icon is-medium is-left">

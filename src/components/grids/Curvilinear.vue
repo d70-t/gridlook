@@ -132,23 +132,29 @@ function latLonToCartesianFlat(
 
 async function getGrid(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
-  data: Float32Array
+  data: Float32Array,
+  missingValue: number,
+  fillValue: number
 ) {
-  const [latitudesVar, longitudesVar] = await getLatLonData(
+  const { latitudes, longitudes } = await getLatLonData(
     datavar,
     props.datasources
   );
 
-  const latitudes = latitudesVar.data as Float64Array;
-  const longitudes = longitudesVar.data as Float64Array;
-  const [nj, ni] = latitudesVar.shape; // [j, i]
+  const latitudesData = latitudes.data as Float64Array;
+  const longitudesData = longitudes.data as Float64Array;
+  const [nj, ni] = latitudes.shape;
 
   // Detect potential mirroring issues by analyzing longitude progression
-  const shouldFlipLongitude = detectLongitudeFlip(longitudes, ni);
+  const shouldFlipLongitude = detectLongitudeFlip(
+    longitudesData,
+    missingValue,
+    fillValue
+  );
 
   await buildCurvilinearGeometry(
-    latitudes,
-    longitudes,
+    latitudesData,
+    longitudesData,
     data,
     nj,
     ni,
@@ -156,39 +162,23 @@ async function getGrid(
   );
 }
 
-/**
- * Detects if the longitude ordering needs to be flipped to prevent horizontal mirroring
- */
-function detectLongitudeFlip(longitudes: Float64Array, ni: number): boolean {
-  // Sample the first row to understand longitude progression
-  const firstRowLons = [];
-  for (let i = 0; i < ni; i++) {
-    firstRowLons.push(longitudes[0 * ni + i]);
-  }
-
-  // Check longitude progression
-  let increasingCount = 0;
-  let decreasingCount = 0;
-
-  for (let i = 0; i < firstRowLons.length - 1; i++) {
-    let diff = firstRowLons[i + 1] - firstRowLons[i];
-
-    // Handle longitude wraparound (crossing 180° or 0°)
-    if (diff > 180) {
-      diff = diff - 360;
-    } else if (diff < -180) {
-      diff = diff + 360;
+function detectLongitudeFlip(
+  longitudes: Float64Array,
+  missingValue: number,
+  fillValue: number
+): boolean {
+  for (let i = 1; i < longitudes.length; i++) {
+    if (longitudes[i] === missingValue || longitudes[i] === fillValue) {
+      i++; // double increment in order to avoid comparison with missing values
+      continue; // skip missing values
     }
-
-    if (diff > 0) {
-      increasingCount++;
-    } else if (diff < 0) {
-      decreasingCount++;
+    if (longitudes[i] > longitudes[i - 1]) {
+      return false;
+    } else if (longitudes[i] < longitudes[i - 1]) {
+      return true;
     }
   }
-
-  // If majority of longitude differences are decreasing, flip the ordering
-  return decreasingCount > increasingCount;
+  return true;
 }
 
 async function buildCurvilinearGeometry(
@@ -340,7 +330,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
         paramDimMinBounds.value,
         paramDimMaxBounds.value,
         dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
-        2, // For curvilinear grids, we expect 2 spatial dimensions (j, i)
+        [datavar.shape.length - 2, datavar.shape.length - 1],
         varinfo.value?.dimRanges,
         updateMode
       );
@@ -354,7 +344,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
         rawData
       );
 
-      await getGrid(datavar, rawData);
+      await getGrid(datavar, rawData, missingValue, fillValue);
 
       for (let mesh of meshes) {
         const material = mesh.material as THREE.ShaderMaterial;

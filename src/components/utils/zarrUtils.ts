@@ -105,15 +105,22 @@ export async function getLatLonData(
   if (!longitudeName) {
     longitudeName = "lon";
   }
-  const latitudes = await zarr
-    .open(grid.resolve(latitudeName), { kind: "array" })
-    .then(zarr.get);
+  const latitudesVar = await zarr.open(grid.resolve(latitudeName), {
+    kind: "array",
+  });
+  const latitudes = await zarr.get(latitudesVar);
 
-  const longitudes = await zarr
-    .open(grid.resolve(longitudeName), { kind: "array" })
-    .then(zarr.get);
+  const longitudesVar = await zarr.open(grid.resolve(longitudeName), {
+    kind: "array",
+  });
+  const longitudes = await zarr.get(longitudesVar);
 
-  return [latitudes, longitudes];
+  return {
+    latitudesAttrs: latitudesVar.attrs,
+    latitudes,
+    longitudesAttrs: longitudesVar.attrs,
+    longitudes,
+  };
 }
 
 export function getDataBounds(

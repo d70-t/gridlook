@@ -12,7 +12,13 @@ const localTimeValue = ref<number | null>(null);
 const debouncedTimeUpdater = ref<((value: number) => void) | null>(null);
 
 const timeRange = computed(() => {
-  return varinfo.value?.dimRanges[0];
+  return varinfo.value?.dimRanges.find((range) => range?.name === "time");
+});
+
+const timeRangeIndex = computed(() => {
+  return (
+    varinfo.value?.dimRanges.findIndex((range) => range?.name === "time") ?? -1
+  );
 });
 
 const isTimeSlider = computed(() => {
@@ -41,12 +47,17 @@ watch(
   () => {
     if (timeRange.value) {
       localTimeValue.value =
-        dimSlidersValues.value[0] ?? timeRange.value.startPos ?? null;
+        dimSlidersValues.value[timeRangeIndex.value] ??
+        timeRange.value.startPos ??
+        null;
 
       // Create debounced updater
       debouncedTimeUpdater.value = debounce((value: number) => {
-        if (dimSlidersValues.value[0] !== undefined) {
-          dimSlidersValues.value[0] = value;
+        if (
+          timeRangeIndex.value !== -1 &&
+          dimSlidersValues.value[timeRangeIndex.value] !== undefined
+        ) {
+          dimSlidersValues.value[timeRangeIndex.value] = value;
         }
       }, 550);
     }
@@ -59,7 +70,8 @@ watch(localTimeValue, (newValue) => {
   if (
     newValue !== null &&
     newValue !== undefined &&
-    newValue !== dimSlidersValues.value[0] &&
+    timeRangeIndex.value !== -1 &&
+    newValue !== dimSlidersValues.value[timeRangeIndex.value] &&
     debouncedTimeUpdater.value
   ) {
     debouncedTimeUpdater.value(newValue);
@@ -82,7 +94,7 @@ watch(localTimeValue, (newValue) => {
             :max="timeRange?.maxBound ?? 0"
             style="width: 8em"
           />
-          <div class="my-2">/ {{ timeRange?.maxBound ?? 0 }}</div>
+          <div class="my-2">/ {{ timeRange?.maxBound ?? "-" }}</div>
         </div>
       </div>
       <input
@@ -100,7 +112,8 @@ watch(localTimeValue, (newValue) => {
           ></span>
         </div>
         <div class="has-text-right">
-          {{ currentVarName }} @ {{ dimSlidersDisplay[0] }}
+          {{ currentVarName }} @
+          {{ timeRangeIndex !== -1 ? dimSlidersDisplay[timeRangeIndex] : "-" }}
           <br />
           <span v-if="currentTimeValue">
             {{ isTimeSlider ? currentTimeValue.format() : "-" }}
