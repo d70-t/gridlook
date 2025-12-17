@@ -212,25 +212,25 @@ onMounted(() => {
     class="panel gl_controls"
     :class="{ 'mobile-visible': !isHidden }"
   >
-    <div
-      class="panel-heading"
-      style="display: flex; justify-content: space-between"
-    >
-      <button
-        type="button"
-        class="button is-primary is-hidden-tablet p-3"
-        @click="toggleMobileMenu"
-      >
-        <i class="fa-solid fa-bars"></i>
-      </button>
+    <div class="panel-heading">
       <div
         v-if="modelInfo"
         class="mobile-title text-wrap is-flex is-align-items-center"
         style="display: flex; align-items: center"
       >
-        {{ modelInfo.title }}
+        <button
+          type="button"
+          class="button is-primary is-hidden-tablet p-3 mr-3"
+          @click="toggleMobileMenu"
+        >
+          <i class="fa-solid fa-bars"></i>
+        </button>
+
+        <span class="ellipsis" :title="modelInfo.title">
+          {{ modelInfo.title }}
+        </span>
       </div>
-      <div v-else>no data available</div>
+      <div v-else>No data available</div>
       <button type="button" class="is-hidden-mobile" @click="toggleMenu">
         <i
           class="fa-solid"
@@ -243,7 +243,7 @@ onMounted(() => {
     </div>
 
     <Transition name="slide">
-      <div v-if="modelInfo && !isHidden" className="">
+      <div v-if="modelInfo && !isHidden" class="controls-scroll">
         <VariableSelector v-model="varnameSelector" :model-info="modelInfo" />
         <TimeControls />
         <DimensionSliders />
@@ -299,11 +299,31 @@ onMounted(() => {
   }
 
   .panel-heading {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: nowrap;
+    overflow: visible;
     padding-left: 16px;
     padding-right: 16px;
     padding-top: 12px;
     padding-bottom: 12px;
     border-radius: 0;
+    font-size: 1.1rem;
+  }
+
+  .panel-heading .mobile-title {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .ellipsis {
+    overflow: hidden;
+    word-break: break-word;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    display: block;
+    width: 100%;
   }
 
   @media only screen and (max-width: bulmaUt.$tablet) {
@@ -317,12 +337,12 @@ onMounted(() => {
     }
 
     .panel-heading .mobile-title {
-      float: right;
+      flex: 1;
+      min-width: 0;
     }
 
     &.mobile-visible {
       max-height: 100vh;
-      height: 100vh;
     }
   }
 
