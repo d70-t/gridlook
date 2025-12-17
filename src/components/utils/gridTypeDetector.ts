@@ -1,10 +1,5 @@
 import * as zarr from "zarrita";
-import {
-  findCRSVar,
-  getLatLonData,
-  isLatitude,
-  isLongitude,
-} from "./zarrUtils";
+import { getLatLonData, isLatitude, isLongitude } from "./zarrUtils";
 import type { TSources } from "@/types/GlobeTypes";
 import { ZarrDataManager } from "./ZarrDataManager";
 

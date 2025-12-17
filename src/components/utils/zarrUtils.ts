@@ -2,19 +2,6 @@ import type { TSources } from "@/types/GlobeTypes";
 import * as zarr from "zarrita";
 import { ZarrDataManager } from "./ZarrDataManager";
 
-export async function findCRSVar(datasources: TSources, varname: string) {
-  const source = ZarrDataManager.getDatasetSource(datasources, varname);
-  const datavar = await ZarrDataManager.getVariableInfo(source, varname);
-  if (datavar.attrs?.grid_mapping) {
-    return String(datavar.attrs.grid_mapping).split(":")[0];
-  }
-  const group = await ZarrDataManager.getDatasetGroup(source);
-  if (group.attrs?.grid_mapping) {
-    return String(group.attrs.grid_mapping).split(":")[0];
-  }
-  return "crs";
-}
-
 export function getMissingValue(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>
 ) {

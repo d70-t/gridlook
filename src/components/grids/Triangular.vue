@@ -1,6 +1,5 @@
 <script lang="ts" setup>
 import * as THREE from "three";
-import * as zarr from "zarrita";
 import { grid2buffer, data2valueBuffer } from "../utils/gridlook.ts";
 import { makeColormapMaterial } from "../utils/colormapShaders.ts";
 
@@ -49,7 +48,6 @@ const {
   redraw,
   makeSnapshot,
   toggleRotate,
-  getDataVar,
   getTimeInfo,
   updateLandSeaMask,
   updateColormap,
