@@ -227,6 +227,6 @@ export class ZarrDataManager {
   static invalidateCache() {
     this.datasetCache.clear();
     this.variableCache.clear();
-    this.variableCache.clear();
+    this.dataCache.clear();
   }
 }
