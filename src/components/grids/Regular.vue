@@ -18,11 +18,7 @@ import { useLog } from "../utils/logging.ts";
 import { useSharedGridLogic } from "./useSharedGridLogic.ts";
 import { useUrlParameterStore } from "../store/paramStore.ts";
 import { getDimensionInfo } from "../utils/dimensionHandling.ts";
-import {
-  castDataVarToFloat32,
-  getDataBounds,
-  getLatLonData,
-} from "../utils/zarrUtils.ts";
+import { castDataVarToFloat32, getDataBounds } from "../utils/zarrUtils.ts";
 import { ZarrDataManager } from "../utils/ZarrDataManager.ts";
 
 const props = defineProps<{
@@ -150,7 +146,7 @@ async function getDims() {
   latitudes.value = new Float64Array(new Set(myLatitudes));
 }
 
-// The alternative implementation, see FIXME above
+// The alternative implementation, see FIXME abovegg
 // async function getDims() {
 //   const datavar = await ZarrDataManager.getVariableInfo(
 //     ZarrDataManager.getDatasetSource(props.datasources!, varnameSelector.value),
