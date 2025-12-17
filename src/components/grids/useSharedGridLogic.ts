@@ -34,6 +34,7 @@ import {
   CONTROL_PANEL_WIDTH,
   MOBILE_BREAKPOINT,
 } from "../utils/viewConstants.ts";
+import { ZarrDataManager } from "../utils/ZarrDataManager.ts";
 
 export function useSharedGridLogic() {
   const store = useGlobeControlStore();
@@ -481,44 +482,20 @@ export function useSharedGridLogic() {
   }
 
   async function getDataVar(myVarname: string, datasources: TSources) {
-    if (!datavars.value[myVarname]) {
-      let myDatasource;
-      if (myVarname === "time") {
-        myDatasource = datasources!.levels[0].time;
-      } else {
-        myDatasource = datasources!.levels[0].datasources[myVarname];
-      }
-      try {
-        const root = zarr.root(new zarr.FetchStore(myDatasource.store));
-        const datavar = await zarr.open(
-          root.resolve(myDatasource.dataset + "/" + myVarname),
-          {
-            kind: "array",
-          }
-        );
-        datavars.value[myVarname] = datavar;
-      } catch (error) {
-        logError(
-          error,
-          `Couldn't fetch variable ${myVarname} from store: ${myDatasource.store} and dataset: ${myDatasource.dataset}`
-        );
-        return undefined;
-      }
+    const myDatasource = datasources!.levels[0].datasources[myVarname];
+    try {
+      const datavar = await ZarrDataManager.getVariableInfoByDatasetSources(
+        datasources!,
+        myVarname
+      );
+      return datavar;
+    } catch (error) {
+      logError(
+        error,
+        `Couldn't fetch variable ${myVarname} from store: ${myDatasource.store} and dataset: ${myDatasource.dataset}`
+      );
+      return undefined;
     }
-    return datavars.value[myVarname];
-  }
-
-  async function extractTimeInfo(
-    timevar: zarr.Array<zarr.DataType, zarr.FetchStore> | undefined,
-    index: number
-  ): Promise<TTimeInfo> {
-    if (!timevar) return {};
-
-    const timevalues = (await zarr.get(timevar, [null])).data as Int32Array;
-    return {
-      values: timevalues,
-      current: decodeTime(timevalues[index], timevar.attrs),
-    };
   }
 
   async function getTimeInfo(
@@ -529,8 +506,15 @@ export function useSharedGridLogic() {
     if (dimensionRanges[0]?.name !== "time") {
       return {};
     }
-    const timevar = await getDataVar("time", datasources);
-    return await extractTimeInfo(timevar, index);
+    const myDatasource = datasources!.levels[0].time;
+    const timevar = await ZarrDataManager.getVariableInfo(myDatasource, "time");
+    const timevalues = (
+      await ZarrDataManager.getVariableData(myDatasource, "time", [null])
+    ).data as Int32Array;
+    return {
+      values: timevalues,
+      current: decodeTime(timevalues[index], timevar.attrs),
+    };
   }
 
   type TCameraState = {

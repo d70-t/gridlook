@@ -31,5 +31,7 @@ export function toNormalizedError(maybeError: unknown): NormalizedError {
 }
 
 export function getErrorMessage(error: unknown) {
-  return toNormalizedError(error).message;
+  const errorMessage = toNormalizedError(error).message;
+  // strip quotation marks added by JSON.stringify
+  return errorMessage.replace(/^"(.*)"$/, "$1");
 }

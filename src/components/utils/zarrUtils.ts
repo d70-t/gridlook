@@ -1,41 +1,6 @@
 import type { TSources } from "@/types/GlobeTypes";
 import * as zarr from "zarrita";
-
-export function getDataSourceStore(datasources: TSources, varname: string) {
-  const datasource = datasources.levels[0].datasources[varname];
-  return zarr.root(
-    new zarr.FetchStore(
-      (datasource.store.endsWith("/")
-        ? datasource.store.slice(0, -1)
-        : datasource.store) +
-        "/" +
-        datasource.dataset
-    )
-  );
-}
-
-export async function findCRSVar(root: zarr.FetchStore, varname: string) {
-  const datavar = await zarr.open(root.resolve(varname), {
-    kind: "array",
-  });
-  if (datavar.attrs?.grid_mapping) {
-    return String(datavar.attrs.grid_mapping).split(":")[0];
-  }
-  const group = await zarr.open(root, { kind: "group" });
-  if (group.attrs?.grid_mapping) {
-    return String(group.attrs.grid_mapping).split(":")[0];
-  }
-  return "crs";
-}
-
-export async function getArrayInfo(root: zarr.FetchStore, varname: string) {
-  const array = await zarr.open(root.resolve(varname), { kind: "array" });
-  const obje = {
-    shape: array.shape,
-    dimensions: array.attrs._ARRAY_DIMENSIONS,
-  };
-  return obje;
-}
+import { ZarrDataManager } from "./ZarrDataManager";
 
 export function getMissingValue(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>
@@ -78,14 +43,15 @@ export function isLatitude(name: string) {
 
 export async function getLatLonData(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
-  datasources: TSources | undefined
+  datasources: TSources | undefined,
+  isRotated = false
 ) {
   const gridsource = datasources!.levels[0].grid;
-  const gridRoot = zarr.root(new zarr.FetchStore(gridsource.store));
-  const grid = await zarr.open(gridRoot.resolve(gridsource.dataset), {
-    kind: "group",
-  });
-  const coordinates = datavar.attrs.coordinates as string;
+
+  // we simply hardcode rlon and rlat if we know it's rotated
+  const coordinates = isRotated
+    ? "rlon rlat"
+    : (datavar.attrs.coordinates as string);
   let latitudeName: string | null = null;
   let longitudeName: string | null = null;
   if (coordinates) {
@@ -105,15 +71,20 @@ export async function getLatLonData(
   if (!longitudeName) {
     longitudeName = "lon";
   }
-  const latitudesVar = await zarr.open(grid.resolve(latitudeName), {
-    kind: "array",
-  });
-  const latitudes = await zarr.get(latitudesVar);
 
-  const longitudesVar = await zarr.open(grid.resolve(longitudeName), {
-    kind: "array",
-  });
-  const longitudes = await zarr.get(longitudesVar);
+  const latitudesVar = await ZarrDataManager.getVariableInfo(
+    gridsource,
+    latitudeName
+  );
+  const longitudesVar = await ZarrDataManager.getVariableInfo(
+    gridsource,
+    longitudeName
+  );
+
+  const latitudes =
+    await ZarrDataManager.getVariableDataFromArray(latitudesVar);
+  const longitudes =
+    await ZarrDataManager.getVariableDataFromArray(longitudesVar);
 
   return {
     latitudesAttrs: latitudesVar.attrs,

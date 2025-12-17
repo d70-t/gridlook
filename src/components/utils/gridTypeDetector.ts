@@ -1,12 +1,7 @@
 import * as zarr from "zarrita";
-import {
-  findCRSVar,
-  getDataSourceStore,
-  getLatLonData,
-  isLatitude,
-  isLongitude,
-} from "./zarrUtils";
+import { getLatLonData, isLatitude, isLongitude } from "./zarrUtils";
 import type { TSources } from "@/types/GlobeTypes";
+import { ZarrDataManager } from "./ZarrDataManager";
 
 export const GRID_TYPES = {
   REGULAR: "regular",
@@ -26,13 +21,7 @@ async function checkTriangularGrid(
 ): Promise<boolean> {
   try {
     const gridsource = datasources!.levels[0].grid;
-    const gridRoot = zarr.root(new zarr.FetchStore(gridsource.store));
-    const grid = await zarr.open(gridRoot.resolve(gridsource.dataset), {
-      kind: "group",
-    });
-    await zarr.open(grid.resolve("vertex_of_cell"), {
-      kind: "array",
-    });
+    await ZarrDataManager.getVariableInfo(gridsource, "vertex_of_cell");
     return true;
   } catch {
     return false;
@@ -100,18 +89,15 @@ export async function getGridType(
   }
 
   try {
-    const root = getDataSourceStore(datasources!, varnameSelector);
-
-    const datavar = await zarr.open(root.resolve(varnameSelector), {
-      kind: "array",
-    });
+    const datavar = await ZarrDataManager.getVariableInfo(
+      ZarrDataManager.getDatasetSource(datasources!, varnameSelector),
+      varnameSelector
+    );
 
     try {
-      const crs = await zarr.open(
-        root.resolve(await findCRSVar(root, varnameSelector)),
-        {
-          kind: "array",
-        }
+      const crs = await ZarrDataManager.getCRSInfo(
+        datasources!,
+        varnameSelector
       );
       if (checkHealpixGrid(crs)) {
         return GRID_TYPES.HEALPIX;
@@ -146,6 +132,7 @@ export async function getGridType(
     if (checkIrregularGrid(latitudesData, longitudesData)) {
       return GRID_TYPES.IRREGULAR;
     }
+    logError("No matching grid type found", "Could not determine grid type");
     return GRID_TYPES.ERROR;
   } catch (error) {
     logError(error, "Could not determine grid type");

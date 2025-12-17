@@ -12,7 +12,6 @@ import { availableColormaps } from "@/components/utils/colormapShaders.js";
 import { ref, computed, watch, onMounted, type Ref } from "vue";
 import type { TColorMap, TSources } from "../types/GlobeTypes";
 import { useGlobeControlStore } from "../components/store/store";
-import Toast from "primevue/toast";
 import { useLog } from "../components/utils/logging";
 import { storeToRefs } from "pinia";
 import { useUrlParameterStore } from "../components/store/paramStore";
@@ -22,6 +21,8 @@ import {
   type T_GRID_TYPES,
 } from "../components/utils/gridTypeDetector";
 import { useUrlSync } from "../components/store/useUrlSync";
+import { ZarrDataManager } from "@/components/utils/ZarrDataManager";
+import Toast from "@/components/Toast.vue";
 
 const props = defineProps<{ src: string }>();
 
@@ -82,6 +83,9 @@ async function setGridType() {
     logError
   );
   gridType.value = localGridType;
+  if (localGridType === GRID_TYPES.ERROR) {
+    store.stopLoading();
+  }
 }
 
 watch(
@@ -215,6 +219,7 @@ async function indexFromIndex(src: string) {
 
 const updateSrc = async () => {
   const src = props.src;
+  ZarrDataManager.invalidateCache();
 
   // FIXME: Trying zarr and json-index in parallel and picking the first that
   // works. If both fail, we log the last error which is from the json-index.
@@ -265,6 +270,7 @@ const updateSrc = async () => {
     }
   }
   if (!sourceValid.value && lastError) {
+    store.stopLoading();
     logError(lastError, "Failed to fetch data");
   }
 };
@@ -292,22 +298,7 @@ onMounted(async () => {
 
 <template>
   <main>
-    <Toast unstyled>
-      <template #container="{ message, closeCallback }">
-        <div class="message is-danger" style="max-width: 400px">
-          <div class="message-body is-flex">
-            <p class="mr-2 text-wrap">
-              {{ message.detail }}
-            </p>
-            <button
-              class="delete"
-              type="button"
-              @click="closeCallback"
-            ></button>
-          </div>
-        </div>
-      </template>
-    </Toast>
+    <Toast />
     <GlobeControls
       v-if="sourceValid"
       :key="globeControlKey"
@@ -346,7 +337,7 @@ onMounted(async () => {
   </main>
 </template>
 
-<style>
+<style lang="scss">
 main {
   overflow: hidden;
 }

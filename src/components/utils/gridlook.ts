@@ -1,19 +1,14 @@
 import * as THREE from "three";
 import * as zarr from "zarrita";
 import { castDataVarToFloat32, getDataBounds } from "./zarrUtils";
+import { ZarrDataManager } from "./ZarrDataManager";
 
-export async function grid2buffer(grid: zarr.Group<zarr.FetchStore>) {
+export async function grid2buffer(grid: { store: string; dataset: string }) {
   const [voc, vx, vy, vz] = await Promise.all([
-    zarr.open(grid.resolve("vertex_of_cell"), { kind: "array" }).then(zarr.get),
-    zarr
-      .open(grid.resolve("cartesian_x_vertices"), { kind: "array" })
-      .then(zarr.get),
-    zarr
-      .open(grid.resolve("cartesian_y_vertices"), { kind: "array" })
-      .then(zarr.get),
-    zarr
-      .open(grid.resolve("cartesian_z_vertices"), { kind: "array" })
-      .then(zarr.get),
+    ZarrDataManager.getVariableData(grid, "vertex_of_cell"),
+    ZarrDataManager.getVariableData(grid, "cartesian_x_vertices"),
+    ZarrDataManager.getVariableData(grid, "cartesian_y_vertices"),
+    ZarrDataManager.getVariableData(grid, "cartesian_z_vertices"),
   ]);
 
   const ncells = voc.shape[1];

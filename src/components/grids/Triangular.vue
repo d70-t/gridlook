@@ -1,6 +1,5 @@
 <script lang="ts" setup>
 import * as THREE from "three";
-import * as zarr from "zarrita";
 import { grid2buffer, data2valueBuffer } from "../utils/gridlook.ts";
 import { makeColormapMaterial } from "../utils/colormapShaders.ts";
 
@@ -17,6 +16,7 @@ import { useLog } from "../utils/logging.ts";
 import { useSharedGridLogic } from "./useSharedGridLogic.ts";
 import { useUrlParameterStore } from "../store/paramStore.ts";
 import { getDimensionInfo } from "../utils/dimensionHandling.ts";
+import { ZarrDataManager } from "../utils/ZarrDataManager.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -48,7 +48,6 @@ const {
   redraw,
   makeSnapshot,
   toggleRotate,
-  getDataVar,
   getTimeInfo,
   updateLandSeaMask,
   updateColormap,
@@ -130,11 +129,7 @@ const BATCH_SIZE = 3000000; // number of triangles per mesh (tune as needed)
 
 async function fetchGrid() {
   try {
-    const root = zarr.root(new zarr.FetchStore(gridsource.value!.store));
-    const grid = await zarr.open(root.resolve(gridsource.value!.dataset), {
-      kind: "group",
-    });
-    const verts = await grid2buffer(grid);
+    const verts = await grid2buffer(gridsource.value!);
 
     // Remove old meshes from scene
     for (const mesh of meshes) {
@@ -175,7 +170,10 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
     updatingData.value = true;
 
     const localVarname = varnameSelector.value;
-    const datavar = await getDataVar(localVarname, props.datasources!);
+    const datavar = await ZarrDataManager.getVariableInfo(
+      ZarrDataManager.getDatasetSource(props.datasources!, localVarname),
+      localVarname
+    );
 
     if (datavar !== undefined) {
       const { dimensionRanges, indices } = getDimensionInfo(
@@ -189,7 +187,10 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
         updateMode
       );
 
-      const rawData = await zarr.get(datavar, indices);
+      const rawData = await ZarrDataManager.getVariableDataFromArray(
+        datavar,
+        indices
+      );
       const dataBuffer = data2valueBuffer(rawData, datavar);
       // Distribute data values to each mesh
       let offset = 0;
