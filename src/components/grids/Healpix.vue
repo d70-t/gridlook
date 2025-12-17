@@ -17,14 +17,10 @@ import { storeToRefs } from "pinia";
 import type { TSources } from "../../types/GlobeTypes.ts";
 import { useLog } from "../utils/logging.ts";
 import { useSharedGridLogic } from "./useSharedGridLogic.ts";
-import {
-  castDataVarToFloat32,
-  findCRSVar,
-  getDataBounds,
-  getDataSourceStore,
-} from "../utils/zarrUtils.ts";
+import { castDataVarToFloat32, getDataBounds } from "../utils/zarrUtils.ts";
 import { getDimensionInfo } from "../utils/dimensionHandling.ts";
 import { useUrlParameterStore } from "../store/paramStore.ts";
+import { ZarrDataManager } from "../utils/ZarrDataManager.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -142,29 +138,26 @@ async function fetchGrid() {
 }
 
 async function getNside() {
-  const root = getDataSourceStore(props.datasources!, varnameSelector.value);
-
-  const resolveRoot = root.resolve(
-    await findCRSVar(root, varnameSelector.value)
+  const crs = await ZarrDataManager.getCRSInfo(
+    props.datasources!,
+    varnameSelector.value
   );
-  const crs = await zarr.open(resolveRoot, {
-    kind: "array",
-  });
   // FIXME: could probably have other names
   const nside = crs.attrs["healpix_nside"] as number;
   return nside;
 }
 
 async function getCells() {
-  const root = getDataSourceStore(props.datasources!, varnameSelector.value);
   try {
-    const cellstore = await zarr.open(root.resolve("cell"), {
-      kind: "array",
-    });
-    let cells = (await zarr.get(cellstore)).data as
-      | Int32Array
-      | BigInt64Array
-      | number[];
+    let cells = (
+      await ZarrDataManager.getVariableData(
+        ZarrDataManager.getDatasetSource(
+          props.datasources!,
+          varnameSelector.value
+        ),
+        "cell"
+      )
+    ).data as Int32Array | BigInt64Array | number[];
     if (typeof cells[0] === "bigint") {
       cells = Array.from(cells, Number) as number[];
     }
@@ -196,8 +189,12 @@ async function getHealpixData(
       pixelStart,
       pixelEnd
     );
-    const data = (await zarr.get(datavar, localDimensionIndices))
-      .data as Float32Array;
+    const data = (
+      await ZarrDataManager.getVariableDataFromArray(
+        datavar,
+        localDimensionIndices
+      )
+    ).data as Float32Array;
 
     dataSlice.set(data);
   } else {
@@ -238,8 +235,12 @@ async function getHealpixData(
       start,
       end
     );
-    const data = (await zarr.get(datavar, localDimensionIndices))
-      .data as Float32Array;
+    const data = (
+      await ZarrDataManager.getVariableDataFromArray(
+        datavar,
+        localDimensionIndices
+      )
+    ).data as Float32Array;
     const isContiguous =
       relevantIndices.length > 1 &&
       relevantIndices[relevantIndices.length - 1] - relevantIndices[0] ===
@@ -397,13 +398,8 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
       return;
     }
     updatingData.value = true;
-    const localVarname = varnameSelector.value;
-
-    const datavar = await getDataVar(localVarname, props.datasources!);
-
-    if (datavar !== undefined) {
-      await processDataVar(datavar, updateMode);
-    }
+    const datavar = await getDataVar(varnameSelector.value, props.datasources!);
+    await processDataVar(datavar, updateMode);
     updatingData.value = false;
 
     if (updateCount.value !== myUpdatecount) {
@@ -418,7 +414,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
 }
 
 async function processDataVar(
-  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  datavar: zarr.Array<zarr.DataType, zarr.FetchStore> | undefined,
   updateMode: TUpdateMode
 ) {
   if (datavar !== undefined) {

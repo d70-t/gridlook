@@ -1,7 +1,6 @@
 <script lang="ts" setup>
 import * as THREE from "three";
-import * as zarr from "zarrita";
-import type { Readable } from "@zarrita/storage";
+
 import {
   calculateColorMapProperties,
   makeTextureMaterial,
@@ -21,10 +20,10 @@ import { useUrlParameterStore } from "../store/paramStore.ts";
 import { getDimensionInfo } from "../utils/dimensionHandling.ts";
 import {
   castDataVarToFloat32,
-  findCRSVar,
   getDataBounds,
-  getDataSourceStore,
+  getLatLonData,
 } from "../utils/zarrUtils.ts";
+import { ZarrDataManager } from "../utils/ZarrDataManager.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -112,51 +111,27 @@ const timeIndexSlider = computed(() => {
   return dimSlidersValues.value[0];
 });
 
-const gridsource = computed(() => {
-  if (props.datasources) {
-    return props.datasources.levels[0].grid;
-  } else {
-    return undefined;
-  }
-});
-
 async function datasourceUpdate() {
   resetDataVars();
   if (props.datasources !== undefined) {
-    const root = zarr.root(new zarr.FetchStore(gridsource.value!.store));
-    const grid = await zarr.open(root.resolve(gridsource.value!.dataset), {
-      kind: "group",
-    });
-    await getDims(grid);
+    await getDims();
     await Promise.all([makeGeometry(), getData()]);
     updateLandSeaMask();
     updateColormap([mainMesh]);
   }
 }
 
-async function getDims(grid: zarr.Group<Readable>) {
-  // Assumptions: the last two dimensions of the data array are
-  // latitude and longitude (in this order)
-  const root = getDataSourceStore(props.datasources!, varnameSelector.value);
-  const datavar = await zarr.open(root.resolve(varnameSelector.value), {
-    kind: "array",
-  });
-  const dimensions = datavar.attrs._ARRAY_DIMENSIONS as string[];
-  const latName = dimensions[dimensions.length - 2];
-  const lonName = dimensions[dimensions.length - 1];
-
-  const [latitudesData, longitudesData] = await Promise.all([
-    zarr
-      .open(grid.resolve(latName), {
-        kind: "array",
-      })
-      .then(zarr.get),
-    zarr.open(grid.resolve(lonName), { kind: "array" }).then(zarr.get),
-  ]);
-  const myLongitudes = longitudesData.data as Float64Array;
-  const myLatitudes = latitudesData.data as Float64Array;
-  longitudes.value = new Float64Array(new Set(myLongitudes));
-  latitudes.value = new Float64Array(new Set(myLatitudes));
+async function getDims() {
+  const datavar = await ZarrDataManager.getVariableInfo(
+    ZarrDataManager.getDatasetSource(props.datasources!, varnameSelector.value),
+    varnameSelector.value
+  );
+  const { latitudes: myLatitudes, longitudes: myLongitudes } =
+    await getLatLonData(datavar, props.datasources!);
+  longitudes.value = new Float64Array(
+    new Set(myLongitudes.data as Float64Array)
+  );
+  latitudes.value = new Float64Array(new Set(myLatitudes.data as Float64Array));
 }
 
 function latLongToXYZ(lat: number, lon: number, radius: number) {
@@ -382,12 +357,9 @@ async function getRegularData(
 }
 
 async function getRotatedNorthPole(): Promise<{ lat: number; lon: number }> {
-  const root = getDataSourceStore(props.datasources!, varnameSelector.value);
-  const crs = await zarr.open(
-    root.resolve(await findCRSVar(root, varnameSelector.value)),
-    {
-      kind: "array",
-    }
+  const crs = await ZarrDataManager.getCRSInfo(
+    props.datasources!,
+    varnameSelector.value
   );
   const lat = crs.attrs["grid_north_pole_latitude"] as number;
   const lon = crs.attrs["grid_north_pole_longitude"] as number;
@@ -423,7 +395,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
       );
 
       let rawData = castDataVarToFloat32(
-        (await zarr.get(datavar, indices)).data
+        (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
       );
 
       const textures = await getRegularData(

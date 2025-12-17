@@ -22,6 +22,7 @@ import {
   type T_GRID_TYPES,
 } from "../components/utils/gridTypeDetector";
 import { useUrlSync } from "../components/store/useUrlSync";
+import { ZarrDataManager } from "@/components/utils/ZarrDataManager";
 
 const props = defineProps<{ src: string }>();
 
@@ -215,6 +216,7 @@ async function indexFromIndex(src: string) {
 
 const updateSrc = async () => {
   const src = props.src;
+  ZarrDataManager.invalidateCache();
 
   // FIXME: Trying zarr and json-index in parallel and picking the first that
   // works. If both fail, we log the last error which is from the json-index.
@@ -265,6 +267,7 @@ const updateSrc = async () => {
     }
   }
   if (!sourceValid.value && lastError) {
+    store.stopLoading();
     logError(lastError, "Failed to fetch data");
   }
 };

@@ -21,6 +21,7 @@ import {
   getDataBounds,
   getLatLonData,
 } from "../utils/zarrUtils.ts";
+import { ZarrDataManager } from "../utils/ZarrDataManager.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -278,7 +279,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
       );
 
       let rawData = castDataVarToFloat32(
-        (await zarr.get(datavar, indices)).data
+        (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
       );
 
       let { min, max, missingValue, fillValue } = getDataBounds(
