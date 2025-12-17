@@ -132,6 +132,7 @@ export async function getGridType(
     if (checkIrregularGrid(latitudesData, longitudesData)) {
       return GRID_TYPES.IRREGULAR;
     }
+    logError("No matching grid type found", "Could not determine grid type");
     return GRID_TYPES.ERROR;
   } catch (error) {
     logError(error, "Could not determine grid type");
