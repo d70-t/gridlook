@@ -55,10 +55,11 @@ const getToastTheme = (severity?: string) =>
 
 <style lang="scss">
 @use "bulma/sass/utilities" as bulmaUt;
+@use "sass:color";
 
 @mixin toast-accent($accent) {
-  border: 1px solid rgba($accent, 0.32);
-  background-color: rgba($accent, 0.12);
+  border: 1px solid color.adjust($accent, $lightness: 15%);
+  background-color: color.adjust($accent, $lightness: 25%);
 }
 
 .toast-card {
