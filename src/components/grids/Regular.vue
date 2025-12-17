@@ -126,8 +126,9 @@ async function getDims() {
     ZarrDataManager.getDatasetSource(props.datasources!, varnameSelector.value),
     varnameSelector.value
   );
+  const isRotated = props.isRotated;
   const { latitudes: myLatitudes, longitudes: myLongitudes } =
-    await getLatLonData(datavar, props.datasources!);
+    await getLatLonData(datavar, props.datasources!, isRotated);
   longitudes.value = new Float64Array(
     new Set(myLongitudes.data as Float64Array)
   );

@@ -43,11 +43,15 @@ export function isLatitude(name: string) {
 
 export async function getLatLonData(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
-  datasources: TSources | undefined
+  datasources: TSources | undefined,
+  isRotated = false
 ) {
   const gridsource = datasources!.levels[0].grid;
 
-  const coordinates = datavar.attrs.coordinates as string;
+  // we simply hardcode rlon and rlat if we know it's rotated
+  const coordinates = isRotated
+    ? "rlon rlat"
+    : (datavar.attrs.coordinates as string);
   let latitudeName: string | null = null;
   let longitudeName: string | null = null;
   if (coordinates) {
