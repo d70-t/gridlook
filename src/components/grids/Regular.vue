@@ -122,18 +122,48 @@ async function datasourceUpdate() {
 }
 
 async function getDims() {
+  // Assumptions: the last two dimensions of the data array are
+  // latitude and longitude (in this order)
+  // FIXME: this may not always be true and probably it would be cleaner
+  // to use the implemented ZarrUtils.getLatLonData function
+
+  // We had, however, cases where we could not determine wether the grid is
+  // rotated or not, which lead to failure in getLatLonData.
+  // On the other hand, I didn't find any case where lats and lons were not
+  // the two last dimensions of the data variable.
+  const grid = props.datasources!.levels[0].grid;
   const datavar = await ZarrDataManager.getVariableInfo(
     ZarrDataManager.getDatasetSource(props.datasources!, varnameSelector.value),
     varnameSelector.value
   );
-  const isRotated = props.isRotated;
-  const { latitudes: myLatitudes, longitudes: myLongitudes } =
-    await getLatLonData(datavar, props.datasources!, isRotated);
-  longitudes.value = new Float64Array(
-    new Set(myLongitudes.data as Float64Array)
-  );
-  latitudes.value = new Float64Array(new Set(myLatitudes.data as Float64Array));
+
+  const dimensions = datavar.attrs._ARRAY_DIMENSIONS as string[];
+  const latName = dimensions[dimensions.length - 2];
+  const lonName = dimensions[dimensions.length - 1];
+  const [latitudesData, longitudesData] = await Promise.all([
+    ZarrDataManager.getVariableData(grid, latName),
+    ZarrDataManager.getVariableData(grid, lonName),
+  ]);
+  const myLongitudes = longitudesData.data as Float64Array;
+  const myLatitudes = latitudesData.data as Float64Array;
+  longitudes.value = new Float64Array(new Set(myLongitudes));
+  latitudes.value = new Float64Array(new Set(myLatitudes));
 }
+
+// The alternative implementation, see FIXME above
+// async function getDims() {
+//   const datavar = await ZarrDataManager.getVariableInfo(
+//     ZarrDataManager.getDatasetSource(props.datasources!, varnameSelector.value),
+//     varnameSelector.value
+//   );
+//   const isRotated = props.isRotated;
+//   const { latitudes: myLatitudes, longitudes: myLongitudes } =
+//     await getLatLonData(datavar, props.datasources!, isRotated);
+//   longitudes.value = new Float64Array(
+//     new Set(myLongitudes.data as Float64Array)
+//   );
+//   latitudes.value = new Float64Array(new Set(myLatitudes.data as Float64Array));
+// }
 
 function latLongToXYZ(lat: number, lon: number, radius: number) {
   // Convert latitude and longitude from degrees to radians
