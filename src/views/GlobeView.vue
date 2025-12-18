@@ -8,6 +8,7 @@ import GridTriangular from "@/components/grids/Triangular.vue";
 import GridGaussianReduced from "@/components/grids/GaussianReduced.vue";
 import GridCurvilinear from "@/components/grids/Curvilinear.vue";
 import GlobeControls from "@/components/GlobeControls.vue";
+import DebugPanel from "@/components/DebugPanel.vue";
 import { availableColormaps } from "@/components/utils/colormapShaders.js";
 import { ref, computed, watch, onMounted, type Ref } from "vue";
 import type { TColorMap, TSources } from "../types/GlobeTypes";
@@ -44,6 +45,7 @@ const isInitialized = ref(false);
 const sourceValid = ref(false);
 const datasources: Ref<TSources | undefined> = ref(undefined);
 const gridType: Ref<T_GRID_TYPES | undefined> = ref(undefined);
+const debugPanelOpen = ref(false);
 
 const modelInfo = computed(() => {
   if (datasources.value === undefined) {
@@ -287,6 +289,10 @@ const toggleRotate = () => {
   }
 };
 
+const toggleDebugPanel = () => {
+  debugPanelOpen.value = !debugPanelOpen.value;
+};
+
 onMounted(async () => {
   // stop loading is handled in the grid components after data load
   store.startLoading();
@@ -305,6 +311,16 @@ onMounted(async () => {
       :model-info="modelInfo"
       @on-snapshot="makeSnapshot"
       @on-rotate="toggleRotate"
+    />
+
+    <!-- Debug Panel (dev mode only) -->
+    <DebugPanel
+      v-if="isDev"
+      :datasources="datasources"
+      :grid-type="gridType"
+      :is-open="debugPanelOpen"
+      @close="debugPanelOpen = false"
+      @toggle="toggleDebugPanel"
     />
 
     <div v-if="loading" class="top-right-loader loader" />
@@ -331,9 +347,6 @@ onMounted(async () => {
       :is-rotated="gridType === GRID_TYPES.REGULAR_ROTATED"
     />
     <AboutView />
-    <div v-if="isDev" class="dev-gridtype p-2 is-size-7">
-      Grid Type: {{ gridType }}
-    </div>
   </main>
 </template>
 

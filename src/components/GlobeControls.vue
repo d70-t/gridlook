@@ -1,19 +1,21 @@
 <script lang="ts" setup>
-import { computed, onBeforeMount, onMounted, ref, watch, type Ref } from "vue";
-import { useGlobeControlStore } from "./store/store.ts";
-import { storeToRefs } from "pinia";
-import type { TModelInfo, TBounds } from "../types/GlobeTypes.js";
-import { useUrlParameterStore } from "./store/paramStore.ts";
 import { useEventListener } from "@vueuse/core";
+import { storeToRefs } from "pinia";
+import { computed, onBeforeMount, onMounted, ref, watch, type Ref } from "vue";
 
-// Import control components
-import VariableSelector from "./controls/VariableSelector.vue";
-import TimeControls from "./controls/TimeControls.vue";
-import DimensionSliders from "./controls/DimensionSliders.vue";
+import type { TModelInfo, TBounds } from "../types/GlobeTypes.js";
+
+import ActionControls from "./controls/ActionControls.vue";
 import BoundsControls from "./controls/BoundsControls.vue";
 import ColormapControls from "./controls/ColormapControls.vue";
+import DimensionSliders from "./controls/DimensionSliders.vue";
 import MaskControls from "./controls/MaskControls.vue";
-import ActionControls from "./controls/ActionControls.vue";
+import TimeControls from "./controls/TimeControls.vue";
+import VariableSelector from "./controls/VariableSelector.vue";
+import { useUrlParameterStore } from "./store/paramStore.ts";
+
+// Import control components
+import { useGlobeControlStore } from "./store/store.ts";
 import { MOBILE_BREAKPOINT } from "./utils/viewConstants.ts";
 
 const props = defineProps<{ modelInfo?: TModelInfo }>();
@@ -243,7 +245,7 @@ onMounted(() => {
     </div>
 
     <Transition name="slide">
-      <div v-if="modelInfo && !isHidden" class="controls-scroll">
+      <div v-if="modelInfo && !isHidden" class="controls-scroll full-panel">
         <VariableSelector v-model="varnameSelector" :model-info="modelInfo" />
         <TimeControls />
         <DimensionSliders />
@@ -285,8 +287,10 @@ onMounted(() => {
   border-radius: 0 0 bulmaUt.$radius bulmaUt.$radius !important;
   z-index: 9;
 
+  .full-panel {
+    background: var(--bulma-scheme-main);
+  }
   .panel-block {
-    background-color: white;
     padding: 0.75em 0.8em;
   }
 
@@ -347,13 +351,8 @@ onMounted(() => {
   }
 
   @media (prefers-color-scheme: dark) {
-    .panel-block {
-      background-color: rgba(15, 15, 15, 0.8);
-    }
-
     .panel-heading {
-      background-color: rgb(15, 15, 15);
-      color: white;
+      background: var(--bulma-scheme-main);
     }
   }
 

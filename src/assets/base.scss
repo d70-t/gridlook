@@ -1,6 +1,22 @@
 @use "bulma";
 @import "@fortawesome/fontawesome-free/css/all.css";
 
+:root {
+  --bulma-scheme-main: white;
+  --bulma-scheme-main-bis: hsl(0, 0%, 98%);
+  --bulma-scheme-main-ter: hsl(0, 0%, 96%);
+  --bulma-text: hsl(0, 0%, 29%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bulma-scheme-main: rgba(17, 24, 40, 0.9);
+    --bulma-scheme-main-bis: hsl(220, 40%, 20%);
+    --bulma-scheme-main-ter: hsl(220, 35%, 23%);
+    --bulma-body-color: hsl(210, 10%, 80%);
+  }
+}
+
 html,
 body {
   margin: 0;
