@@ -1,27 +1,28 @@
 <script lang="ts" setup>
+import { storeToRefs } from "pinia";
 import * as THREE from "three";
-import * as zarr from "zarrita";
-import { makeColormapMaterial } from "../utils/colormapShaders.ts";
-
 import { computed, onBeforeMount, ref, watch } from "vue";
+import * as zarr from "zarrita";
 
+import type { TSources } from "../../types/GlobeTypes.ts";
+import { useUrlParameterStore } from "../store/paramStore.ts";
 import {
   UPDATE_MODE,
   useGlobeControlStore,
   type TUpdateMode,
 } from "../store/store.js";
-import { storeToRefs } from "pinia";
-import type { TSources } from "../../types/GlobeTypes.ts";
-import { useLog } from "../utils/logging.ts";
-import { useSharedGridLogic } from "./useSharedGridLogic.ts";
-import { useUrlParameterStore } from "../store/paramStore.ts";
+import { makeColormapMaterial } from "../utils/colormapShaders.ts";
 import { getDimensionInfo } from "../utils/dimensionHandling.ts";
+import { useLog } from "../utils/logging.ts";
+import { ZarrDataManager } from "../utils/ZarrDataManager.ts";
 import {
   castDataVarToFloat32,
   getDataBounds,
   getLatLonData,
+  createMissingOrFillPredicate,
 } from "../utils/zarrUtils.ts";
-import { ZarrDataManager } from "../utils/ZarrDataManager.ts";
+
+import { useSharedGridLogic } from "./useSharedGridLogic.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -38,6 +39,7 @@ const {
   selection,
   isInitializingVariable,
   varinfo,
+  projectionMode,
 } = storeToRefs(store);
 
 const urlParameterStore = useUrlParameterStore();
@@ -48,6 +50,12 @@ const updateCount = ref(0);
 const updatingData = ref(false);
 
 let meshes: THREE.Mesh[] = [];
+let cachedLatitudes: Float64Array | undefined;
+let cachedLongitudes: Float64Array | undefined;
+let cachedDataValues: Float32Array | undefined;
+let cachedNJ: number | undefined;
+let cachedNI: number | undefined;
+let cachedFlipLongitude = false;
 
 const {
   getScene,
@@ -58,6 +66,7 @@ const {
   getTimeInfo,
   updateLandSeaMask,
   updateColormap,
+  projectionHelper,
   canvas,
   box,
 } = useSharedGridLogic();
@@ -99,6 +108,13 @@ watch(
   }
 );
 
+watch(
+  () => [projectionMode.value],
+  () => {
+    void rebuildCurvilinearGeometryFromCache();
+  }
+);
+
 const colormapMaterial = computed(() => {
   if (invertColormap) {
     return makeColormapMaterial(colormap.value, 1.0, -1.0);
@@ -117,40 +133,43 @@ async function datasourceUpdate() {
 
 const BATCH_SIZE = 30;
 
-function latLonToCartesianFlat(
+function projectLatLon(
   lat: number,
   lon: number,
   out: Float32Array,
-  offset: number,
-  radius = 1
+  offset: number
 ) {
-  const latRad = (lat * Math.PI) / 180;
-  const lonRad = (lon * Math.PI) / 180;
-  out[offset] = radius * Math.cos(latRad) * Math.cos(lonRad);
-  out[offset + 1] = radius * Math.cos(latRad) * Math.sin(lonRad);
-  out[offset + 2] = radius * Math.sin(latRad);
+  const helper = projectionHelper.value;
+  const normalizedLon = helper.normalizeLongitude(lon);
+  const [x, y, z] = helper.project(lat, normalizedLon, 1);
+  out[offset] = x;
+  out[offset + 1] = y;
+  out[offset + 2] = z;
 }
 
 async function getGrid(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
-  data: Float32Array,
-  missingValue: number,
-  fillValue: number
+  data: Float32Array
 ) {
   const { latitudes, longitudes } = await getLatLonData(
     datavar,
     props.datasources
   );
+  const isMissingOrFill = createMissingOrFillPredicate(datavar);
 
   const latitudesData = latitudes.data as Float64Array;
   const longitudesData = longitudes.data as Float64Array;
   const [nj, ni] = latitudes.shape;
+  cachedLatitudes = Float64Array.from(latitudesData);
+  cachedLongitudes = Float64Array.from(longitudesData);
+  cachedDataValues = Float32Array.from(data);
+  cachedNJ = nj;
+  cachedNI = ni;
 
   // Detect potential mirroring issues by analyzing longitude progression
   const shouldFlipLongitude = detectLongitudeFlip(
     longitudesData,
-    missingValue,
-    fillValue
+    isMissingOrFill
   );
 
   await buildCurvilinearGeometry(
@@ -165,21 +184,46 @@ async function getGrid(
 
 function detectLongitudeFlip(
   longitudes: Float64Array,
-  missingValue: number,
-  fillValue: number
+  isMissingOrFill: (value: number) => boolean
 ): boolean {
-  for (let i = 1; i < longitudes.length; i++) {
-    if (longitudes[i] === missingValue || longitudes[i] === fillValue) {
-      i++; // double increment in order to avoid comparison with missing values
-      continue; // skip missing values
+  let previousValidLon: number | undefined;
+  for (let i = 0; i < longitudes.length; i++) {
+    const lon = longitudes[i];
+    if (isMissingOrFill(lon)) {
+      continue;
     }
-    if (longitudes[i] > longitudes[i - 1]) {
+    if (previousValidLon === undefined) {
+      previousValidLon = lon;
+      continue;
+    }
+    if (lon > previousValidLon) {
       return false;
-    } else if (longitudes[i] < longitudes[i - 1]) {
+    } else if (lon < previousValidLon) {
       return true;
     }
+    previousValidLon = lon;
   }
   return true;
+}
+
+async function rebuildCurvilinearGeometryFromCache() {
+  if (
+    !cachedLatitudes ||
+    !cachedLongitudes ||
+    !cachedDataValues ||
+    cachedNJ === undefined ||
+    cachedNI === undefined
+  ) {
+    return;
+  }
+  await buildCurvilinearGeometry(
+    cachedLatitudes,
+    cachedLongitudes,
+    cachedDataValues,
+    cachedNJ,
+    cachedNI,
+    cachedFlipLongitude
+  );
 }
 
 async function buildCurvilinearGeometry(
@@ -262,10 +306,10 @@ async function buildCurvilinearGeometry(
         // Convert lat/lon to 3D Cartesian coordinates and store in positions array
         // Vertices are arranged counter-clockwise: 00 -> 01 -> 11 -> 10
         // This creates proper triangle winding for Three.js rendering
-        latLonToCartesianFlat(lat00, lon00, positions, vtxOffset); // Bottom-left
-        latLonToCartesianFlat(lat01, lon01, positions, vtxOffset + 3); // Bottom-right
-        latLonToCartesianFlat(lat11, lon11, positions, vtxOffset + 6); // Top-right
-        latLonToCartesianFlat(lat10, lon10, positions, vtxOffset + 9); // Top-left
+        projectLatLon(lat00, lon00, positions, vtxOffset); // Bottom-left
+        projectLatLon(lat01, lon01, positions, vtxOffset + 3); // Bottom-right
+        projectLatLon(lat11, lon11, positions, vtxOffset + 6); // Top-right
+        projectLatLon(lat10, lon10, positions, vtxOffset + 9); // Top-left
 
         // Assign data value to all 4 vertices of this cell
         // We use the data value from the bottom-left corner (idx00)
@@ -345,7 +389,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
         rawData
       );
 
-      await getGrid(datavar, rawData, missingValue, fillValue);
+      await getGrid(datavar, rawData);
 
       for (let mesh of meshes) {
         const material = mesh.material as THREE.ShaderMaterial;

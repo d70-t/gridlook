@@ -1,27 +1,27 @@
 <script lang="ts" setup>
+import { storeToRefs } from "pinia";
 import * as THREE from "three";
-import * as zarr from "zarrita";
-import { makeIrregularGridMaterial } from "../utils/colormapShaders.ts";
-
 import { computed, onBeforeMount, ref, onMounted, watch } from "vue";
+import * as zarr from "zarrita";
 
+import type { TSources } from "../../types/GlobeTypes.ts";
+import { useUrlParameterStore } from "../store/paramStore.ts";
 import {
   UPDATE_MODE,
   useGlobeControlStore,
   type TUpdateMode,
 } from "../store/store.js";
-import { storeToRefs } from "pinia";
-import type { TSources } from "../../types/GlobeTypes.ts";
-import { useLog } from "../utils/logging.ts";
-import { useSharedGridLogic } from "./useSharedGridLogic.ts";
-import { useUrlParameterStore } from "../store/paramStore.ts";
+import { makeIrregularGridMaterial } from "../utils/colormapShaders.ts";
 import { getDimensionInfo } from "../utils/dimensionHandling.ts";
+import { useLog } from "../utils/logging.ts";
+import { ZarrDataManager } from "../utils/ZarrDataManager.ts";
 import {
   castDataVarToFloat32,
   getDataBounds,
   getLatLonData,
 } from "../utils/zarrUtils.ts";
-import { ZarrDataManager } from "../utils/ZarrDataManager.ts";
+
+import { useSharedGridLogic } from "./useSharedGridLogic.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -49,6 +49,8 @@ const updatingData = ref(false);
 const estimatedSpacing = ref(0);
 
 let points: THREE.Points | undefined = undefined;
+let cachedLatitudes: Float32Array | undefined;
+let cachedLongitudes: Float32Array | undefined;
 
 const {
   getScene,
@@ -60,6 +62,7 @@ const {
   registerUpdateLOD,
   updateLandSeaMask,
   updateColormap,
+  projectionHelper,
   canvas,
   box,
 } = useSharedGridLogic();
@@ -101,6 +104,14 @@ watch(
   }
 );
 
+watch(
+  () => projectionHelper.value,
+  () => {
+    console.log("projection Helper");
+    rebuildPositionsFromCache();
+  }
+);
+
 const timeIndexSlider = computed(() => {
   if (varinfo.value?.dimRanges[0]?.name !== "time") {
     return 0;
@@ -124,18 +135,18 @@ async function datasourceUpdate() {
   }
 }
 
-function latLonToCartesianFlat(
+function projectLatLonToPosition(
   lat: number,
   lon: number,
   out: Float32Array,
-  offset: number,
-  radius = 1
+  offset: number
 ) {
-  const latRad = (lat * Math.PI) / 180;
-  const lonRad = (lon * Math.PI) / 180;
-  out[offset] = radius * Math.cos(latRad) * Math.cos(lonRad);
-  out[offset + 1] = radius * Math.cos(latRad) * Math.sin(lonRad);
-  out[offset + 2] = radius * Math.sin(latRad);
+  const helper = projectionHelper.value;
+  const normalizedLon = helper.normalizeLongitude(lon);
+  const [x, y, z] = helper.project(lat, normalizedLon, 1);
+  out[offset] = x;
+  out[offset + 1] = y;
+  out[offset + 2] = z;
 }
 
 function estimateAverageSpacing(
@@ -193,6 +204,28 @@ function estimateAverageSpacing(
   return totalWeight > 0 ? totalDistance / totalWeight : 0.01;
 }
 
+function rebuildPositionsFromCache() {
+  if (!cachedLatitudes || !cachedLongitudes || !points) {
+    return;
+  }
+  const positions = new Float32Array(cachedLatitudes.length * 3);
+  for (let i = 0; i < cachedLatitudes.length; i++) {
+    projectLatLonToPosition(
+      cachedLatitudes[i],
+      cachedLongitudes[i],
+      positions,
+      i * 3
+    );
+  }
+  estimatedSpacing.value = estimateAverageSpacing(positions);
+  points.geometry.setAttribute(
+    "position",
+    new THREE.BufferAttribute(positions, 3)
+  );
+  points.geometry.computeBoundingSphere();
+  updateLOD();
+}
+
 async function getGrid(
   latitudesVar: zarr.Chunk<zarr.DataType>,
   longitudesVar: zarr.Chunk<zarr.DataType>,
@@ -212,10 +245,12 @@ async function getGrid(
   // Allocate typed arrays for positions and values
   const positions = new Float32Array(N * 3);
   const dataValues = new Float32Array(N);
+  cachedLatitudes = Float32Array.from(latitudes);
+  cachedLongitudes = Float32Array.from(longitudes);
 
   // Convert lat/lon to Cartesian positions
   for (let i = 0; i < N; i++) {
-    latLonToCartesianFlat(latitudes[i], longitudes[i], positions, i * 3);
+    projectLatLonToPosition(latitudes[i], longitudes[i], positions, i * 3);
     dataValues[i] = data[i];
   }
 

@@ -1,4 +1,9 @@
+import { useEventListener } from "@vueuse/core";
+import type { FeatureCollection } from "geojson";
+import debounce from "lodash.debounce";
 import { storeToRefs } from "pinia";
+import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 import {
   computed,
   onBeforeUnmount,
@@ -9,32 +14,31 @@ import {
   type Ref,
   type ShallowRef,
 } from "vue";
-import { LAND_SEA_MASK_MODES, useGlobeControlStore } from "../store/store.ts";
-import { geojson2geometry } from "../utils/geojson.ts";
-import * as THREE from "three";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
-import { handleKeyDown } from "../utils/OrbitControlsAddOn.ts";
-import { useLog } from "../utils/logging.ts";
 import * as zarr from "zarrita";
-import type {
-  TDimensionRange,
-  TSources,
-  TTimeInfo,
-} from "@/types/GlobeTypes.ts";
+
 import { useUrlParameterStore } from "../store/paramStore.ts";
-import { getLandSeaMask, loadJSON } from "../utils/landSeaMask.ts";
-import debounce from "lodash.debounce";
+import { LAND_SEA_MASK_MODES, useGlobeControlStore } from "../store/store.ts";
 import {
   availableColormaps,
   calculateColorMapProperties,
 } from "../utils/colormapShaders.ts";
-import { useEventListener } from "@vueuse/core";
+import { geojson2geometry } from "../utils/geojson.ts";
+import { getLandSeaMask, loadJSON } from "../utils/landSeaMask.ts";
+import { useLog } from "../utils/logging.ts";
+import { handleKeyDown } from "../utils/OrbitControlsAddOn.ts";
+import { createProjectionHelper } from "../utils/projectionUtils.ts";
 import { decodeTime } from "../utils/timeHandling.ts";
 import {
   CONTROL_PANEL_WIDTH,
   MOBILE_BREAKPOINT,
 } from "../utils/viewConstants.ts";
 import { ZarrDataManager } from "../utils/ZarrDataManager.ts";
+
+import type {
+  TDimensionRange,
+  TSources,
+  TTimeInfo,
+} from "@/types/GlobeTypes.ts";
 
 export function useSharedGridLogic() {
   const store = useGlobeControlStore();
@@ -46,6 +50,7 @@ export function useSharedGridLogic() {
     colormap,
     invertColormap,
     controlPanelVisible,
+    projectionMode,
   } = storeToRefs(store);
 
   const urlParameterStore = useUrlParameterStore();
@@ -59,7 +64,7 @@ export function useSharedGridLogic() {
   const canvas: Ref<HTMLCanvasElement | undefined> = ref();
   const box: Ref<HTMLDivElement | undefined> = ref();
   let coast: THREE.LineSegments | undefined = undefined;
-  let landSeaMask: THREE.Mesh | undefined = undefined;
+  let landSeaMask: THREE.Object3D | undefined = undefined;
   let scene: THREE.Scene | undefined = undefined;
   let camera: THREE.PerspectiveCamera | undefined = undefined;
   let renderer: THREE.WebGLRenderer | undefined = undefined;
@@ -70,6 +75,18 @@ export function useSharedGridLogic() {
   let updateLOD: (() => void) | undefined = undefined;
   let mouseDown = false;
   const frameId = ref(0);
+  let baseSurface: THREE.Mesh | undefined = undefined;
+  const longitudeDomain = ref({ min: -180, max: 180 });
+  const latitudeDomain = ref({ min: -90, max: 90 });
+  const projectionHelper = computed(() =>
+    createProjectionHelper(
+      projectionMode.value,
+      { lat: 0, lon: 0 },
+      {
+        longitudeDomain: longitudeDomain.value,
+      }
+    )
+  );
 
   watch(
     () => showCoastLines.value,
@@ -90,6 +107,16 @@ export function useSharedGridLogic() {
     [() => landSeaMaskChoice.value, () => landSeaMaskUseTexture.value],
     () => {
       updateLandSeaMask();
+    }
+  );
+
+  watch(
+    () => projectionHelper.value,
+    () => {
+      updateBaseSurface();
+      updateCoastlines();
+      updateLandSeaMask();
+      configureCameraForProjection();
     }
   );
 
@@ -147,20 +174,32 @@ export function useSharedGridLogic() {
     getRenderer()?.render(getScene()!, getCamera()!);
   }
 
+  let coastlineData: FeatureCollection | undefined;
+
   async function getCoastlines() {
-    if (coast === undefined) {
-      const coastlines = await loadJSON("static/ne_50m_coastline.geojson");
-      const geometry = geojson2geometry(coastlines, 1.002);
+    if (!coastlineData) {
+      coastlineData = await loadJSON("static/ne_50m_coastline.geojson");
+    }
+    if (!coast) {
       const material = new THREE.LineBasicMaterial({
         color: "#ffffff",
       });
-      coast = new THREE.LineSegments(geometry, material);
+      coast = new THREE.LineSegments(new THREE.BufferGeometry(), material);
       coast.name = "coastlines";
     }
+    const geometry = geojson2geometry(coastlineData, projectionHelper.value, {
+      radius: projectionHelper.value.isFlat ? 1 : 1.002,
+      zOffset: projectionHelper.value.isFlat ? 0.002 : 0,
+    });
+    coast.geometry.dispose();
+    coast.geometry = geometry;
     return coast;
   }
 
   async function updateCoastlines() {
+    if (!scene) {
+      return;
+    }
     if (showCoastLines.value === false) {
       if (getCoast()) {
         scene?.remove(getCoast()!);
@@ -182,9 +221,12 @@ export function useSharedGridLogic() {
       return;
     }
 
+    const projectionBounds = getProjectedBounds();
     const mask = await getLandSeaMask(
       landSeaMaskChoice.value!,
-      landSeaMaskUseTexture.value!
+      landSeaMaskUseTexture.value!,
+      projectionHelper.value,
+      projectionBounds
     );
     landSeaMask = mask;
     if (landSeaMask) {
@@ -215,6 +257,121 @@ export function useSharedGridLogic() {
       material.uniforms.scaleFactor.value = scaleFactor;
       material.needsUpdate = true;
     }
+    redraw();
+  }
+
+  function getProjectedBounds() {
+    const helper = projectionHelper.value;
+    const latMin = latitudeDomain.value.min ?? -90;
+    const latMax = latitudeDomain.value.max ?? 90;
+    const lonMin = longitudeDomain.value.min ?? -180;
+    const lonMax = longitudeDomain.value.max ?? 180;
+    const latRange = latMax - latMin;
+    const lonRange = lonMax - lonMin;
+    const latSteps = Math.max(8, Math.ceil(latRange / 10));
+    const lonSteps = Math.max(16, Math.ceil(lonRange / 10));
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (let i = 0; i <= latSteps; i++) {
+      const lat = latRange === 0 ? latMin : latMin + (i / latSteps) * latRange;
+      for (let j = 0; j <= lonSteps; j++) {
+        const lon =
+          lonRange === 0 ? lonMin : lonMin + (j / lonSteps) * lonRange;
+        const [x, y] = helper.project(lat, helper.normalizeLongitude(lon));
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
+      }
+    }
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+    return {
+      minX,
+      maxX,
+      minY,
+      maxY,
+      width: maxX - minX,
+      height: maxY - minY,
+      centerX,
+      centerY,
+      minLat: latMin,
+      maxLat: latMax,
+      minLon: lonMin,
+      maxLon: lonMax,
+    };
+  }
+
+  function updateBaseSurface() {
+    if (!scene) {
+      return;
+    }
+    if (baseSurface) {
+      scene.remove(baseSurface);
+      baseSurface.geometry.dispose();
+      (baseSurface.material as THREE.Material).dispose();
+      baseSurface = undefined;
+    }
+    if (projectionHelper.value.isFlat) {
+      const bounds = getProjectedBounds();
+      const width = Math.max(bounds.width, 1);
+      const height = Math.max(bounds.height, 1);
+      const geometry = new THREE.PlaneGeometry(width * 1.05, height * 1.05);
+      const material = new THREE.MeshBasicMaterial({
+        color: 0x000000,
+        side: THREE.DoubleSide,
+      });
+      baseSurface = new THREE.Mesh(geometry, material);
+      baseSurface.position.set(bounds.centerX, bounds.centerY, -0.05);
+    } else {
+      const geometry = new THREE.SphereGeometry(0.99, 64, 64);
+      const material = new THREE.MeshBasicMaterial({ color: 0x000000 });
+      baseSurface = new THREE.Mesh(geometry, material);
+      baseSurface.rotation.x = Math.PI / 2;
+    }
+    scene.add(baseSurface);
+  }
+
+  function configureCameraForProjection() {
+    const cam = getCamera();
+    const controls = getOrbitControls();
+    if (!cam || !controls) {
+      return;
+    }
+    if (projectionHelper.value.isFlat) {
+      const bounds = getProjectedBounds();
+      const targetDistance =
+        Math.max(bounds.height, bounds.width) /
+        2 /
+        Math.tan(((cam.fov ?? 45) * Math.PI) / 360);
+      cam.position.set(
+        bounds.centerX,
+        bounds.centerY,
+        Math.max(targetDistance * 1.1, 3)
+      );
+      cam.up.set(0, 1, 0);
+      controls.enablePan = true;
+      controls.enableRotate = false;
+      controls.minDistance = 1;
+      controls.maxDistance = 200;
+      controls.target.set(bounds.centerX, bounds.centerY, 0);
+    } else {
+      cam.up.set(0, 0, 1);
+      controls.enablePan = false;
+      controls.enableRotate = true;
+      controls.minDistance = 1.1;
+      controls.maxDistance = 1000;
+      if (cam.position.length() < 2) {
+        cam.position.set(30, 0, 0);
+      }
+      controls.target.set(0, 0, 0);
+    }
+    const target = controls.target.clone();
+    cam.lookAt(target);
+    cam.updateProjectionMatrix();
+    controls.update();
     redraw();
   }
 
@@ -250,21 +407,8 @@ export function useSharedGridLogic() {
     orbitControls.minDistance = 1.1;
     orbitControls.enablePan = false;
 
-    // Depending on the dataset it happens that the data does not cover
-    // the full globe. In order to avoid some ugly transparency issues, we add
-    // an opaque black sphere underneath. As a side effect, we have also an actual
-    // SphereGeometry in use, which might be useful for Raytracing in the future.
-    // FIXME: As soon as we have other projections than the globe, this needs to be
-    // adapted accordingly.
-    const sphereGeometry = new THREE.SphereGeometry(0.99, 64, 64);
-    const earthMat = new THREE.MeshBasicMaterial({ color: 0x000000 }); // black color
-    const globeMesh = new THREE.Mesh(sphereGeometry, earthMat);
-    globeMesh.geometry.attributes.position.needsUpdate = true;
-    globeMesh.rotation.x = Math.PI / 2;
-    globeMesh.geometry.computeBoundingBox();
-    globeMesh.geometry.computeBoundingSphere();
-
-    getScene()?.add(globeMesh);
+    updateBaseSurface();
+    configureCameraForProjection();
     updateCoastlines();
   }
 
@@ -368,6 +512,10 @@ export function useSharedGridLogic() {
   }
 
   function toggleRotate() {
+    if (projectionHelper.value.isFlat) {
+      getOrbitControls()!.autoRotate = false;
+      return;
+    }
     getOrbitControls()!.autoRotate = !getOrbitControls()!.autoRotate;
     animationLoop();
   }
@@ -620,6 +768,7 @@ export function useSharedGridLogic() {
     registerUpdateLOD,
     updateLandSeaMask,
     updateColormap,
+    projectionHelper,
     canvas,
     box,
   };

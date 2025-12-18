@@ -1,25 +1,25 @@
 <script lang="ts" setup>
+import { storeToRefs } from "pinia";
 import * as THREE from "three";
-
-import {
-  calculateColorMapProperties,
-  makeTextureMaterial,
-} from "../utils/colormapShaders.ts";
 import { computed, onBeforeMount, onMounted, ref, watch } from "vue";
 
+import type { TSources } from "../../types/GlobeTypes.ts";
+import { useUrlParameterStore } from "../store/paramStore.ts";
 import {
   UPDATE_MODE,
   useGlobeControlStore,
   type TUpdateMode,
 } from "../store/store.js";
-import { storeToRefs } from "pinia";
-import type { TSources } from "../../types/GlobeTypes.ts";
-import { useLog } from "../utils/logging.ts";
-import { useSharedGridLogic } from "./useSharedGridLogic.ts";
-import { useUrlParameterStore } from "../store/paramStore.ts";
+import {
+  calculateColorMapProperties,
+  makeTextureMaterial,
+} from "../utils/colormapShaders.ts";
 import { getDimensionInfo } from "../utils/dimensionHandling.ts";
-import { castDataVarToFloat32, getDataBounds } from "../utils/zarrUtils.ts";
+import { useLog } from "../utils/logging.ts";
 import { ZarrDataManager } from "../utils/ZarrDataManager.ts";
+import { castDataVarToFloat32, getDataBounds } from "../utils/zarrUtils.ts";
+
+import { useSharedGridLogic } from "./useSharedGridLogic.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -52,6 +52,7 @@ const {
   getTimeInfo,
   updateLandSeaMask,
   updateColormap,
+  projectionHelper,
   canvas,
   box,
 } = useSharedGridLogic();
@@ -97,6 +98,15 @@ watch(
   [() => bounds.value, () => invertColormap.value, () => colormap.value],
   () => {
     updateColormap([mainMesh]);
+  }
+);
+
+watch(
+  () => projectionHelper.value,
+  () => {
+    if (latitudes.value.length && longitudes.value.length) {
+      makeGeometry();
+    }
   }
 );
 
@@ -146,32 +156,11 @@ async function getDims() {
   latitudes.value = new Float64Array(new Set(myLatitudes));
 }
 
-// The alternative implementation, see FIXME abovegg
-// async function getDims() {
-//   const datavar = await ZarrDataManager.getVariableInfo(
-//     ZarrDataManager.getDatasetSource(props.datasources!, varnameSelector.value),
-//     varnameSelector.value
-//   );
-//   const isRotated = props.isRotated;
-//   const { latitudes: myLatitudes, longitudes: myLongitudes } =
-//     await getLatLonData(datavar, props.datasources!, isRotated);
-//   longitudes.value = new Float64Array(
-//     new Set(myLongitudes.data as Float64Array)
-//   );
-//   latitudes.value = new Float64Array(new Set(myLatitudes.data as Float64Array));
-// }
-
-function latLongToXYZ(lat: number, lon: number, radius: number) {
-  // Convert latitude and longitude from degrees to radians
-  const latRad = lat * (Math.PI / 180);
-  const lonRad = lon * (Math.PI / 180);
-
-  // Calculate the Cartesian coordinates
-  const x = radius * Math.cos(latRad) * Math.cos(lonRad);
-  const y = radius * Math.cos(latRad) * Math.sin(lonRad);
-  const z = radius * Math.sin(latRad);
-
-  return [x, y, z];
+function projectLatLon(lat: number, lon: number, radius: number) {
+  const helper = projectionHelper.value;
+  const normalizedLon = helper.normalizeLongitude(lon);
+  // console.log("normalizedLon", lon, normalizedLon);
+  return helper.project(lat, normalizedLon, radius);
 }
 
 function rotatedToGeographic(
@@ -253,7 +242,7 @@ function generateGridVerticesAndUVs(
         : { lat: rawLat, lon: rawLon };
 
       // Convert the latitude and longitude to 3D coordinates on the sphere.
-      const xyz = latLongToXYZ(lat, lon, radius);
+      const xyz = projectLatLon(lat, lon, radius);
       vertices.push(...xyz);
 
       // Calculate the texture coordinates for the point. The `u` coordinate

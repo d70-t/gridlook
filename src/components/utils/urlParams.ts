@@ -7,6 +7,7 @@ const URL_PARAMETERS = {
   CAMERA_STATE: "camerastate",
   MASK_MODE: "maskmode",
   MASK_USE_TEXTURE: "maskusetexture",
+  PROJECTION: "projection",
 
   DIM_INDICES: "dimIndices",
   DIM_MIN_BOUNDS: "dimMinBounds",

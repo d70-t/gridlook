@@ -17,6 +17,7 @@ import { useUrlParameterStore } from "./store/paramStore.ts";
 // Import control components
 import { useGlobeControlStore } from "./store/store.ts";
 import { MOBILE_BREAKPOINT } from "./utils/viewConstants.ts";
+import ProjectionControls from "./controls/ProjectionControls.vue";
 
 const props = defineProps<{ modelInfo?: TModelInfo }>();
 
@@ -263,6 +264,7 @@ onMounted(() => {
           :auto-colormap="autoColormap"
           @update:auto-colormap="autoColormap = $event"
         />
+        <ProjectionControls />
         <MaskControls />
         <ActionControls
           @on-snapshot="() => $emit('onSnapshot')"
