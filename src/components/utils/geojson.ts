@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { FeatureCollection } from "geojson";
-import type { TProjectionHelper } from "./projectionUtils";
+import { ProjectionHelper } from "./projectionUtils";
 
 type TGeometryOptions = {
   radius?: number;
@@ -9,7 +9,7 @@ type TGeometryOptions = {
 
 export function geojson2geometry(
   geojson: FeatureCollection,
-  helper: TProjectionHelper,
+  helper: ProjectionHelper,
   options?: TGeometryOptions
 ) {
   const polylines: number[] = [];

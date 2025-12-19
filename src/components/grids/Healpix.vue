@@ -18,7 +18,7 @@ import {
 } from "../utils/colormapShaders.ts";
 import { getDimensionInfo } from "../utils/dimensionHandling.ts";
 import { useLog } from "../utils/logging.ts";
-import type { TProjectionHelper } from "../utils/projectionUtils.ts";
+import { ProjectionHelper } from "../utils/projectionUtils.ts";
 import { ZarrDataManager } from "../utils/ZarrDataManager.ts";
 import { castDataVarToFloat32, getDataBounds } from "../utils/zarrUtils.ts";
 
@@ -309,7 +309,7 @@ function makeHealpixGeometry(
   nside: number,
   ipix: number,
   steps: number,
-  helper: TProjectionHelper
+  helper: ProjectionHelper
 ) {
   const vertexCount = steps * steps;
   const vertices = new Float32Array(vertexCount * 3);

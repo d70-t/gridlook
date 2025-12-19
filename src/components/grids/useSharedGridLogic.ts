@@ -26,7 +26,7 @@ import { geojson2geometry } from "../utils/geojson.ts";
 import { getLandSeaMask, loadJSON } from "../utils/landSeaMask.ts";
 import { useLog } from "../utils/logging.ts";
 import { handleKeyDown } from "../utils/OrbitControlsAddOn.ts";
-import { createProjectionHelper } from "../utils/projectionUtils.ts";
+import { ProjectionHelper } from "../utils/projectionUtils.ts";
 import { decodeTime } from "../utils/timeHandling.ts";
 import {
   CONTROL_PANEL_WIDTH,
@@ -78,15 +78,16 @@ export function useSharedGridLogic() {
   let baseSurface: THREE.Mesh | undefined = undefined;
   const longitudeDomain = ref({ min: -180, max: 180 });
   const latitudeDomain = ref({ min: -90, max: 90 });
-  const projectionHelper = computed(() =>
-    createProjectionHelper(
+
+  const projectionHelper = computed(() => {
+    return new ProjectionHelper(
       projectionMode.value,
       { lat: 0, lon: 0 },
       {
         longitudeDomain: longitudeDomain.value,
       }
-    )
-  );
+    );
+  });
 
   watch(
     () => showCoastLines.value,

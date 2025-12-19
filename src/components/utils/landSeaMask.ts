@@ -5,7 +5,7 @@ import * as THREE from "three";
 import albedo from "../../assets/earth.jpg";
 import { LAND_SEA_MASK_MODES, type TLandSeaMaskMode } from "../store/store";
 
-import { PROJECTION_TYPES, type TProjectionHelper } from "./projectionUtils";
+import { PROJECTION_TYPES, ProjectionHelper } from "./projectionUtils";
 
 // Simple in-memory cache for loaded images. Stores the load Promise so
 // concurrent requests for the same URL share the same network request.
@@ -114,7 +114,7 @@ function computeProjectedGeoBounds(
     | GeoJSON.FeatureCollection<GeoJSON.Geometry, GeoJSON.GeoJsonProperties>
     | GeoJSON.GeometryCollection
     | GeoJSON.Geometry,
-  helper: TProjectionHelper
+  helper: ProjectionHelper
 ): TProjectedBounds | undefined {
   let minX = Infinity;
   let maxX = -Infinity;
@@ -243,7 +243,7 @@ async function createLandProjection(
 // Create a d3 projection matching our projection helper type exactly.
 // This must use the same scale(1), translate([0,0]) setup as projectionUtils.ts
 // to ensure the mask aligns perfectly with the data.
-function createD3Projection(helper: TProjectionHelper): d3.GeoProjection {
+function createD3Projection(helper: ProjectionHelper): d3.GeoProjection {
   let projection: d3.GeoProjection;
 
   switch (helper.type) {
@@ -336,7 +336,7 @@ function createCanvasPath(
 // Create a d3 projection that maps directly to canvas coordinates
 // This is needed for drawing the sphere outline (which requires a proper projection, not geoTransform)
 function createCanvasProjection(
-  helper: TProjectionHelper,
+  helper: ProjectionHelper,
   bounds: TProjectedBounds,
   canvasWidth: number,
   canvasHeight: number
@@ -420,7 +420,7 @@ function createCanvasProjection(
 
 // Rasterize land/sea mask for flat projections using canvas
 async function createFlatMaskCanvas(
-  helper: TProjectionHelper,
+  helper: ProjectionHelper,
   mode: TLandSeaMaskMode,
   useTexture: boolean,
   canvasWidth: number,
@@ -517,7 +517,7 @@ async function createFlatMaskCanvas(
 
 // Create a textured mask canvas for flat projections (with earth texture)
 async function createFlatTexturedMaskCanvas(
-  helper: TProjectionHelper,
+  helper: ProjectionHelper,
   mode: TLandSeaMaskMode,
   canvasWidth: number,
   canvasHeight: number,
@@ -673,7 +673,7 @@ async function getFlatLandSeaMask({
 }: {
   mode: TLandSeaMaskMode;
   useTexture: boolean;
-  helper: TProjectionHelper;
+  helper: ProjectionHelper;
   bounds: TProjectedBounds;
 }): Promise<THREE.Object3D | undefined> {
   if (mode === LAND_SEA_MASK_MODES.OFF) {
@@ -899,7 +899,7 @@ async function getTexturedGlobe() {
 export async function getLandSeaMask(
   landSeaMaskChoice: TLandSeaMaskMode,
   landSeaMaskUseTexture: boolean,
-  projectionHelper?: TProjectionHelper,
+  projectionHelper?: ProjectionHelper,
   bounds?: TProjectedBounds
 ) {
   let landSeaMask: THREE.Object3D | undefined = undefined;

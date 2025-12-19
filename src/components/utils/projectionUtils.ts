@@ -16,28 +16,11 @@ export type TProjectionCenter = {
   lon: number;
 };
 
-export type TProjectionHelper = {
-  type: TProjectionType;
-  isFlat: boolean;
-  center: TProjectionCenter;
-  project: (
-    lat: number,
-    lon: number,
-    radius?: number
-  ) => [number, number, number];
-  invert?: (
-    x: number,
-    y: number,
-    radius?: number
-  ) => { lat: number; lon: number } | undefined;
-  normalizeLongitude: (lon: number) => number;
+export type TProjectionOptions = {
+  center?: TProjectionCenter;
 };
 
 const MERCATOR_LAT_LIMIT = 85;
-type TProjectionOptions = {
-  center?: TProjectionCenter;
-  longitudeDomain?: { min: number; max: number };
-};
 
 export function clampLatitude(lat: number) {
   return Math.max(-90, Math.min(90, lat));
@@ -58,113 +41,78 @@ export function isFlatProjection(type: TProjectionType) {
   return type !== PROJECTION_TYPES.GLOBE;
 }
 
-export function createProjectionHelper(
-  type: TProjectionType,
-  center: TProjectionCenter,
-  _options?: TProjectionOptions
-): TProjectionHelper {
-  // longitudeDomain is currently unused but kept in signature for future
-  // extensions; normalization remains global.
-  void _options;
-  // We keep normalizeLongitude stable regardless of domain to avoid flicker
-  // when switching between global and partial longitude coverage.
-  const normalizeLongitude = (lon: number) => {
+export class ProjectionHelper {
+  readonly type: TProjectionType;
+  readonly isFlat: boolean;
+  readonly center: TProjectionCenter;
+
+  private d3Projection:
+    | d3.GeoProjection
+    | ReturnType<typeof geoRobinson>
+    | ReturnType<typeof geoMollweide>
+    | null = null;
+
+  constructor(
+    type: TProjectionType,
+    center: TProjectionCenter,
+    _options?: TProjectionOptions
+  ) {
+    void _options;
+
+    this.type = type;
+    this.center = center;
+    this.isFlat = type !== PROJECTION_TYPES.GLOBE;
+
+    this.initializeD3Projection();
+  }
+
+  private initializeD3Projection(): void {
+    switch (this.type) {
+      case PROJECTION_TYPES.MERCATOR:
+        this.d3Projection = d3
+          .geoMercator()
+          .translate([0, 0])
+          .scale(1)
+          .rotate([-this.center.lon, -this.center.lat]);
+        break;
+      case PROJECTION_TYPES.ROBINSON:
+        this.d3Projection = geoRobinson()
+          .translate([0, 0])
+          .scale(1)
+          .rotate([-this.center.lon, -this.center.lat]);
+        break;
+      case PROJECTION_TYPES.MOLLWEIDE:
+        this.d3Projection = geoMollweide()
+          .translate([0, 0])
+          .scale(1)
+          .rotate([-this.center.lon, -this.center.lat]);
+        break;
+      default:
+        this.d3Projection = null;
+    }
+  }
+
+  normalizeLongitude(lon: number): number {
     return (((lon % 360) + 540) % 360) - 180;
-  };
-
-  if (type === PROJECTION_TYPES.MERCATOR) {
-    const d3Projection = d3
-      .geoMercator()
-      .translate([0, 0])
-      .scale(1)
-      .rotate([-center.lon, -center.lat]);
-
-    const project = (
-      lat: number,
-      lon: number,
-      radius = 1
-    ): [number, number, number] => {
-      const safeLat = clampLatitude(
-        Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, lat))
-      );
-      const projected = d3Projection([normalizeLongitude(lon), safeLat]);
-      if (!projected) {
-        return [0, 0, 0];
-      }
-      const [x, y] = projected;
-      return [x * radius, -y * radius, 0];
-    };
-
-    return {
-      type,
-      isFlat: true,
-      center,
-      project,
-      normalizeLongitude,
-    };
   }
 
-  if (type === PROJECTION_TYPES.ROBINSON) {
-    const d3Projection = geoRobinson()
-      .translate([0, 0])
-      .scale(1)
-      .rotate([-center.lon, -center.lat]);
+  project(lat: number, lon: number, radius = 1): [number, number, number] {
+    if (this.type === PROJECTION_TYPES.GLOBE) {
+      return this.projectGlobe(lat, lon, radius);
+    }
 
-    const project = (
-      lat: number,
-      lon: number,
-      radius = 1
-    ): [number, number, number] => {
-      const projected = d3Projection([normalizeLongitude(lon), lat]);
-      if (!projected) {
-        return [0, 0, 0];
-      }
-      const [x, y] = projected;
-      return [x * radius, -y * radius, 0];
-    };
+    if (this.type === PROJECTION_TYPES.MERCATOR) {
+      return this.projectMercator(lat, lon, radius);
+    }
 
-    return {
-      type,
-      isFlat: true,
-      center,
-      project,
-      normalizeLongitude,
-    };
+    return this.projectFlat(lat, lon, radius);
   }
 
-  if (type === PROJECTION_TYPES.MOLLWEIDE) {
-    const d3Projection = geoMollweide()
-      .translate([0, 0])
-      .scale(1)
-      .rotate([-center.lon, -center.lat]);
-
-    const project = (
-      lat: number,
-      lon: number,
-      radius = 1
-    ): [number, number, number] => {
-      const projected = d3Projection([normalizeLongitude(lon), lat]);
-      if (!projected) {
-        return [0, 0, 0];
-      }
-      const [x, y] = projected;
-      return [x * radius, -y * radius, 0];
-    };
-
-    return {
-      type,
-      isFlat: true,
-      center,
-      project,
-      normalizeLongitude,
-    };
-  }
-
-  const project = (
+  private projectGlobe(
     lat: number,
     lon: number,
-    radius = 1
-  ): [number, number, number] => {
+    radius: number
+  ): [number, number, number] {
     const latRad = (lat * Math.PI) / 180;
     const lonRad = (lon * Math.PI) / 180;
 
@@ -173,13 +121,43 @@ export function createProjectionHelper(
     const z = radius * Math.sin(latRad);
 
     return [x, y, z];
-  };
+  }
 
-  return {
-    type,
-    isFlat: false,
-    center,
-    project,
-    normalizeLongitude,
-  };
+  private projectMercator(
+    lat: number,
+    lon: number,
+    radius: number
+  ): [number, number, number] {
+    const safeLat = clampLatitude(
+      Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, lat))
+    );
+    const projected = this.d3Projection?.([
+      this.normalizeLongitude(lon),
+      safeLat,
+    ]);
+    if (!projected) {
+      return [0, 0, 0];
+    }
+    const [x, y] = projected;
+    return [x * radius, -y * radius, 0];
+  }
+
+  private projectFlat(
+    lat: number,
+    lon: number,
+    radius: number
+  ): [number, number, number] {
+    const projected = this.d3Projection?.([this.normalizeLongitude(lon), lat]);
+    if (!projected) {
+      return [0, 0, 0];
+    }
+    const [x, y] = projected;
+    return [x * radius, -y * radius, 0];
+  }
+
+  invert?(
+    x: number,
+    y: number,
+    radius?: number
+  ): { lat: number; lon: number } | undefined;
 }
