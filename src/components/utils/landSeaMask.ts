@@ -103,10 +103,6 @@ export type TProjectedBounds = {
   height: number;
   centerX: number;
   centerY: number;
-  minLat: number;
-  maxLat: number;
-  minLon: number;
-  maxLon: number;
 };
 
 function computeProjectedGeoBounds(
@@ -120,10 +116,6 @@ function computeProjectedGeoBounds(
   let maxX = -Infinity;
   let minY = Infinity;
   let maxY = -Infinity;
-  let minLat = Infinity;
-  let maxLat = -Infinity;
-  let minLon = Infinity;
-  let maxLon = -Infinity;
 
   const update = (lon: number, lat: number) => {
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
@@ -133,10 +125,6 @@ function computeProjectedGeoBounds(
     maxX = Math.max(maxX, x);
     minY = Math.min(minY, y);
     maxY = Math.max(maxY, y);
-    minLat = Math.min(minLat, lat);
-    maxLat = Math.max(maxLat, lat);
-    minLon = Math.min(minLon, normalizedLon);
-    maxLon = Math.max(maxLon, normalizedLon);
   };
 
   const walkCoords = (coords: unknown) => {
@@ -208,10 +196,6 @@ function computeProjectedGeoBounds(
     height,
     centerX,
     centerY,
-    minLat,
-    maxLat,
-    minLon,
-    maxLon,
   };
 }
 

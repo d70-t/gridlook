@@ -76,17 +76,10 @@ export function useSharedGridLogic() {
   let mouseDown = false;
   const frameId = ref(0);
   let baseSurface: THREE.Mesh | undefined = undefined;
-  const longitudeDomain = ref({ min: -180, max: 180 });
   const latitudeDomain = ref({ min: -90, max: 90 });
 
   const projectionHelper = computed(() => {
-    return new ProjectionHelper(
-      projectionMode.value,
-      { lat: 0, lon: 0 },
-      {
-        longitudeDomain: longitudeDomain.value,
-      }
-    );
+    return new ProjectionHelper(projectionMode.value, { lat: 0, lon: 0 });
   });
 
   watch(
@@ -265,8 +258,8 @@ export function useSharedGridLogic() {
     const helper = projectionHelper.value;
     const latMin = latitudeDomain.value.min ?? -90;
     const latMax = latitudeDomain.value.max ?? 90;
-    const lonMin = longitudeDomain.value.min ?? -180;
-    const lonMax = longitudeDomain.value.max ?? 180;
+    const lonMin = -180;
+    const lonMax = 180;
     const latRange = latMax - latMin;
     const lonRange = lonMax - lonMin;
     const latSteps = Math.max(8, Math.ceil(latRange / 10));
@@ -298,10 +291,6 @@ export function useSharedGridLogic() {
       height: maxY - minY,
       centerX,
       centerY,
-      minLat: latMin,
-      maxLat: latMax,
-      minLon: lonMin,
-      maxLon: lonMax,
     };
   }
 
@@ -343,6 +332,7 @@ export function useSharedGridLogic() {
     }
     if (projectionHelper.value.isFlat) {
       const bounds = getProjectedBounds();
+      console.log(bounds);
       const targetDistance =
         Math.max(bounds.height, bounds.width) /
         2 /
