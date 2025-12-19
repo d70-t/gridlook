@@ -156,14 +156,6 @@ function formatValue(value: unknown): string {
   <div class="debug-panel" :class="[{ 'is-open': isOpen }]">
     <div class="debug-panel-header">
       <h3 class="title is-5">Debug Info</h3>
-      <!-- <button
-        class="toast-close"
-        type="button"
-        aria-label="close"
-        @click="emit('close')"
-      >
-        <i class="fa-solid fa-xmark" aria-hidden="true"></i>
-      </button> -->
       <button
         type="button"
         class="delete"

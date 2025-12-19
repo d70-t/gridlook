@@ -1,19 +1,9 @@
 <script setup lang="ts">
-//import { RouterLink, RouterView } from 'vue-router'
 import HashGlobeView from "@/views/HashGlobeView.vue";
 import "./utils/ShuffleCodec";
 </script>
 
 <template>
-  <!--
-  <header>
-      <nav>
-        <RouterLink to="/">Home</RouterLink>
-        <RouterLink to="/about">About</RouterLink>
-      </nav>
-  </header>
-  <RouterView />
-  -->
   <HashGlobeView />
 </template>
 
