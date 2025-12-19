@@ -139,10 +139,4 @@ export class ProjectionHelper {
     const [x, y] = projected;
     return [x * radius, -y * radius, 0];
   }
-
-  invert?(
-    x: number,
-    y: number,
-    radius?: number
-  ): { lat: number; lon: number } | undefined;
 }

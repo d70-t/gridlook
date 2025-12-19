@@ -26,14 +26,6 @@ export const useUrlParameterStore = defineStore("urlParams", {
   },
 });
 
-// type TUrlParameterState = keyof ReturnType<
-//   typeof useUrlParameterStore
-// >["$state"];
-
-// Partial<
-//   Record<TURLParameterValues, TUrlParameterState>
-// > =
-
 export const STORE_PARAM_MAPPING = {
   colormap: "paramColormap",
   varname: "paramVarname",
