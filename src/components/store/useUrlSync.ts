@@ -152,4 +152,13 @@ export function useUrlSync() {
       }
     }
   );
+
+  watch(
+    () => store.projectionMode,
+    () => {
+      changeURLHash({
+        [URL_PARAMETERS.PROJECTION]: store.projectionMode,
+      });
+    }
+  );
 }
