@@ -26,21 +26,6 @@ export function clampLatitude(lat: number) {
   return Math.max(-90, Math.min(90, lat));
 }
 
-export function wrapLongitude(lon: number) {
-  let normalized = lon;
-  while (normalized < -180) {
-    normalized += 360;
-  }
-  while (normalized > 180) {
-    normalized -= 360;
-  }
-  return normalized;
-}
-
-export function isFlatProjection(type: TProjectionType) {
-  return type !== PROJECTION_TYPES.GLOBE;
-}
-
 export class ProjectionHelper {
   readonly type: TProjectionType;
   readonly isFlat: boolean;
