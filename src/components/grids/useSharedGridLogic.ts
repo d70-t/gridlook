@@ -345,6 +345,11 @@ export function useSharedGridLogic() {
       cam.up.set(0, 1, 0);
       controls.enablePan = true;
       controls.enableRotate = false;
+      controls.mouseButtons = {
+        LEFT: THREE.MOUSE.PAN,
+        MIDDLE: THREE.MOUSE.DOLLY,
+        RIGHT: THREE.MOUSE.ROTATE,
+      };
       controls.minDistance = 1;
       controls.maxDistance = 200;
       controls.target.set(bounds.centerX, bounds.centerY, 0);
@@ -352,6 +357,11 @@ export function useSharedGridLogic() {
       cam.up.set(0, 0, 1);
       controls.enablePan = false;
       controls.enableRotate = true;
+      controls.mouseButtons = {
+        LEFT: THREE.MOUSE.ROTATE,
+        MIDDLE: THREE.MOUSE.DOLLY,
+        RIGHT: THREE.MOUSE.PAN,
+      };
       controls.minDistance = 1.1;
       controls.maxDistance = 1000;
       if (cam.position.length() < 2) {
@@ -583,7 +593,7 @@ export function useSharedGridLogic() {
         e.key === "-"
       ) {
         mouseDown = true;
-        handleKeyDown(e, getOrbitControls()!);
+        handleKeyDown(e, getOrbitControls()!, projectionHelper.value.isFlat);
         animationLoop();
         mouseDown = false;
       }
