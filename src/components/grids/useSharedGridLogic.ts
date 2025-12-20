@@ -257,6 +257,21 @@ export function useSharedGridLogic() {
 
   function getProjectedBounds() {
     const helper = projectionHelper.value;
+
+    // For globe mode, return standard bounds (not used for mask rendering)
+    if (!helper.isFlat) {
+      return {
+        minX: -Math.PI,
+        maxX: Math.PI,
+        minY: -Math.PI / 2,
+        maxY: Math.PI / 2,
+        width: 2 * Math.PI,
+        height: Math.PI,
+        centerX: 0,
+        centerY: 0,
+      };
+    }
+
     const projection = helper.getD3Projection();
     const path = d3.geoPath(projection);
 
