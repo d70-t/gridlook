@@ -18,6 +18,7 @@ import { useUrlParameterStore } from "./store/paramStore.ts";
 import { useGlobeControlStore } from "./store/store.ts";
 import { MOBILE_BREAKPOINT } from "./utils/viewConstants.ts";
 import ProjectionControls from "./controls/ProjectionControls.vue";
+import type { TProjectionType } from "./utils/projectionUtils.ts";
 
 const props = defineProps<{ modelInfo?: TModelInfo }>();
 
@@ -61,6 +62,7 @@ const {
   paramInvertColormap,
   paramMaskMode,
   paramMaskingUseTexture,
+  paramProjection,
 } = storeToRefs(urlParameterStore);
 
 const menuCollapsed: Ref<boolean> = ref(false);
@@ -181,6 +183,10 @@ if (paramMaskingUseTexture.value) {
 if (paramMaskMode.value) {
   landSeaMaskChoice.value =
     paramMaskMode.value as typeof landSeaMaskChoice.value;
+}
+
+if (paramProjection.value) {
+  store.projectionMode = paramProjection.value as TProjectionType;
 }
 
 // Initialize bounds and colormap when component mounts
