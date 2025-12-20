@@ -1,14 +1,9 @@
 import * as d3 from "d3-geo";
-import {
-  geoRobinson,
-  geoMollweide,
-  geoCylindricalEqualArea,
-} from "d3-geo-projection";
 import * as THREE from "three";
 
 import albedo from "../../assets/earth.jpg";
 import { LAND_SEA_MASK_MODES, type TLandSeaMaskMode } from "../store/store";
-import { PROJECTION_TYPES, ProjectionHelper } from "./projectionUtils";
+import { ProjectionHelper } from "./projectionUtils";
 
 // =============================================================================
 // Types
@@ -155,32 +150,11 @@ function isGlobeMaskMode(mode: TLandSeaMaskMode): boolean {
 
 class D3ProjectionFactory {
   static create(helper: ProjectionHelper): d3.GeoProjection {
-    let projection: d3.GeoProjection;
-
-    switch (helper.type) {
-      case PROJECTION_TYPES.MERCATOR:
-        projection = d3.geoMercator();
-        break;
-      case PROJECTION_TYPES.ROBINSON:
-        projection = geoRobinson();
-        break;
-      case PROJECTION_TYPES.MOLLWEIDE:
-        projection = geoMollweide();
-        break;
-      case PROJECTION_TYPES.CYLINDRICAL_EQUAL_AREA:
-        projection = geoCylindricalEqualArea();
-        break;
-      case PROJECTION_TYPES.EQUIRECTANGULAR:
-        projection = d3.geoEquirectangular();
-        break;
-      default:
-        projection = d3.geoEquirectangular();
+    const projection = helper.getD3Projection();
+    if (!projection) {
+      throw new Error(`Unsupported projection type: ${helper.type}`);
     }
-
-    return projection
-      .translate([0, 0])
-      .scale(1)
-      .rotate([-helper.center.lon, -helper.center.lat]);
+    return projection;
   }
 
   static createEquirectangular(

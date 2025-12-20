@@ -100,6 +100,10 @@ export class ProjectionHelper {
     return (((lon % 360) + 540) % 360) - 180;
   }
 
+  getD3Projection(): d3.GeoProjection | null {
+    return this.d3Projection;
+  }
+
   project(lat: number, lon: number, radius = 1): [number, number, number] {
     if (this.type === PROJECTION_TYPES.GLOBE) {
       return this.projectGlobe(lat, lon, radius);
