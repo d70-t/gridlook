@@ -19,7 +19,7 @@ const getToastTheme = (severity?: string) =>
   <Toast unstyled position="top-right">
     <template #container="{ message, closeCallback }">
       <article
-        class="toast-card"
+        class="toast-card mb-3"
         :class="`is-${getToastTheme(message.severity).tone}`"
         role="alert"
       >
