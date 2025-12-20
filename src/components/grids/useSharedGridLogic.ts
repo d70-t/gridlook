@@ -77,7 +77,6 @@ export function useSharedGridLogic() {
   let mouseDown = false;
   const frameId = ref(0);
   let baseSurface: THREE.Mesh | undefined = undefined;
-  const latitudeDomain = ref({ min: -90, max: 90 });
 
   const projectionHelper = computed(() => {
     return new ProjectionHelper(projectionMode.value, { lat: 0, lon: 0 });
@@ -333,12 +332,23 @@ export function useSharedGridLogic() {
         Math.max(bounds.height, bounds.width) /
         2 /
         Math.tan(((cam.fov ?? 45) * Math.PI) / 360);
+
+      // Reset camera orientation completely for flat projection
+      // This prevents globe rotation from carrying over
+      cam.up.set(0, 1, 0);
+      cam.quaternion.identity();
+      cam.rotation.set(0, 0, 0);
+
       cam.position.set(
         bounds.centerX,
         bounds.centerY,
         Math.max(targetDistance * 1.1, 3)
       );
-      cam.up.set(0, 1, 0);
+      controls.target.set(bounds.centerX, bounds.centerY, 0);
+
+      // Now look at target after position is set
+      cam.lookAt(controls.target);
+
       controls.enablePan = true;
       controls.enableRotate = false;
       controls.mouseButtons = {
@@ -348,7 +358,6 @@ export function useSharedGridLogic() {
       };
       controls.minDistance = 1;
       controls.maxDistance = 200;
-      controls.target.set(bounds.centerX, bounds.centerY, 0);
     } else {
       cam.up.set(0, 0, 1);
       controls.enablePan = false;
@@ -360,15 +369,40 @@ export function useSharedGridLogic() {
       };
       controls.minDistance = 1.1;
       controls.maxDistance = 1000;
-      if (cam.position.length() < 2) {
-        cam.position.set(30, 0, 0);
-      }
+      // Always reset camera position when switching to globe mode
+      // This ensures a clean state after coming from flat projection
+      cam.position.set(30, 0, 0);
       controls.target.set(0, 0, 0);
     }
     const target = controls.target.clone();
     cam.lookAt(target);
     cam.updateProjectionMatrix();
     controls.update();
+
+    // Apply URL camera state on initial load after projection is configured
+    if (isInitialLoad) {
+      if (paramCameraState.value) {
+        const state = decodeCameraFromURL();
+        if (state) {
+          applyCameraState(cam, state);
+          // For flat projections, the target should match camera x,y position
+          // since panning moves both camera and target together
+          if (projectionHelper.value.isFlat) {
+            controls.target.set(cam.position.x, cam.position.y, 0);
+          }
+          controls.update();
+        }
+      }
+      // Always mark initial load as complete after first projection configuration
+      isInitialLoad = false;
+    } else {
+      // When switching projections, immediately save the new camera state to URL
+      // This replaces the old projection's camera state with the current one
+      encodeCameraToURL(cam);
+    }
+
+    // Update camera offset for panel visibility
+    updateCameraForPanel();
     redraw();
   }
 
@@ -384,19 +418,10 @@ export function useSharedGridLogic() {
     );
     renderer = new THREE.WebGLRenderer({ canvas: canvas.value });
 
-    if (paramCameraState.value === undefined) {
-      camera.up = new THREE.Vector3(0, 0, 1);
-      camera.position.x = 30;
-      camera.lookAt(center);
-    } else {
-      camera.up = new THREE.Vector3(0, 0, 1);
-      camera.position.x = 30;
-      camera.lookAt(center);
-      const state = decodeCameraFromURL();
-      if (state) {
-        applyCameraState(camera, state);
-      }
-    }
+    // Set initial camera defaults - URL state will be applied in configureCameraForProjection
+    camera.up = new THREE.Vector3(0, 0, 1);
+    camera.position.x = 30;
+    camera.lookAt(center);
 
     orbitControls = new OrbitControls(camera, renderer.domElement);
     // smaller minDistances than 1.1 will reveal the naked mesh
@@ -412,6 +437,7 @@ export function useSharedGridLogic() {
   let init = true;
   let currentOffset = 0;
   let targetOffset = 0;
+  let isInitialLoad = true;
 
   function updateCameraForPanel() {
     const camera = getCamera();
