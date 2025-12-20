@@ -58,42 +58,48 @@ export class ProjectionHelper {
   }
 
   private initializeD3Projection(): void {
+    this.d3Projection = this.createD3ProjectionInstance();
+  }
+
+  createD3ProjectionInstance(): d3.GeoProjection | null {
+    let d3Projection: d3.GeoProjection | null = null;
     switch (this.type) {
       case PROJECTION_TYPES.MERCATOR:
-        this.d3Projection = d3
+        d3Projection = d3
           .geoMercator()
           .translate([0, 0])
           .scale(1)
           .rotate([-this.center.lon, -this.center.lat]);
         break;
       case PROJECTION_TYPES.ROBINSON:
-        this.d3Projection = geoRobinson()
+        d3Projection = geoRobinson()
           .translate([0, 0])
           .scale(1)
           .rotate([-this.center.lon, -this.center.lat]);
         break;
       case PROJECTION_TYPES.MOLLWEIDE:
-        this.d3Projection = geoMollweide()
+        d3Projection = geoMollweide()
           .translate([0, 0])
           .scale(1)
           .rotate([-this.center.lon, -this.center.lat]);
         break;
       case PROJECTION_TYPES.CYLINDRICAL_EQUAL_AREA:
-        this.d3Projection = geoCylindricalEqualArea()
+        d3Projection = geoCylindricalEqualArea()
           .translate([0, 0])
           .scale(1)
           .rotate([-this.center.lon, -this.center.lat]);
         break;
       case PROJECTION_TYPES.EQUIRECTANGULAR:
-        this.d3Projection = d3
+        d3Projection = d3
           .geoEquirectangular()
           .translate([0, 0])
           .scale(1)
           .rotate([-this.center.lon, -this.center.lat]);
         break;
       default:
-        this.d3Projection = null;
+        d3Projection = null;
     }
+    return d3Projection;
   }
 
   normalizeLongitude(lon: number): number {

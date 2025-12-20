@@ -150,7 +150,8 @@ function isGlobeMaskMode(mode: TLandSeaMaskMode): boolean {
 
 class D3ProjectionFactory {
   static create(helper: ProjectionHelper): d3.GeoProjection {
-    const projection = helper.getD3Projection();
+    const projection: d3.GeoProjection | null =
+      helper.createD3ProjectionInstance();
     if (!projection) {
       throw new Error(`Unsupported projection type: ${helper.type}`);
     }
