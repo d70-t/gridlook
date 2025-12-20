@@ -655,15 +655,26 @@ export function useSharedGridLogic() {
     if (dimensionRanges[0]?.name !== "time") {
       return {};
     }
-    const myDatasource = datasources!.levels[0].time;
-    const timevar = await ZarrDataManager.getVariableInfo(myDatasource, "time");
-    const timevalues = (
-      await ZarrDataManager.getVariableData(myDatasource, "time", [null])
-    ).data as Int32Array;
-    return {
-      values: timevalues,
-      current: decodeTime(timevalues[index], timevar.attrs),
-    };
+    try {
+      const myDatasource = datasources!.levels[0].time;
+
+      const timevalues = (
+        await ZarrDataManager.getVariableData(myDatasource, "time", [null])
+      ).data as Int32Array;
+
+      const timevar = await ZarrDataManager.getVariableInfo(
+        myDatasource,
+        "time"
+      );
+      return {
+        values: timevalues,
+        current: decodeTime(timevalues[index], timevar.attrs),
+      };
+    } catch {
+      // Ignore errors and return empty time info
+      // this information is not critical to display the data
+      return {};
+    }
   }
 
   type TCameraState = {
