@@ -3,4 +3,5 @@ declare module "d3-geo-projection" {
 
   export function geoRobinson(): GeoProjection;
   export function geoMollweide(): GeoProjection;
+  export function geoCylindricalEqualArea(): GeoProjection;
 }
