@@ -1,4 +1,5 @@
 import { useEventListener } from "@vueuse/core";
+import * as d3 from "d3-geo";
 import type { FeatureCollection } from "geojson";
 import debounce from "lodash.debounce";
 import { storeToRefs } from "pinia";
@@ -256,32 +257,12 @@ export function useSharedGridLogic() {
 
   function getProjectedBounds() {
     const helper = projectionHelper.value;
-    const latMin = latitudeDomain.value.min ?? -90;
-    const latMax = latitudeDomain.value.max ?? 90;
-    const lonMin = -180;
-    const lonMax = 180;
-    const latRange = latMax - latMin;
-    const lonRange = lonMax - lonMin;
-    const latSteps = Math.max(8, Math.ceil(latRange / 10));
-    const lonSteps = Math.max(16, Math.ceil(lonRange / 10));
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-    for (let i = 0; i <= latSteps; i++) {
-      const lat = latRange === 0 ? latMin : latMin + (i / latSteps) * latRange;
-      for (let j = 0; j <= lonSteps; j++) {
-        const lon =
-          lonRange === 0 ? lonMin : lonMin + (j / lonSteps) * lonRange;
-        const [x, y] = helper.project(lat, helper.normalizeLongitude(lon));
-        minX = Math.min(minX, x);
-        maxX = Math.max(maxX, x);
-        minY = Math.min(minY, y);
-        maxY = Math.max(maxY, y);
-      }
-    }
-    const centerX = (minX + maxX) / 2;
-    const centerY = (minY + maxY) / 2;
+    const projection = helper.getD3Projection();
+    const path = d3.geoPath(projection);
+
+    // Compute bounds of the entire sphere in projected coordinates
+    const [[minX, minY], [maxX, maxY]] = path.bounds({ type: "Sphere" });
+
     return {
       minX,
       maxX,
@@ -289,8 +270,8 @@ export function useSharedGridLogic() {
       maxY,
       width: maxX - minX,
       height: maxY - minY,
-      centerX,
-      centerY,
+      centerX: (minX + maxX) / 2,
+      centerY: (minY + maxY) / 2,
     };
   }
 

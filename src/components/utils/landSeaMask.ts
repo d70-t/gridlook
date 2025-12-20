@@ -271,47 +271,13 @@ class CanvasFactory {
 // =============================================================================
 
 function computeProjectedGeoBounds(
-  geojson: GeoJSONData | GeoJSON.GeometryCollection | GeoJSON.Geometry,
   helper: ProjectionHelper
 ): TProjectedBounds | undefined {
-  let minX = Infinity,
-    maxX = -Infinity,
-    minY = Infinity,
-    maxY = -Infinity;
+  const projection = D3ProjectionFactory.create(helper);
+  const path = d3.geoPath(projection);
 
-  const updateBounds = (lon: number, lat: number) => {
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-    const [x, y] = helper.project(lat, helper.normalizeLongitude(lon));
-    minX = Math.min(minX, x);
-    maxX = Math.max(maxX, x);
-    minY = Math.min(minY, y);
-    maxY = Math.max(maxY, y);
-  };
-
-  const walkCoords = (coords: unknown): void => {
-    if (!Array.isArray(coords)) return;
-    if (typeof coords[0] === "number") {
-      updateBounds(coords[0] as number, coords[1] as number);
-    } else {
-      coords.forEach(walkCoords);
-    }
-  };
-
-  const walkGeometry = (geom: GeoJSON.Geometry): void => {
-    if (geom.type === "GeometryCollection") {
-      geom.geometries.forEach(walkGeometry);
-    } else {
-      walkCoords((geom as GeoJSON.Point).coordinates);
-    }
-  };
-
-  if ("features" in geojson) {
-    geojson.features.forEach((f) => f.geometry && walkGeometry(f.geometry));
-  } else if ("geometries" in geojson) {
-    geojson.geometries.forEach(walkGeometry);
-  } else {
-    walkGeometry(geojson);
-  }
+  // Compute bounds of the entire sphere in projected coordinates
+  const [[minX, minY], [maxX, maxY]] = path.bounds({ type: "Sphere" });
 
   if (![minX, maxX, minY, maxY].every(Number.isFinite)) return undefined;
 
@@ -502,10 +468,11 @@ class FlatMaskRenderer {
     useTexture: boolean
   ): Promise<THREE.Mesh | undefined> {
     if (mode === LAND_SEA_MASK_MODES.OFF) return undefined;
+    console.time("FlatMaskRenderer.render");
 
     // Compute effective bounds from land geometry
     const land = await ResourceCache.loadLandGeoJSON();
-    const landBounds = computeProjectedGeoBounds(land, helper);
+    const landBounds = computeProjectedGeoBounds(helper);
     const effectiveBounds = landBounds ?? bounds;
 
     const config = getMaskConfig(mode, useTexture);
@@ -530,7 +497,9 @@ class FlatMaskRenderer {
           land
         );
 
-    return this.createPlaneMesh(canvas, effectiveBounds, mode);
+    const mesh = this.createPlaneMesh(canvas, effectiveBounds, mode);
+    console.timeEnd("FlatMaskRenderer.render");
+    return mesh;
   }
 
   private static async renderSolid(
