@@ -1,11 +1,17 @@
 import * as d3 from "d3-geo";
-import { geoMollweide, geoRobinson } from "d3-geo-projection";
+import {
+  geoMollweide,
+  geoRobinson,
+  geoCylindricalEqualArea,
+} from "d3-geo-projection";
 
 export const PROJECTION_TYPES = {
   GLOBE: "globe",
   MERCATOR: "mercator",
   ROBINSON: "robinson",
   MOLLWEIDE: "mollweide",
+  CYLINDRICAL_EQUAL_AREA: "cylindrical_equal_area",
+  EQUIRECTANGULAR: "equirectangular",
 } as const;
 
 export type TProjectionType =
@@ -68,6 +74,19 @@ export class ProjectionHelper {
         break;
       case PROJECTION_TYPES.MOLLWEIDE:
         this.d3Projection = geoMollweide()
+          .translate([0, 0])
+          .scale(1)
+          .rotate([-this.center.lon, -this.center.lat]);
+        break;
+      case PROJECTION_TYPES.CYLINDRICAL_EQUAL_AREA:
+        this.d3Projection = geoCylindricalEqualArea()
+          .translate([0, 0])
+          .scale(1)
+          .rotate([-this.center.lon, -this.center.lat]);
+        break;
+      case PROJECTION_TYPES.EQUIRECTANGULAR:
+        this.d3Projection = d3
+          .geoEquirectangular()
           .translate([0, 0])
           .scale(1)
           .rotate([-this.center.lon, -this.center.lat]);

@@ -1,5 +1,9 @@
 import * as d3 from "d3-geo";
-import { geoRobinson, geoMollweide } from "d3-geo-projection";
+import {
+  geoRobinson,
+  geoMollweide,
+  geoCylindricalEqualArea,
+} from "d3-geo-projection";
 import * as THREE from "three";
 
 import albedo from "../../assets/earth.jpg";
@@ -162,6 +166,12 @@ class D3ProjectionFactory {
         break;
       case PROJECTION_TYPES.MOLLWEIDE:
         projection = geoMollweide();
+        break;
+      case PROJECTION_TYPES.CYLINDRICAL_EQUAL_AREA:
+        projection = geoCylindricalEqualArea();
+        break;
+      case PROJECTION_TYPES.EQUIRECTANGULAR:
+        projection = d3.geoEquirectangular();
         break;
       default:
         projection = d3.geoEquirectangular();
