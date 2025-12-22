@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 
 import {
   PROJECTION_TYPES,
+  type TProjectionCenter,
   type TProjectionType,
 } from "../utils/projectionUtils";
 
@@ -51,6 +52,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
       isInitializingVariable: false,
       controlPanelVisible: true,
       projectionMode: PROJECTION_TYPES.NEARSIDE_PERSPECTIVE as TProjectionType,
+      projectionCenter: { lat: 0, lon: 0 } as TProjectionCenter,
     };
   },
   actions: {

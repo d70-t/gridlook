@@ -13,6 +13,7 @@ export function useUrlSync() {
     colormap,
     invertColormap,
     dimSlidersDisplay,
+    projectionCenter,
   } = storeToRefs(store);
 
   const urlParameterStore = useUrlParameterStore();
@@ -158,6 +159,18 @@ export function useUrlSync() {
     () => {
       changeURLHash({
         [URL_PARAMETERS.PROJECTION]: store.projectionMode,
+      });
+    }
+  );
+
+  watch(
+    () => [projectionCenter.value?.lat, projectionCenter.value?.lon],
+    () => {
+      const center = projectionCenter.value;
+      if (!center) return;
+      changeURLHash({
+        [URL_PARAMETERS.PROJECTION_CENTER_LAT]: center.lat,
+        [URL_PARAMETERS.PROJECTION_CENTER_LON]: center.lon,
       });
     }
   );

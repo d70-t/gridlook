@@ -147,29 +147,6 @@ class D3ProjectionFactory {
 
     return projection;
   }
-
-  static createCanvasPath(
-    projection: d3.GeoProjection,
-    ctx: CanvasRenderingContext2D,
-    bounds: TProjectedBounds,
-    canvasWidth: number,
-    canvasHeight: number
-  ): d3.GeoPath {
-    const transform = d3.geoTransform({
-      point: function (lon: number, lat: number) {
-        const projected = projection([lon, lat]);
-        if (projected) {
-          const canvasX =
-            ((projected[0] - bounds.minX) / bounds.width) * canvasWidth;
-          const canvasY =
-            ((bounds.maxY + projected[1]) / bounds.height) * canvasHeight;
-          this.stream.point(canvasX, canvasY);
-        }
-      },
-    });
-
-    return d3.geoPath(transform, ctx);
-  }
 }
 
 // =============================================================================
@@ -456,21 +433,13 @@ class FlatMaskRenderer {
   ): Promise<HTMLCanvasElement> {
     const { canvas, ctx } = CanvasFactory.create(canvasWidth, canvasHeight);
 
-    const projection = D3ProjectionFactory.create(helper);
-    const path = D3ProjectionFactory.createCanvasPath(
-      projection,
-      ctx,
-      bounds,
-      canvasWidth,
-      canvasHeight
-    );
-
     const canvasProjection = D3ProjectionFactory.createCanvasMapped(
       helper,
       bounds,
       canvasWidth,
       canvasHeight
     );
+    const path = d3.geoPath(canvasProjection, ctx);
     const spherePath = d3.geoPath(canvasProjection, ctx);
 
     // Clip to projection sphere
@@ -527,7 +496,6 @@ class FlatMaskRenderer {
     const textureData = texCtx.getImageData(0, 0, texWidth, texHeight);
 
     // Create projection and masks
-    const projection = D3ProjectionFactory.create(helper);
     const canvasProjection = D3ProjectionFactory.createCanvasMapped(
       helper,
       bounds,
@@ -554,13 +522,7 @@ class FlatMaskRenderer {
       canvasWidth,
       canvasHeight,
       (maskCtx) => {
-        const landPath = D3ProjectionFactory.createCanvasPath(
-          projection,
-          maskCtx,
-          bounds,
-          canvasWidth,
-          canvasHeight
-        );
+        const landPath = d3.geoPath(canvasProjection, maskCtx);
         maskCtx.beginPath();
         landPath(land);
         maskCtx.fillStyle = "white";
@@ -581,7 +543,7 @@ class FlatMaskRenderer {
         // Invert projection to get lon/lat
         const projX = (cx / canvasWidth) * bounds.width + bounds.minX;
         const projY = (cy / canvasHeight) * bounds.height - bounds.maxY;
-        const coords = projection.invert?.([projX, projY]);
+        const coords = canvasProjection.invert?.([projX, projY]);
 
         if (!coords) {
           continue;

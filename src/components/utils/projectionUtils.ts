@@ -79,10 +79,10 @@ export class ProjectionHelper {
       default:
         d3Projection = null;
     }
-    d3Projection
-      ?.translate([0, 0])
-      .scale(1)
-      .rotate([-this.center.lon, -this.center.lat]);
+    const centerLat = Math.max(-90, Math.min(90, this.center.lat));
+    const centerLon = this.normalizeLongitude(this.center.lon);
+
+    d3Projection?.translate([0, 0]).scale(1).rotate([-centerLon, -centerLat]);
     return d3Projection;
   }
 

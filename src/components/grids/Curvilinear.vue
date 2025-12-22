@@ -40,6 +40,7 @@ const {
   isInitializingVariable,
   varinfo,
   projectionMode,
+  projectionCenter,
 } = storeToRefs(store);
 
 const urlParameterStore = useUrlParameterStore();
@@ -108,12 +109,9 @@ watch(
   }
 );
 
-watch(
-  () => projectionMode.value,
-  () => {
-    void rebuildCurvilinearGeometryFromCache();
-  }
-);
+watch([() => projectionMode.value, () => projectionCenter.value], () => {
+  void rebuildCurvilinearGeometryFromCache();
+});
 
 const colormapMaterial = computed(() => {
   if (invertColormap) {

@@ -53,6 +53,7 @@ export function useSharedGridLogic() {
     invertColormap,
     controlPanelVisible,
     projectionMode,
+    projectionCenter,
   } = storeToRefs(store);
 
   const urlParameterStore = useUrlParameterStore();
@@ -80,7 +81,10 @@ export function useSharedGridLogic() {
   let baseSurface: THREE.Mesh | undefined = undefined;
 
   const projectionHelper = computed(() => {
-    return new ProjectionHelper(projectionMode.value, { lat: 0, lon: 0 });
+    return new ProjectionHelper(
+      projectionMode.value,
+      projectionCenter.value ?? { lat: 0, lon: 0 }
+    );
   });
 
   watch(
@@ -106,13 +110,27 @@ export function useSharedGridLogic() {
   );
 
   watch(
-    () => projectionHelper.value,
-    () => {
+    [() => projectionMode.value, () => projectionCenter.value],
+    ([newMode, newCenter], [oldMode, oldCenter]) => {
+      const modeChanged = newMode !== oldMode;
+      const centerChanged =
+        newCenter?.lat !== oldCenter?.lat || newCenter?.lon !== oldCenter?.lon;
+
+      if (!modeChanged && !centerChanged) {
+        return;
+      }
+
       updateBaseSurface();
       updateCoastlines();
       updateLandSeaMask();
-      configureCameraForProjection();
-    }
+
+      if (modeChanged) {
+        configureCameraForProjection();
+      } else if (scene && renderer && camera) {
+        redraw();
+      }
+    },
+    { deep: true }
   );
 
   const bounds = computed(() => {

@@ -47,6 +47,7 @@ const {
   varinfo,
   userBoundsLow,
   userBoundsHigh,
+  projectionCenter,
 } = storeToRefs(store);
 
 // Bounds logic state
@@ -63,6 +64,8 @@ const {
   paramMaskMode,
   paramMaskingUseTexture,
   paramProjection,
+  paramProjectionCenterLat,
+  paramProjectionCenterLon,
 } = storeToRefs(urlParameterStore);
 
 const menuCollapsed: Ref<boolean> = ref(false);
@@ -187,6 +190,15 @@ if (paramMaskMode.value) {
 
 if (paramProjection.value) {
   store.projectionMode = paramProjection.value as TProjectionType;
+}
+
+if (paramProjectionCenterLat.value || paramProjectionCenterLon.value) {
+  const lat = parseFloat(paramProjectionCenterLat.value ?? "0");
+  const lon = parseFloat(paramProjectionCenterLon.value ?? "0");
+  projectionCenter.value = {
+    lat: Number.isFinite(lat) ? lat : 0,
+    lon: Number.isFinite(lon) ? lon : 0,
+  };
 }
 
 // Initialize bounds and colormap when component mounts

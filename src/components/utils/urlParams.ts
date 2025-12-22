@@ -8,6 +8,8 @@ const URL_PARAMETERS = {
   MASK_MODE: "maskmode",
   MASK_USE_TEXTURE: "maskusetexture",
   PROJECTION: "projection",
+  PROJECTION_CENTER_LAT: "projectionCenterLat",
+  PROJECTION_CENTER_LON: "projectionCenterLon",
 
   DIM_INDICES: "dimIndices",
   DIM_MIN_BOUNDS: "dimMinBounds",
