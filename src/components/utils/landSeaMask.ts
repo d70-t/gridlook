@@ -468,7 +468,6 @@ class FlatMaskRenderer {
     useTexture: boolean
   ): Promise<THREE.Mesh | undefined> {
     if (mode === LAND_SEA_MASK_MODES.OFF) return undefined;
-    console.time("FlatMaskRenderer.render");
 
     // Compute effective bounds from land geometry
     const land = await ResourceCache.loadLandGeoJSON();
@@ -498,7 +497,6 @@ class FlatMaskRenderer {
         );
 
     const mesh = this.createPlaneMesh(canvas, effectiveBounds, mode);
-    console.timeEnd("FlatMaskRenderer.render");
     return mesh;
   }
 
@@ -591,7 +589,8 @@ class FlatMaskRenderer {
       canvasHeight
     );
 
-    // Create sphere mask
+    // The sphere mask is a solid one-colored layer with the bounds of the
+    // projection which ensures we only draw within the projection area
     const sphereMask = this.createMaskCanvas(
       canvasWidth,
       canvasHeight,
@@ -638,10 +637,16 @@ class FlatMaskRenderer {
         const projY = (cy / canvasHeight) * bounds.height - bounds.maxY;
         const coords = projection.invert?.([projX, projY]);
 
-        if (!coords) continue;
+        if (!coords) {
+          continue;
+        }
         const [lon, lat] = coords;
-        if (!isFinite(lon) || !isFinite(lat)) continue;
-        if (lat < -90 || lat > 90 || lon < -180 || lon > 180) continue;
+        if (!isFinite(lon) || !isFinite(lat)) {
+          continue;
+        }
+        if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+          continue;
+        }
 
         // Check land/sea
         const isLand = landMask.data[idx + 3] > 128;
@@ -657,7 +662,7 @@ class FlatMaskRenderer {
         imageData.data[idx] = textureData.data[texIdx];
         imageData.data[idx + 1] = textureData.data[texIdx + 1];
         imageData.data[idx + 2] = textureData.data[texIdx + 2];
-        imageData.data[idx + 3] = 200;
+        imageData.data[idx + 3] = 255;
       }
     }
 
