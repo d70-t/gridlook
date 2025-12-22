@@ -55,15 +55,54 @@ export function geojson2geometry(
     splits.push(count);
   };
 
-  for (const f of geojson.features) {
-    if (f.geometry.type === "LineString") {
-      pushLinestring(f.geometry.coordinates);
-    } else if (f.geometry.type === "MultiLineString") {
-      for (const coords of f.geometry.coordinates) {
-        pushLinestring(coords);
+  const projection = helper.getD3Projection();
+  if (helper.isFlat && projection) {
+    let currentLine: number[][] | null = null;
+    const collectStream: d3.GeoStream = {
+      point(x: number, y: number) {
+        if (!currentLine) return;
+        currentLine.push([x * radius, -y * radius, zOffset]);
+      },
+      lineStart() {
+        currentLine = [];
+      },
+      lineEnd() {
+        if (currentLine && currentLine.length) {
+          const coords = currentLine.map(([x, y, z]) => [x, y, z]);
+          for (const [px, py, pz] of coords) {
+            polylines.push(px, py, pz);
+            count += 1;
+          }
+          splits.push(count);
+        }
+        currentLine = null;
+      },
+      polygonStart() {
+        currentLine = [];
+      },
+      polygonEnd() {
+        currentLine = null;
+      },
+      sphere() {
+        currentLine = null;
+      },
+    };
+
+    d3.geoStream(
+      geojson as unknown as d3.GeoPermissibleObjects,
+      projection.stream(collectStream)
+    );
+  } else {
+    for (const f of geojson.features) {
+      if (f.geometry.type === "LineString") {
+        pushLinestring(f.geometry.coordinates);
+      } else if (f.geometry.type === "MultiLineString") {
+        for (const coords of f.geometry.coordinates) {
+          pushLinestring(coords);
+        }
+      } else {
+        console.error("unknown geometry: " + f.geometry.type);
       }
-    } else {
-      console.error("unknown geometry: " + f.geometry.type);
     }
   }
 
