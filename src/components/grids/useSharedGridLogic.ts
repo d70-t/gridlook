@@ -1,4 +1,10 @@
+import { useEventListener } from "@vueuse/core";
+import * as d3 from "d3-geo";
+import type { FeatureCollection } from "geojson";
+import debounce from "lodash.debounce";
 import { storeToRefs } from "pinia";
+import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 import {
   computed,
   onBeforeUnmount,
@@ -9,32 +15,32 @@ import {
   type Ref,
   type ShallowRef,
 } from "vue";
-import { LAND_SEA_MASK_MODES, useGlobeControlStore } from "../store/store.ts";
-import { geojson2geometry } from "../utils/geojson.ts";
-import * as THREE from "three";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
-import { handleKeyDown } from "../utils/OrbitControlsAddOn.ts";
-import { useLog } from "../utils/logging.ts";
 import * as zarr from "zarrita";
-import type {
-  TDimensionRange,
-  TSources,
-  TTimeInfo,
-} from "@/types/GlobeTypes.ts";
+
 import { useUrlParameterStore } from "../store/paramStore.ts";
-import { getLandSeaMask, loadJSON } from "../utils/landSeaMask.ts";
-import debounce from "lodash.debounce";
+import { LAND_SEA_MASK_MODES, useGlobeControlStore } from "../store/store.ts";
 import {
   availableColormaps,
   calculateColorMapProperties,
 } from "../utils/colormapShaders.ts";
-import { useEventListener } from "@vueuse/core";
+import { geojson2geometry } from "../utils/geojson.ts";
+import { getLandSeaMask } from "../utils/landSeaMask.ts";
+import { useLog } from "../utils/logging.ts";
+import { handleKeyDown } from "../utils/OrbitControlsAddOn.ts";
+import { ProjectionHelper } from "../utils/projectionUtils.ts";
 import { decodeTime } from "../utils/timeHandling.ts";
 import {
   CONTROL_PANEL_WIDTH,
   MOBILE_BREAKPOINT,
 } from "../utils/viewConstants.ts";
 import { ZarrDataManager } from "../utils/ZarrDataManager.ts";
+
+import type {
+  TDimensionRange,
+  TSources,
+  TTimeInfo,
+} from "@/types/GlobeTypes.ts";
+import { ResourceCache } from "../utils/ResourceCache.ts";
 
 export function useSharedGridLogic() {
   const store = useGlobeControlStore();
@@ -46,6 +52,7 @@ export function useSharedGridLogic() {
     colormap,
     invertColormap,
     controlPanelVisible,
+    projectionMode,
   } = storeToRefs(store);
 
   const urlParameterStore = useUrlParameterStore();
@@ -59,7 +66,7 @@ export function useSharedGridLogic() {
   const canvas: Ref<HTMLCanvasElement | undefined> = ref();
   const box: Ref<HTMLDivElement | undefined> = ref();
   let coast: THREE.LineSegments | undefined = undefined;
-  let landSeaMask: THREE.Mesh | undefined = undefined;
+  let landSeaMask: THREE.Object3D | undefined = undefined;
   let scene: THREE.Scene | undefined = undefined;
   let camera: THREE.PerspectiveCamera | undefined = undefined;
   let renderer: THREE.WebGLRenderer | undefined = undefined;
@@ -70,6 +77,11 @@ export function useSharedGridLogic() {
   let updateLOD: (() => void) | undefined = undefined;
   let mouseDown = false;
   const frameId = ref(0);
+  let baseSurface: THREE.Mesh | undefined = undefined;
+
+  const projectionHelper = computed(() => {
+    return new ProjectionHelper(projectionMode.value, { lat: 0, lon: 0 });
+  });
 
   watch(
     () => showCoastLines.value,
@@ -90,6 +102,16 @@ export function useSharedGridLogic() {
     [() => landSeaMaskChoice.value, () => landSeaMaskUseTexture.value],
     () => {
       updateLandSeaMask();
+    }
+  );
+
+  watch(
+    () => projectionHelper.value,
+    () => {
+      updateBaseSurface();
+      updateCoastlines();
+      updateLandSeaMask();
+      configureCameraForProjection();
     }
   );
 
@@ -147,20 +169,34 @@ export function useSharedGridLogic() {
     getRenderer()?.render(getScene()!, getCamera()!);
   }
 
+  let coastlineData: FeatureCollection | undefined;
+
   async function getCoastlines() {
-    if (coast === undefined) {
-      const coastlines = await loadJSON("static/ne_50m_coastline.geojson");
-      const geometry = geojson2geometry(coastlines, 1.002);
+    if (!coastlineData) {
+      coastlineData = await ResourceCache.loadGeoJSON(
+        "static/ne_50m_coastline.geojson"
+      );
+    }
+    if (!coast) {
       const material = new THREE.LineBasicMaterial({
         color: "#ffffff",
       });
-      coast = new THREE.LineSegments(geometry, material);
+      coast = new THREE.LineSegments(new THREE.BufferGeometry(), material);
       coast.name = "coastlines";
     }
+    const geometry = geojson2geometry(coastlineData, projectionHelper.value, {
+      radius: projectionHelper.value.isFlat ? 1 : 1.002,
+      zOffset: projectionHelper.value.isFlat ? 0.002 : 0,
+    });
+    coast.geometry.dispose();
+    coast.geometry = geometry;
     return coast;
   }
 
   async function updateCoastlines() {
+    if (!scene) {
+      return;
+    }
     if (showCoastLines.value === false) {
       if (getCoast()) {
         scene?.remove(getCoast()!);
@@ -182,9 +218,12 @@ export function useSharedGridLogic() {
       return;
     }
 
+    const projectionBounds = getProjectedBounds();
     const mask = await getLandSeaMask(
       landSeaMaskChoice.value!,
-      landSeaMaskUseTexture.value!
+      landSeaMaskUseTexture.value!,
+      projectionHelper.value,
+      projectionBounds
     );
     landSeaMask = mask;
     if (landSeaMask) {
@@ -218,6 +257,157 @@ export function useSharedGridLogic() {
     redraw();
   }
 
+  function getProjectedBounds() {
+    const helper = projectionHelper.value;
+
+    // For globe mode, return standard bounds (not used for mask rendering)
+    if (!helper.isFlat) {
+      return {
+        minX: -Math.PI,
+        maxX: Math.PI,
+        minY: -Math.PI / 2,
+        maxY: Math.PI / 2,
+        width: 2 * Math.PI,
+        height: Math.PI,
+        centerX: 0,
+        centerY: 0,
+      };
+    }
+
+    const projection = helper.getD3Projection();
+    const path = d3.geoPath(projection);
+
+    // Compute bounds of the entire sphere in projected coordinates
+    const [[minX, minY], [maxX, maxY]] = path.bounds({ type: "Sphere" });
+
+    return {
+      minX,
+      maxX,
+      minY,
+      maxY,
+      width: maxX - minX,
+      height: maxY - minY,
+      centerX: (minX + maxX) / 2,
+      centerY: (minY + maxY) / 2,
+    };
+  }
+
+  function updateBaseSurface() {
+    if (!scene) {
+      return;
+    }
+    if (baseSurface) {
+      scene.remove(baseSurface);
+      baseSurface.geometry.dispose();
+      (baseSurface.material as THREE.Material).dispose();
+      baseSurface = undefined;
+    }
+    if (projectionHelper.value.isFlat) {
+      const bounds = getProjectedBounds();
+      const width = Math.max(bounds.width, 1);
+      const height = Math.max(bounds.height, 1);
+      const geometry = new THREE.PlaneGeometry(width * 1.05, height * 1.05);
+      const material = new THREE.MeshBasicMaterial({
+        color: 0x000000,
+        side: THREE.DoubleSide,
+      });
+      baseSurface = new THREE.Mesh(geometry, material);
+      baseSurface.position.set(bounds.centerX, bounds.centerY, -0.05);
+    } else {
+      const geometry = new THREE.SphereGeometry(0.99, 64, 64);
+      const material = new THREE.MeshBasicMaterial({ color: 0x000000 });
+      baseSurface = new THREE.Mesh(geometry, material);
+      baseSurface.rotation.x = Math.PI / 2;
+    }
+    scene.add(baseSurface);
+  }
+
+  function configureCameraForProjection() {
+    const cam = getCamera();
+    const controls = getOrbitControls();
+    if (!cam || !controls) {
+      return;
+    }
+    if (projectionHelper.value.isFlat) {
+      const bounds = getProjectedBounds();
+      const targetDistance =
+        Math.max(bounds.height, bounds.width) /
+        2 /
+        Math.tan(((cam.fov ?? 45) * Math.PI) / 360);
+
+      // Reset camera orientation completely for flat projection
+      // This prevents globe rotation from carrying over
+      cam.up.set(0, 1, 0);
+      cam.quaternion.identity();
+      cam.rotation.set(0, 0, 0);
+
+      cam.position.set(
+        bounds.centerX,
+        bounds.centerY,
+        Math.max(targetDistance * 1.1, 3)
+      );
+      controls.target.set(bounds.centerX, bounds.centerY, 0);
+
+      // Now look at target after position is set
+      cam.lookAt(controls.target);
+
+      controls.enablePan = true;
+      controls.enableRotate = false;
+      controls.mouseButtons = {
+        LEFT: THREE.MOUSE.PAN,
+        MIDDLE: THREE.MOUSE.DOLLY,
+        RIGHT: THREE.MOUSE.ROTATE,
+      };
+      controls.minDistance = 1;
+      controls.maxDistance = 200;
+    } else {
+      cam.up.set(0, 0, 1);
+      controls.enablePan = false;
+      controls.enableRotate = true;
+      controls.mouseButtons = {
+        LEFT: THREE.MOUSE.ROTATE,
+        MIDDLE: THREE.MOUSE.DOLLY,
+        RIGHT: THREE.MOUSE.PAN,
+      };
+      controls.minDistance = 1.1;
+      controls.maxDistance = 1000;
+      // Always reset camera position when switching to globe mode
+      // This ensures a clean state after coming from flat projection
+      cam.position.set(30, 0, 0);
+      controls.target.set(0, 0, 0);
+    }
+    const target = controls.target.clone();
+    cam.lookAt(target);
+    cam.updateProjectionMatrix();
+    controls.update();
+
+    // Apply URL camera state on initial load after projection is configured
+    if (isInitialLoad) {
+      if (paramCameraState.value) {
+        const state = decodeCameraFromURL();
+        if (state) {
+          applyCameraState(cam, state);
+          // For flat projections, the target should match camera x,y position
+          // since panning moves both camera and target together
+          if (projectionHelper.value.isFlat) {
+            controls.target.set(cam.position.x, cam.position.y, 0);
+          }
+          controls.update();
+        }
+      }
+      // Always mark initial load as complete after first projection configuration
+      isInitialLoad = false;
+    } else {
+      // When switching projections, immediately save the new camera state to URL
+      // This replaces the old projection's camera state with the current one
+      encodeCameraToURL(cam);
+    }
+
+    // Update camera offset for panel visibility
+    updateCameraForPanel();
+    redraw();
+  }
+
   function initEssentials() {
     // from: https://stackoverflow.com/a/65732553
     scene = new THREE.Scene();
@@ -230,19 +420,10 @@ export function useSharedGridLogic() {
     );
     renderer = new THREE.WebGLRenderer({ canvas: canvas.value });
 
-    if (paramCameraState.value === undefined) {
-      camera.up = new THREE.Vector3(0, 0, 1);
-      camera.position.x = 30;
-      camera.lookAt(center);
-    } else {
-      camera.up = new THREE.Vector3(0, 0, 1);
-      camera.position.x = 30;
-      camera.lookAt(center);
-      const state = decodeCameraFromURL();
-      if (state) {
-        applyCameraState(camera, state);
-      }
-    }
+    // Set initial camera defaults - URL state will be applied in configureCameraForProjection
+    camera.up = new THREE.Vector3(0, 0, 1);
+    camera.position.x = 30;
+    camera.lookAt(center);
 
     orbitControls = new OrbitControls(camera, renderer.domElement);
     // smaller minDistances than 1.1 will reveal the naked mesh
@@ -250,27 +431,15 @@ export function useSharedGridLogic() {
     orbitControls.minDistance = 1.1;
     orbitControls.enablePan = false;
 
-    // Depending on the dataset it happens that the data does not cover
-    // the full globe. In order to avoid some ugly transparency issues, we add
-    // an opaque black sphere underneath. As a side effect, we have also an actual
-    // SphereGeometry in use, which might be useful for Raytracing in the future.
-    // FIXME: As soon as we have other projections than the globe, this needs to be
-    // adapted accordingly.
-    const sphereGeometry = new THREE.SphereGeometry(0.99, 64, 64);
-    const earthMat = new THREE.MeshBasicMaterial({ color: 0x000000 }); // black color
-    const globeMesh = new THREE.Mesh(sphereGeometry, earthMat);
-    globeMesh.geometry.attributes.position.needsUpdate = true;
-    globeMesh.rotation.x = Math.PI / 2;
-    globeMesh.geometry.computeBoundingBox();
-    globeMesh.geometry.computeBoundingSphere();
-
-    getScene()?.add(globeMesh);
+    updateBaseSurface();
+    configureCameraForProjection();
     updateCoastlines();
   }
 
   let init = true;
   let currentOffset = 0;
   let targetOffset = 0;
+  let isInitialLoad = true;
 
   function updateCameraForPanel() {
     const camera = getCamera();
@@ -368,6 +537,10 @@ export function useSharedGridLogic() {
   }
 
   function toggleRotate() {
+    if (projectionHelper.value.isFlat) {
+      getOrbitControls()!.autoRotate = false;
+      return;
+    }
     getOrbitControls()!.autoRotate = !getOrbitControls()!.autoRotate;
     animationLoop();
   }
@@ -444,7 +617,7 @@ export function useSharedGridLogic() {
         e.key === "-"
       ) {
         mouseDown = true;
-        handleKeyDown(e, getOrbitControls()!);
+        handleKeyDown(e, getOrbitControls()!, projectionHelper.value.isFlat);
         animationLoop();
         mouseDown = false;
       }
@@ -506,15 +679,26 @@ export function useSharedGridLogic() {
     if (dimensionRanges[0]?.name !== "time") {
       return {};
     }
-    const myDatasource = datasources!.levels[0].time;
-    const timevar = await ZarrDataManager.getVariableInfo(myDatasource, "time");
-    const timevalues = (
-      await ZarrDataManager.getVariableData(myDatasource, "time", [null])
-    ).data as Int32Array;
-    return {
-      values: timevalues,
-      current: decodeTime(timevalues[index], timevar.attrs),
-    };
+    try {
+      const myDatasource = datasources!.levels[0].time;
+
+      const timevalues = (
+        await ZarrDataManager.getVariableData(myDatasource, "time", [null])
+      ).data as Int32Array;
+
+      const timevar = await ZarrDataManager.getVariableInfo(
+        myDatasource,
+        "time"
+      );
+      return {
+        values: timevalues,
+        current: decodeTime(timevalues[index], timevar.attrs),
+      };
+    } catch {
+      // Ignore errors and return empty time info
+      // this information is not critical to display the data
+      return {};
+    }
   }
 
   type TCameraState = {
@@ -620,6 +804,7 @@ export function useSharedGridLogic() {
     registerUpdateLOD,
     updateLandSeaMask,
     updateColormap,
+    projectionHelper,
     canvas,
     box,
   };

@@ -58,8 +58,9 @@ const onHashChange = () => {
       } else if (STORE_PARAM_MAPPING[key] === undefined) {
         continue;
       }
+      const paramProperty = STORE_PARAM_MAPPING[key];
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      urlParameterStore[STORE_PARAM_MAPPING[key]] = value as any;
+      urlParameterStore[paramProperty] = value as any;
     }
     src.value = resource || defaultSrc.value;
   } else {

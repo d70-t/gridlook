@@ -22,17 +22,10 @@ export const useUrlParameterStore = defineStore("urlParams", {
       paramDimIndices: {} as Record<string, string>,
       paramDimMinBounds: {} as Record<string, string>,
       paramDimMaxBounds: {} as Record<string, string>,
+      paramProjection: undefined as string | undefined,
     };
   },
 });
-
-// type TUrlParameterState = keyof ReturnType<
-//   typeof useUrlParameterStore
-// >["$state"];
-
-// Partial<
-//   Record<TURLParameterValues, TUrlParameterState>
-// > =
 
 export const STORE_PARAM_MAPPING = {
   colormap: "paramColormap",
@@ -44,4 +37,5 @@ export const STORE_PARAM_MAPPING = {
   dimIndices: "paramDimIndices",
   dimMinBounds: "paramDimMinBounds",
   dimMaxBounds: "paramDimMaxBounds",
+  projection: "paramProjection",
 } as const;

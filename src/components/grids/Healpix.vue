@@ -1,26 +1,28 @@
 <script lang="ts" setup>
-import * as THREE from "three";
-import * as zarr from "zarrita";
 import * as healpix from "@hscmap/healpix";
-import {
-  calculateColorMapProperties,
-  makeTextureMaterial,
-} from "../utils/colormapShaders.ts";
+import { storeToRefs } from "pinia";
+import * as THREE from "three";
 import { computed, onBeforeMount, onMounted, ref, watch } from "vue";
+import * as zarr from "zarrita";
 
+import type { TSources } from "../../types/GlobeTypes.ts";
+import { useUrlParameterStore } from "../store/paramStore.ts";
 import {
   UPDATE_MODE,
   useGlobeControlStore,
   type TUpdateMode,
 } from "../store/store.js";
-import { storeToRefs } from "pinia";
-import type { TSources } from "../../types/GlobeTypes.ts";
-import { useLog } from "../utils/logging.ts";
-import { useSharedGridLogic } from "./useSharedGridLogic.ts";
-import { castDataVarToFloat32, getDataBounds } from "../utils/zarrUtils.ts";
+import {
+  calculateColorMapProperties,
+  makeTextureMaterial,
+} from "../utils/colormapShaders.ts";
 import { getDimensionInfo } from "../utils/dimensionHandling.ts";
-import { useUrlParameterStore } from "../store/paramStore.ts";
+import { useLog } from "../utils/logging.ts";
+import { ProjectionHelper } from "../utils/projectionUtils.ts";
 import { ZarrDataManager } from "../utils/ZarrDataManager.ts";
+import { castDataVarToFloat32, getDataBounds } from "../utils/zarrUtils.ts";
+
+import { useSharedGridLogic } from "./useSharedGridLogic.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -52,6 +54,7 @@ const {
   getTimeInfo,
   updateLandSeaMask,
   updateColormap,
+  projectionHelper,
   canvas,
   box,
 } = useSharedGridLogic();
@@ -66,6 +69,8 @@ let mainMeshes: THREE.Mesh<
   THREE.Material,
   THREE.Object3DEventMap
 >[] = new Array(HEALPIX_NUMCHUNKS);
+const healpixLatLonCache: { lat: Float32Array; lon: Float32Array }[] =
+  new Array(HEALPIX_NUMCHUNKS);
 
 watch(
   () => varnameSelector.value,
@@ -104,6 +109,13 @@ watch(
   }
 );
 
+watch(
+  () => projectionHelper.value,
+  () => {
+    reprojectHealpixMeshes();
+  }
+);
+
 const timeIndexSlider = computed(() => {
   if (varinfo.value?.dimRanges[0]?.name !== "time") {
     return 0;
@@ -126,10 +138,15 @@ async function fetchGrid() {
   const gridStep = 64 + 1;
   try {
     for (let ipix = 0; ipix < HEALPIX_NUMCHUNKS; ipix++) {
-      const geometry = makeHealpixGeometry(1, ipix, gridStep);
-
+      const { geometry, latitudes, longitudes } = makeHealpixGeometry(
+        1,
+        ipix,
+        gridStep,
+        projectionHelper.value
+      );
       mainMeshes[ipix].geometry.dispose();
       mainMeshes[ipix].geometry = geometry;
+      healpixLatLonCache[ipix] = { lat: latitudes, lon: longitudes };
     }
     redraw();
   } catch (error) {
@@ -281,18 +298,44 @@ function distanceSquared(
   return (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1) + (z2 - z1) * (z2 - z1);
 }
 
-function makeHealpixGeometry(nside: number, ipix: number, steps: number) {
-  const vertices = [];
-  const uv = [];
+function vectorToLatLon(x: number, y: number, z: number) {
+  const r = Math.sqrt(x * x + y * y + z * z);
+  const lat = (Math.asin(z / r) * 180) / Math.PI;
+  const lon = (Math.atan2(y, x) * 180) / Math.PI;
+  return { lat, lon };
+}
+
+function makeHealpixGeometry(
+  nside: number,
+  ipix: number,
+  steps: number,
+  helper: ProjectionHelper
+) {
+  const vertexCount = steps * steps;
+  const vertices = new Float32Array(vertexCount * 3);
+  const uv = new Float32Array(vertexCount * 2);
+  const latitudes = new Float32Array(vertexCount);
+  const longitudes = new Float32Array(vertexCount);
   const indices = [];
+  let vertexIndex = 0;
 
   for (let i = 0; i < steps; ++i) {
     const u = i / (steps - 1);
     for (let j = 0; j < steps; ++j) {
       const v = j / (steps - 1);
       const vec = healpix.pixcoord2vec_nest(nside, ipix, u, v);
-      vertices.push(vec[0], vec[1], vec[2]);
-      uv.push(u, v);
+      const { lat, lon } = vectorToLatLon(vec[0], vec[1], vec[2]);
+      latitudes[vertexIndex] = lat;
+      longitudes[vertexIndex] = lon;
+      const [x, y, z] = helper.project(lat, lon, 1);
+      const baseIndex = vertexIndex * 3;
+      vertices[baseIndex] = x;
+      vertices[baseIndex + 1] = y;
+      vertices[baseIndex + 2] = z;
+      const uvIndex = vertexIndex * 2;
+      uv[uvIndex] = u;
+      uv[uvIndex + 1] = v;
+      vertexIndex++;
     }
   }
 
@@ -335,7 +378,34 @@ function makeHealpixGeometry(nside: number, ipix: number, steps: number) {
     new THREE.Float32BufferAttribute(vertices, 3)
   );
   geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
-  return geometry;
+  return { geometry, latitudes, longitudes };
+}
+
+function reprojectHealpixMeshes() {
+  for (let ipix = 0; ipix < HEALPIX_NUMCHUNKS; ipix++) {
+    const mesh = mainMeshes[ipix];
+    const cache = healpixLatLonCache[ipix];
+    if (!mesh || !cache) continue;
+    const positionAttr = mesh.geometry.getAttribute(
+      "position"
+    ) as THREE.BufferAttribute;
+    if (!positionAttr) continue;
+    const array = positionAttr.array as Float32Array;
+    for (let v = 0; v < cache.lat.length; v++) {
+      const [x, y, z] = projectionHelper.value.project(
+        cache.lat[v],
+        cache.lon[v],
+        1
+      );
+      const baseIndex = v * 3;
+      array[baseIndex] = x;
+      array[baseIndex + 1] = y;
+      array[baseIndex + 2] = z;
+    }
+    positionAttr.needsUpdate = true;
+    mesh.geometry.computeBoundingSphere();
+  }
+  redraw();
 }
 
 function getUnshuffleIndex(
@@ -506,10 +576,14 @@ onBeforeMount(async () => {
       addOffset,
       scaleFactor
     );
-    mainMeshes[ipix] = new THREE.Mesh(
-      makeHealpixGeometry(1, ipix, gridStep),
-      material
+    const { geometry, latitudes, longitudes } = makeHealpixGeometry(
+      1,
+      ipix,
+      gridStep,
+      projectionHelper.value
     );
+    mainMeshes[ipix] = new THREE.Mesh(geometry, material);
+    healpixLatLonCache[ipix] = { lat: latitudes, lon: longitudes };
   }
   await datasourceUpdate();
 });

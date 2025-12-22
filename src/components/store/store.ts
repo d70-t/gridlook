@@ -1,5 +1,11 @@
-import type { TVarInfo, TColorMap, TBounds } from "@/types/GlobeTypes";
 import { defineStore } from "pinia";
+
+import {
+  PROJECTION_TYPES,
+  type TProjectionType,
+} from "../utils/projectionUtils";
+
+import type { TVarInfo, TColorMap, TBounds } from "@/types/GlobeTypes";
 
 export const LAND_SEA_MASK_MODES = {
   OFF: "off",
@@ -44,6 +50,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
       dimSlidersDisplay: [] as (number | null)[],
       isInitializingVariable: false,
       controlPanelVisible: true,
+      projectionMode: PROJECTION_TYPES.NEARSIDE_PERSPECTIVE as TProjectionType,
     };
   },
   actions: {

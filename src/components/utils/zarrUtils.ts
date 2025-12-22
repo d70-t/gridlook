@@ -29,6 +29,29 @@ export function getFillValue(
   return Number(obj.fill_value);
 }
 
+/**
+ * Create a predicate that returns true when a value equals the dataset's
+ * missing or fill value (or is NaN).
+ */
+export function createMissingOrFillPredicate(
+  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>
+) {
+  const missingValue = getMissingValue(datavar);
+  const fillValue = getFillValue(datavar);
+  return (value: number) => {
+    if (Number.isNaN(value)) {
+      return true;
+    }
+    if (!Number.isNaN(missingValue) && value === missingValue) {
+      return true;
+    }
+    if (!Number.isNaN(fillValue) && value === fillValue) {
+      return true;
+    }
+    return false;
+  };
+}
+
 export function isLongitude(name: string) {
   // FIXME: Need to check for unit later
   // having "rlon" here is a workaround to catch rotated regular grids if the have no CRS-var

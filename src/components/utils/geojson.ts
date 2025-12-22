@@ -1,27 +1,41 @@
 import * as THREE from "three";
 import type { FeatureCollection } from "geojson";
+import { ProjectionHelper } from "./projectionUtils";
 
-export function geojson2geometry(geojson: FeatureCollection, radius = 1) {
+type TGeometryOptions = {
+  radius?: number;
+  zOffset?: number;
+};
+
+export function geojson2geometry(
+  geojson: FeatureCollection,
+  helper: ProjectionHelper,
+  options?: TGeometryOptions
+) {
   const polylines: number[] = [];
   const splits: number[] = [];
   let count = 0;
+  const radius = options?.radius ?? 1;
+  const zOffset = options?.zOffset ?? 0;
 
   const pushLinestring = (coords: number[][]) => {
+    let previousLon: number | undefined = undefined;
     for (const [lon, lat] of coords) {
-      const x =
-        radius *
-        Math.cos((lon / 180) * Math.PI) *
-        Math.cos((lat / 180) * Math.PI);
-      const y =
-        radius *
-        Math.sin((lon / 180) * Math.PI) *
-        Math.cos((lat / 180) * Math.PI);
-      const z = radius * Math.sin((lat / 180) * Math.PI);
+      const normalizedLon = helper.normalizeLongitude(lon);
+      if (
+        helper.isFlat &&
+        previousLon !== undefined &&
+        Math.abs(normalizedLon - previousLon) > 180
+      ) {
+        splits.push(count);
+      }
+      const [x, y, z] = helper.project(lat, normalizedLon, radius);
 
       polylines.push(x);
       polylines.push(y);
-      polylines.push(z);
+      polylines.push(z + zOffset);
       count += 1;
+      previousLon = normalizedLon;
     }
     splits.push(count);
   };

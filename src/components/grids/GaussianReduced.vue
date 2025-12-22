@@ -1,27 +1,26 @@
 <script lang="ts" setup>
+import { storeToRefs } from "pinia";
 import * as THREE from "three";
-import * as zarr from "zarrita";
-import { makeColormapMaterial } from "../utils/colormapShaders.ts";
-
 import { computed, onBeforeMount, ref, watch } from "vue";
 
+import type { TSources } from "../../types/GlobeTypes.ts";
+import { useUrlParameterStore } from "../store/paramStore.ts";
 import {
   UPDATE_MODE,
   useGlobeControlStore,
   type TUpdateMode,
 } from "../store/store.js";
-import { storeToRefs } from "pinia";
-import type { TSources } from "../../types/GlobeTypes.ts";
-import { useLog } from "../utils/logging.ts";
-import { useSharedGridLogic } from "./useSharedGridLogic.ts";
-import { useUrlParameterStore } from "../store/paramStore.ts";
+import { makeColormapMaterial } from "../utils/colormapShaders.ts";
 import { getDimensionInfo } from "../utils/dimensionHandling.ts";
+import { useLog } from "../utils/logging.ts";
+import { ZarrDataManager } from "../utils/ZarrDataManager.ts";
 import {
   castDataVarToFloat32,
   getDataBounds,
   getLatLonData,
 } from "../utils/zarrUtils.ts";
-import { ZarrDataManager } from "../utils/ZarrDataManager.ts";
+
+import { useSharedGridLogic } from "./useSharedGridLogic.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -48,6 +47,9 @@ const updateCount = ref(0);
 const updatingData = ref(false);
 
 let meshes: THREE.Mesh[] = [];
+let cachedLatitudes: Float64Array | undefined;
+let cachedLongitudes: Float64Array | undefined;
+let cachedData: Float32Array | undefined;
 
 const {
   getScene,
@@ -58,6 +60,7 @@ const {
   getTimeInfo,
   updateLandSeaMask,
   updateColormap,
+  projectionHelper,
   canvas,
   box,
 } = useSharedGridLogic();
@@ -99,6 +102,13 @@ watch(
   }
 );
 
+watch(
+  () => projectionHelper.value,
+  () => {
+    void rebuildGaussianGridFromCache();
+  }
+);
+
 const colormapMaterial = computed(() => {
   if (invertColormap) {
     return makeColormapMaterial(colormap.value, 1.0, -1.0);
@@ -117,31 +127,30 @@ async function datasourceUpdate() {
 
 const BATCH_SIZE = 64; // Adjust based on memory and browser limits
 
-function latLonToCartesianFlat(
+function projectLatLon(
   lat: number,
   lon: number,
   out: Float32Array,
-  offset: number,
-  radius = 1
+  offset: number
 ) {
-  const latRad = (lat * Math.PI) / 180;
-  const lonRad = (lon * Math.PI) / 180;
-  out[offset] = radius * Math.cos(latRad) * Math.cos(lonRad);
-  out[offset + 1] = radius * Math.cos(latRad) * Math.sin(lonRad);
-  out[offset + 2] = radius * Math.sin(latRad);
+  const helper = projectionHelper.value;
+  const normalizedLon = helper.normalizeLongitude(lon);
+  const [x, y, z] = helper.project(lat, normalizedLon, 1);
+  out[offset] = x;
+  out[offset + 1] = y;
+  out[offset + 2] = z;
 }
 
 async function getGrid(
-  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  latitudes: Float64Array,
+  longitudes: Float64Array,
   data: Float32Array
 ) {
-  const { latitudes, longitudes } = await getLatLonData(
-    datavar,
-    props.datasources
-  );
-  const latitudesData = latitudes.data as Float64Array;
-  const longitudesData = longitudes.data as Float64Array;
-  const { rows, uniqueLats } = buildRows(latitudesData, longitudesData, data);
+  cachedLatitudes = Float64Array.from(latitudes);
+  cachedLongitudes = Float64Array.from(longitudes);
+  cachedData = Float32Array.from(data);
+
+  const { rows, uniqueLats } = buildRows(latitudes, longitudes, data);
   const totalBatches = Math.ceil((uniqueLats.length - 1) / BATCH_SIZE);
 
   if (meshes.length > totalBatches) {
@@ -185,25 +194,15 @@ async function getGrid(
         const dLon = (lon2 - lon1 + 360) % 360;
 
         const EPSILON = 0.002; // Small overlap in degrees in order to avoid z-fighting
-        latLonToCartesianFlat(lat1, lon1 + EPSILON, positions, vtxOffset);
-        latLonToCartesianFlat(
-          lat1,
-          lon1 - dLon - EPSILON,
-          positions,
-          vtxOffset + 3
-        );
-        latLonToCartesianFlat(
+        projectLatLon(lat1, lon1 + EPSILON, positions, vtxOffset);
+        projectLatLon(lat1, lon1 - dLon - EPSILON, positions, vtxOffset + 3);
+        projectLatLon(
           lat2 - EPSILON,
           lon1 - dLon - EPSILON,
           positions,
           vtxOffset + 6
         );
-        latLonToCartesianFlat(
-          lat2 - EPSILON,
-          lon1 + EPSILON,
-          positions,
-          vtxOffset + 9
-        );
+        projectLatLon(lat2 - EPSILON, lon1 + EPSILON, positions, vtxOffset + 9);
 
         // Data value
         dataValues.fill(cell.value, cellIndex * 4, cellIndex * 4 + 4);
@@ -253,6 +252,13 @@ function buildRows(lats: Float64Array, lons: Float64Array, data: Float32Array) {
   return { rows, uniqueLats };
 }
 
+async function rebuildGaussianGridFromCache() {
+  if (!cachedLatitudes || !cachedLongitudes || !cachedData) {
+    return;
+  }
+  await getGrid(cachedLatitudes, cachedLongitudes, cachedData);
+}
+
 async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
   store.startLoading();
   try {
@@ -282,12 +288,19 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
         (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
       );
 
+      const { latitudes, longitudes } = await getLatLonData(
+        datavar,
+        props.datasources
+      );
+      const latitudesData = latitudes.data as Float64Array;
+      const longitudesData = longitudes.data as Float64Array;
+
       let { min, max, missingValue, fillValue } = getDataBounds(
         datavar,
         rawData
       );
 
-      await getGrid(datavar, rawData);
+      await getGrid(latitudesData, longitudesData, rawData);
 
       for (let mesh of meshes) {
         const material = mesh.material as THREE.ShaderMaterial;

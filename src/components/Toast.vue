@@ -16,7 +16,13 @@ const getToastTheme = (severity?: string) =>
 </script>
 
 <template>
-  <Toast unstyled position="top-right">
+  <Toast
+    unstyled
+    position="top-right"
+    :pt="{
+      message: { class: 'mb-3' },
+    }"
+  >
     <template #container="{ message, closeCallback }">
       <article
         class="toast-card"
