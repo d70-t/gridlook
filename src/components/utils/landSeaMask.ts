@@ -280,7 +280,6 @@ class GlobeMaskRenderer {
       const material = mesh.material as THREE.MeshBasicMaterial;
       material.depthWrite = false;
       material.depthTest = true;
-      mesh.renderOrder = 1;
     }
 
     return mesh;

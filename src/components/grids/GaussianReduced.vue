@@ -103,7 +103,7 @@ watch(
 );
 
 watch(
-  () => [projectionHelper.value],
+  () => projectionHelper.value,
   () => {
     void rebuildGaussianGridFromCache();
   }

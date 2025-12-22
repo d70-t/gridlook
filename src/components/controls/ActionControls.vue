@@ -21,9 +21,9 @@ const { projectionMode } = storeToRefs(useGlobeControlStore());
       <button
         class="button"
         type="button"
-        :disabled="projectionMode !== PROJECTION_TYPES.GLOBE"
+        :disabled="projectionMode !== PROJECTION_TYPES.NEARSIDE_PERSPECTIVE"
         :title="
-          projectionMode !== PROJECTION_TYPES.GLOBE
+          projectionMode !== PROJECTION_TYPES.NEARSIDE_PERSPECTIVE
             ? 'Rotate is only available for globe projection'
             : 'Rotate the globe'
         "

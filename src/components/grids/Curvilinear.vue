@@ -109,7 +109,7 @@ watch(
 );
 
 watch(
-  () => [projectionMode.value],
+  () => projectionMode.value,
   () => {
     void rebuildCurvilinearGeometryFromCache();
   }

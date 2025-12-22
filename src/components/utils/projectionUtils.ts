@@ -6,7 +6,7 @@ import {
 } from "d3-geo-projection";
 
 export const PROJECTION_TYPES = {
-  GLOBE: "globe",
+  NEARSIDE_PERSPECTIVE: "nearside_perspective",
   MERCATOR: "mercator",
   ROBINSON: "robinson",
   MOLLWEIDE: "mollweide",
@@ -28,10 +28,6 @@ export type TProjectionOptions = {
 
 const MERCATOR_LAT_LIMIT = 85;
 
-export function clampLatitude(lat: number) {
-  return Math.max(-90, Math.min(90, lat));
-}
-
 export class ProjectionHelper {
   readonly type: TProjectionType;
   readonly isFlat: boolean;
@@ -52,7 +48,7 @@ export class ProjectionHelper {
 
     this.type = type;
     this.center = center;
-    this.isFlat = type !== PROJECTION_TYPES.GLOBE;
+    this.isFlat = type !== PROJECTION_TYPES.NEARSIDE_PERSPECTIVE;
 
     this.initializeD3Projection();
   }
@@ -65,40 +61,28 @@ export class ProjectionHelper {
     let d3Projection: d3.GeoProjection | null = null;
     switch (this.type) {
       case PROJECTION_TYPES.MERCATOR:
-        d3Projection = d3
-          .geoMercator()
-          .translate([0, 0])
-          .scale(1)
-          .rotate([-this.center.lon, -this.center.lat]);
+        d3Projection = d3.geoMercator();
         break;
       case PROJECTION_TYPES.ROBINSON:
-        d3Projection = geoRobinson()
-          .translate([0, 0])
-          .scale(1)
-          .rotate([-this.center.lon, -this.center.lat]);
+        d3Projection = geoRobinson();
+
         break;
       case PROJECTION_TYPES.MOLLWEIDE:
-        d3Projection = geoMollweide()
-          .translate([0, 0])
-          .scale(1)
-          .rotate([-this.center.lon, -this.center.lat]);
+        d3Projection = geoMollweide();
         break;
       case PROJECTION_TYPES.CYLINDRICAL_EQUAL_AREA:
-        d3Projection = geoCylindricalEqualArea()
-          .translate([0, 0])
-          .scale(1)
-          .rotate([-this.center.lon, -this.center.lat]);
+        d3Projection = geoCylindricalEqualArea();
         break;
       case PROJECTION_TYPES.EQUIRECTANGULAR:
-        d3Projection = d3
-          .geoEquirectangular()
-          .translate([0, 0])
-          .scale(1)
-          .rotate([-this.center.lon, -this.center.lat]);
+        d3Projection = d3.geoEquirectangular();
         break;
       default:
         d3Projection = null;
     }
+    d3Projection
+      ?.translate([0, 0])
+      .scale(1)
+      .rotate([-this.center.lon, -this.center.lat]);
     return d3Projection;
   }
 
@@ -111,7 +95,7 @@ export class ProjectionHelper {
   }
 
   project(lat: number, lon: number, radius = 1): [number, number, number] {
-    if (this.type === PROJECTION_TYPES.GLOBE) {
+    if (this.type === PROJECTION_TYPES.NEARSIDE_PERSPECTIVE) {
       return this.projectGlobe(lat, lon, radius);
     }
 
@@ -142,8 +126,9 @@ export class ProjectionHelper {
     lon: number,
     radius: number
   ): [number, number, number] {
-    const safeLat = clampLatitude(
-      Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, lat))
+    const safeLat = Math.max(
+      -MERCATOR_LAT_LIMIT,
+      Math.min(MERCATOR_LAT_LIMIT, lat)
     );
     const projected = this.d3Projection?.([
       this.normalizeLongitude(lon),

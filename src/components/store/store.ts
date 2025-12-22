@@ -50,7 +50,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
       dimSlidersDisplay: [] as (number | null)[],
       isInitializingVariable: false,
       controlPanelVisible: true,
-      projectionMode: PROJECTION_TYPES.GLOBE as TProjectionType,
+      projectionMode: PROJECTION_TYPES.NEARSIDE_PERSPECTIVE as TProjectionType,
     };
   },
   actions: {
