@@ -1,9 +1,9 @@
 import * as d3 from "d3-geo";
 import * as THREE from "three";
 
-import albedo from "../../assets/earth.jpg";
 import { LAND_SEA_MASK_MODES, type TLandSeaMaskMode } from "../store/store";
 import { ProjectionHelper } from "./projectionUtils";
+import { ResourceCache } from "./ResourceCache";
 
 // =============================================================================
 // Types
@@ -30,59 +30,6 @@ type GeoJSONData = GeoJSON.FeatureCollection<
   GeoJSON.Geometry,
   GeoJSON.GeoJsonProperties
 >;
-
-// =============================================================================
-// Resource Cache (singleton pattern)
-// =============================================================================
-
-class ResourceCache {
-  private static imageCache = new Map<string, Promise<HTMLImageElement>>();
-  private static jsonCache = new Map<string, Promise<GeoJSONData>>();
-
-  static async loadImage(url: string): Promise<HTMLImageElement> {
-    const existing = this.imageCache.get(url);
-    if (existing) return existing;
-
-    const promise = new Promise<HTMLImageElement>((resolve, reject) => {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.src = url;
-      img.onload = () => resolve(img);
-      img.onerror = (e) => {
-        this.imageCache.delete(url);
-        reject(e);
-      };
-    });
-
-    this.imageCache.set(url, promise);
-    return promise;
-  }
-
-  static async loadJSON(url: string): Promise<GeoJSONData> {
-    const existing = this.jsonCache.get(url);
-    if (existing) return existing;
-
-    const promise = fetch(url).then(async (r) => {
-      if (!r.ok) throw new Error(`Failed to fetch ${url}: ${r.status}`);
-      return (await r.json()) as GeoJSONData;
-    });
-
-    promise.catch(() => this.jsonCache.delete(url));
-    this.jsonCache.set(url, promise);
-    return promise;
-  }
-
-  static async loadLandGeoJSON(): Promise<GeoJSONData> {
-    return this.loadJSON("static/ne_50m_land.geojson");
-  }
-
-  static async loadEarthTexture(): Promise<HTMLImageElement> {
-    return this.loadImage(albedo);
-  }
-}
-
-// Re-export for external use
-export const loadJSON = ResourceCache.loadJSON.bind(ResourceCache);
 
 // =============================================================================
 // Mask Configuration

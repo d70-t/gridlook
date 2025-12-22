@@ -159,7 +159,6 @@ async function getDims() {
 function projectLatLon(lat: number, lon: number, radius: number) {
   const helper = projectionHelper.value;
   const normalizedLon = helper.normalizeLongitude(lon);
-  // console.log("normalizedLon", lon, normalizedLon);
   return helper.project(lat, normalizedLon, radius);
 }
 

@@ -107,7 +107,6 @@ watch(
 watch(
   () => projectionHelper.value,
   () => {
-    console.log("projection Helper");
     rebuildPositionsFromCache();
   }
 );

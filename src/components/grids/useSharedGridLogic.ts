@@ -24,7 +24,7 @@ import {
   calculateColorMapProperties,
 } from "../utils/colormapShaders.ts";
 import { geojson2geometry } from "../utils/geojson.ts";
-import { getLandSeaMask, loadJSON } from "../utils/landSeaMask.ts";
+import { getLandSeaMask } from "../utils/landSeaMask.ts";
 import { useLog } from "../utils/logging.ts";
 import { handleKeyDown } from "../utils/OrbitControlsAddOn.ts";
 import { ProjectionHelper } from "../utils/projectionUtils.ts";
@@ -40,6 +40,7 @@ import type {
   TSources,
   TTimeInfo,
 } from "@/types/GlobeTypes.ts";
+import { ResourceCache } from "../utils/ResourceCache.ts";
 
 export function useSharedGridLogic() {
   const store = useGlobeControlStore();
@@ -172,7 +173,9 @@ export function useSharedGridLogic() {
 
   async function getCoastlines() {
     if (!coastlineData) {
-      coastlineData = await loadJSON("static/ne_50m_coastline.geojson");
+      coastlineData = await ResourceCache.loadGeoJSON(
+        "static/ne_50m_coastline.geojson"
+      );
     }
     if (!coast) {
       const material = new THREE.LineBasicMaterial({
@@ -327,7 +330,6 @@ export function useSharedGridLogic() {
     }
     if (projectionHelper.value.isFlat) {
       const bounds = getProjectedBounds();
-      console.log(bounds);
       const targetDistance =
         Math.max(bounds.height, bounds.width) /
         2 /
