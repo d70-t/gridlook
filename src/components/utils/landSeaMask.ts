@@ -486,7 +486,6 @@ class GpuProjectedMaskRenderer {
       projectionHelper.type === PROJECTION_TYPES.MERCATOR
         ? MERCATOR_LAT_LIMIT
         : 90;
-    const latSpan = latExtent * 2;
 
     const geometry = new THREE.BufferGeometry();
 
