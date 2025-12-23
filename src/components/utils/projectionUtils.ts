@@ -12,6 +12,7 @@ export const PROJECTION_TYPES = {
   MOLLWEIDE: "mollweide",
   CYLINDRICAL_EQUAL_AREA: "cylindrical_equal_area",
   EQUIRECTANGULAR: "equirectangular",
+  AZIMUTHAL_EQUIDISTANT: "azimuthal_equidistant",
 } as const;
 
 export type TProjectionType =
@@ -26,7 +27,7 @@ export type TProjectionOptions = {
   center?: TProjectionCenter;
 };
 
-const MERCATOR_LAT_LIMIT = 85;
+export const MERCATOR_LAT_LIMIT = 85;
 
 export class ProjectionHelper {
   readonly type: TProjectionType;
@@ -75,6 +76,9 @@ export class ProjectionHelper {
         break;
       case PROJECTION_TYPES.EQUIRECTANGULAR:
         d3Projection = d3.geoEquirectangular();
+        break;
+      case PROJECTION_TYPES.AZIMUTHAL_EQUIDISTANT:
+        d3Projection = d3.geoAzimuthalEquidistant();
         break;
       default:
         d3Projection = null;

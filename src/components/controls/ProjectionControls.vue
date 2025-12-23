@@ -33,14 +33,14 @@ const updateLon = debounce((value: number) => {
     ...projectionCenter.value,
     lon: clamp(value, -180, 180),
   };
-}, 250);
+}, 0);
 
 const updateLat = debounce((value: number) => {
   projectionCenter.value = {
     ...projectionCenter.value,
     lat: clamp(value, -90, 90),
   };
-}, 250);
+}, 0);
 
 watch(centerLon, (value) => {
   if (value !== projectionCenter.value.lon) {
@@ -74,6 +74,9 @@ function resetProjectionCenter() {
         <option :value="PROJECTION_TYPES.MOLLWEIDE">Mollweide</option>
         <option :value="PROJECTION_TYPES.CYLINDRICAL_EQUAL_AREA">
           Cylindrical Equal Area
+        </option>
+        <option :value="PROJECTION_TYPES.AZIMUTHAL_EQUIDISTANT">
+          Azimuthal Equidistant
         </option>
       </select>
     </div>

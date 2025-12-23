@@ -10,9 +10,13 @@ import {
   useGlobeControlStore,
   type TUpdateMode,
 } from "../store/store.js";
-import { makeColormapMaterial } from "../utils/colormapShaders.ts";
+import {
+  makeGpuProjectedColormapMaterial,
+  updateProjectionUniforms,
+} from "../utils/colormapShaders.ts";
 import { getDimensionInfo } from "../utils/dimensionHandling.ts";
 import { useLog } from "../utils/logging.ts";
+import { getProjectionTypeFromMode } from "../utils/projectionShaders.ts";
 import { ZarrDataManager } from "../utils/ZarrDataManager.ts";
 import {
   castDataVarToFloat32,
@@ -37,6 +41,8 @@ const {
   selection,
   isInitializingVariable,
   varinfo,
+  projectionMode,
+  projectionCenter,
 } = storeToRefs(store);
 
 const urlParameterStore = useUrlParameterStore();
@@ -47,9 +53,6 @@ const updateCount = ref(0);
 const updatingData = ref(false);
 
 let meshes: THREE.Mesh[] = [];
-let cachedLatitudes: Float64Array | undefined;
-let cachedLongitudes: Float64Array | undefined;
-let cachedData: Float32Array | undefined;
 
 const {
   getScene,
@@ -102,18 +105,32 @@ watch(
   }
 );
 
-watch(
-  () => projectionHelper.value,
-  () => {
-    void rebuildGaussianGridFromCache();
+watch([() => projectionMode.value, () => projectionCenter.value], () => {
+  updateMeshProjectionUniforms();
+});
+
+function updateMeshProjectionUniforms() {
+  const helper = projectionHelper.value;
+  const projType = getProjectionTypeFromMode(helper.type);
+  const center = projectionCenter.value ?? { lat: 0, lon: 0 };
+
+  for (const mesh of meshes) {
+    updateProjectionUniforms(
+      mesh.material as THREE.ShaderMaterial,
+      projType,
+      center.lon,
+      center.lat,
+      1.0
+    );
   }
-);
+  redraw();
+}
 
 const colormapMaterial = computed(() => {
-  if (invertColormap) {
-    return makeColormapMaterial(colormap.value, 1.0, -1.0);
+  if (invertColormap.value) {
+    return makeGpuProjectedColormapMaterial(colormap.value, 1.0, -1.0);
   } else {
-    return makeColormapMaterial(colormap.value, 0.0, 1.0);
+    return makeGpuProjectedColormapMaterial(colormap.value, 0.0, 1.0);
   }
 });
 
@@ -127,29 +144,11 @@ async function datasourceUpdate() {
 
 const BATCH_SIZE = 64; // Adjust based on memory and browser limits
 
-function projectLatLon(
-  lat: number,
-  lon: number,
-  out: Float32Array,
-  offset: number
-) {
-  const helper = projectionHelper.value;
-  const normalizedLon = helper.normalizeLongitude(lon);
-  const [x, y, z] = helper.project(lat, normalizedLon, 1);
-  out[offset] = x;
-  out[offset + 1] = y;
-  out[offset + 2] = z;
-}
-
 async function getGrid(
   latitudes: Float64Array,
   longitudes: Float64Array,
   data: Float32Array
 ) {
-  cachedLatitudes = Float64Array.from(latitudes);
-  cachedLongitudes = Float64Array.from(longitudes);
-  cachedData = Float32Array.from(data);
-
   const { rows, uniqueLats } = buildRows(latitudes, longitudes, data);
   const totalBatches = Math.ceil((uniqueLats.length - 1) / BATCH_SIZE);
 
@@ -173,13 +172,17 @@ async function getGrid(
       totalCells += rows[uniqueLats[l]].length;
     }
 
-    const positions = new Float32Array(totalCells * 4 * 3);
+    const latLonValues = new Float32Array(totalCells * 4 * 2); // 4 vertices, 2 values (lat, lon)
+    const positionValues = new Float32Array(totalCells * 4 * 3); // 4 vertices, 3 values (x, y, z)
     const dataValues = new Float32Array(totalCells * 4);
     const indices = new Uint32Array(totalCells * 6);
 
-    let vtxOffset = 0;
+    let latLonOffset = 0;
+    let positionOffset = 0;
     let idxOffset = 0;
     let cellIndex = 0;
+
+    const helper = projectionHelper.value;
 
     for (let l = lStart; l < lEnd; l++) {
       const lat1 = uniqueLats[l];
@@ -193,16 +196,47 @@ async function getGrid(
         const lon2 = nextCell.lon;
         const dLon = (lon2 - lon1 + 360) % 360;
 
-        const EPSILON = 0.002; // Small overlap in degrees in order to avoid z-fighting
-        projectLatLon(lat1, lon1 + EPSILON, positions, vtxOffset);
-        projectLatLon(lat1, lon1 - dLon - EPSILON, positions, vtxOffset + 3);
-        projectLatLon(
-          lat2 - EPSILON,
-          lon1 - dLon - EPSILON,
-          positions,
-          vtxOffset + 6
-        );
-        projectLatLon(lat2 - EPSILON, lon1 + EPSILON, positions, vtxOffset + 9);
+        const EPSILON = 0.002; // Small overlap in degrees to avoid z-fighting
+
+        // Vertex 0: top-left
+        const v0lat = lat1;
+        const v0lon = helper.normalizeLongitude(lon1 + EPSILON);
+        latLonValues[latLonOffset] = v0lat;
+        latLonValues[latLonOffset + 1] = v0lon;
+        const [x0, y0, z0] = helper.project(v0lat, v0lon, 1);
+        positionValues[positionOffset] = x0;
+        positionValues[positionOffset + 1] = y0;
+        positionValues[positionOffset + 2] = z0;
+
+        // Vertex 1: top-right
+        const v1lat = lat1;
+        const v1lon = helper.normalizeLongitude(lon1 - dLon - EPSILON);
+        latLonValues[latLonOffset + 2] = v1lat;
+        latLonValues[latLonOffset + 3] = v1lon;
+        const [x1, y1, z1] = helper.project(v1lat, v1lon, 1);
+        positionValues[positionOffset + 3] = x1;
+        positionValues[positionOffset + 4] = y1;
+        positionValues[positionOffset + 5] = z1;
+
+        // Vertex 2: bottom-right
+        const v2lat = lat2 - EPSILON;
+        const v2lon = helper.normalizeLongitude(lon1 - dLon - EPSILON);
+        latLonValues[latLonOffset + 4] = v2lat;
+        latLonValues[latLonOffset + 5] = v2lon;
+        const [x2, y2, z2] = helper.project(v2lat, v2lon, 1);
+        positionValues[positionOffset + 6] = x2;
+        positionValues[positionOffset + 7] = y2;
+        positionValues[positionOffset + 8] = z2;
+
+        // Vertex 3: bottom-left
+        const v3lat = lat2 - EPSILON;
+        const v3lon = helper.normalizeLongitude(lon1 + EPSILON);
+        latLonValues[latLonOffset + 6] = v3lat;
+        latLonValues[latLonOffset + 7] = v3lon;
+        const [x3, y3, z3] = helper.project(v3lat, v3lon, 1);
+        positionValues[positionOffset + 9] = x3;
+        positionValues[positionOffset + 10] = y3;
+        positionValues[positionOffset + 11] = z3;
 
         // Data value
         dataValues.fill(cell.value, cellIndex * 4, cellIndex * 4 + 4);
@@ -212,26 +246,34 @@ async function getGrid(
         indices.set([v, v + 1, v + 2, v, v + 2, v + 3], idxOffset);
 
         // Offsets
-        vtxOffset += 12;
+        latLonOffset += 8; // 4 vertices * 2 values each
+        positionOffset += 12; // 4 vertices * 3 values each
         idxOffset += 6;
         cellIndex++;
       }
     }
 
-    // Build geometry
+    // Build geometry with position and latLon attributes
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute(
+      "position",
+      new THREE.BufferAttribute(positionValues, 3)
+    );
+    geometry.setAttribute("latLon", new THREE.BufferAttribute(latLonValues, 2));
     geometry.setAttribute(
       "data_value",
       new THREE.BufferAttribute(dataValues, 1)
     );
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+    geometry.computeBoundingSphere();
 
     if (meshes[batchIndex]) {
       meshes[batchIndex].geometry.dispose();
       meshes[batchIndex].geometry = geometry;
     } else {
       const mesh = new THREE.Mesh(geometry, colormapMaterial.value);
+      // Disable frustum culling - GPU projection changes actual positions
+      mesh.frustumCulled = false;
       meshes.push(mesh);
       getScene()?.add(mesh);
     }
@@ -250,13 +292,6 @@ function buildRows(lats: Float64Array, lons: Float64Array, data: Float32Array) {
     .map(Number)
     .sort((a, b) => b - a);
   return { rows, uniqueLats };
-}
-
-async function rebuildGaussianGridFromCache() {
-  if (!cachedLatitudes || !cachedLongitudes || !cachedData) {
-    return;
-  }
-  await getGrid(cachedLatitudes, cachedLongitudes, cachedData);
 }
 
 async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
@@ -301,6 +336,9 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
       );
 
       await getGrid(latitudesData, longitudesData, rawData);
+
+      // Set projection uniforms on all meshes after grid creation
+      updateMeshProjectionUniforms();
 
       for (let mesh of meshes) {
         const material = mesh.material as THREE.ShaderMaterial;

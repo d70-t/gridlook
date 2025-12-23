@@ -10,10 +10,14 @@ import {
   useGlobeControlStore,
   type TUpdateMode,
 } from "../store/store.js";
-import { makeColormapMaterial } from "../utils/colormapShaders.ts";
+import {
+  makeGpuProjectedColormapMaterial,
+  updateProjectionUniforms,
+} from "../utils/colormapShaders.ts";
 import { getDimensionInfo } from "../utils/dimensionHandling.ts";
 import { grid2buffer, data2valueBuffer } from "../utils/gridlook.ts";
 import { useLog } from "../utils/logging.ts";
+import { getProjectionTypeFromMode } from "../utils/projectionShaders.ts";
 import { ZarrDataManager } from "../utils/ZarrDataManager.ts";
 
 import { useSharedGridLogic } from "./useSharedGridLogic.ts";
@@ -32,6 +36,8 @@ const {
   selection,
   isInitializingVariable,
   varinfo,
+  projectionMode,
+  projectionCenter,
 } = storeToRefs(store);
 
 const urlParameterStore = useUrlParameterStore();
@@ -42,7 +48,6 @@ const updateCount = ref(0);
 const updatingData = ref(false);
 
 let meshes: THREE.Mesh[] = [];
-const meshLatLonCache: { lat: Float32Array; lon: Float32Array }[] = [];
 
 const {
   getScene,
@@ -101,19 +106,47 @@ watch(
   }
 );
 
+// GPU projection: update shader uniforms instead of rebuilding geometry
 watch(
-  () => projectionHelper.value,
+  [() => projectionMode.value, () => projectionCenter.value],
   () => {
-    reprojectMeshes();
-  }
+    updateMeshProjectionUniforms();
+  },
+  { deep: true }
 );
 
-const colormapMaterial = computed(() => {
-  if (invertColormap.value) {
-    return makeColormapMaterial(colormap.value, 1.0, -1.0);
-  } else {
-    return makeColormapMaterial(colormap.value, 0.0, 1.0);
+/**
+ * Update projection uniforms on all mesh materials.
+ * This is the fast path - no geometry rebuild needed.
+ */
+function updateMeshProjectionUniforms() {
+  const helper = projectionHelper.value;
+  const projType = getProjectionTypeFromMode(helper.type);
+  const center = projectionCenter.value ?? { lat: 0, lon: 0 };
+
+  for (const mesh of meshes) {
+    if (!mesh) continue;
+    const material = mesh.material as THREE.ShaderMaterial;
+    if (material.uniforms?.projectionType) {
+      updateProjectionUniforms(material, projType, center.lon, center.lat, 1.0);
+    }
   }
+  redraw();
+}
+
+const colormapMaterial = computed(() => {
+  // Use GPU-projected material
+  const material = invertColormap.value
+    ? makeGpuProjectedColormapMaterial(colormap.value, 1.0, -1.0)
+    : makeGpuProjectedColormapMaterial(colormap.value, 0.0, 1.0);
+
+  // Set initial projection uniforms
+  const helper = projectionHelper.value;
+  const projType = getProjectionTypeFromMode(helper.type);
+  const center = projectionCenter.value ?? { lat: 0, lon: 0 };
+  updateProjectionUniforms(material, projType, center.lon, center.lat, 1.0);
+
+  return material;
 });
 
 const gridsource = computed(() => {
@@ -143,35 +176,6 @@ function cartesianToLatLon(x: number, y: number, z: number) {
   return { lat, lon };
 }
 
-function reprojectMeshes() {
-  for (let idx = 0; idx < meshes.length; idx++) {
-    const mesh = meshes[idx];
-    const cache = meshLatLonCache[idx];
-    if (!mesh || !cache) {
-      continue;
-    }
-    const positionAttr = mesh.geometry.getAttribute(
-      "position"
-    ) as THREE.BufferAttribute;
-    if (!positionAttr || positionAttr.count !== cache.lat.length) continue;
-    const array = positionAttr.array as Float32Array;
-    for (let v = 0; v < cache.lat.length; v++) {
-      const [x, y, z] = projectionHelper.value.project(
-        cache.lat[v],
-        cache.lon[v],
-        1
-      );
-      const baseIndex = v * 3;
-      array[baseIndex] = x;
-      array[baseIndex + 1] = y;
-      array[baseIndex + 2] = z;
-    }
-    positionAttr.needsUpdate = true;
-    mesh.geometry.computeBoundingSphere();
-  }
-  redraw();
-}
-
 async function fetchGrid() {
   try {
     const verts = await grid2buffer(gridsource.value!);
@@ -182,7 +186,6 @@ async function fetchGrid() {
       mesh.geometry.dispose();
     }
     meshes.length = 0;
-    meshLatLonCache.length = 0;
 
     const nTriangles = verts.length / 9;
     for (let i = 0; i < nTriangles; i += BATCH_SIZE) {
@@ -192,16 +195,18 @@ async function fetchGrid() {
       const batchVerts = verts.subarray(i * 9, (i + count) * 9);
       const projectedVerts = new Float32Array(batchVerts.length);
       const numVerts = projectedVerts.length / 3;
-      const latitudes = new Float32Array(numVerts);
-      const longitudes = new Float32Array(numVerts);
+      // Create latLon array for GPU projection (2 values per vertex)
+      const latLonArray = new Float32Array(numVerts * 2);
       for (let v = 0; v < numVerts; v++) {
         const baseIndex = v * 3;
         const x = batchVerts[baseIndex];
         const y = batchVerts[baseIndex + 1];
         const z = batchVerts[baseIndex + 2];
         const { lat, lon } = cartesianToLatLon(x, y, z);
-        latitudes[v] = lat;
-        longitudes[v] = lon;
+        // Store lat/lon for GPU projection
+        latLonArray[v * 2] = lat;
+        latLonArray[v * 2 + 1] = lon;
+        // Compute initial positions for first frame
         const [px, py, pz] = projectionHelper.value.project(lat, lon, 1);
         projectedVerts[baseIndex] = px;
         projectedVerts[baseIndex + 1] = py;
@@ -211,12 +216,20 @@ async function fetchGrid() {
         "position",
         new THREE.BufferAttribute(projectedVerts, 3)
       );
+      // Add latLon attribute for GPU projection
+      geometry.setAttribute(
+        "latLon",
+        new THREE.BufferAttribute(latLonArray, 2)
+      );
       geometry.computeBoundingSphere();
       const mesh = new THREE.Mesh(geometry, colormapMaterial.value);
+      // Disable frustum culling - GPU projection changes actual positions
+      mesh.frustumCulled = false;
       meshes.push(mesh);
-      meshLatLonCache.push({ lat: latitudes, lon: longitudes });
       getScene()?.add(mesh);
     }
+    // Update projection uniforms on all meshes after creation
+    updateMeshProjectionUniforms();
     redraw();
   } catch (error) {
     logError(error, "Could not fetch grid");

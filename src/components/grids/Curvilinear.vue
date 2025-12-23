@@ -11,9 +11,13 @@ import {
   useGlobeControlStore,
   type TUpdateMode,
 } from "../store/store.js";
-import { makeColormapMaterial } from "../utils/colormapShaders.ts";
+import {
+  makeGpuProjectedColormapMaterial,
+  updateProjectionUniforms,
+} from "../utils/colormapShaders.ts";
 import { getDimensionInfo } from "../utils/dimensionHandling.ts";
 import { useLog } from "../utils/logging.ts";
+import { getProjectionTypeFromMode } from "../utils/projectionShaders.ts";
 import { ZarrDataManager } from "../utils/ZarrDataManager.ts";
 import {
   castDataVarToFloat32,
@@ -51,12 +55,6 @@ const updateCount = ref(0);
 const updatingData = ref(false);
 
 let meshes: THREE.Mesh[] = [];
-let cachedLatitudes: Float64Array | undefined;
-let cachedLongitudes: Float64Array | undefined;
-let cachedDataValues: Float32Array | undefined;
-let cachedNJ: number | undefined;
-let cachedNI: number | undefined;
-let cachedFlipLongitude = false;
 
 const {
   getScene,
@@ -109,16 +107,47 @@ watch(
   }
 );
 
-watch([() => projectionMode.value, () => projectionCenter.value], () => {
-  void rebuildCurvilinearGeometryFromCache();
-});
+// GPU projection: update shader uniforms instead of rebuilding geometry
+watch(
+  [() => projectionMode.value, () => projectionCenter.value],
+  () => {
+    updateMeshProjectionUniforms();
+  },
+  { deep: true }
+);
+
+/**
+ * Update projection uniforms on all mesh materials.
+ * This is the fast path - no geometry rebuild needed.
+ */
+function updateMeshProjectionUniforms() {
+  const helper = projectionHelper.value;
+  const projType = getProjectionTypeFromMode(helper.type);
+  const center = projectionCenter.value ?? { lat: 0, lon: 0 };
+
+  for (const mesh of meshes) {
+    if (!mesh) continue;
+    const material = mesh.material as THREE.ShaderMaterial;
+    if (material.uniforms?.projectionType) {
+      updateProjectionUniforms(material, projType, center.lon, center.lat, 1.0);
+    }
+  }
+  redraw();
+}
 
 const colormapMaterial = computed(() => {
-  if (invertColormap) {
-    return makeColormapMaterial(colormap.value, 1.0, -1.0);
-  } else {
-    return makeColormapMaterial(colormap.value, 0.0, 1.0);
-  }
+  // Use GPU-projected material
+  const material = invertColormap.value
+    ? makeGpuProjectedColormapMaterial(colormap.value, 1.0, -1.0)
+    : makeGpuProjectedColormapMaterial(colormap.value, 0.0, 1.0);
+
+  // Set initial projection uniforms
+  const helper = projectionHelper.value;
+  const projType = getProjectionTypeFromMode(helper.type);
+  const center = projectionCenter.value ?? { lat: 0, lon: 0 };
+  updateProjectionUniforms(material, projType, center.lon, center.lat, 1.0);
+
+  return material;
 });
 
 async function datasourceUpdate() {
@@ -158,11 +187,6 @@ async function getGrid(
   const latitudesData = latitudes.data as Float64Array;
   const longitudesData = longitudes.data as Float64Array;
   const [nj, ni] = latitudes.shape;
-  cachedLatitudes = Float64Array.from(latitudesData);
-  cachedLongitudes = Float64Array.from(longitudesData);
-  cachedDataValues = Float32Array.from(data);
-  cachedNJ = nj;
-  cachedNI = ni;
 
   // Detect potential mirroring issues by analyzing longitude progression
   const shouldFlipLongitude = detectLongitudeFlip(
@@ -204,26 +228,6 @@ function detectLongitudeFlip(
   return true;
 }
 
-async function rebuildCurvilinearGeometryFromCache() {
-  if (
-    !cachedLatitudes ||
-    !cachedLongitudes ||
-    !cachedDataValues ||
-    cachedNJ === undefined ||
-    cachedNI === undefined
-  ) {
-    return;
-  }
-  await buildCurvilinearGeometry(
-    cachedLatitudes,
-    cachedLongitudes,
-    cachedDataValues,
-    cachedNJ,
-    cachedNI,
-    cachedFlipLongitude
-  );
-}
-
 async function buildCurvilinearGeometry(
   latitudes: Float64Array, // 2D array flattened: lat values at each (j,i) grid point
   longitudes: Float64Array, // 2D array flattened: lon values at each (j,i) grid point
@@ -259,6 +263,8 @@ async function buildCurvilinearGeometry(
     const positions = new Float32Array(batchCells * 4 * 3);
     // Each vertex gets a data value for the colormap shader
     const dataValues = new Float32Array(batchCells * 4);
+    // Each vertex gets lat/lon for GPU projection (2 values per vertex)
+    const latLonValues = new Float32Array(batchCells * 4 * 2);
     // Each quad is made of 2 triangles, each triangle needs 3 indices
     const indices = new Uint32Array(batchCells * 6);
 
@@ -309,6 +315,20 @@ async function buildCurvilinearGeometry(
         projectLatLon(lat11, lon11, positions, vtxOffset + 6); // Top-right
         projectLatLon(lat10, lon10, positions, vtxOffset + 9); // Top-left
 
+        // Store lat/lon for GPU projection (will be set later)
+        latLonValues[cellIndex * 8] = lat00;
+        latLonValues[cellIndex * 8 + 1] =
+          projectionHelper.value.normalizeLongitude(lon00);
+        latLonValues[cellIndex * 8 + 2] = lat01;
+        latLonValues[cellIndex * 8 + 3] =
+          projectionHelper.value.normalizeLongitude(lon01);
+        latLonValues[cellIndex * 8 + 4] = lat11;
+        latLonValues[cellIndex * 8 + 5] =
+          projectionHelper.value.normalizeLongitude(lon11);
+        latLonValues[cellIndex * 8 + 6] = lat10;
+        latLonValues[cellIndex * 8 + 7] =
+          projectionHelper.value.normalizeLongitude(lon10);
+
         // Assign data value to all 4 vertices of this cell
         // We use the data value from the bottom-left corner (idx00)
         const dataValue = data[idx00];
@@ -340,6 +360,9 @@ async function buildCurvilinearGeometry(
       new THREE.BufferAttribute(dataValues, 1)
     );
 
+    // Set lat/lon for GPU projection
+    geometry.setAttribute("latLon", new THREE.BufferAttribute(latLonValues, 2));
+
     // Set triangle indices (which vertices form each triangle)
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
 
@@ -348,10 +371,14 @@ async function buildCurvilinearGeometry(
       meshes[batchIndex].geometry = geometry;
     } else {
       const mesh = new THREE.Mesh(geometry, colormapMaterial.value);
+      // Disable frustum culling - GPU projection changes actual positions
+      mesh.frustumCulled = false;
       meshes.push(mesh);
       getScene()?.add(mesh);
     }
   }
+  // Update projection uniforms after geometry is built
+  updateMeshProjectionUniforms();
 }
 
 async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {

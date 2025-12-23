@@ -2,34 +2,26 @@ import * as d3 from "d3-geo";
 import * as THREE from "three";
 
 import { LAND_SEA_MASK_MODES, type TLandSeaMaskMode } from "../store/store";
-import { ProjectionHelper } from "./projectionUtils";
+import {
+  MERCATOR_LAT_LIMIT,
+  PROJECTION_TYPES,
+  ProjectionHelper,
+} from "./projectionUtils";
+import {
+  projectionShaderFunctions,
+  getProjectionTypeFromMode,
+} from "./projectionShaders";
 import { ResourceCache } from "./ResourceCache";
 
 // =============================================================================
 // Types
 // =============================================================================
 
-export type TProjectedBounds = {
-  minX: number;
-  maxX: number;
-  minY: number;
-  maxY: number;
-  width: number;
-  height: number;
-  centerX: number;
-  centerY: number;
-};
-
 type MaskConfig = {
   showLand: boolean;
   showSea: boolean;
   useTexture: boolean;
 };
-
-type GeoJSONData = GeoJSON.FeatureCollection<
-  GeoJSON.Geometry,
-  GeoJSON.GeoJsonProperties
->;
 
 // =============================================================================
 // Mask Configuration
@@ -96,15 +88,6 @@ function isGlobeMaskMode(mode: TLandSeaMaskMode): boolean {
 // =============================================================================
 
 class D3ProjectionFactory {
-  static create(helper: ProjectionHelper): d3.GeoProjection {
-    const projection: d3.GeoProjection | null =
-      helper.createD3ProjectionInstance();
-    if (!projection) {
-      throw new Error(`Unsupported projection type: ${helper.type}`);
-    }
-    return projection;
-  }
-
   static createEquirectangular(
     width: number,
     height: number
@@ -113,39 +96,6 @@ class D3ProjectionFactory {
       .geoEquirectangular()
       .translate([width / 2, height / 2])
       .scale(width / (2 * Math.PI));
-  }
-
-  static createCanvasMapped(
-    helper: ProjectionHelper,
-    bounds: TProjectedBounds,
-    canvasWidth: number,
-    canvasHeight: number
-  ): d3.GeoProjection {
-    const projection = this.create(helper);
-    projection.precision(0.01);
-
-    const scaleX = canvasWidth / bounds.width;
-    const scaleY = canvasHeight / bounds.height;
-    const translateX = -bounds.minX * scaleX;
-    const translateY = bounds.maxY * scaleY;
-
-    const originalStream = projection.stream.bind(projection);
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (projection as any).stream = (s: d3.GeoStream) => {
-      return originalStream({
-        point(x: number, y: number) {
-          s.point(x * scaleX + translateX, y * scaleY + translateY);
-        },
-        lineStart: () => s.lineStart(),
-        lineEnd: () => s.lineEnd(),
-        polygonStart: () => s.polygonStart(),
-        polygonEnd: () => s.polygonEnd(),
-        sphere: () => s.sphere?.(),
-      });
-    };
-
-    return projection;
   }
 }
 
@@ -170,51 +120,6 @@ class CanvasFactory {
     ctx.clearRect(0, 0, width, height);
     return { canvas, ctx, width, height };
   }
-
-  static computeCanvasDimensions(
-    bounds: TProjectedBounds,
-    baseResolution = 2048
-  ): { width: number; height: number } {
-    const aspectRatio = (bounds.width || 1) / (bounds.height || 1);
-
-    if (aspectRatio >= 1) {
-      return {
-        width: baseResolution,
-        height: Math.round(baseResolution / aspectRatio),
-      };
-    }
-    return {
-      width: Math.round(baseResolution * aspectRatio),
-      height: baseResolution,
-    };
-  }
-}
-
-// =============================================================================
-// Bounds Computation
-// =============================================================================
-
-function computeProjectedGeoBounds(
-  helper: ProjectionHelper
-): TProjectedBounds | undefined {
-  const projection = D3ProjectionFactory.create(helper);
-  const path = d3.geoPath(projection);
-
-  // Compute bounds of the entire sphere in projected coordinates
-  const [[minX, minY], [maxX, maxY]] = path.bounds({ type: "Sphere" });
-
-  if (![minX, maxX, minY, maxY].every(Number.isFinite)) return undefined;
-
-  return {
-    minX,
-    maxX,
-    minY,
-    maxY,
-    width: maxX - minX,
-    height: maxY - minY,
-    centerX: (minX + maxX) / 2,
-    centerY: (minY + maxY) / 2,
-  };
 }
 
 // =============================================================================
@@ -373,248 +278,522 @@ class GlobeMaskRenderer {
   }
 }
 
-// =============================================================================
-// Flat Mask Renderer (2D projections)
-// =============================================================================
+/**
+ * Vertex shader for GPU-projected mask rendering (globe mode).
+ * Projects lat/lon coordinates on the GPU.
+ */
+const gpuProjectedMaskVertexShader = `
+${projectionShaderFunctions}
 
-class FlatMaskRenderer {
+uniform int projectionType;
+uniform float centerLon;
+uniform float centerLat;
+uniform float projectionRadius;
+
+attribute vec2 latLon;
+
+varying vec2 vUv;
+varying float vLat;
+
+float clampLatForProjection(int projType, float lat) {
+  if (projType == PROJ_MERCATOR) {
+    return clamp(lat, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
+  }
+  return lat;
+}
+
+void main() {
+  vUv = uv;
+  float clampedLat = clampLatForProjection(projectionType, latLon.x);
+  vLat = clampedLat;
+  vec3 projected = projectLatLon(clampedLat, latLon.y, projectionType, centerLon, centerLat, projectionRadius);
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(projected, 1.0);
+}
+`;
+
+/**
+ * Simple vertex shader for pre-projected flat mask geometry.
+ */
+const flatMaskVertexShader = `
+varying vec2 vUv;
+
+void main() {
+  vUv = uv;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`;
+
+/**
+ * Fragment shader for mask rendering.
+ */
+const gpuProjectedMaskFragmentShader = `
+uniform sampler2D maskTexture;
+uniform float opacity;
+uniform int projectionType;
+
+varying vec2 vUv;
+varying float vLat;
+
+void main() {
+  vec4 texColor = texture2D(maskTexture, vUv);
+  if (texColor.a < 0.01) {
+    discard;
+  }
+  gl_FragColor = vec4(texColor.rgb, texColor.a * opacity);
+}
+`;
+
+/**
+ * Fragment shader for flat mask rendering (no latitude check needed).
+ */
+const flatMaskFragmentShader = `
+#define PROJ_MERCATOR 2
+#define MERCATOR_LAT_LIMIT 89.0
+
+uniform sampler2D maskTexture;
+uniform float opacity;
+uniform int projectionType;
+
+varying vec2 vUv;
+
+void main() {
+  // Clip Mercator masks to the valid latitude band to avoid spilling past data
+  if (projectionType == PROJ_MERCATOR) {
+    float lat = (vUv.y - 0.5) * 180.0;
+    if (abs(lat) > MERCATOR_LAT_LIMIT) {
+      discard;
+    }
+  }
+
+  vec4 texColor = texture2D(maskTexture, vUv);
+  if (texColor.a < 0.01) {
+    discard;
+  }
+  gl_FragColor = vec4(texColor.rgb, texColor.a * opacity);
+}
+`;
+
+class GpuProjectedMaskRenderer {
   private static readonly COLORS = {
-    sea: "rgb(60, 120, 200)",
-    landTextured: "rgb(196, 196, 196)",
-    landSolid: "rgb(136, 136, 136)",
+    sea: "#3c78c8",
+    land: "#888888",
   };
 
+  private static readonly GRID_RESOLUTION = {
+    latSegments: 180,
+    lonSegments: 360,
+  };
+
+  /**
+   * Create a mask mesh.
+   * For globe mode: GPU-projected geometry for instant center changes.
+   * For flat projections: d3-projected geometry with proper clipping.
+   */
   static async render(
-    helper: ProjectionHelper,
-    bounds: TProjectedBounds,
     mode: TLandSeaMaskMode,
-    useTexture: boolean
+    useTexture: boolean,
+    projectionHelper: ProjectionHelper
   ): Promise<THREE.Mesh | undefined> {
     if (mode === LAND_SEA_MASK_MODES.OFF) return undefined;
 
-    // Compute effective bounds from land geometry
-    const land = await ResourceCache.loadLandGeoJSON();
-    const landBounds = computeProjectedGeoBounds(helper);
-    const effectiveBounds = landBounds ?? bounds;
-
     const config = getMaskConfig(mode, useTexture);
-    const { width: canvasWidth, height: canvasHeight } =
-      CanvasFactory.computeCanvasDimensions(effectiveBounds);
+    const texture = await this.createMaskTexture(mode, useTexture, config);
 
-    const canvas = config.useTexture
-      ? await this.renderTextured(
-          helper,
-          effectiveBounds,
-          canvasWidth,
-          canvasHeight,
-          config,
-          land
-        )
-      : await this.renderSolid(
-          helper,
-          effectiveBounds,
-          canvasWidth,
-          canvasHeight,
-          config,
-          land
-        );
+    let geometry: THREE.BufferGeometry;
+    let material: THREE.ShaderMaterial;
 
-    const mesh = this.createPlaneMesh(canvas, effectiveBounds, mode);
-    return mesh;
-  }
-
-  private static async renderSolid(
-    helper: ProjectionHelper,
-    bounds: TProjectedBounds,
-    canvasWidth: number,
-    canvasHeight: number,
-    config: MaskConfig,
-    land: GeoJSONData
-  ): Promise<HTMLCanvasElement> {
-    const { canvas, ctx } = CanvasFactory.create(canvasWidth, canvasHeight);
-
-    const canvasProjection = D3ProjectionFactory.createCanvasMapped(
-      helper,
-      bounds,
-      canvasWidth,
-      canvasHeight
-    );
-    const path = d3.geoPath(canvasProjection, ctx);
-    const spherePath = d3.geoPath(canvasProjection, ctx);
-
-    // Clip to projection sphere
-    ctx.save();
-    ctx.beginPath();
-    spherePath({ type: "Sphere" });
-    ctx.clip();
-
-    // Draw sea background if needed
-    if (config.showSea) {
-      ctx.fillStyle = this.COLORS.sea;
-      ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-
-      if (!config.showLand) {
-        // Cut out land
-        ctx.globalCompositeOperation = "destination-out";
-        ctx.beginPath();
-        path(land);
-        ctx.fill();
-        ctx.globalCompositeOperation = "source-over";
-      }
+    if (projectionHelper.isFlat) {
+      // For flat projections, use d3 to project geometry with proper clipping
+      geometry = this.createD3ProjectedGeometry(projectionHelper, mode);
+      material = this.createFlatMaterial(
+        texture,
+        mode,
+        getProjectionTypeFromMode(projectionHelper.type)
+      );
+    } else {
+      // For globe, use GPU projection
+      geometry = this.createGlobeGeometry();
+      material = this.createGlobeMaterial(texture, mode, projectionHelper);
     }
-
-    // Draw land if needed
-    if (config.showLand) {
-      ctx.beginPath();
-      path(land);
-      ctx.fillStyle = config.useTexture
-        ? this.COLORS.landTextured
-        : this.COLORS.landSolid;
-      ctx.fill();
-    }
-
-    ctx.restore();
-    return canvas;
-  }
-
-  private static async renderTextured(
-    helper: ProjectionHelper,
-    bounds: TProjectedBounds,
-    canvasWidth: number,
-    canvasHeight: number,
-    config: MaskConfig,
-    land: GeoJSONData
-  ): Promise<HTMLCanvasElement> {
-    const { canvas, ctx } = CanvasFactory.create(canvasWidth, canvasHeight);
-    const img = await ResourceCache.loadEarthTexture();
-
-    // Create texture source
-    const texWidth = 4096;
-    const texHeight = 2048;
-    const { ctx: texCtx } = CanvasFactory.create(texWidth, texHeight);
-    texCtx.drawImage(img, 0, 0, texWidth, texHeight);
-    const textureData = texCtx.getImageData(0, 0, texWidth, texHeight);
-
-    // Create projection and masks
-    const canvasProjection = D3ProjectionFactory.createCanvasMapped(
-      helper,
-      bounds,
-      canvasWidth,
-      canvasHeight
-    );
-
-    // The sphere mask is a solid one-colored layer with the bounds of the
-    // projection which ensures we only draw within the projection area
-    const sphereMask = this.createMaskCanvas(
-      canvasWidth,
-      canvasHeight,
-      (maskCtx) => {
-        const spherePath = d3.geoPath(canvasProjection, maskCtx);
-        maskCtx.beginPath();
-        spherePath({ type: "Sphere" });
-        maskCtx.fillStyle = "white";
-        maskCtx.fill();
-      }
-    );
-
-    // Create land mask
-    const landMask = this.createMaskCanvas(
-      canvasWidth,
-      canvasHeight,
-      (maskCtx) => {
-        const landPath = d3.geoPath(canvasProjection, maskCtx);
-        maskCtx.beginPath();
-        landPath(land);
-        maskCtx.fillStyle = "white";
-        maskCtx.fill();
-      }
-    );
-
-    // Rasterize
-    const imageData = ctx.createImageData(canvasWidth, canvasHeight);
-
-    for (let cy = 0; cy < canvasHeight; cy++) {
-      for (let cx = 0; cx < canvasWidth; cx++) {
-        const idx = (cy * canvasWidth + cx) * 4;
-
-        // Check sphere mask
-        if (sphereMask.data[idx + 3] <= 128) continue;
-
-        // Invert projection to get lon/lat
-        const projX = (cx / canvasWidth) * bounds.width + bounds.minX;
-        const projY = (cy / canvasHeight) * bounds.height - bounds.maxY;
-        const coords = canvasProjection.invert?.([projX, projY]);
-
-        if (!coords) {
-          continue;
-        }
-        const [lon, lat] = coords;
-        if (!isFinite(lon) || !isFinite(lat)) {
-          continue;
-        }
-        if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
-          continue;
-        }
-
-        // Check land/sea
-        const isLand = landMask.data[idx + 3] > 128;
-        const shouldShow =
-          (isLand && config.showLand) || (!isLand && config.showSea);
-        if (!shouldShow) continue;
-
-        // Sample texture
-        const texX = Math.floor(((lon + 180) / 360) * texWidth);
-        const texY = Math.floor(((90 - lat) / 180) * texHeight);
-        const texIdx = (texY * texWidth + texX) * 4;
-
-        imageData.data[idx] = textureData.data[texIdx];
-        imageData.data[idx + 1] = textureData.data[texIdx + 1];
-        imageData.data[idx + 2] = textureData.data[texIdx + 2];
-        imageData.data[idx + 3] = 255;
-      }
-    }
-
-    ctx.putImageData(imageData, 0, 0);
-    return canvas;
-  }
-
-  private static createMaskCanvas(
-    width: number,
-    height: number,
-    draw: (ctx: CanvasRenderingContext2D) => void
-  ): ImageData {
-    const { ctx } = CanvasFactory.create(width, height);
-    draw(ctx);
-    return ctx.getImageData(0, 0, width, height);
-  }
-
-  private static createPlaneMesh(
-    canvas: HTMLCanvasElement,
-    bounds: TProjectedBounds,
-    mode: TLandSeaMaskMode
-  ): THREE.Mesh {
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.needsUpdate = true;
-
-    const geometry = new THREE.PlaneGeometry(bounds.width, bounds.height);
-    const material = new THREE.MeshBasicMaterial({
-      map: texture,
-      transparent: true,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-      depthTest: false,
-    });
 
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = "mask";
+    mesh.userData.maskMode = mode; // Store mode for updateProjection
+
     const globeMode = isGlobeMaskMode(mode);
-    mesh.position.set(bounds.centerX, bounds.centerY, globeMode ? -0.01 : 0.01);
     mesh.renderOrder = globeMode ? -1 : 10;
-    if (globeMode) {
-      material.depthTest = true;
-    }
 
     return mesh;
+  }
+
+  /**
+   * Update projection on an existing mask mesh.
+   * For globe: updates uniforms (fast).
+   * For flat: rebuilds geometry (required for proper clipping).
+   */
+  static updateProjection(
+    mesh: THREE.Mesh,
+    projectionHelper: ProjectionHelper
+  ): void {
+    const material = mesh.material as THREE.ShaderMaterial;
+
+    if (projectionHelper.isFlat) {
+      // For flat projections, rebuild geometry with new projection
+      const oldGeometry = mesh.geometry;
+      const mode = mesh.userData.maskMode as TLandSeaMaskMode;
+      const newGeometry = this.createD3ProjectedGeometry(
+        projectionHelper,
+        mode
+      );
+      mesh.geometry = newGeometry;
+      if (material.uniforms?.projectionType) {
+        material.uniforms.projectionType.value = getProjectionTypeFromMode(
+          projectionHelper.type
+        );
+      }
+      // Signal Three.js that the geometry has changed
+      mesh.geometry.computeBoundingSphere();
+      mesh.geometry.computeBoundingBox();
+      oldGeometry.dispose();
+    } else {
+      if (!material.uniforms) return;
+      // For globe, just update uniforms
+      const projType = getProjectionTypeFromMode(projectionHelper.type);
+      const center = projectionHelper.center;
+
+      if (material.uniforms.projectionType) {
+        material.uniforms.projectionType.value = projType;
+      }
+      if (material.uniforms.centerLon) {
+        material.uniforms.centerLon.value = center.lon;
+      }
+      if (material.uniforms.centerLat) {
+        material.uniforms.centerLat.value = center.lat;
+      }
+      material.needsUpdate = true;
+    }
+  }
+
+  /**
+   * Create geometry projected by d3 with proper antimeridian clipping.
+   */
+  private static createD3ProjectedGeometry(
+    projectionHelper: ProjectionHelper,
+    mode?: TLandSeaMaskMode
+  ): THREE.BufferGeometry {
+    const { latSegments, lonSegments } = this.GRID_RESOLUTION;
+    const latExtent =
+      projectionHelper.type === PROJECTION_TYPES.MERCATOR
+        ? MERCATOR_LAT_LIMIT
+        : 90;
+    const latSpan = latExtent * 2;
+
+    const geometry = new THREE.BufferGeometry();
+
+    const vertices: number[] = [];
+    const uvs: number[] = [];
+    const indices: number[] = [];
+
+    const isBackground = mode ? isGlobeMaskMode(mode) : true;
+    const zOffset = isBackground ? -0.01 : 0.01;
+
+    // Generate vertices using the helper projection (matches data orientation)
+    for (let latIdx = 0; latIdx <= latSegments; latIdx++) {
+      // Sweep full [-90, 90] for UVs, but clamp projection to Mercator valid band
+      const latRaw = 90 - (latIdx / latSegments) * 180;
+      const latProjected = Math.max(-latExtent, Math.min(latExtent, latRaw));
+      const v = (90 - latRaw) / 180; // top (90) -> 0, bottom (-90) -> 1
+
+      for (let lonIdx = 0; lonIdx <= lonSegments; lonIdx++) {
+        const lon = (lonIdx / lonSegments) * 360 - 180;
+        const u = lonIdx / lonSegments;
+
+        const [x, y, z] = projectionHelper.project(latProjected, lon, 1);
+        vertices.push(x, y, z + zOffset);
+        uvs.push(u, 1 - v);
+      }
+    }
+
+    // Generate indices, but skip triangles that span the projection cut
+    const width = this.getProjectionWidth(projectionHelper);
+    const threshold = width * 0.4; // Triangles spanning more than 40% of width are cut
+
+    for (let latIdx = 0; latIdx < latSegments; latIdx++) {
+      for (let lonIdx = 0; lonIdx < lonSegments; lonIdx++) {
+        const a = latIdx * (lonSegments + 1) + lonIdx;
+        const b = a + lonSegments + 1;
+        const c = a + 1;
+        const d = b + 1;
+
+        // Get vertex positions
+        const ax = vertices[a * 3],
+          ay = vertices[a * 3 + 1];
+        const bx = vertices[b * 3],
+          by = vertices[b * 3 + 1];
+        const cx = vertices[c * 3],
+          cy = vertices[c * 3 + 1];
+        const dx = vertices[d * 3],
+          dy = vertices[d * 3 + 1];
+
+        // Check if triangle ABC spans the cut
+        const maxDxABC = Math.max(
+          Math.abs(ax - bx),
+          Math.abs(ax - cx),
+          Math.abs(bx - cx)
+        );
+        const maxDyABC = Math.max(
+          Math.abs(ay - by),
+          Math.abs(ay - cy),
+          Math.abs(by - cy)
+        );
+
+        if (maxDxABC < threshold && maxDyABC < threshold) {
+          indices.push(a, b, c);
+        }
+
+        // Check if triangle CBD spans the cut
+        const maxDxCBD = Math.max(
+          Math.abs(cx - bx),
+          Math.abs(cx - dx),
+          Math.abs(bx - dx)
+        );
+        const maxDyCBD = Math.max(
+          Math.abs(cy - by),
+          Math.abs(cy - dy),
+          Math.abs(by - dy)
+        );
+
+        if (maxDxCBD < threshold && maxDyCBD < threshold) {
+          indices.push(c, b, d);
+        }
+      }
+    }
+
+    geometry.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(vertices, 3)
+    );
+    geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+    geometry.setIndex(indices);
+
+    return geometry;
+  }
+
+  /**
+   * Get the approximate width of the projection in projected coordinates.
+   */
+  private static getProjectionWidth(
+    projectionHelper: ProjectionHelper
+  ): number {
+    const d3Proj = projectionHelper.getD3Projection();
+    if (d3Proj) {
+      const path = d3.geoPath(d3Proj);
+      const bounds = path.bounds({ type: "Sphere" });
+      if (bounds && bounds[0] && bounds[1]) {
+        return Math.abs(bounds[1][0] - bounds[0][0]);
+      }
+    }
+    return Math.PI * 2; // Fallback
+  }
+
+  /**
+   * Create geometry for globe projection (closed mesh that wraps around).
+   */
+  private static createGlobeGeometry(): THREE.BufferGeometry {
+    const { latSegments, lonSegments } = this.GRID_RESOLUTION;
+    const geometry = new THREE.BufferGeometry();
+
+    const vertices: number[] = [];
+    const uvs: number[] = [];
+    const latLonCoords: number[] = [];
+    const indices: number[] = [];
+
+    // Generate vertices - for globe we need to include lon=180 for proper UV mapping
+    for (let latIdx = 0; latIdx <= latSegments; latIdx++) {
+      const lat = 90 - (latIdx / latSegments) * 180; // 90 to -90
+      const v = latIdx / latSegments;
+
+      for (let lonIdx = 0; lonIdx <= lonSegments; lonIdx++) {
+        const lon = (lonIdx / lonSegments) * 360 - 180; // -180 to 180
+        const u = lonIdx / lonSegments;
+
+        // Store lat/lon for GPU projection
+        latLonCoords.push(lat, lon);
+
+        // Placeholder vertex positions (will be computed on GPU)
+        vertices.push(0, 0, 0);
+
+        // UV coordinates for texture sampling
+        uvs.push(u, 1 - v);
+      }
+    }
+
+    // Generate indices - for globe, create all triangles
+    for (let latIdx = 0; latIdx < latSegments; latIdx++) {
+      for (let lonIdx = 0; lonIdx < lonSegments; lonIdx++) {
+        const a = latIdx * (lonSegments + 1) + lonIdx;
+        const b = a + lonSegments + 1;
+        const c = a + 1;
+        const d = b + 1;
+
+        indices.push(a, b, c);
+        indices.push(c, b, d);
+      }
+    }
+
+    geometry.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(vertices, 3)
+    );
+    geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+    geometry.setAttribute(
+      "latLon",
+      new THREE.Float32BufferAttribute(latLonCoords, 2)
+    );
+    geometry.setIndex(indices);
+
+    return geometry;
+  }
+
+  /**
+   * Create the shader material for GPU-projected globe mask.
+   */
+  private static createGlobeMaterial(
+    texture: THREE.Texture,
+    mode: TLandSeaMaskMode,
+    projectionHelper: ProjectionHelper
+  ): THREE.ShaderMaterial {
+    const projType = getProjectionTypeFromMode(projectionHelper.type);
+    const center = projectionHelper.center;
+    const globeMode = isGlobeMaskMode(mode);
+
+    // For globe mode (full earth background), use smaller radius so it's behind data
+    // For overlay masks (land-only or sea-only), use larger radius so they're in front of data
+    const radius = globeMode ? 0.998 : 1.003;
+
+    const material = new THREE.ShaderMaterial({
+      uniforms: {
+        maskTexture: { value: texture },
+        projectionType: { value: projType },
+        centerLon: { value: center.lon },
+        centerLat: { value: center.lat },
+        projectionRadius: { value: radius },
+        opacity: { value: 1.0 },
+      },
+      vertexShader: gpuProjectedMaskVertexShader,
+      fragmentShader: gpuProjectedMaskFragmentShader,
+      transparent: true,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      depthTest: true,
+    });
+
+    return material;
+  }
+
+  /**
+   * Create the shader material for d3-projected flat mask.
+   */
+  private static createFlatMaterial(
+    texture: THREE.Texture,
+    mode: TLandSeaMaskMode,
+    projectionType: number
+  ): THREE.ShaderMaterial {
+    const material = new THREE.ShaderMaterial({
+      uniforms: {
+        maskTexture: { value: texture },
+        opacity: { value: 1.0 },
+        projectionType: { value: projectionType },
+      },
+      vertexShader: flatMaskVertexShader,
+      fragmentShader: flatMaskFragmentShader,
+      transparent: true,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      depthTest: true,
+    });
+
+    // Use polygon offset to prevent z-fighting
+    material.polygonOffset = true;
+    material.polygonOffsetFactor = isGlobeMaskMode(mode) ? 1 : -1;
+    material.polygonOffsetUnits = isGlobeMaskMode(mode) ? 1 : -1;
+
+    return material;
+  }
+
+  /**
+   * Create the mask texture based on mode and settings.
+   * This is rendered once and reused across projection changes.
+   */
+  private static async createMaskTexture(
+    mode: TLandSeaMaskMode,
+    useTexture: boolean,
+    config: MaskConfig
+  ): Promise<THREE.Texture> {
+    const { canvas, ctx, width, height } = CanvasFactory.create(4096, 2048);
+    const land = await ResourceCache.loadLandGeoJSON();
+
+    // Create equirectangular projection for texture rendering
+    const projection = D3ProjectionFactory.createEquirectangular(width, height);
+    const path = d3.geoPath(projection, ctx);
+
+    if (isGlobeMaskMode(mode)) {
+      // Globe modes: full earth texture or colored land/sea
+      if (useTexture) {
+        const img = await ResourceCache.loadEarthTexture();
+        ctx.drawImage(img, 0, 0, width, height);
+      } else {
+        // Draw sea background
+        ctx.fillStyle = this.COLORS.sea;
+        ctx.fillRect(0, 0, width, height);
+
+        // Draw land
+        ctx.beginPath();
+        path(land);
+        ctx.fillStyle = this.COLORS.land;
+        ctx.fill();
+      }
+    } else {
+      // Masked modes: show only land or sea
+      if (useTexture) {
+        const img = await ResourceCache.loadEarthTexture();
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // Mask out unwanted area
+        ctx.beginPath();
+        path(land);
+        ctx.globalCompositeOperation = config.showLand
+          ? "destination-in"
+          : "destination-out";
+        ctx.fill();
+      } else {
+        if (config.showSea) {
+          ctx.fillStyle = this.COLORS.sea;
+          ctx.fillRect(0, 0, width, height);
+          if (!config.showLand) {
+            // Cut out land
+            ctx.beginPath();
+            path(land);
+            ctx.globalCompositeOperation = "destination-out";
+            ctx.fill();
+          }
+        }
+        if (config.showLand) {
+          ctx.globalCompositeOperation = "source-over";
+          ctx.beginPath();
+          path(land);
+          ctx.fillStyle = this.COLORS.land;
+          ctx.fill();
+        }
+      }
+    }
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    texture.needsUpdate = true;
+
+    return texture;
   }
 }
 
@@ -622,11 +801,18 @@ class FlatMaskRenderer {
 // Public API
 // =============================================================================
 
+/**
+ * Create a land/sea mask mesh for the given projection.
+ * Uses GPU-projected rendering for instant projection center changes.
+ *
+ * @param landSeaMaskChoice - The mask mode to use
+ * @param landSeaMaskUseTexture - Whether to use textured or solid colors
+ * @param projectionHelper - The projection helper (required for GPU projection)
+ */
 export async function getLandSeaMask(
   landSeaMaskChoice: TLandSeaMaskMode,
   landSeaMaskUseTexture: boolean,
-  projectionHelper?: ProjectionHelper,
-  bounds?: TProjectedBounds
+  projectionHelper?: ProjectionHelper
 ): Promise<THREE.Object3D | undefined> {
   const choice = landSeaMaskChoice ?? LAND_SEA_MASK_MODES.OFF;
   const useTexture = landSeaMaskUseTexture ?? true;
@@ -636,22 +822,33 @@ export async function getLandSeaMask(
   const mode = resolveEffectiveMode(choice, useTexture);
 
   try {
-    if (projectionHelper?.isFlat) {
-      if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
-        console.warn("Missing or invalid bounds for flat mask rendering");
-        return undefined;
-      }
-      return await FlatMaskRenderer.render(
-        projectionHelper,
-        bounds,
+    // Use GPU-projected renderer for all projections
+    // This allows instant projection center changes without rebuilding
+    if (projectionHelper) {
+      return await GpuProjectedMaskRenderer.render(
         mode,
-        useTexture
+        useTexture,
+        projectionHelper
       );
     }
 
+    // Fallback to globe renderer if no projection helper
     return await GlobeMaskRenderer.render(mode);
   } catch (e) {
     console.error("Failed to create land/sea mask:", e);
     return undefined;
   }
+}
+
+/**
+ * Update the projection uniforms on an existing land/sea mask mesh.
+ * This is the fast path for projection center changes - no geometry rebuild needed.
+ */
+export function updateLandSeaMaskProjection(
+  mask: THREE.Object3D | undefined,
+  projectionHelper: ProjectionHelper
+): void {
+  if (!mask || !(mask instanceof THREE.Mesh)) return;
+
+  GpuProjectedMaskRenderer.updateProjection(mask, projectionHelper);
 }

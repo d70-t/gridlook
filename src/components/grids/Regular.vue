@@ -12,10 +12,12 @@ import {
 } from "../store/store.js";
 import {
   calculateColorMapProperties,
-  makeTextureMaterial,
+  makeGpuProjectedTextureMaterial,
+  updateProjectionUniforms,
 } from "../utils/colormapShaders.ts";
 import { getDimensionInfo } from "../utils/dimensionHandling.ts";
 import { useLog } from "../utils/logging.ts";
+import { getProjectionTypeFromMode } from "../utils/projectionShaders.ts";
 import { ZarrDataManager } from "../utils/ZarrDataManager.ts";
 import { castDataVarToFloat32, getDataBounds } from "../utils/zarrUtils.ts";
 
@@ -36,6 +38,8 @@ const {
   selection,
   isInitializingVariable,
   varinfo,
+  projectionMode,
+  projectionCenter,
 } = storeToRefs(store);
 
 const urlParameterStore = useUrlParameterStore();
@@ -101,14 +105,31 @@ watch(
   }
 );
 
+// GPU projection: update shader uniforms instead of rebuilding geometry
 watch(
-  () => projectionHelper.value,
+  [() => projectionMode.value, () => projectionCenter.value],
   () => {
-    if (latitudes.value.length && longitudes.value.length) {
-      makeGeometry();
-    }
-  }
+    updateMeshProjectionUniforms();
+  },
+  { deep: true }
 );
+
+/**
+ * Update projection uniforms on the mesh material.
+ * This is the fast path - no geometry rebuild needed.
+ */
+function updateMeshProjectionUniforms() {
+  if (!mainMesh) return;
+  const material = mainMesh.material as THREE.ShaderMaterial;
+  if (!material.uniforms?.projectionType) return;
+
+  const helper = projectionHelper.value;
+  const projType = getProjectionTypeFromMode(helper.type);
+  const center = projectionCenter.value ?? { lat: 0, lon: 0 };
+
+  updateProjectionUniforms(material, projType, center.lon, center.lat, 1.0);
+  redraw();
+}
 
 const timeIndexSlider = computed(() => {
   if (varinfo.value?.dimRanges[0]?.name !== "time") {
@@ -154,12 +175,6 @@ async function getDims() {
   const myLatitudes = latitudesData.data as Float64Array;
   longitudes.value = new Float64Array(new Set(myLongitudes));
   latitudes.value = new Float64Array(new Set(myLatitudes));
-}
-
-function projectLatLon(lat: number, lon: number, radius: number) {
-  const helper = projectionHelper.value;
-  const normalizedLon = helper.normalizeLongitude(lon);
-  return helper.project(lat, normalizedLon, radius);
 }
 
 function rotatedToGeographic(
@@ -208,12 +223,12 @@ function isLongitudeGlobal(lons: Float64Array): boolean {
 }
 
 /**
- * Generates vertices and UVs for a grid of points on a sphere.
+ * Generates vertices, UVs, and lat/lon coordinates for a grid.
  *
- * The function returns an object with two properties: `vertices`, an array of
- * 3D coordinates (x, y, z) representing the points on the sphere, and `uvs`, an
- * array of (u, v) coordinates representing the texture coordinates for the
- * points.
+ * For GPU projection, we store lat/lon as vertex attributes and use
+ * placeholder positions (0,0,0) that will be computed in the vertex shader.
+ * We also compute initial positions for the current projection to avoid
+ * a flash of incorrect geometry on first render.
  */
 function generateGridVerticesAndUVs(
   lats: Float64Array,
@@ -221,11 +236,11 @@ function generateGridVerticesAndUVs(
   isReversed: boolean,
   isRotated: boolean,
   poleLat?: number,
-  poleLon?: number,
-  radius = 1.0
+  poleLon?: number
 ) {
   const vertices: number[] = [];
   const uvs: number[] = [];
+  const latLonCoords: number[] = []; // [lat, lon] pairs for GPU projection
   const latCount = lats.length;
   const lonCount = lons.length;
 
@@ -240,9 +255,14 @@ function generateGridVerticesAndUVs(
         ? rotatedToGeographic(rawLat, rawLon, poleLat!, poleLon!)
         : { lat: rawLat, lon: rawLon };
 
-      // Convert the latitude and longitude to 3D coordinates on the sphere.
-      const xyz = projectLatLon(lat, lon, radius);
-      vertices.push(...xyz);
+      // Store lat/lon for GPU projection
+      const normalizedLon = projectionHelper.value.normalizeLongitude(lon);
+      latLonCoords.push(lat, normalizedLon);
+
+      // Use placeholder positions - the GPU shader will compute actual positions
+      // We still compute initial positions for the first frame
+      const [x, y, z] = projectionHelper.value.project(lat, normalizedLon, 1.0);
+      vertices.push(x, y, z);
 
       // Calculate the texture coordinates for the point. The `u` coordinate
       // represents the longitude, and the `v` coordinate represents the latitude.
@@ -255,7 +275,7 @@ function generateGridVerticesAndUVs(
     }
   }
 
-  return { vertices, uvs };
+  return { vertices, uvs, latLonCoords };
 }
 
 function generateGridIndices(
@@ -307,32 +327,30 @@ async function getGaussianGrid() {
     lons = new Float64Array([...lons, firstLon + 360]);
   }
 
-  const radius = 1.0;
   let poleLat, poleLon;
   if (isRotated) {
     const rotatedNorthPole = await getRotatedNorthPole();
     poleLat = rotatedNorthPole.lat;
     poleLon = rotatedNorthPole.lon;
   }
-  const { vertices, uvs } = generateGridVerticesAndUVs(
+  const { vertices, uvs, latLonCoords } = generateGridVerticesAndUVs(
     lats,
     lons,
     isLatReversed,
     isRotated,
     poleLat,
-    poleLon,
-    radius
+    poleLon
   );
 
   const latCount = lats.length;
   const lonCount = lons.length;
   const indices = generateGridIndices(latCount, lonCount, isGlobal);
 
-  return { vertices, indices, uvs };
+  return { vertices, indices, uvs, latLonCoords };
 }
 
 async function makeRegularGeometry() {
-  const { vertices, indices, uvs } = await getGaussianGrid();
+  const { vertices, indices, uvs, latLonCoords } = await getGaussianGrid();
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute(
     "position",
@@ -340,6 +358,11 @@ async function makeRegularGeometry() {
   );
   geometry.setIndex(indices);
   geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  // Add lat/lon attribute for GPU projection
+  geometry.setAttribute(
+    "latLon",
+    new THREE.Float32BufferAttribute(latLonCoords, 2)
+  );
   return geometry;
 }
 
@@ -348,6 +371,8 @@ async function makeGeometry() {
     const geometry = await makeRegularGeometry();
     mainMesh!.geometry.dispose();
     mainMesh!.geometry = geometry;
+    // Update projection uniforms after geometry change
+    updateMeshProjectionUniforms();
     redraw();
   } catch (error) {
     logError(error, "Could not fetch grid");
@@ -426,12 +451,20 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
         invertColormap.value
       );
 
-      const material = makeTextureMaterial(
+      // Use GPU-projected material for instant projection center changes
+      const material = makeGpuProjectedTextureMaterial(
         textures,
         colormap.value,
         addOffset,
         scaleFactor
       );
+
+      // Set initial projection uniforms
+      const helper = projectionHelper.value;
+      const projType = getProjectionTypeFromMode(helper.type);
+      const center = projectionCenter.value ?? { lat: 0, lon: 0 };
+      updateProjectionUniforms(material, projType, center.lon, center.lat, 1.0);
+
       const { min, max, missingValue, fillValue } = getDataBounds(
         datavar,
         rawData
@@ -481,6 +514,8 @@ onBeforeMount(async () => {
   const geometry = new THREE.BufferGeometry();
   const material = new THREE.ShaderMaterial();
   mainMesh = new THREE.Mesh(geometry, material);
+  // Disable frustum culling - GPU projection changes actual positions
+  mainMesh.frustumCulled = false;
   await datasourceUpdate();
 });
 
