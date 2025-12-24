@@ -1222,7 +1222,6 @@ void main() {
   vec4 mvPosition = modelViewMatrix * vec4(projected, 1.0);
   gl_Position = projectionMatrix * mvPosition;
 
-  float distance = length(mvPosition.xyz);
   float sizeFactor = basePointSize;
   gl_PointSize = clamp(sizeFactor, minPointSize, maxPointSize);
 }
@@ -1346,5 +1345,4 @@ export function updateProjectionUniforms(
   if (material.uniforms.projectionRadius) {
     material.uniforms.projectionRadius.value = radius;
   }
-  material.needsUpdate = true;
 }

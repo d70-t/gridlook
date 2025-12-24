@@ -184,6 +184,7 @@ async function fetchGrid() {
     for (const mesh of meshes) {
       getScene()?.remove(mesh);
       mesh.geometry.dispose();
+      if (mesh.material instanceof THREE.Material) mesh.material.dispose();
     }
     meshes.length = 0;
 

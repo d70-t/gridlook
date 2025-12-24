@@ -365,6 +365,9 @@ class GpuProjectedMaskRenderer {
     mesh.name = "mask";
     mesh.userData.maskMode = mode; // Store mode for updateProjection
 
+    if (!projectionHelper.isFlat) {
+      mesh.frustumCulled = false;
+    }
     const globeMode = isGlobeMaskMode(mode);
     mesh.renderOrder = globeMode ? -1 : 10;
 

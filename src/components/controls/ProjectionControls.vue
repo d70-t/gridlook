@@ -3,7 +3,6 @@ import { computed, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { useGlobeControlStore } from "../store/store";
 import { clamp, PROJECTION_TYPES } from "../utils/projectionUtils";
-import debounce from "lodash.debounce";
 
 const store = useGlobeControlStore();
 const { projectionMode, projectionCenter } = storeToRefs(store);
@@ -23,19 +22,19 @@ watch(
   { deep: true }
 );
 
-const updateLon = debounce((value: number) => {
+const updateLon = (value: number) => {
   projectionCenter.value = {
     ...projectionCenter.value,
     lon: clamp(value, -180, 180),
   };
-}, 0);
+};
 
-const updateLat = debounce((value: number) => {
+const updateLat = (value: number) => {
   projectionCenter.value = {
     ...projectionCenter.value,
     lat: clamp(value, -90, 90),
   };
-}, 0);
+};
 
 watch(centerLon, (value) => {
   if (value !== projectionCenter.value.lon) {

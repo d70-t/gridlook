@@ -48,11 +48,6 @@ export const projectionShaderFunctions = `
     0.8936, 0.9394, 0.9761, 1.0000
   );
 
-  // Normalize longitude to [-180, 180]
-  float normalizeLon(float lon) {
-    return mod(lon + 540.0, 360.0) - 180.0;
-  }
-
   // Apply rotation to coordinates (for projection center)
   // This rotates the sphere so that (centerLon, centerLat) becomes (0, 0)
   vec2 rotateCoords(float lat, float lon, float centerLon, float centerLat) {

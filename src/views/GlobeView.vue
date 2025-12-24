@@ -24,7 +24,6 @@ import {
 import { useUrlSync } from "../components/store/useUrlSync";
 import { ZarrDataManager } from "@/components/utils/ZarrDataManager";
 import Toast from "@/components/Toast.vue";
-import type { TProjectionType } from "@/components/utils/projectionUtils";
 
 const props = defineProps<{ src: string }>();
 
@@ -32,23 +31,6 @@ useUrlSync();
 const { logError } = useLog();
 const store = useGlobeControlStore();
 const urlParameterStore = useUrlParameterStore();
-
-// Apply projection parameters from URL BEFORE grid components render
-// This ensures the initial render uses the correct projection
-if (urlParameterStore.paramProjection) {
-  store.projectionMode = urlParameterStore.paramProjection as TProjectionType;
-}
-if (
-  urlParameterStore.paramProjectionCenterLat ||
-  urlParameterStore.paramProjectionCenterLon
-) {
-  const lat = parseFloat(urlParameterStore.paramProjectionCenterLat ?? "0");
-  const lon = parseFloat(urlParameterStore.paramProjectionCenterLon ?? "0");
-  store.projectionCenter = {
-    lat: Number.isFinite(lat) ? lat : 0,
-    lon: Number.isFinite(lon) ? lon : 0,
-  };
-}
 
 const { varnameSelector, loading, colormap, invertColormap } =
   storeToRefs(store);

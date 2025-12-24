@@ -250,6 +250,15 @@ export function useSharedGridLogic() {
     const choice = landSeaMaskChoice.value ?? LAND_SEA_MASK_MODES.OFF;
     if (landSeaMask) {
       scene?.remove(landSeaMask);
+      if (landSeaMask instanceof THREE.Mesh) {
+        landSeaMask.geometry?.dispose();
+        const material = landSeaMask.material as THREE.ShaderMaterial;
+        const tex = material.uniforms?.maskTexture?.value as
+          | THREE.Texture
+          | undefined;
+        tex?.dispose();
+        material?.dispose();
+      }
       landSeaMask = undefined;
     }
     if (choice === LAND_SEA_MASK_MODES.OFF) {
