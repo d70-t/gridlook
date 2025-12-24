@@ -1,5 +1,6 @@
 import { storeToRefs } from "pinia";
 import { watch } from "vue";
+import debounce from "lodash.debounce";
 import { useGlobeControlStore } from "./store";
 import { URL_PARAMETERS, type TURLParameterValues } from "../utils/urlParams";
 import { useUrlParameterStore } from "./paramStore";
@@ -163,15 +164,19 @@ export function useUrlSync() {
     }
   );
 
+  const debouncedProjectionCenterSync = debounce((lat: number, lon: number) => {
+    changeURLHash({
+      [URL_PARAMETERS.PROJECTION_CENTER_LAT]: lat,
+      [URL_PARAMETERS.PROJECTION_CENTER_LON]: lon,
+    });
+  }, 200);
+
   watch(
     () => [projectionCenter.value?.lat, projectionCenter.value?.lon],
     () => {
       const center = projectionCenter.value;
       if (!center) return;
-      changeURLHash({
-        [URL_PARAMETERS.PROJECTION_CENTER_LAT]: center.lat,
-        [URL_PARAMETERS.PROJECTION_CENTER_LON]: center.lon,
-      });
+      debouncedProjectionCenterSync(center.lat, center.lon);
     }
   );
 }
