@@ -2,7 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { useGlobeControlStore } from "../store/store";
-import { PROJECTION_TYPES } from "../utils/projectionUtils";
+import { clamp, PROJECTION_TYPES } from "../utils/projectionUtils";
 import debounce from "lodash.debounce";
 
 const store = useGlobeControlStore();
@@ -10,11 +10,6 @@ const { projectionMode, projectionCenter } = storeToRefs(store);
 const isFlat = computed(
   () => projectionMode.value !== PROJECTION_TYPES.NEARSIDE_PERSPECTIVE
 );
-
-// Clamp helper for projection center; falls back to 0 for non-finite input
-// because (lat: 0, lon: 0) is the neutral "reset" center used elsewhere.
-const clamp = (value: number, min: number, max: number) =>
-  Math.min(Math.max(Number.isFinite(value) ? value : 0, min), max);
 
 const centerLon = ref(projectionCenter.value.lon);
 const centerLat = ref(projectionCenter.value.lat);

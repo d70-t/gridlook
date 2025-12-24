@@ -18,7 +18,7 @@ import { useUrlParameterStore } from "./store/paramStore.ts";
 import { useGlobeControlStore } from "./store/store.ts";
 import { MOBILE_BREAKPOINT } from "./utils/viewConstants.ts";
 import ProjectionControls from "./controls/ProjectionControls.vue";
-import type { TProjectionType } from "./utils/projectionUtils.ts";
+import { clamp, type TProjectionType } from "./utils/projectionUtils.ts";
 
 const props = defineProps<{ modelInfo?: TModelInfo }>();
 
@@ -196,8 +196,8 @@ if (paramProjectionCenterLat.value || paramProjectionCenterLon.value) {
   const lat = parseFloat(paramProjectionCenterLat.value ?? "0");
   const lon = parseFloat(paramProjectionCenterLon.value ?? "0");
   projectionCenter.value = {
-    lat: Number.isFinite(lat) ? lat : 0,
-    lon: Number.isFinite(lon) ? lon : 0,
+    lat: clamp(lat, -90, 90),
+    lon: clamp(lon, -180, 180),
   };
 }
 

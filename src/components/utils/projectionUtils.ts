@@ -29,6 +29,12 @@ export type TProjectionOptions = {
 
 export const MERCATOR_LAT_LIMIT = 85;
 
+// Clamp helper for projection center; falls back to 0 for non-finite input
+// because (lat: 0, lon: 0) is the neutral "reset" center used elsewhere.
+export function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(Number.isFinite(value) ? value : 0, min), max);
+}
+
 export class ProjectionHelper {
   readonly type: TProjectionType;
   readonly isFlat: boolean;

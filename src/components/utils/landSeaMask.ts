@@ -348,7 +348,7 @@ void main() {
  */
 const flatMaskFragmentShader = `
 #define PROJ_MERCATOR 2
-#define MERCATOR_LAT_LIMIT 89.0
+#define MERCATOR_LAT_LIMIT 85.0
 
 uniform sampler2D maskTexture;
 uniform float opacity;
