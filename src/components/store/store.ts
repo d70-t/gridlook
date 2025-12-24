@@ -13,11 +13,6 @@ export const LAND_SEA_MASK_MODES = {
   SEA: "sea",
   LAND: "land",
   GLOBE: "globe",
-
-  // Those types are only used in sharedGlobe
-  SEA_GREY: "sea_grey",
-  LAND_GREY: "land_grey",
-  GLOBE_COLORED: "globe_colored",
 } as const;
 
 export const UPDATE_MODE = {

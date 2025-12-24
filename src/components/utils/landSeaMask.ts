@@ -20,67 +20,30 @@ import { ResourceCache } from "./ResourceCache";
 type MaskConfig = {
   showLand: boolean;
   showSea: boolean;
-  useTexture: boolean;
+};
+
+const MASK_COLORS = {
+  sea: "#3c78c8",
+  land: "#d3d3d3ff",
 };
 
 // =============================================================================
 // Mask Configuration
 // =============================================================================
 
-function getMaskConfig(
-  mode: TLandSeaMaskMode,
-  useTexture: boolean
-): MaskConfig {
-  const isGlobeMode =
-    mode === LAND_SEA_MASK_MODES.GLOBE ||
-    mode === LAND_SEA_MASK_MODES.GLOBE_COLORED;
-  const isLandMode =
-    mode === LAND_SEA_MASK_MODES.LAND || mode === LAND_SEA_MASK_MODES.LAND_GREY;
-  const isSeaMode =
-    mode === LAND_SEA_MASK_MODES.SEA || mode === LAND_SEA_MASK_MODES.SEA_GREY;
+function getMaskConfig(mode: TLandSeaMaskMode): MaskConfig {
+  const isGlobeMode = mode === LAND_SEA_MASK_MODES.GLOBE;
+  const isLandMode = mode === LAND_SEA_MASK_MODES.LAND;
+  const isSeaMode = mode === LAND_SEA_MASK_MODES.SEA;
 
   return {
     showLand: isGlobeMode || isLandMode,
     showSea: isGlobeMode || isSeaMode,
-    useTexture,
   };
-}
-
-function resolveEffectiveMode(
-  choice: TLandSeaMaskMode,
-  useTexture: boolean
-): TLandSeaMaskMode {
-  if (choice === LAND_SEA_MASK_MODES.OFF) return LAND_SEA_MASK_MODES.OFF;
-
-  const modeMapping: Partial<
-    Record<
-      TLandSeaMaskMode,
-      { textured: TLandSeaMaskMode; plain: TLandSeaMaskMode }
-    >
-  > = {
-    [LAND_SEA_MASK_MODES.SEA]: {
-      textured: LAND_SEA_MASK_MODES.SEA,
-      plain: LAND_SEA_MASK_MODES.SEA_GREY,
-    },
-    [LAND_SEA_MASK_MODES.LAND]: {
-      textured: LAND_SEA_MASK_MODES.LAND,
-      plain: LAND_SEA_MASK_MODES.LAND_GREY,
-    },
-    [LAND_SEA_MASK_MODES.GLOBE]: {
-      textured: LAND_SEA_MASK_MODES.GLOBE,
-      plain: LAND_SEA_MASK_MODES.GLOBE_COLORED,
-    },
-  };
-
-  const mapping = modeMapping[choice];
-  return mapping ? (useTexture ? mapping.textured : mapping.plain) : choice;
 }
 
 function isGlobeMaskMode(mode: TLandSeaMaskMode): boolean {
-  return (
-    mode === LAND_SEA_MASK_MODES.GLOBE ||
-    mode === LAND_SEA_MASK_MODES.GLOBE_COLORED
-  );
+  return mode === LAND_SEA_MASK_MODES.GLOBE;
 }
 
 // =============================================================================
@@ -127,32 +90,23 @@ class CanvasFactory {
 // =============================================================================
 
 class GlobeMaskRenderer {
-  private static readonly COLORS = {
-    sea: "#3c78c8",
-    land: "#888",
-  };
-
-  static async render(mode: TLandSeaMaskMode): Promise<THREE.Mesh | undefined> {
+  static async render(
+    mode: TLandSeaMaskMode,
+    useTexture: boolean
+  ): Promise<THREE.Mesh | undefined> {
     let mesh: THREE.Mesh | undefined;
 
     switch (mode) {
       case LAND_SEA_MASK_MODES.GLOBE:
-        mesh = await this.createTexturedGlobe();
-        break;
-      case LAND_SEA_MASK_MODES.GLOBE_COLORED:
-        mesh = await this.createColoredGlobe();
+        mesh = useTexture
+          ? await this.createTexturedGlobe()
+          : await this.createColoredGlobe();
         break;
       case LAND_SEA_MASK_MODES.SEA:
       case LAND_SEA_MASK_MODES.LAND:
-        mesh = await this.createMaskedTexture(
-          mode === LAND_SEA_MASK_MODES.LAND
-        );
-        break;
-      case LAND_SEA_MASK_MODES.SEA_GREY:
-      case LAND_SEA_MASK_MODES.LAND_GREY:
-        mesh = await this.createMaskedSolid(
-          mode === LAND_SEA_MASK_MODES.LAND_GREY
-        );
+        mesh = useTexture
+          ? await this.createMaskedTexture(mode === LAND_SEA_MASK_MODES.LAND)
+          : await this.createMaskedSolid(mode === LAND_SEA_MASK_MODES.LAND);
         break;
       default:
         mesh = undefined;
@@ -182,13 +136,13 @@ class GlobeMaskRenderer {
     const path = d3.geoPath(projection, ctx);
 
     // Draw ocean background
-    ctx.fillStyle = this.COLORS.sea;
+    ctx.fillStyle = MASK_COLORS.sea;
     ctx.fillRect(0, 0, width, height);
 
     // Draw land
     ctx.beginPath();
     path(land);
-    ctx.fillStyle = this.COLORS.land;
+    ctx.fillStyle = MASK_COLORS.land;
     ctx.fill();
 
     const texture = new THREE.CanvasTexture(canvas);
@@ -238,7 +192,7 @@ class GlobeMaskRenderer {
 
     if (!showLandOnly) {
       // Fill with sea color, then cut out land
-      ctx.fillStyle = this.COLORS.sea;
+      ctx.fillStyle = MASK_COLORS.sea;
       ctx.fillRect(0, 0, width, height);
       ctx.beginPath();
       path(land);
@@ -248,7 +202,7 @@ class GlobeMaskRenderer {
       // Just draw land
       ctx.beginPath();
       path(land);
-      ctx.fillStyle = this.COLORS.land;
+      ctx.fillStyle = MASK_COLORS.land;
       ctx.fill();
     }
 
@@ -293,7 +247,6 @@ uniform float projectionRadius;
 attribute vec2 latLon;
 
 varying vec2 vUv;
-varying float vLat;
 
 float clampLatForProjection(int projType, float lat) {
   if (projType == PROJ_MERCATOR) {
@@ -305,7 +258,6 @@ float clampLatForProjection(int projType, float lat) {
 void main() {
   vUv = uv;
   float clampedLat = clampLatForProjection(projectionType, latLon.x);
-  vLat = clampedLat;
   vec3 projected = projectLatLon(clampedLat, latLon.y, projectionType, centerLon, centerLat, projectionRadius);
   gl_Position = projectionMatrix * modelViewMatrix * vec4(projected, 1.0);
 }
@@ -329,10 +281,8 @@ void main() {
 const gpuProjectedMaskFragmentShader = `
 uniform sampler2D maskTexture;
 uniform float opacity;
-uniform int projectionType;
 
 varying vec2 vUv;
-varying float vLat;
 
 void main() {
   vec4 texColor = texture2D(maskTexture, vUv);
@@ -374,11 +324,6 @@ void main() {
 `;
 
 class GpuProjectedMaskRenderer {
-  private static readonly COLORS = {
-    sea: "#3c78c8",
-    land: "#888888",
-  };
-
   private static readonly GRID_RESOLUTION = {
     latSegments: 180,
     lonSegments: 360,
@@ -396,7 +341,7 @@ class GpuProjectedMaskRenderer {
   ): Promise<THREE.Mesh | undefined> {
     if (mode === LAND_SEA_MASK_MODES.OFF) return undefined;
 
-    const config = getMaskConfig(mode, useTexture);
+    const config = getMaskConfig(mode);
     const texture = await this.createMaskTexture(mode, useTexture, config);
 
     let geometry: THREE.BufferGeometry;
@@ -743,13 +688,13 @@ class GpuProjectedMaskRenderer {
         ctx.drawImage(img, 0, 0, width, height);
       } else {
         // Draw sea background
-        ctx.fillStyle = this.COLORS.sea;
+        ctx.fillStyle = MASK_COLORS.sea;
         ctx.fillRect(0, 0, width, height);
 
         // Draw land
         ctx.beginPath();
         path(land);
-        ctx.fillStyle = this.COLORS.land;
+        ctx.fillStyle = MASK_COLORS.land;
         ctx.fill();
       }
     } else {
@@ -767,7 +712,7 @@ class GpuProjectedMaskRenderer {
         ctx.fill();
       } else {
         if (config.showSea) {
-          ctx.fillStyle = this.COLORS.sea;
+          ctx.fillStyle = MASK_COLORS.sea;
           ctx.fillRect(0, 0, width, height);
           if (!config.showLand) {
             // Cut out land
@@ -781,7 +726,7 @@ class GpuProjectedMaskRenderer {
           ctx.globalCompositeOperation = "source-over";
           ctx.beginPath();
           path(land);
-          ctx.fillStyle = this.COLORS.land;
+          ctx.fillStyle = MASK_COLORS.land;
           ctx.fill();
         }
       }
@@ -802,7 +747,7 @@ class GpuProjectedMaskRenderer {
 
 /**
  * Create a land/sea mask mesh for the given projection.
- * Uses GPU-projected rendering for instant projection center changes.
+ * Globe mode uses GPU-projected rendering; flat projections use d3 geometry.
  *
  * @param landSeaMaskChoice - The mask mode to use
  * @param landSeaMaskUseTexture - Whether to use textured or solid colors
@@ -814,25 +759,23 @@ export async function getLandSeaMask(
   projectionHelper?: ProjectionHelper
 ): Promise<THREE.Object3D | undefined> {
   const choice = landSeaMaskChoice ?? LAND_SEA_MASK_MODES.OFF;
-  const useTexture = landSeaMaskUseTexture ?? true;
+  const useTexture = landSeaMaskUseTexture;
 
   if (choice === LAND_SEA_MASK_MODES.OFF) return undefined;
-
-  const mode = resolveEffectiveMode(choice, useTexture);
 
   try {
     // Use GPU-projected renderer for all projections
     // This allows instant projection center changes without rebuilding
     if (projectionHelper) {
       return await GpuProjectedMaskRenderer.render(
-        mode,
+        choice,
         useTexture,
         projectionHelper
       );
     }
 
     // Fallback to globe renderer if no projection helper
-    return await GlobeMaskRenderer.render(mode);
+    return await GlobeMaskRenderer.render(choice, useTexture);
   } catch (e) {
     console.error("Failed to create land/sea mask:", e);
     return undefined;
