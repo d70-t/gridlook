@@ -2,8 +2,9 @@ import * as THREE from "three";
 import type { TColorMap } from "../../types/GlobeTypes";
 import {
   projectionShaderFunctions,
-  PROJECTION_TYPE_GLOBE,
+  PROJECTION_TYPE_BY_MODE,
 } from "./projectionShaders";
+import { PROJECTION_TYPES } from "./projectionUtils";
 
 export const availableColormaps = {
   algae: 45,
@@ -1246,7 +1247,9 @@ export function makeGpuProjectedTextureMaterial(
       missingValue: { value: Number.POSITIVE_INFINITY },
       data: { value: texture },
       // Projection uniforms
-      projectionType: { value: PROJECTION_TYPE_GLOBE },
+      projectionType: {
+        value: PROJECTION_TYPE_BY_MODE[PROJECTION_TYPES.NEARSIDE_PERSPECTIVE],
+      },
       centerLon: { value: 0.0 },
       centerLat: { value: 0.0 },
       projectionRadius: { value: 1.0 },
@@ -1276,7 +1279,9 @@ export function makeGpuProjectedColormapMaterial(
       fillValue: { value: Number.POSITIVE_INFINITY },
       missingValue: { value: Number.POSITIVE_INFINITY },
       // Projection uniforms
-      projectionType: { value: PROJECTION_TYPE_GLOBE },
+      projectionType: {
+        value: PROJECTION_TYPE_BY_MODE[PROJECTION_TYPES.NEARSIDE_PERSPECTIVE],
+      },
       centerLon: { value: 0.0 },
       centerLat: { value: 0.0 },
       projectionRadius: { value: 1.0 },
@@ -1308,7 +1313,9 @@ export function makeGpuProjectedIrregularMaterial(
       missingValue: { value: Number.POSITIVE_INFINITY },
       colormap: { value: availableColormaps[colormap] },
       // Projection uniforms
-      projectionType: { value: PROJECTION_TYPE_GLOBE },
+      projectionType: {
+        value: PROJECTION_TYPE_BY_MODE[PROJECTION_TYPES.NEARSIDE_PERSPECTIVE],
+      },
       centerLon: { value: 0.0 },
       centerLat: { value: 0.0 },
       projectionRadius: { value: 1.0 },
