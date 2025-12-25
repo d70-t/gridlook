@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, onUnmounted } from "vue";
+import { ref, computed, onMounted, watch, onBeforeUnmount } from "vue";
 import type { Ref } from "vue";
 import * as THREE from "three";
 import {
@@ -72,18 +72,22 @@ onMounted(() => {
   onCanvasResize();
 });
 
-onUnmounted(() => {
+onBeforeUnmount(() => {
+  if (box.value) {
+    resizeObserver?.unobserve(box.value as Element);
+  }
   resizeObserver?.disconnect();
+  lutMesh?.geometry.dispose();
   scene?.clear();
   camera?.clear();
   renderer?.dispose();
   scene = undefined;
   camera = undefined;
   renderer = undefined;
+  lutMesh = undefined;
 });
 
 function init() {
-  console.log("Initializing ColorBar THREE.js scene");
   const lutGeometry = new THREE.PlaneGeometry(2, 2);
   lutGeometry.setAttribute(
     "data_value",
