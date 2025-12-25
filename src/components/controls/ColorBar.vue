@@ -129,10 +129,9 @@ function onCanvasResize(/*entries*/) {
   if (!box.value) {
     return;
   }
-  let { width: boxWidth, height: boxHeight } =
-    box.value.getBoundingClientRect();
-  boxWidth = Math.round(boxWidth);
-  boxHeight = Math.round(boxHeight);
+  const rect = box.value.getBoundingClientRect();
+  const boxWidth = Math.round(rect.width);
+  const boxHeight = Math.round(rect.height);
   if (boxWidth !== width || boxHeight !== height) {
     resizeObserver?.unobserve(box.value);
     const aspect = boxWidth / boxHeight;
