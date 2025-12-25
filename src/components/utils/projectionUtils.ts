@@ -1,4 +1,5 @@
 import * as d3 from "d3-geo";
+import { MathUtils } from "three";
 import {
   geoMollweide,
   geoRobinson,
@@ -61,6 +62,8 @@ export class ProjectionHelper {
   }
 
   private initializeD3Projection(): void {
+    // We still keep a d3 projection for CPU-side geometry work:
+    // flat mask clipping, bounds, and initial vertex positions before shaders run.
     this.d3Projection = this.createD3ProjectionInstance();
   }
 
@@ -100,6 +103,13 @@ export class ProjectionHelper {
     return (((lon % 360) + 540) % 360) - 180;
   }
 
+  static cartesianToLatLon(x: number, y: number, z: number) {
+    const r = Math.sqrt(x * x + y * y + z * z);
+    const lat = MathUtils.radToDeg(Math.asin(z / r));
+    const lon = MathUtils.radToDeg(Math.atan2(y, x));
+    return { lat, lon };
+  }
+
   getD3Projection(): d3.GeoProjection | null {
     return this.d3Projection;
   }
@@ -121,8 +131,8 @@ export class ProjectionHelper {
     lon: number,
     radius: number
   ): [number, number, number] {
-    const latRad = (lat * Math.PI) / 180;
-    const lonRad = (lon * Math.PI) / 180;
+    const latRad = MathUtils.degToRad(lat);
+    const lonRad = MathUtils.degToRad(lon);
 
     const x = radius * Math.cos(latRad) * Math.cos(lonRad);
     const y = radius * Math.cos(latRad) * Math.sin(lonRad);
@@ -156,6 +166,9 @@ export class ProjectionHelper {
     lon: number,
     radius: number
   ): [number, number, number] {
+    // CPU projection is still needed where geometry is built on the CPU
+    // (e.g., flat masks and initial mesh positions). GPU projection only
+    // applies when using shader materials with latLon attributes.
     const projected = this.d3Projection?.([this.normalizeLongitude(lon), lat]);
     if (!projected) {
       return [0, 0, 0];

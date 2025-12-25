@@ -322,13 +322,6 @@ function distanceSquared(
   return (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1) + (z2 - z1) * (z2 - z1);
 }
 
-function vectorToLatLon(x: number, y: number, z: number) {
-  const r = Math.sqrt(x * x + y * y + z * z);
-  const lat = (Math.asin(z / r) * 180) / Math.PI;
-  const lon = (Math.atan2(y, x) * 180) / Math.PI;
-  return { lat, lon };
-}
-
 function makeHealpixGeometry(
   nside: number,
   ipix: number,
@@ -348,7 +341,11 @@ function makeHealpixGeometry(
     for (let j = 0; j < steps; ++j) {
       const v = j / (steps - 1);
       const vec = healpix.pixcoord2vec_nest(nside, ipix, u, v);
-      const { lat, lon } = vectorToLatLon(vec[0], vec[1], vec[2]);
+      const { lat, lon } = ProjectionHelper.cartesianToLatLon(
+        vec[0],
+        vec[1],
+        vec[2]
+      );
       latitudes[vertexIndex] = lat;
       longitudes[vertexIndex] = lon;
       const [x, y, z] = helper.project(lat, lon, 1);

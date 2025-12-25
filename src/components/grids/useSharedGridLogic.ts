@@ -533,7 +533,7 @@ export function useSharedGridLogic() {
 
     // Apply the projection matrix with current offset
     const aspect = camera.aspect;
-    const fov = (camera.fov * Math.PI) / 180;
+    const fov = THREE.MathUtils.degToRad(camera.fov);
     const near = camera.near;
     const far = camera.far;
 

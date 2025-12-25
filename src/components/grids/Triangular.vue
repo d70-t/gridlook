@@ -21,6 +21,7 @@ import { getProjectionTypeFromMode } from "../utils/projectionShaders.ts";
 import { ZarrDataManager } from "../utils/ZarrDataManager.ts";
 
 import { useSharedGridLogic } from "./useSharedGridLogic.ts";
+import { ProjectionHelper } from "../utils/projectionUtils.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -169,13 +170,6 @@ async function datasourceUpdate() {
 // Split triangles into batches for multiple meshes
 const BATCH_SIZE = 3000000; // number of triangles per mesh (tune as needed)
 
-function cartesianToLatLon(x: number, y: number, z: number) {
-  const r = Math.sqrt(x * x + y * y + z * z);
-  const lat = (Math.asin(z / r) * 180) / Math.PI;
-  const lon = (Math.atan2(y, x) * 180) / Math.PI;
-  return { lat, lon };
-}
-
 async function fetchGrid() {
   try {
     const verts = await grid2buffer(gridsource.value!);
@@ -203,7 +197,7 @@ async function fetchGrid() {
         const x = batchVerts[baseIndex];
         const y = batchVerts[baseIndex + 1];
         const z = batchVerts[baseIndex + 2];
-        const { lat, lon } = cartesianToLatLon(x, y, z);
+        const { lat, lon } = ProjectionHelper.cartesianToLatLon(x, y, z);
         // Store lat/lon for GPU projection
         latLonArray[v * 2] = lat;
         latLonArray[v * 2 + 1] = lon;
