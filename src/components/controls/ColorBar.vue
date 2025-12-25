@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from "vue";
+import { ref, computed, onMounted, watch, onUnmounted } from "vue";
 import type { Ref } from "vue";
 import * as THREE from "three";
 import {
@@ -57,6 +57,7 @@ watch(
     updateColormap();
   }
 );
+
 watch(
   () => props.invertColormap,
   () => {
@@ -71,7 +72,18 @@ onMounted(() => {
   onCanvasResize();
 });
 
+onUnmounted(() => {
+  resizeObserver?.disconnect();
+  scene?.clear();
+  camera?.clear();
+  renderer?.dispose();
+  scene = undefined;
+  camera = undefined;
+  renderer = undefined;
+});
+
 function init() {
+  console.log("Initializing ColorBar THREE.js scene");
   const lutGeometry = new THREE.PlaneGeometry(2, 2);
   lutGeometry.setAttribute(
     "data_value",
@@ -93,6 +105,7 @@ function init() {
   );
   scene.add(camera!);
 }
+
 function render() {
   if (width !== undefined && height !== undefined) {
     renderer?.setSize(width, height);
@@ -112,8 +125,10 @@ function onCanvasResize(/*entries*/) {
   if (!box.value) {
     return;
   }
-  const { width: boxWidth, height: boxHeight } =
+  let { width: boxWidth, height: boxHeight } =
     box.value.getBoundingClientRect();
+  boxWidth = Math.round(boxWidth);
+  boxHeight = Math.round(boxHeight);
   if (boxWidth !== width || boxHeight !== height) {
     resizeObserver?.unobserve(box.value);
     const aspect = boxWidth / boxHeight;
@@ -135,22 +150,7 @@ function updateColormap() {
 </script>
 
 <template>
-  <div ref="box" class="colorbar_box">
-    <canvas ref="canvas" class="colorbar_canvas"> </canvas>
+  <div ref="box">
+    <canvas ref="canvas"> </canvas>
   </div>
 </template>
-
-<style>
-div.colorbar_box {
-  padding: 0;
-  margin: 0;
-  overflow: hidden;
-  display: flex;
-}
-div.colorbar_canvas {
-  padding: 0;
-  margin: 0;
-  width: 0;
-  height: 0;
-}
-</style>
