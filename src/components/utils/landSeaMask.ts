@@ -248,17 +248,9 @@ attribute vec2 latLon;
 
 varying vec2 vUv;
 
-float clampLatForProjection(int projType, float lat) {
-  if (projType == PROJ_MERCATOR) {
-    return clamp(lat, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
-  }
-  return lat;
-}
-
 void main() {
   vUv = uv;
-  float clampedLat = clampLatForProjection(projectionType, latLon.x);
-  vec3 projected = projectLatLon(clampedLat, latLon.y, projectionType, centerLon, centerLat, projectionRadius);
+  vec3 projected = projectLatLon(latLon.x, latLon.y, projectionType, centerLon, centerLat, projectionRadius);
   gl_Position = projectionMatrix * modelViewMatrix * vec4(projected, 1.0);
 }
 `;
@@ -294,23 +286,25 @@ void main() {
 `;
 
 /**
- * Fragment shader for flat mask rendering (no latitude check needed).
+ * Fragment shader for flat mask rendering.
  */
 const flatMaskFragmentShader = `
-#define PROJ_MERCATOR 2
-#define MERCATOR_LAT_LIMIT 85.0
+${projectionShaderFunctions}
 
 uniform sampler2D maskTexture;
 uniform float opacity;
 uniform int projectionType;
+uniform float centerLon;
+uniform float centerLat;
 
 varying vec2 vUv;
 
 void main() {
-  // Clip Mercator masks to the valid latitude band to avoid spilling past data
   if (projectionType == PROJ_MERCATOR) {
-    float lat = (vUv.y - 0.5) * 180.0;
-    if (abs(lat) > MERCATOR_LAT_LIMIT) {
+    float lat = vUv.y * 180.0 - 90.0;
+    float lon = vUv.x * 360.0 - 180.0;
+    vec2 rotated = rotateCoords(lat, lon, centerLon, centerLat);
+    if (abs(rotated.x) > MERCATOR_LAT_LIMIT) {
       discard;
     }
   }
@@ -353,7 +347,8 @@ class GpuProjectedMaskRenderer {
       material = this.createFlatMaterial(
         texture,
         mode,
-        getProjectionTypeFromMode(projectionHelper.type)
+        getProjectionTypeFromMode(projectionHelper.type),
+        projectionHelper.center
       );
     } else {
       // For globe, use GPU projection
@@ -399,6 +394,12 @@ class GpuProjectedMaskRenderer {
           projectionHelper.type
         );
       }
+      if (material.uniforms?.centerLon) {
+        material.uniforms.centerLon.value = projectionHelper.center.lon;
+      }
+      if (material.uniforms?.centerLat) {
+        material.uniforms.centerLat.value = projectionHelper.center.lat;
+      }
       // Signal Three.js that the geometry has changed
       mesh.geometry.computeBoundingSphere();
       mesh.geometry.computeBoundingBox();
@@ -430,10 +431,7 @@ class GpuProjectedMaskRenderer {
     mode?: TLandSeaMaskMode
   ): THREE.BufferGeometry {
     const { latSegments, lonSegments } = this.GRID_RESOLUTION;
-    const latExtent =
-      projectionHelper.type === PROJECTION_TYPES.MERCATOR
-        ? MERCATOR_LAT_LIMIT
-        : 90;
+    const isMercator = projectionHelper.type === PROJECTION_TYPES.MERCATOR;
 
     const geometry = new THREE.BufferGeometry();
 
@@ -444,11 +442,14 @@ class GpuProjectedMaskRenderer {
     const isBackground = mode ? isGlobeMaskMode(mode) : true;
     const zOffset = isBackground ? -0.01 : 0.01;
 
-    // Generate vertices using the helper projection (matches data orientation)
+    // Generate vertices using the helper projection (matches data orientation).
+    // For Mercator, clamp projection latitude to avoid infinity, then discard
+    // outside the valid band in the fragment shader.
     for (let latIdx = 0; latIdx <= latSegments; latIdx++) {
-      // Sweep full [-90, 90] for UVs, but clamp projection to Mercator valid band
       const latRaw = 90 - (latIdx / latSegments) * 180;
-      const latProjected = Math.max(-latExtent, Math.min(latExtent, latRaw));
+      const latProjected = isMercator
+        ? Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, latRaw))
+        : latRaw;
       const v = (90 - latRaw) / 180; // top (90) -> 0, bottom (-90) -> 1
 
       for (let lonIdx = 0; lonIdx <= lonSegments; lonIdx++) {
@@ -644,13 +645,16 @@ class GpuProjectedMaskRenderer {
   private static createFlatMaterial(
     texture: THREE.Texture,
     mode: TLandSeaMaskMode,
-    projectionType: number
+    projectionType: number,
+    center: { lat: number; lon: number }
   ): THREE.ShaderMaterial {
     const material = new THREE.ShaderMaterial({
       uniforms: {
         maskTexture: { value: texture },
         opacity: { value: 1.0 },
         projectionType: { value: projectionType },
+        centerLon: { value: center.lon },
+        centerLat: { value: center.lat },
       },
       vertexShader: flatMaskVertexShader,
       fragmentShader: flatMaskFragmentShader,
