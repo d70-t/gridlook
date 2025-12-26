@@ -17,7 +17,6 @@ import {
 } from "../utils/colormapShaders.ts";
 import { getDimensionInfo } from "../utils/dimensionHandling.ts";
 import { useLog } from "../utils/logging.ts";
-import { getProjectionTypeFromMode } from "../utils/projectionShaders.ts";
 import { ZarrDataManager } from "../utils/ZarrDataManager.ts";
 import { castDataVarToFloat32, getDataBounds } from "../utils/zarrUtils.ts";
 
@@ -124,11 +123,9 @@ function updateMeshProjectionUniforms() {
   if (!material.uniforms?.projectionType) return;
 
   const helper = projectionHelper.value;
-  const projType = getProjectionTypeFromMode(helper.type);
-  const center = projectionCenter.value ?? { lat: 0, lon: 0 };
+  const center = projectionCenter.value;
 
-  updateProjectionUniforms(material, projType, center.lon, center.lat, 1.0);
-  redraw();
+  updateProjectionUniforms(material, helper.type, center.lon, center.lat);
 }
 
 const timeIndexSlider = computed(() => {
@@ -371,8 +368,6 @@ async function makeGeometry() {
     const geometry = await makeRegularGeometry();
     mainMesh!.geometry.dispose();
     mainMesh!.geometry = geometry;
-    // Update projection uniforms after geometry change
-    updateMeshProjectionUniforms();
     redraw();
   } catch (error) {
     logError(error, "Could not fetch grid");
@@ -461,9 +456,8 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
 
       // Set initial projection uniforms
       const helper = projectionHelper.value;
-      const projType = getProjectionTypeFromMode(helper.type);
-      const center = projectionCenter.value ?? { lat: 0, lon: 0 };
-      updateProjectionUniforms(material, projType, center.lon, center.lat, 1.0);
+      const center = projectionCenter.value;
+      updateProjectionUniforms(material, helper.type, center.lon, center.lat);
 
       const { min, max, missingValue, fillValue } = getDataBounds(
         datavar,
@@ -525,6 +519,5 @@ defineExpose({ makeSnapshot, toggleRotate });
 <template>
   <div ref="box" class="globe_box" tabindex="0" autofocus>
     <canvas ref="canvas" class="globe_canvas"> </canvas>
-    <!-- <Scale ref="scaleBarRef" /> -->
   </div>
 </template>

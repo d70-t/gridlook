@@ -17,7 +17,6 @@ import {
 } from "../utils/colormapShaders.ts";
 import { getDimensionInfo } from "../utils/dimensionHandling.ts";
 import { useLog } from "../utils/logging.ts";
-import { getProjectionTypeFromMode } from "../utils/projectionShaders.ts";
 import { ZarrDataManager } from "../utils/ZarrDataManager.ts";
 import {
   castDataVarToFloat32,
@@ -127,11 +126,9 @@ function updatePointsProjectionUniforms() {
   if (!material.uniforms?.projectionType) return;
 
   const helper = projectionHelper.value;
-  const projType = getProjectionTypeFromMode(helper.type);
-  const center = projectionCenter.value ?? { lat: 0, lon: 0 };
+  const center = projectionCenter.value;
 
-  updateProjectionUniforms(material, projType, center.lon, center.lat, 1.0);
-  updateLOD();
+  updateProjectionUniforms(material, helper.type, center.lon, center.lat);
 }
 
 const timeIndexSlider = computed(() => {
@@ -146,12 +143,6 @@ const colormapMaterial = computed(() => {
   const material = invertColormap.value
     ? makeGpuProjectedIrregularMaterial(colormap.value, 1.0, -1.0)
     : makeGpuProjectedIrregularMaterial(colormap.value, 0.0, 1.0);
-
-  // Set initial projection uniforms
-  const helper = projectionHelper.value;
-  const projType = getProjectionTypeFromMode(helper.type);
-  const center = projectionCenter.value ?? { lat: 0, lon: 0 };
-  updateProjectionUniforms(material, projType, center.lon, center.lat, 1.0);
 
   return material;
 });

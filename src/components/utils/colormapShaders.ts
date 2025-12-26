@@ -3,8 +3,9 @@ import type { TColorMap } from "../../types/GlobeTypes";
 import {
   projectionShaderFunctions,
   PROJECTION_TYPE_BY_MODE,
+  getProjectionTypeFromMode,
 } from "./projectionShaders";
-import { PROJECTION_TYPES } from "./projectionUtils";
+import { PROJECTION_TYPES, type TProjectionType } from "./projectionUtils";
 
 export const availableColormaps = {
   algae: 45,
@@ -1335,13 +1336,14 @@ export function makeGpuProjectedIrregularMaterial(
  */
 export function updateProjectionUniforms(
   material: THREE.ShaderMaterial,
-  projectionType: number,
+  projectionType: TProjectionType,
   centerLon: number,
   centerLat: number,
   radius: number = 1.0
 ) {
+  const projectionTypeId = getProjectionTypeFromMode(projectionType);
   if (material.uniforms.projectionType) {
-    material.uniforms.projectionType.value = projectionType;
+    material.uniforms.projectionType.value = projectionTypeId;
   }
   if (material.uniforms.centerLon) {
     material.uniforms.centerLon.value = centerLon;

@@ -59,8 +59,6 @@ async function fetchDebugInfo() {
     const group = await ZarrDataManager.getDatasetGroup(gridSource);
     groupAttrs.value = group.attrs;
 
-    console.log("groupAttrs.value", groupAttrs.value);
-
     const variable = await ZarrDataManager.getVariableInfo(
       varSource,
       varnameSelector.value

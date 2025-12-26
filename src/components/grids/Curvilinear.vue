@@ -17,7 +17,6 @@ import {
 } from "../utils/colormapShaders.ts";
 import { getDimensionInfo } from "../utils/dimensionHandling.ts";
 import { useLog } from "../utils/logging.ts";
-import { getProjectionTypeFromMode } from "../utils/projectionShaders.ts";
 import { ZarrDataManager } from "../utils/ZarrDataManager.ts";
 import {
   castDataVarToFloat32,
@@ -122,17 +121,14 @@ watch(
  */
 function updateMeshProjectionUniforms() {
   const helper = projectionHelper.value;
-  const projType = getProjectionTypeFromMode(helper.type);
-  const center = projectionCenter.value ?? { lat: 0, lon: 0 };
+  const center = projectionCenter.value;
 
   for (const mesh of meshes) {
-    if (!mesh) continue;
     const material = mesh.material as THREE.ShaderMaterial;
     if (material.uniforms?.projectionType) {
-      updateProjectionUniforms(material, projType, center.lon, center.lat, 1.0);
+      updateProjectionUniforms(material, helper.type, center.lon, center.lat);
     }
   }
-  redraw();
 }
 
 const colormapMaterial = computed(() => {
@@ -140,13 +136,6 @@ const colormapMaterial = computed(() => {
   const material = invertColormap.value
     ? makeGpuProjectedColormapMaterial(colormap.value, 1.0, -1.0)
     : makeGpuProjectedColormapMaterial(colormap.value, 0.0, 1.0);
-
-  // Set initial projection uniforms
-  const helper = projectionHelper.value;
-  const projType = getProjectionTypeFromMode(helper.type);
-  const center = projectionCenter.value ?? { lat: 0, lon: 0 };
-  updateProjectionUniforms(material, projType, center.lon, center.lat, 1.0);
-
   return material;
 });
 

@@ -642,14 +642,9 @@ export function useSharedGridLogic() {
     newLat = Math.max(-90, Math.min(90, newLat));
 
     // Normalize longitude to [-180, 180]
-    newLon = ((newLon + 540) % 360) - 180;
+    newLon = projectionHelper.value.normalizeLongitude(newLon);
 
     projectionCenter.value = { lat: newLat, lon: newLon };
-  }
-
-  function handleRightMouseUp(event: MouseEvent) {
-    if (event.button !== 2) return;
-    rightMouseDown = false;
   }
 
   function toggleRotate() {
@@ -751,29 +746,7 @@ export function useSharedGridLogic() {
       "mouseup",
       (e: MouseEvent) => {
         if (e.button === 2) {
-          handleRightMouseUp(e);
-        }
-      },
-      { passive: false }
-    );
-
-    // Also handle mouse leaving the canvas
-    useEventListener(
-      canvas.value,
-      "mouseleave",
-      () => {
-        rightMouseDown = false;
-      },
-      { passive: true }
-    );
-
-    // Prevent context menu on right-click for flat projections
-    useEventListener(
-      canvas.value,
-      "contextmenu",
-      (e: MouseEvent) => {
-        if (projectionHelper.value.isFlat) {
-          e.preventDefault();
+          rightMouseDown = false;
         }
       },
       { passive: false }

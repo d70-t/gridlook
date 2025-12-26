@@ -16,7 +16,6 @@ import {
 } from "../utils/colormapShaders.ts";
 import { getDimensionInfo } from "../utils/dimensionHandling.ts";
 import { useLog } from "../utils/logging.ts";
-import { getProjectionTypeFromMode } from "../utils/projectionShaders.ts";
 import { ZarrDataManager } from "../utils/ZarrDataManager.ts";
 import {
   castDataVarToFloat32,
@@ -111,19 +110,16 @@ watch([() => projectionMode.value, () => projectionCenter.value], () => {
 
 function updateMeshProjectionUniforms() {
   const helper = projectionHelper.value;
-  const projType = getProjectionTypeFromMode(helper.type);
-  const center = projectionCenter.value ?? { lat: 0, lon: 0 };
+  const center = projectionCenter.value;
 
   for (const mesh of meshes) {
     updateProjectionUniforms(
       mesh.material as THREE.ShaderMaterial,
-      projType,
+      helper.type,
       center.lon,
-      center.lat,
-      1.0
+      center.lat
     );
   }
-  redraw();
 }
 
 const colormapMaterial = computed(() => {
