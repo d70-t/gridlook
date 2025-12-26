@@ -86,6 +86,14 @@ export async function getLatLonData(
         longitudeName = coordName;
       }
     }
+  } else {
+    (datavar.attrs._ARRAY_DIMENSIONS as string[]).forEach((dimName: string) => {
+      if (isLatitude(dimName)) {
+        latitudeName = dimName;
+      } else if (isLongitude(dimName)) {
+        longitudeName = dimName;
+      }
+    });
   }
   // Fallback to standard names
   if (!latitudeName) {
