@@ -18,7 +18,7 @@ import { useUrlParameterStore } from "./store/paramStore.ts";
 import { useGlobeControlStore } from "./store/store.ts";
 import { MOBILE_BREAKPOINT } from "./utils/viewConstants.ts";
 import ProjectionControls from "./controls/ProjectionControls.vue";
-import type { TProjectionType } from "./utils/projectionUtils.ts";
+import { clamp, type TProjectionType } from "./utils/projectionUtils.ts";
 
 const props = defineProps<{ modelInfo?: TModelInfo }>();
 
@@ -47,6 +47,7 @@ const {
   varinfo,
   userBoundsLow,
   userBoundsHigh,
+  projectionCenter,
 } = storeToRefs(store);
 
 // Bounds logic state
@@ -63,6 +64,8 @@ const {
   paramMaskMode,
   paramMaskingUseTexture,
   paramProjection,
+  paramProjectionCenterLat,
+  paramProjectionCenterLon,
 } = storeToRefs(urlParameterStore);
 
 const menuCollapsed: Ref<boolean> = ref(false);
@@ -187,6 +190,15 @@ if (paramMaskMode.value) {
 
 if (paramProjection.value) {
   store.projectionMode = paramProjection.value as TProjectionType;
+}
+
+if (paramProjectionCenterLat.value || paramProjectionCenterLon.value) {
+  const lat = parseFloat(paramProjectionCenterLat.value ?? "0");
+  const lon = parseFloat(paramProjectionCenterLon.value ?? "0");
+  projectionCenter.value = {
+    lat: clamp(lat, -90, 90),
+    lon: clamp(lon, -180, 180),
+  };
 }
 
 // Initialize bounds and colormap when component mounts

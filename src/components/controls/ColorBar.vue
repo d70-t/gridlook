@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from "vue";
+import { ref, computed, onMounted, watch, onBeforeUnmount } from "vue";
 import type { Ref } from "vue";
 import * as THREE from "three";
 import {
@@ -57,6 +57,7 @@ watch(
     updateColormap();
   }
 );
+
 watch(
   () => props.invertColormap,
   () => {
@@ -69,6 +70,21 @@ onMounted(() => {
   resizeObserver = new ResizeObserver(onCanvasResize);
   resizeObserver.observe(box.value as Element);
   onCanvasResize();
+});
+
+onBeforeUnmount(() => {
+  if (box.value) {
+    resizeObserver?.unobserve(box.value as Element);
+  }
+  resizeObserver?.disconnect();
+  lutMesh?.geometry.dispose();
+  scene?.clear();
+  camera?.clear();
+  renderer?.dispose();
+  scene = undefined;
+  camera = undefined;
+  renderer = undefined;
+  lutMesh = undefined;
 });
 
 function init() {
@@ -93,6 +109,7 @@ function init() {
   );
   scene.add(camera!);
 }
+
 function render() {
   if (width !== undefined && height !== undefined) {
     renderer?.setSize(width, height);
@@ -112,8 +129,9 @@ function onCanvasResize(/*entries*/) {
   if (!box.value) {
     return;
   }
-  const { width: boxWidth, height: boxHeight } =
-    box.value.getBoundingClientRect();
+  const rect = box.value.getBoundingClientRect();
+  const boxWidth = Math.round(rect.width);
+  const boxHeight = Math.round(rect.height);
   if (boxWidth !== width || boxHeight !== height) {
     resizeObserver?.unobserve(box.value);
     const aspect = boxWidth / boxHeight;
@@ -135,22 +153,7 @@ function updateColormap() {
 </script>
 
 <template>
-  <div ref="box" class="colorbar_box">
-    <canvas ref="canvas" class="colorbar_canvas"> </canvas>
+  <div ref="box">
+    <canvas ref="canvas"> </canvas>
   </div>
 </template>
-
-<style>
-div.colorbar_box {
-  padding: 0;
-  margin: 0;
-  overflow: hidden;
-  display: flex;
-}
-div.colorbar_canvas {
-  padding: 0;
-  margin: 0;
-  width: 0;
-  height: 0;
-}
-</style>

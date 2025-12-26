@@ -1,5 +1,6 @@
 import { storeToRefs } from "pinia";
 import { watch } from "vue";
+import debounce from "lodash.debounce";
 import { useGlobeControlStore } from "./store";
 import { URL_PARAMETERS, type TURLParameterValues } from "../utils/urlParams";
 import { useUrlParameterStore } from "./paramStore";
@@ -13,6 +14,7 @@ export function useUrlSync() {
     colormap,
     invertColormap,
     dimSlidersDisplay,
+    projectionCenter,
   } = storeToRefs(store);
 
   const urlParameterStore = useUrlParameterStore();
@@ -159,6 +161,22 @@ export function useUrlSync() {
       changeURLHash({
         [URL_PARAMETERS.PROJECTION]: store.projectionMode,
       });
+    }
+  );
+
+  const debouncedProjectionCenterSync = debounce((lat: number, lon: number) => {
+    changeURLHash({
+      [URL_PARAMETERS.PROJECTION_CENTER_LAT]: lat,
+      [URL_PARAMETERS.PROJECTION_CENTER_LON]: lon,
+    });
+  }, 200);
+
+  watch(
+    () => [projectionCenter.value?.lat, projectionCenter.value?.lon],
+    () => {
+      const center = projectionCenter.value;
+      if (!center) return;
+      debouncedProjectionCenterSync(center.lat, center.lon);
     }
   );
 }

@@ -67,7 +67,8 @@ const { colormap, invertColormap } = storeToRefs(store);
 @use "bulma/sass/utilities" as bulmaUt;
 
 .hcolormap {
-  max-height: 2.5em;
+  height: 2.5em;
+  width: 100%;
   overflow: hidden;
   border-radius: bulmaUt.$radius;
 }

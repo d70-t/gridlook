@@ -1,5 +1,11 @@
 import * as THREE from "three";
 import type { TColorMap } from "../../types/GlobeTypes";
+import {
+  projectionShaderFunctions,
+  PROJECTION_TYPE_BY_MODE,
+  getProjectionTypeFromMode,
+} from "./projectionShaders";
+import { PROJECTION_TYPES, type TProjectionType } from "./projectionUtils";
 
 export const availableColormaps = {
   algae: 45,
@@ -1060,21 +1066,6 @@ void main() {
     gl_FragColor.a = 1.0;
 }`;
 
-const dataOnMeshVertexShader = `
-    uniform float pointSize;
-    attribute float data_value;
-
-    varying float v_value;
-
-    void main() {
-      v_value = data_value;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
-      if (pointSize > 0.0) {
-        gl_PointSize = pointSize;
-      }
-    }
-    `;
-
 const dataOnScreenMeshVertexShader = `
     attribute float data_value;
 
@@ -1085,40 +1076,6 @@ const dataOnScreenMeshVertexShader = `
       gl_Position = vec4(position,1.0);
     }
     `;
-
-const dataOnTextureVertexShader = `
-    varying vec2 vUv;
-
-    void main() {
-      vUv = uv;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
-    }
-    `;
-
-const densityAwareVertexShader = `
-    uniform float basePointSize;
-    uniform float minPointSize;
-    uniform float maxPointSize;
-
-    attribute float data_value;
-
-    varying float v_value;
-
-    void main() {
-      v_value = data_value;
-
-      vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-      gl_Position = projectionMatrix * mvPosition;
-
-      float distance = length(mvPosition.xyz);
-
-      // Reduce point size in dense areas
-
-      float sizeFactor = (basePointSize);
-
-      gl_PointSize = clamp(sizeFactor, minPointSize, maxPointSize);
-    }
-`;
 
 const pointFalloffFragmentShader = `
 ${shaders}
@@ -1150,52 +1107,6 @@ void main() {
     gl_FragColor.a = falloff;
 }`;
 
-export function makeIrregularGridMaterial(
-  colormap: TColorMap = "turbo",
-  addOffset: 1.0 | 0.0 = 0.0,
-  scaleFactor: -1.0 | 1.0 = 1.0
-) {
-  const material = new THREE.ShaderMaterial({
-    uniforms: {
-      addOffset: { value: addOffset },
-      scaleFactor: { value: scaleFactor },
-      basePointSize: { value: 5.0 },
-      minPointSize: { value: 1.0 },
-      maxPointSize: { value: 10.0 },
-      fillValue: { value: Number.POSITIVE_INFINITY }, // will be set properly by caller
-      missingValue: { value: Number.POSITIVE_INFINITY }, // will be set properly by caller
-      colormap: { value: availableColormaps[colormap] },
-    },
-    transparent: true,
-    depthWrite: false,
-    depthTest: true,
-    vertexShader: densityAwareVertexShader,
-    fragmentShader: pointFalloffFragmentShader,
-  });
-  return material;
-}
-
-export function makeColormapMaterial(
-  colormap: TColorMap = "turbo",
-  addOffset: 1.0 | 0.0 = 0.0,
-  scaleFactor: -1.0 | 1.0 = 1.0
-) {
-  const material = new THREE.ShaderMaterial({
-    uniforms: {
-      addOffset: { value: addOffset },
-      scaleFactor: { value: scaleFactor },
-      pointSize: { value: 0.0 },
-      colormap: { value: availableColormaps[colormap] },
-      fillValue: { value: Number.POSITIVE_INFINITY }, // will be set properly by caller
-      missingValue: { value: Number.POSITIVE_INFINITY }, // will be set properly by caller
-    },
-    transparent: true,
-    vertexShader: dataOnMeshVertexShader,
-    fragmentShader: colormapFragmentShader,
-  });
-  return material;
-}
-
 export function makeLutMaterial(
   colormap: TColorMap = "turbo",
   addOffset: 0 | 1,
@@ -1210,28 +1121,6 @@ export function makeLutMaterial(
 
     vertexShader: dataOnScreenMeshVertexShader,
     fragmentShader: colormapFragmentShader,
-  });
-  return material;
-}
-
-export function makeTextureMaterial(
-  texture: THREE.Texture,
-  colormap: TColorMap = "turbo",
-  addOffset: number,
-  scaleFactor: number
-) {
-  const material = new THREE.ShaderMaterial({
-    uniforms: {
-      addOffset: { value: addOffset },
-      scaleFactor: { value: scaleFactor },
-      colormap: { value: availableColormaps[colormap] },
-      fillValue: { value: Number.POSITIVE_INFINITY }, // will be set properly by caller
-      missingValue: { value: Number.POSITIVE_INFINITY }, // will be set properly by caller
-      data: { value: texture },
-    },
-    transparent: true,
-    vertexShader: dataOnTextureVertexShader,
-    fragmentShader: healPixColormapFragmentShader,
   });
   return material;
 }
@@ -1251,4 +1140,218 @@ export function calculateColorMapProperties(
     addOffset = -low * scaleFactor;
   }
   return { addOffset, scaleFactor };
+}
+
+// =============================================================================
+// GPU-Projected Shaders
+// =============================================================================
+// These shaders perform map projection on the GPU, allowing instant center
+// changes without geometry rebuilds.
+
+/**
+ * Vertex shader for GPU-projected texture-based rendering (Regular grids).
+ * Takes lat/lon as attributes and projects them on the GPU.
+ */
+const gpuProjectedTextureVertexShader = `
+${projectionShaderFunctions}
+
+uniform int projectionType;
+uniform float centerLon;
+uniform float centerLat;
+uniform float projectionRadius;
+
+attribute vec2 latLon;  // lat, lon in degrees
+
+varying vec2 vUv;
+
+void main() {
+  vUv = uv;
+  vec3 projected = projectLatLon(latLon.x, latLon.y, projectionType, centerLon, centerLat, projectionRadius);
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(projected, 1.0);
+}
+`;
+
+/**
+ * Vertex shader for GPU-projected mesh-based rendering (Triangular, HEALPix grids).
+ * Takes lat/lon as attributes and projects them on the GPU.
+ */
+const gpuProjectedMeshVertexShader = `
+${projectionShaderFunctions}
+
+uniform int projectionType;
+uniform float centerLon;
+uniform float centerLat;
+uniform float projectionRadius;
+uniform float pointSize;
+
+attribute vec2 latLon;  // lat, lon in degrees
+attribute float data_value;
+
+varying float v_value;
+
+void main() {
+  v_value = data_value;
+  vec3 projected = projectLatLon(latLon.x, latLon.y, projectionType, centerLon, centerLat, projectionRadius);
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(projected, 1.0);
+  if (pointSize > 0.0) {
+    gl_PointSize = pointSize;
+  }
+}
+`;
+
+/**
+ * Vertex shader for GPU-projected point clouds (Irregular grids).
+ */
+const gpuProjectedPointVertexShader = `
+${projectionShaderFunctions}
+
+uniform int projectionType;
+uniform float centerLon;
+uniform float centerLat;
+uniform float projectionRadius;
+uniform float basePointSize;
+uniform float minPointSize;
+uniform float maxPointSize;
+
+attribute vec2 latLon;  // lat, lon in degrees
+attribute float data_value;
+
+varying float v_value;
+
+void main() {
+  v_value = data_value;
+  vec3 projected = projectLatLon(latLon.x, latLon.y, projectionType, centerLon, centerLat, projectionRadius);
+  vec4 mvPosition = modelViewMatrix * vec4(projected, 1.0);
+  gl_Position = projectionMatrix * mvPosition;
+
+  float sizeFactor = basePointSize;
+  gl_PointSize = clamp(sizeFactor, minPointSize, maxPointSize);
+}
+`;
+
+/**
+ * Create a GPU-projected texture material for Regular grids.
+ * Projection is done on the GPU, allowing instant center changes.
+ */
+export function makeGpuProjectedTextureMaterial(
+  texture: THREE.Texture,
+  colormap: TColorMap = "turbo",
+  addOffset: number,
+  scaleFactor: number
+) {
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      addOffset: { value: addOffset },
+      scaleFactor: { value: scaleFactor },
+      colormap: { value: availableColormaps[colormap] },
+      fillValue: { value: Number.POSITIVE_INFINITY },
+      missingValue: { value: Number.POSITIVE_INFINITY },
+      data: { value: texture },
+      // Projection uniforms
+      projectionType: {
+        value: PROJECTION_TYPE_BY_MODE[PROJECTION_TYPES.NEARSIDE_PERSPECTIVE],
+      },
+      centerLon: { value: 0.0 },
+      centerLat: { value: 0.0 },
+      projectionRadius: { value: 1.0 },
+    },
+    transparent: true,
+    vertexShader: gpuProjectedTextureVertexShader,
+    fragmentShader: healPixColormapFragmentShader,
+  });
+  return material;
+}
+
+/**
+ * Create a GPU-projected colormap material for triangular/mesh grids.
+ * Projection is done on the GPU, allowing instant center changes.
+ */
+export function makeGpuProjectedColormapMaterial(
+  colormap: TColorMap = "turbo",
+  addOffset: 1.0 | 0.0 = 0.0,
+  scaleFactor: -1.0 | 1.0 = 1.0
+) {
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      addOffset: { value: addOffset },
+      scaleFactor: { value: scaleFactor },
+      pointSize: { value: 0.0 },
+      colormap: { value: availableColormaps[colormap] },
+      fillValue: { value: Number.POSITIVE_INFINITY },
+      missingValue: { value: Number.POSITIVE_INFINITY },
+      // Projection uniforms
+      projectionType: {
+        value: PROJECTION_TYPE_BY_MODE[PROJECTION_TYPES.NEARSIDE_PERSPECTIVE],
+      },
+      centerLon: { value: 0.0 },
+      centerLat: { value: 0.0 },
+      projectionRadius: { value: 1.0 },
+    },
+    transparent: true,
+    vertexShader: gpuProjectedMeshVertexShader,
+    fragmentShader: colormapFragmentShader,
+  });
+  return material;
+}
+
+/**
+ * Create a GPU-projected point material for irregular grids.
+ * Projection is done on the GPU, allowing instant center changes.
+ */
+export function makeGpuProjectedIrregularMaterial(
+  colormap: TColorMap = "turbo",
+  addOffset: 1.0 | 0.0 = 0.0,
+  scaleFactor: -1.0 | 1.0 = 1.0
+) {
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      addOffset: { value: addOffset },
+      scaleFactor: { value: scaleFactor },
+      basePointSize: { value: 5.0 },
+      minPointSize: { value: 1.0 },
+      maxPointSize: { value: 10.0 },
+      fillValue: { value: Number.POSITIVE_INFINITY },
+      missingValue: { value: Number.POSITIVE_INFINITY },
+      colormap: { value: availableColormaps[colormap] },
+      // Projection uniforms
+      projectionType: {
+        value: PROJECTION_TYPE_BY_MODE[PROJECTION_TYPES.NEARSIDE_PERSPECTIVE],
+      },
+      centerLon: { value: 0.0 },
+      centerLat: { value: 0.0 },
+      projectionRadius: { value: 1.0 },
+    },
+    transparent: true,
+    depthWrite: false,
+    depthTest: true,
+    vertexShader: gpuProjectedPointVertexShader,
+    fragmentShader: pointFalloffFragmentShader,
+  });
+  return material;
+}
+
+/**
+ * Update projection uniforms on a GPU-projected material.
+ * This is the fast path - no geometry rebuild needed.
+ */
+export function updateProjectionUniforms(
+  material: THREE.ShaderMaterial,
+  projectionType: TProjectionType,
+  centerLon: number,
+  centerLat: number,
+  radius: number = 1.0
+) {
+  const projectionTypeId = getProjectionTypeFromMode(projectionType);
+  if (material.uniforms.projectionType) {
+    material.uniforms.projectionType.value = projectionTypeId;
+  }
+  if (material.uniforms.centerLon) {
+    material.uniforms.centerLon.value = centerLon;
+  }
+  if (material.uniforms.centerLat) {
+    material.uniforms.centerLat.value = centerLat;
+  }
+  if (material.uniforms.projectionRadius) {
+    material.uniforms.projectionRadius.value = radius;
+  }
 }
