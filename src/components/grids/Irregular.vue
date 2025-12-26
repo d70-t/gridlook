@@ -155,20 +155,6 @@ async function datasourceUpdate() {
   }
 }
 
-function projectLatLonToPosition(
-  lat: number,
-  lon: number,
-  out: Float32Array,
-  offset: number
-) {
-  const helper = projectionHelper.value;
-  const normalizedLon = helper.normalizeLongitude(lon);
-  const [x, y, z] = helper.project(lat, normalizedLon, 1);
-  out[offset] = x;
-  out[offset + 1] = y;
-  out[offset + 2] = z;
-}
-
 function estimateAverageSpacing(
   positions: Float32Array,
   sampleSize = 5000
@@ -242,21 +228,27 @@ async function getGrid(
 
   // Allocate typed arrays for positions, latLon, and values
   const positions = new Float32Array(N * 3);
-  const latLonArray = new Float32Array(N * 2);
+  const latLonValues = new Float32Array(N * 2);
   const dataValues = new Float32Array(N);
 
   // Convert lat/lon to Cartesian positions and store latLon for GPU projection
+  const helper = projectionHelper.value;
+
   for (let i = 0; i < N; i++) {
     const lat = latitudes[i];
     const lon = longitudes[i];
-    const normalizedLon = projectionHelper.value.normalizeLongitude(lon);
+    const positionOffset = i * 3;
+    const latLonOffset = i * 2;
 
-    // Store lat/lon for GPU projection
-    latLonArray[i * 2] = lat;
-    latLonArray[i * 2 + 1] = normalizedLon;
-
-    // Compute initial positions
-    projectLatLonToPosition(lat, lon, positions, i * 3);
+    // Store lat/lon for GPU projection and compute initial positions
+    helper.projectLatLonToArrays(
+      lat,
+      lon,
+      positions,
+      positionOffset,
+      latLonValues,
+      latLonOffset
+    );
     dataValues[i] = data[i];
   }
 
@@ -269,7 +261,7 @@ async function getGrid(
   // Add latLon attribute for GPU projection
   points!.geometry.setAttribute(
     "latLon",
-    new THREE.BufferAttribute(latLonArray, 2)
+    new THREE.BufferAttribute(latLonValues, 2)
   );
   points!.geometry.setAttribute(
     "data_value",

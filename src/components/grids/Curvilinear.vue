@@ -149,20 +149,6 @@ async function datasourceUpdate() {
 
 const BATCH_SIZE = 30;
 
-function projectLatLon(
-  lat: number,
-  lon: number,
-  out: Float32Array,
-  offset: number
-) {
-  const helper = projectionHelper.value;
-  const normalizedLon = helper.normalizeLongitude(lon);
-  const [x, y, z] = helper.project(lat, normalizedLon, 1);
-  out[offset] = x;
-  out[offset + 1] = y;
-  out[offset + 2] = z;
-}
-
 async function getGrid(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
   data: Float32Array
@@ -249,7 +235,7 @@ async function buildCurvilinearGeometry(
 
     // Pre-allocate arrays for this batch's Three.js geometry
     // Each cell becomes a quad (4 vertices), each vertex has 3 coordinates (x,y,z)
-    const positions = new Float32Array(batchCells * 4 * 3);
+    const positionValues = new Float32Array(batchCells * 4 * 3);
     // Each vertex gets a data value for the colormap shader
     const dataValues = new Float32Array(batchCells * 4);
     // Each vertex gets lat/lon for GPU projection (2 values per vertex)
@@ -258,9 +244,11 @@ async function buildCurvilinearGeometry(
     const indices = new Uint32Array(batchCells * 6);
 
     // Track our current position in the output arrays
-    let vtxOffset = 0; // Offset into positions array (increments by 12 per cell)
+    let positionOffset = 0; // Offset into positions array (increments by 12 per cell)
     let idxOffset = 0; // Offset into indices array (increments by 6 per cell)
     let cellIndex = 0; // Current cell number (used for vertex indexing)
+
+    const helper = projectionHelper.value;
 
     // Main loop: iterate through grid cells in this batch
     // j goes from jStart to jEnd-1 (we need j+1 to exist for each cell)
@@ -287,36 +275,50 @@ async function buildCurvilinearGeometry(
         const idx11 = (j + 1) * ni + iNext; // Next row + column (j+1, i±1)
 
         // Extract latitude and longitude values for each corner of the cell
-        const lat00 = latitudes[idx00];
-        const lon00 = longitudes[idx00];
-        const lat01 = latitudes[idx01];
-        const lon01 = longitudes[idx01];
-        const lat10 = latitudes[idx10];
-        const lon10 = longitudes[idx10];
-        const lat11 = latitudes[idx11];
-        const lon11 = longitudes[idx11];
+        const v0Lat = latitudes[idx00];
+        const v0Lon = longitudes[idx00];
+        const v1Lat = latitudes[idx01];
+        const v1Lon = longitudes[idx01];
+        const v2Lat = latitudes[idx11];
+        const v2Lon = longitudes[idx11];
+        const v3Lat = latitudes[idx10];
+        const v3Lon = longitudes[idx10];
 
         // Convert lat/lon to 3D Cartesian coordinates and store in positions array
         // Vertices are arranged counter-clockwise: 00 -> 01 -> 11 -> 10
-        // This creates proper triangle winding for Three.js rendering
-        projectLatLon(lat00, lon00, positions, vtxOffset); // Bottom-left
-        projectLatLon(lat01, lon01, positions, vtxOffset + 3); // Bottom-right
-        projectLatLon(lat11, lon11, positions, vtxOffset + 6); // Top-right
-        projectLatLon(lat10, lon10, positions, vtxOffset + 9); // Top-left
-
-        // Store lat/lon for GPU projection (will be set later)
-        latLonValues[cellIndex * 8] = lat00;
-        latLonValues[cellIndex * 8 + 1] =
-          projectionHelper.value.normalizeLongitude(lon00);
-        latLonValues[cellIndex * 8 + 2] = lat01;
-        latLonValues[cellIndex * 8 + 3] =
-          projectionHelper.value.normalizeLongitude(lon01);
-        latLonValues[cellIndex * 8 + 4] = lat11;
-        latLonValues[cellIndex * 8 + 5] =
-          projectionHelper.value.normalizeLongitude(lon11);
-        latLonValues[cellIndex * 8 + 6] = lat10;
-        latLonValues[cellIndex * 8 + 7] =
-          projectionHelper.value.normalizeLongitude(lon10);
+        const latLonOffset = cellIndex * 8;
+        helper.projectLatLonToArrays(
+          v0Lat,
+          v0Lon,
+          positionValues,
+          positionOffset,
+          latLonValues,
+          latLonOffset
+        ); // Bottom-left
+        helper.projectLatLonToArrays(
+          v1Lat,
+          v1Lon,
+          positionValues,
+          positionOffset + 3,
+          latLonValues,
+          latLonOffset + 2
+        ); // Bottom-right
+        helper.projectLatLonToArrays(
+          v2Lat,
+          v2Lon,
+          positionValues,
+          positionOffset + 6,
+          latLonValues,
+          latLonOffset + 4
+        ); // Top-right
+        helper.projectLatLonToArrays(
+          v3Lat,
+          v3Lon,
+          positionValues,
+          positionOffset + 9,
+          latLonValues,
+          latLonOffset + 6
+        ); // Top-left
 
         // Assign data value to all 4 vertices of this cell
         // We use the data value from the bottom-left corner (idx00)
@@ -332,7 +334,7 @@ async function buildCurvilinearGeometry(
         indices.set([v, v + 1, v + 2, v, v + 2, v + 3], idxOffset);
 
         // Move to next position in arrays for the next cell
-        vtxOffset += 12; // 4 vertices × 3 coordinates = 12 floats
+        positionOffset += 12; // 4 vertices × 3 coordinates = 12 floats
         idxOffset += 6; // 2 triangles × 3 indices = 6 indices
         cellIndex++; // Increment cell counter
       }
@@ -341,7 +343,10 @@ async function buildCurvilinearGeometry(
     const geometry = new THREE.BufferGeometry();
 
     // Set vertex positions (x, y, z coordinates for each vertex)
-    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute(
+      "position",
+      new THREE.BufferAttribute(positionValues, 3)
+    );
 
     // Set data values for colormap shader (one value per vertex)
     geometry.setAttribute(

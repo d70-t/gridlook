@@ -178,33 +178,34 @@ async function fetchGrid() {
       const geometry = new THREE.BufferGeometry();
       // Each triangle has 9 values (3 vertices * 3 coords)
       const batchVerts = verts.subarray(i * 9, (i + count) * 9);
-      const projectedVerts = new Float32Array(batchVerts.length);
-      const numVerts = projectedVerts.length / 3;
+      const positionValues = new Float32Array(batchVerts.length);
+      const numVerts = positionValues.length / 3;
       // Create latLon array for GPU projection (2 values per vertex)
-      const latLonArray = new Float32Array(numVerts * 2);
+      const latLonValues = new Float32Array(numVerts * 2);
       for (let v = 0; v < numVerts; v++) {
-        const baseIndex = v * 3;
-        const x = batchVerts[baseIndex];
-        const y = batchVerts[baseIndex + 1];
-        const z = batchVerts[baseIndex + 2];
+        const positionOffset = v * 3;
+        const x = batchVerts[positionOffset];
+        const y = batchVerts[positionOffset + 1];
+        const z = batchVerts[positionOffset + 2];
         const { lat, lon } = ProjectionHelper.cartesianToLatLon(x, y, z);
-        // Store lat/lon for GPU projection
-        latLonArray[v * 2] = lat;
-        latLonArray[v * 2 + 1] = lon;
-        // Compute initial positions for first frame
-        const [px, py, pz] = projectionHelper.value.project(lat, lon, 1);
-        projectedVerts[baseIndex] = px;
-        projectedVerts[baseIndex + 1] = py;
-        projectedVerts[baseIndex + 2] = pz;
+        // Store lat/lon for GPU projection and compute initial positions
+        projectionHelper.value.projectLatLonToArrays(
+          lat,
+          lon,
+          positionValues,
+          positionOffset,
+          latLonValues,
+          v * 2
+        );
       }
       geometry.setAttribute(
         "position",
-        new THREE.BufferAttribute(projectedVerts, 3)
+        new THREE.BufferAttribute(positionValues, 3)
       );
       // Add latLon attribute for GPU projection
       geometry.setAttribute(
         "latLon",
-        new THREE.BufferAttribute(latLonArray, 2)
+        new THREE.BufferAttribute(latLonValues, 2)
       );
       geometry.computeBoundingSphere();
       const mesh = new THREE.Mesh(geometry, colormapMaterial.value);

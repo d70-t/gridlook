@@ -195,44 +195,52 @@ async function getGrid(
         const EPSILON = 0.002; // Small overlap in degrees to avoid z-fighting
 
         // Vertex 0: top-left
-        const v0lat = lat1;
-        const v0lon = helper.normalizeLongitude(lon1 + EPSILON);
-        latLonValues[latLonOffset] = v0lat;
-        latLonValues[latLonOffset + 1] = v0lon;
-        const [x0, y0, z0] = helper.project(v0lat, v0lon, 1);
-        positionValues[positionOffset] = x0;
-        positionValues[positionOffset + 1] = y0;
-        positionValues[positionOffset + 2] = z0;
+        const v0Lat = lat1;
+        const v0Lon = lon1 + EPSILON;
+        helper.projectLatLonToArrays(
+          v0Lat,
+          v0Lon,
+          positionValues,
+          positionOffset,
+          latLonValues,
+          latLonOffset
+        );
 
         // Vertex 1: top-right
-        const v1lat = lat1;
-        const v1lon = helper.normalizeLongitude(lon1 - dLon - EPSILON);
-        latLonValues[latLonOffset + 2] = v1lat;
-        latLonValues[latLonOffset + 3] = v1lon;
-        const [x1, y1, z1] = helper.project(v1lat, v1lon, 1);
-        positionValues[positionOffset + 3] = x1;
-        positionValues[positionOffset + 4] = y1;
-        positionValues[positionOffset + 5] = z1;
+        const v1Lat = lat1;
+        const v1Lon = lon1 - dLon - EPSILON;
+        helper.projectLatLonToArrays(
+          v1Lat,
+          v1Lon,
+          positionValues,
+          positionOffset + 3,
+          latLonValues,
+          latLonOffset + 2
+        );
 
         // Vertex 2: bottom-right
-        const v2lat = lat2 - EPSILON;
-        const v2lon = helper.normalizeLongitude(lon1 - dLon - EPSILON);
-        latLonValues[latLonOffset + 4] = v2lat;
-        latLonValues[latLonOffset + 5] = v2lon;
-        const [x2, y2, z2] = helper.project(v2lat, v2lon, 1);
-        positionValues[positionOffset + 6] = x2;
-        positionValues[positionOffset + 7] = y2;
-        positionValues[positionOffset + 8] = z2;
+        const v2Lat = lat2 - EPSILON;
+        const v2Lon = lon1 - dLon - EPSILON;
+        helper.projectLatLonToArrays(
+          v2Lat,
+          v2Lon,
+          positionValues,
+          positionOffset + 6,
+          latLonValues,
+          latLonOffset + 4
+        );
 
         // Vertex 3: bottom-left
-        const v3lat = lat2 - EPSILON;
-        const v3lon = helper.normalizeLongitude(lon1 + EPSILON);
-        latLonValues[latLonOffset + 6] = v3lat;
-        latLonValues[latLonOffset + 7] = v3lon;
-        const [x3, y3, z3] = helper.project(v3lat, v3lon, 1);
-        positionValues[positionOffset + 9] = x3;
-        positionValues[positionOffset + 10] = y3;
-        positionValues[positionOffset + 11] = z3;
+        const v3Lat = lat2 - EPSILON;
+        const v3Lon = lon1 + EPSILON;
+        helper.projectLatLonToArrays(
+          v3Lat,
+          v3Lon,
+          positionValues,
+          positionOffset + 9,
+          latLonValues,
+          latLonOffset + 6
+        );
 
         // Data value
         dataValues.fill(cell.value, cellIndex * 4, cellIndex * 4 + 4);
@@ -276,12 +284,16 @@ async function getGrid(
   }
 }
 
-function buildRows(lats: Float64Array, lons: Float64Array, data: Float32Array) {
+function buildRows(
+  latitudes: Float64Array,
+  longitudes: Float64Array,
+  data: Float32Array
+) {
   const rows: Record<number, { lon: number; value: number }[]> = {};
-  for (let i = 0; i < lats.length; i++) {
-    const lat = lats[i];
+  for (let i = 0; i < latitudes.length; i++) {
+    const lat = latitudes[i];
     if (!rows[lat]) rows[lat] = [];
-    rows[lat].push({ lon: lons[i], value: data[i] });
+    rows[lat].push({ lon: longitudes[i], value: data[i] });
   }
 
   const uniqueLats = Object.keys(rows)

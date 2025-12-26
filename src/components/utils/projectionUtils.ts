@@ -126,6 +126,24 @@ export class ProjectionHelper {
     return this.projectFlat(lat, lon, radius);
   }
 
+  projectLatLonToArrays(
+    lat: number,
+    lon: number,
+    positionOut: Float32Array | number[],
+    positionOffset: number,
+    latLonOut: Float32Array | number[],
+    latLonOffset: number,
+    radius = 1.0
+  ): void {
+    const normalizedLon = this.normalizeLongitude(lon);
+    latLonOut[latLonOffset] = lat;
+    latLonOut[latLonOffset + 1] = normalizedLon;
+    const [x, y, z] = this.project(lat, normalizedLon, radius);
+    positionOut[positionOffset] = x;
+    positionOut[positionOffset + 1] = y;
+    positionOut[positionOffset + 2] = z;
+  }
+
   private projectGlobe(
     lat: number,
     lon: number,

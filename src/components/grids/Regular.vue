@@ -153,7 +153,7 @@ async function getDims() {
 
   // We had, however, cases where we could not determine wether the grid is
   // rotated or not, which lead to failure in getLatLonData.
-  // On the other hand, I didn't find any case where lats and lons were not
+  // On the other hand, I didn't find any case where latitudes and longitudes were not
   // the two last dimensions of the data variable.
   const grid = props.datasources!.levels[0].grid;
   const datavar = await ZarrDataManager.getVariableInfo(
@@ -205,12 +205,12 @@ function rotatedToGeographic(
   return { lat, lon };
 }
 
-function isLongitudeGlobal(lons: Float64Array): boolean {
-  const n = lons.length;
+function isLongitudeGlobal(longitudes: Float64Array): boolean {
+  const n = longitudes.length;
   if (n < 2) return false;
 
   // Use unwrapped longitudes to check span
-  const span = Math.abs(lons[n - 1] - lons[0]);
+  const span = Math.abs(longitudes[n - 1] - longitudes[0]);
 
   // Estimate the grid spacing
   const avgDelta = span / (n - 1);
@@ -228,23 +228,25 @@ function isLongitudeGlobal(lons: Float64Array): boolean {
  * a flash of incorrect geometry on first render.
  */
 function generateGridVerticesAndUVs(
-  lats: Float64Array,
-  lons: Float64Array,
+  latitudes: Float64Array,
+  longitudes: Float64Array,
   isReversed: boolean,
   isRotated: boolean,
   poleLat?: number,
   poleLon?: number
 ) {
-  const vertices: number[] = [];
+  const positionValues: number[] = [];
   const uvs: number[] = [];
-  const latLonCoords: number[] = []; // [lat, lon] pairs for GPU projection
-  const latCount = lats.length;
-  const lonCount = lons.length;
+  const latCount = latitudes.length;
+  const lonCount = longitudes.length;
+  const latLonValues = new Float32Array(latCount * lonCount * 2);
+
+  const helper = projectionHelper.value;
 
   for (let i = 0; i < latCount; i++) {
-    const rawLat = lats[i];
+    const rawLat = latitudes[i];
     for (let j = 0; j < lonCount; j++) {
-      const rawLon = lons[j];
+      const rawLon = longitudes[j];
 
       // If the grid is rotated, convert the raw latitude and longitude values
       // to geographic coordinates.
@@ -252,14 +254,17 @@ function generateGridVerticesAndUVs(
         ? rotatedToGeographic(rawLat, rawLon, poleLat!, poleLon!)
         : { lat: rawLat, lon: rawLon };
 
-      // Store lat/lon for GPU projection
-      const normalizedLon = projectionHelper.value.normalizeLongitude(lon);
-      latLonCoords.push(lat, normalizedLon);
-
-      // Use placeholder positions - the GPU shader will compute actual positions
-      // We still compute initial positions for the first frame
-      const [x, y, z] = projectionHelper.value.project(lat, normalizedLon, 1.0);
-      vertices.push(x, y, z);
+      // Store lat/lon for GPU projection and set initial positions
+      const latLonOffset = (i * lonCount + j) * 2;
+      const positionOffset = positionValues.length;
+      helper.projectLatLonToArrays(
+        lat,
+        lon,
+        positionValues,
+        positionOffset,
+        latLonValues,
+        latLonOffset
+      );
 
       // Calculate the texture coordinates for the point. The `u` coordinate
       // represents the longitude, and the `v` coordinate represents the latitude.
@@ -272,7 +277,7 @@ function generateGridVerticesAndUVs(
     }
   }
 
-  return { vertices, uvs, latLonCoords };
+  return { positionValues, uvs, latLonValues };
 }
 
 function generateGridIndices(
@@ -300,28 +305,29 @@ function generateGridIndices(
   return indices;
 }
 
-function normalizeLongitudes(lons: Float64Array): Float64Array {
+function normalizeLongitudes(longitudes: Float64Array): Float64Array {
   // Normalize longitudes to [0, 360)
-  return Float64Array.from(lons, (lon) => ((lon % 360) + 360) % 360);
+  return Float64Array.from(longitudes, (lon) => ((lon % 360) + 360) % 360);
 }
 
 async function getGaussianGrid() {
   const isRotated = props.isRotated;
-  let lons = normalizeLongitudes(longitudes.value);
-  let lats = latitudes.value;
+  let longitudeValues = normalizeLongitudes(longitudes.value);
+  let latitudeValues = latitudes.value;
 
   // Check if latitudes are descending and reverse if necessary
-  let isLatReversed = lats[0] > lats[lats.length - 1];
+  let isLatReversed =
+    latitudeValues[0] > latitudeValues[latitudeValues.length - 1];
   if (isLatReversed) {
-    lats = Float64Array.from(lats).reverse();
+    latitudeValues = Float64Array.from(latitudeValues).reverse();
   }
 
   const isGlobal = isLongitudeGlobal(longitudes.value);
 
   if (isGlobal) {
     // Add a duplicate of the first longitude + 360 to close the globe
-    const firstLon = lons[0];
-    lons = new Float64Array([...lons, firstLon + 360]);
+    const firstLon = longitudeValues[0];
+    longitudeValues = new Float64Array([...longitudeValues, firstLon + 360]);
   }
 
   let poleLat, poleLon;
@@ -330,35 +336,36 @@ async function getGaussianGrid() {
     poleLat = rotatedNorthPole.lat;
     poleLon = rotatedNorthPole.lon;
   }
-  const { vertices, uvs, latLonCoords } = generateGridVerticesAndUVs(
-    lats,
-    lons,
+  const { positionValues, uvs, latLonValues } = generateGridVerticesAndUVs(
+    latitudeValues,
+    longitudeValues,
     isLatReversed,
     isRotated,
     poleLat,
     poleLon
   );
 
-  const latCount = lats.length;
-  const lonCount = lons.length;
+  const latCount = latitudeValues.length;
+  const lonCount = longitudeValues.length;
   const indices = generateGridIndices(latCount, lonCount, isGlobal);
 
-  return { vertices, indices, uvs, latLonCoords };
+  return { positionValues, indices, uvs, latLonValues };
 }
 
 async function makeRegularGeometry() {
-  const { vertices, indices, uvs, latLonCoords } = await getGaussianGrid();
+  const { positionValues, indices, uvs, latLonValues } =
+    await getGaussianGrid();
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute(
     "position",
-    new THREE.Float32BufferAttribute(vertices, 3)
+    new THREE.Float32BufferAttribute(positionValues, 3)
   );
   geometry.setIndex(indices);
   geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
   // Add lat/lon attribute for GPU projection
   geometry.setAttribute(
     "latLon",
-    new THREE.Float32BufferAttribute(latLonCoords, 2)
+    new THREE.Float32BufferAttribute(latLonValues, 2)
   );
   return geometry;
 }
