@@ -11,7 +11,10 @@ import {
   useGlobeControlStore,
   type TUpdateMode,
 } from "../store/store.js";
-import { makeColormapMaterial } from "../utils/colormapShaders.ts";
+import {
+  makeGpuProjectedColormapMaterial,
+  updateProjectionUniforms,
+} from "../utils/colormapShaders.ts";
 import { getDimensionInfo } from "../utils/dimensionHandling.ts";
 import { useLog } from "../utils/logging.ts";
 import { ZarrDataManager } from "../utils/ZarrDataManager.ts";
@@ -40,6 +43,7 @@ const {
   isInitializingVariable,
   varinfo,
   projectionMode,
+  projectionCenter,
 } = storeToRefs(store);
 
 const urlParameterStore = useUrlParameterStore();
@@ -50,12 +54,6 @@ const updateCount = ref(0);
 const updatingData = ref(false);
 
 let meshes: THREE.Mesh[] = [];
-let cachedLatitudes: Float64Array | undefined;
-let cachedLongitudes: Float64Array | undefined;
-let cachedDataValues: Float32Array | undefined;
-let cachedNJ: number | undefined;
-let cachedNI: number | undefined;
-let cachedFlipLongitude = false;
 
 const {
   getScene,
@@ -108,19 +106,37 @@ watch(
   }
 );
 
+// GPU projection: update shader uniforms instead of rebuilding geometry
 watch(
-  () => projectionMode.value,
+  [() => projectionMode.value, () => projectionCenter.value],
   () => {
-    void rebuildCurvilinearGeometryFromCache();
-  }
+    updateMeshProjectionUniforms();
+  },
+  { deep: true }
 );
 
-const colormapMaterial = computed(() => {
-  if (invertColormap) {
-    return makeColormapMaterial(colormap.value, 1.0, -1.0);
-  } else {
-    return makeColormapMaterial(colormap.value, 0.0, 1.0);
+/**
+ * Update projection uniforms on all mesh materials.
+ * This is the fast path - no geometry rebuild needed.
+ */
+function updateMeshProjectionUniforms() {
+  const helper = projectionHelper.value;
+  const center = projectionCenter.value;
+
+  for (const mesh of meshes) {
+    const material = mesh.material as THREE.ShaderMaterial;
+    if (material.uniforms?.projectionType) {
+      updateProjectionUniforms(material, helper.type, center.lon, center.lat);
+    }
   }
+}
+
+const colormapMaterial = computed(() => {
+  // Use GPU-projected material
+  const material = invertColormap.value
+    ? makeGpuProjectedColormapMaterial(colormap.value, 1.0, -1.0)
+    : makeGpuProjectedColormapMaterial(colormap.value, 0.0, 1.0);
+  return material;
 });
 
 async function datasourceUpdate() {
@@ -132,20 +148,6 @@ async function datasourceUpdate() {
 }
 
 const BATCH_SIZE = 30;
-
-function projectLatLon(
-  lat: number,
-  lon: number,
-  out: Float32Array,
-  offset: number
-) {
-  const helper = projectionHelper.value;
-  const normalizedLon = helper.normalizeLongitude(lon);
-  const [x, y, z] = helper.project(lat, normalizedLon, 1);
-  out[offset] = x;
-  out[offset + 1] = y;
-  out[offset + 2] = z;
-}
 
 async function getGrid(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
@@ -160,11 +162,6 @@ async function getGrid(
   const latitudesData = latitudes.data as Float64Array;
   const longitudesData = longitudes.data as Float64Array;
   const [nj, ni] = latitudes.shape;
-  cachedLatitudes = Float64Array.from(latitudesData);
-  cachedLongitudes = Float64Array.from(longitudesData);
-  cachedDataValues = Float32Array.from(data);
-  cachedNJ = nj;
-  cachedNI = ni;
 
   // Detect potential mirroring issues by analyzing longitude progression
   const shouldFlipLongitude = detectLongitudeFlip(
@@ -206,26 +203,6 @@ function detectLongitudeFlip(
   return true;
 }
 
-async function rebuildCurvilinearGeometryFromCache() {
-  if (
-    !cachedLatitudes ||
-    !cachedLongitudes ||
-    !cachedDataValues ||
-    cachedNJ === undefined ||
-    cachedNI === undefined
-  ) {
-    return;
-  }
-  await buildCurvilinearGeometry(
-    cachedLatitudes,
-    cachedLongitudes,
-    cachedDataValues,
-    cachedNJ,
-    cachedNI,
-    cachedFlipLongitude
-  );
-}
-
 async function buildCurvilinearGeometry(
   latitudes: Float64Array, // 2D array flattened: lat values at each (j,i) grid point
   longitudes: Float64Array, // 2D array flattened: lon values at each (j,i) grid point
@@ -258,16 +235,20 @@ async function buildCurvilinearGeometry(
 
     // Pre-allocate arrays for this batch's Three.js geometry
     // Each cell becomes a quad (4 vertices), each vertex has 3 coordinates (x,y,z)
-    const positions = new Float32Array(batchCells * 4 * 3);
+    const positionValues = new Float32Array(batchCells * 4 * 3);
     // Each vertex gets a data value for the colormap shader
     const dataValues = new Float32Array(batchCells * 4);
+    // Each vertex gets lat/lon for GPU projection (2 values per vertex)
+    const latLonValues = new Float32Array(batchCells * 4 * 2);
     // Each quad is made of 2 triangles, each triangle needs 3 indices
     const indices = new Uint32Array(batchCells * 6);
 
     // Track our current position in the output arrays
-    let vtxOffset = 0; // Offset into positions array (increments by 12 per cell)
+    let positionOffset = 0; // Offset into positions array (increments by 12 per cell)
     let idxOffset = 0; // Offset into indices array (increments by 6 per cell)
     let cellIndex = 0; // Current cell number (used for vertex indexing)
+
+    const helper = projectionHelper.value;
 
     // Main loop: iterate through grid cells in this batch
     // j goes from jStart to jEnd-1 (we need j+1 to exist for each cell)
@@ -294,22 +275,50 @@ async function buildCurvilinearGeometry(
         const idx11 = (j + 1) * ni + iNext; // Next row + column (j+1, i±1)
 
         // Extract latitude and longitude values for each corner of the cell
-        const lat00 = latitudes[idx00];
-        const lon00 = longitudes[idx00];
-        const lat01 = latitudes[idx01];
-        const lon01 = longitudes[idx01];
-        const lat10 = latitudes[idx10];
-        const lon10 = longitudes[idx10];
-        const lat11 = latitudes[idx11];
-        const lon11 = longitudes[idx11];
+        const v0Lat = latitudes[idx00];
+        const v0Lon = longitudes[idx00];
+        const v1Lat = latitudes[idx01];
+        const v1Lon = longitudes[idx01];
+        const v2Lat = latitudes[idx11];
+        const v2Lon = longitudes[idx11];
+        const v3Lat = latitudes[idx10];
+        const v3Lon = longitudes[idx10];
 
         // Convert lat/lon to 3D Cartesian coordinates and store in positions array
         // Vertices are arranged counter-clockwise: 00 -> 01 -> 11 -> 10
-        // This creates proper triangle winding for Three.js rendering
-        projectLatLon(lat00, lon00, positions, vtxOffset); // Bottom-left
-        projectLatLon(lat01, lon01, positions, vtxOffset + 3); // Bottom-right
-        projectLatLon(lat11, lon11, positions, vtxOffset + 6); // Top-right
-        projectLatLon(lat10, lon10, positions, vtxOffset + 9); // Top-left
+        const latLonOffset = cellIndex * 8;
+        helper.projectLatLonToArrays(
+          v0Lat,
+          v0Lon,
+          positionValues,
+          positionOffset,
+          latLonValues,
+          latLonOffset
+        ); // Bottom-left
+        helper.projectLatLonToArrays(
+          v1Lat,
+          v1Lon,
+          positionValues,
+          positionOffset + 3,
+          latLonValues,
+          latLonOffset + 2
+        ); // Bottom-right
+        helper.projectLatLonToArrays(
+          v2Lat,
+          v2Lon,
+          positionValues,
+          positionOffset + 6,
+          latLonValues,
+          latLonOffset + 4
+        ); // Top-right
+        helper.projectLatLonToArrays(
+          v3Lat,
+          v3Lon,
+          positionValues,
+          positionOffset + 9,
+          latLonValues,
+          latLonOffset + 6
+        ); // Top-left
 
         // Assign data value to all 4 vertices of this cell
         // We use the data value from the bottom-left corner (idx00)
@@ -325,7 +334,7 @@ async function buildCurvilinearGeometry(
         indices.set([v, v + 1, v + 2, v, v + 2, v + 3], idxOffset);
 
         // Move to next position in arrays for the next cell
-        vtxOffset += 12; // 4 vertices × 3 coordinates = 12 floats
+        positionOffset += 12; // 4 vertices × 3 coordinates = 12 floats
         idxOffset += 6; // 2 triangles × 3 indices = 6 indices
         cellIndex++; // Increment cell counter
       }
@@ -334,13 +343,19 @@ async function buildCurvilinearGeometry(
     const geometry = new THREE.BufferGeometry();
 
     // Set vertex positions (x, y, z coordinates for each vertex)
-    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute(
+      "position",
+      new THREE.BufferAttribute(positionValues, 3)
+    );
 
     // Set data values for colormap shader (one value per vertex)
     geometry.setAttribute(
       "data_value",
       new THREE.BufferAttribute(dataValues, 1)
     );
+
+    // Set lat/lon for GPU projection
+    geometry.setAttribute("latLon", new THREE.BufferAttribute(latLonValues, 2));
 
     // Set triangle indices (which vertices form each triangle)
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
@@ -350,10 +365,14 @@ async function buildCurvilinearGeometry(
       meshes[batchIndex].geometry = geometry;
     } else {
       const mesh = new THREE.Mesh(geometry, colormapMaterial.value);
+      // Disable frustum culling - GPU projection changes actual positions
+      mesh.frustumCulled = false;
       meshes.push(mesh);
       getScene()?.add(mesh);
     }
   }
+  // Update projection uniforms after geometry is built
+  updateMeshProjectionUniforms();
 }
 
 async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {

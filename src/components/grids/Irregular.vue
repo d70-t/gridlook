@@ -11,7 +11,10 @@ import {
   useGlobeControlStore,
   type TUpdateMode,
 } from "../store/store.js";
-import { makeIrregularGridMaterial } from "../utils/colormapShaders.ts";
+import {
+  makeGpuProjectedIrregularMaterial,
+  updateProjectionUniforms,
+} from "../utils/colormapShaders.ts";
 import { getDimensionInfo } from "../utils/dimensionHandling.ts";
 import { useLog } from "../utils/logging.ts";
 import { ZarrDataManager } from "../utils/ZarrDataManager.ts";
@@ -37,6 +40,8 @@ const {
   selection,
   isInitializingVariable,
   varinfo,
+  projectionMode,
+  projectionCenter,
 } = storeToRefs(store);
 
 const urlParameterStore = useUrlParameterStore();
@@ -49,8 +54,6 @@ const updatingData = ref(false);
 const estimatedSpacing = ref(0);
 
 let points: THREE.Points | undefined = undefined;
-let cachedLatitudes: Float32Array | undefined;
-let cachedLongitudes: Float32Array | undefined;
 
 const {
   getScene,
@@ -104,12 +107,29 @@ watch(
   }
 );
 
+// GPU projection: update shader uniforms instead of rebuilding geometry
 watch(
-  () => projectionHelper.value,
+  [() => projectionMode.value, () => projectionCenter.value],
   () => {
-    rebuildPositionsFromCache();
-  }
+    updatePointsProjectionUniforms();
+  },
+  { deep: true }
 );
+
+/**
+ * Update projection uniforms on the points material.
+ * This is the fast path - no geometry rebuild needed.
+ */
+function updatePointsProjectionUniforms() {
+  if (!points) return;
+  const material = points.material as THREE.ShaderMaterial;
+  if (!material.uniforms?.projectionType) return;
+
+  const helper = projectionHelper.value;
+  const center = projectionCenter.value;
+
+  updateProjectionUniforms(material, helper.type, center.lon, center.lat);
+}
 
 const timeIndexSlider = computed(() => {
   if (varinfo.value?.dimRanges[0]?.name !== "time") {
@@ -119,11 +139,12 @@ const timeIndexSlider = computed(() => {
 });
 
 const colormapMaterial = computed(() => {
-  if (invertColormap.value) {
-    return makeIrregularGridMaterial(colormap.value, 1.0, -1.0);
-  } else {
-    return makeIrregularGridMaterial(colormap.value, 0.0, 1.0);
-  }
+  // Use GPU-projected material
+  const material = invertColormap.value
+    ? makeGpuProjectedIrregularMaterial(colormap.value, 1.0, -1.0)
+    : makeGpuProjectedIrregularMaterial(colormap.value, 0.0, 1.0);
+
+  return material;
 });
 
 async function datasourceUpdate() {
@@ -132,20 +153,6 @@ async function datasourceUpdate() {
     updateLandSeaMask();
     updateColormap([points]);
   }
-}
-
-function projectLatLonToPosition(
-  lat: number,
-  lon: number,
-  out: Float32Array,
-  offset: number
-) {
-  const helper = projectionHelper.value;
-  const normalizedLon = helper.normalizeLongitude(lon);
-  const [x, y, z] = helper.project(lat, normalizedLon, 1);
-  out[offset] = x;
-  out[offset + 1] = y;
-  out[offset + 2] = z;
 }
 
 function estimateAverageSpacing(
@@ -203,28 +210,6 @@ function estimateAverageSpacing(
   return totalWeight > 0 ? totalDistance / totalWeight : 0.01;
 }
 
-function rebuildPositionsFromCache() {
-  if (!cachedLatitudes || !cachedLongitudes || !points) {
-    return;
-  }
-  const positions = new Float32Array(cachedLatitudes.length * 3);
-  for (let i = 0; i < cachedLatitudes.length; i++) {
-    projectLatLonToPosition(
-      cachedLatitudes[i],
-      cachedLongitudes[i],
-      positions,
-      i * 3
-    );
-  }
-  estimatedSpacing.value = estimateAverageSpacing(positions);
-  points.geometry.setAttribute(
-    "position",
-    new THREE.BufferAttribute(positions, 3)
-  );
-  points.geometry.computeBoundingSphere();
-  updateLOD();
-}
-
 async function getGrid(
   latitudesVar: zarr.Chunk<zarr.DataType>,
   longitudesVar: zarr.Chunk<zarr.DataType>,
@@ -241,15 +226,29 @@ async function getGrid(
     );
   }
 
-  // Allocate typed arrays for positions and values
+  // Allocate typed arrays for positions, latLon, and values
   const positions = new Float32Array(N * 3);
+  const latLonValues = new Float32Array(N * 2);
   const dataValues = new Float32Array(N);
-  cachedLatitudes = Float32Array.from(latitudes);
-  cachedLongitudes = Float32Array.from(longitudes);
 
-  // Convert lat/lon to Cartesian positions
+  // Convert lat/lon to Cartesian positions and store latLon for GPU projection
+  const helper = projectionHelper.value;
+
   for (let i = 0; i < N; i++) {
-    projectLatLonToPosition(latitudes[i], longitudes[i], positions, i * 3);
+    const lat = latitudes[i];
+    const lon = longitudes[i];
+    const positionOffset = i * 3;
+    const latLonOffset = i * 2;
+
+    // Store lat/lon for GPU projection and compute initial positions
+    helper.projectLatLonToArrays(
+      lat,
+      lon,
+      positions,
+      positionOffset,
+      latLonValues,
+      latLonOffset
+    );
     dataValues[i] = data[i];
   }
 
@@ -259,6 +258,11 @@ async function getGrid(
     "position",
     new THREE.BufferAttribute(positions, 3)
   );
+  // Add latLon attribute for GPU projection
+  points!.geometry.setAttribute(
+    "latLon",
+    new THREE.BufferAttribute(latLonValues, 2)
+  );
   points!.geometry.setAttribute(
     "data_value",
     new THREE.BufferAttribute(dataValues, 1)
@@ -266,6 +270,8 @@ async function getGrid(
   points!.geometry.computeBoundingSphere();
   const material = points!.material as THREE.ShaderMaterial;
   material.needsUpdate = true;
+  // Update projection uniforms after geometry change
+  updatePointsProjectionUniforms();
   updateLOD();
 }
 
@@ -391,6 +397,8 @@ onBeforeMount(async () => {
   const geometry = new THREE.BufferGeometry();
   const material = colormapMaterial.value;
   points = new THREE.Points(geometry, material);
+  // Disable frustum culling - GPU projection changes actual positions
+  points.frustumCulled = false;
   await datasourceUpdate();
   registerUpdateLOD(updateLOD);
 });

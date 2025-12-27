@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import * as d3 from "d3-geo";
 import type { FeatureCollection } from "geojson";
 import { ProjectionHelper } from "./projectionUtils";
 
@@ -17,38 +18,91 @@ export function geojson2geometry(
   let count = 0;
   const radius = options?.radius ?? 1;
   const zOffset = options?.zOffset ?? 0;
+  let flatWidth: number | undefined = undefined;
+
+  if (helper.isFlat) {
+    const projection = helper.getD3Projection();
+    if (projection) {
+      const path = d3.geoPath(projection);
+      const [[minX], [maxX]] = path.bounds({ type: "Sphere" });
+      flatWidth = maxX - minX;
+    }
+  }
 
   const pushLinestring = (coords: number[][]) => {
-    let previousLon: number | undefined = undefined;
+    let previousProjectedX: number | undefined = undefined;
     for (const [lon, lat] of coords) {
       const normalizedLon = helper.normalizeLongitude(lon);
-      if (
-        helper.isFlat &&
-        previousLon !== undefined &&
-        Math.abs(normalizedLon - previousLon) > 180
-      ) {
-        splits.push(count);
-      }
       const [x, y, z] = helper.project(lat, normalizedLon, radius);
+
+      if (helper.isFlat && previousProjectedX !== undefined) {
+        // Fallback to the full 360° span of a unit-radius globe (2π) when we
+        // cannot derive the flat projected width from d3. This is only used
+        // as a heuristic for detecting wraparound splits (dx > width / 2).
+        const width = flatWidth ?? Math.PI * 2;
+        const dx = Math.abs(x - previousProjectedX);
+        if (dx > width / 2) {
+          splits.push(count);
+        }
+      }
 
       polylines.push(x);
       polylines.push(y);
       polylines.push(z + zOffset);
       count += 1;
-      previousLon = normalizedLon;
+      previousProjectedX = x;
     }
     splits.push(count);
   };
 
-  for (const f of geojson.features) {
-    if (f.geometry.type === "LineString") {
-      pushLinestring(f.geometry.coordinates);
-    } else if (f.geometry.type === "MultiLineString") {
-      for (const coords of f.geometry.coordinates) {
-        pushLinestring(coords);
+  const projection = helper.getD3Projection();
+  if (helper.isFlat && projection) {
+    let currentLine: number[][] | null = null;
+    const collectStream: d3.GeoStream = {
+      point(x: number, y: number) {
+        if (!currentLine) return;
+        currentLine.push([x * radius, -y * radius, zOffset]);
+      },
+      lineStart() {
+        currentLine = [];
+      },
+      lineEnd() {
+        if (currentLine && currentLine.length) {
+          const coords = currentLine.map(([x, y, z]) => [x, y, z]);
+          for (const [px, py, pz] of coords) {
+            polylines.push(px, py, pz);
+            count += 1;
+          }
+          splits.push(count);
+        }
+        currentLine = null;
+      },
+      polygonStart() {
+        currentLine = [];
+      },
+      polygonEnd() {
+        currentLine = null;
+      },
+      sphere() {
+        currentLine = null;
+      },
+    };
+
+    d3.geoStream(
+      geojson as unknown as d3.GeoPermissibleObjects,
+      projection.stream(collectStream)
+    );
+  } else {
+    for (const f of geojson.features) {
+      if (f.geometry.type === "LineString") {
+        pushLinestring(f.geometry.coordinates);
+      } else if (f.geometry.type === "MultiLineString") {
+        for (const coords of f.geometry.coordinates) {
+          pushLinestring(coords);
+        }
+      } else {
+        console.error("unknown geometry: " + f.geometry.type);
       }
-    } else {
-      console.error("unknown geometry: " + f.geometry.type);
     }
   }
 

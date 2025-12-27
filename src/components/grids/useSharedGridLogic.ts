@@ -24,7 +24,10 @@ import {
   calculateColorMapProperties,
 } from "../utils/colormapShaders.ts";
 import { geojson2geometry } from "../utils/geojson.ts";
-import { getLandSeaMask } from "../utils/landSeaMask.ts";
+import {
+  getLandSeaMask,
+  updateLandSeaMaskProjection,
+} from "../utils/landSeaMask.ts";
 import { useLog } from "../utils/logging.ts";
 import { handleKeyDown } from "../utils/OrbitControlsAddOn.ts";
 import { ProjectionHelper } from "../utils/projectionUtils.ts";
@@ -53,6 +56,7 @@ export function useSharedGridLogic() {
     invertColormap,
     controlPanelVisible,
     projectionMode,
+    projectionCenter,
   } = storeToRefs(store);
 
   const urlParameterStore = useUrlParameterStore();
@@ -79,8 +83,18 @@ export function useSharedGridLogic() {
   const frameId = ref(0);
   let baseSurface: THREE.Mesh | undefined = undefined;
 
+  // Right-click drag state for projection center adjustment
+  let rightMouseDown = false;
+  let rightDragStartX = 0;
+  let rightDragStartY = 0;
+  let rightDragStartCenterLon = 0;
+  let rightDragStartCenterLat = 0;
+
   const projectionHelper = computed(() => {
-    return new ProjectionHelper(projectionMode.value, { lat: 0, lon: 0 });
+    return new ProjectionHelper(
+      projectionMode.value,
+      projectionCenter.value ?? { lat: 0, lon: 0 }
+    );
   });
 
   watch(
@@ -106,13 +120,31 @@ export function useSharedGridLogic() {
   );
 
   watch(
-    () => projectionHelper.value,
-    () => {
-      updateBaseSurface();
-      updateCoastlines();
-      updateLandSeaMask();
-      configureCameraForProjection();
-    }
+    [() => projectionMode.value, () => projectionCenter.value],
+    ([newMode, newCenter], [oldMode, oldCenter]) => {
+      const modeChanged = newMode !== oldMode;
+      const centerChanged =
+        newCenter?.lat !== oldCenter?.lat || newCenter?.lon !== oldCenter?.lon;
+
+      if (!modeChanged && !centerChanged) {
+        return;
+      }
+
+      if (modeChanged) {
+        // Full rebuild needed for projection mode change
+        updateBaseSurface();
+        updateCoastlines();
+        updateLandSeaMask();
+        configureCameraForProjection();
+      } else if (centerChanged) {
+        // Fast path: just update projection uniforms on existing mask
+        updateBaseSurface();
+        updateCoastlines();
+        updateLandSeaMaskProjectionUniforms();
+        redraw();
+      }
+    },
+    { deep: true, flush: "sync" }
   );
 
   const bounds = computed(() => {
@@ -180,13 +212,20 @@ export function useSharedGridLogic() {
     if (!coast) {
       const material = new THREE.LineBasicMaterial({
         color: "#ffffff",
+        // Use polygon offset to prevent z-fighting with the data surface
+        // This is more reliable than z-offset, especially when zooming in
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+        polygonOffsetUnits: -1,
       });
       coast = new THREE.LineSegments(new THREE.BufferGeometry(), material);
       coast.name = "coastlines";
+      // Ensure coastlines render after the data mesh
+      coast.renderOrder = 1;
     }
     const geometry = geojson2geometry(coastlineData, projectionHelper.value, {
       radius: projectionHelper.value.isFlat ? 1 : 1.002,
-      zOffset: projectionHelper.value.isFlat ? 0.002 : 0,
+      zOffset: projectionHelper.value.isFlat ? 0.01 : 0,
     });
     coast.geometry.dispose();
     coast.geometry = geometry;
@@ -211,6 +250,15 @@ export function useSharedGridLogic() {
     const choice = landSeaMaskChoice.value ?? LAND_SEA_MASK_MODES.OFF;
     if (landSeaMask) {
       scene?.remove(landSeaMask);
+      if (landSeaMask instanceof THREE.Mesh) {
+        landSeaMask.geometry?.dispose();
+        const material = landSeaMask.material as THREE.ShaderMaterial;
+        const tex = material.uniforms?.maskTexture?.value as
+          | THREE.Texture
+          | undefined;
+        tex?.dispose();
+        material?.dispose();
+      }
       landSeaMask = undefined;
     }
     if (choice === LAND_SEA_MASK_MODES.OFF) {
@@ -218,17 +266,26 @@ export function useSharedGridLogic() {
       return;
     }
 
-    const projectionBounds = getProjectedBounds();
     const mask = await getLandSeaMask(
       landSeaMaskChoice.value!,
       landSeaMaskUseTexture.value!,
-      projectionHelper.value,
-      projectionBounds
+      projectionHelper.value
     );
     landSeaMask = mask;
     if (landSeaMask) {
       scene?.add(landSeaMask);
     }
+    redraw();
+  }
+
+  /**
+   * Fast path for updating land/sea mask projection.
+   * For globe: updates shader uniforms (fast).
+   * For flat: rebuilds geometry (required for proper clipping).
+   */
+  function updateLandSeaMaskProjectionUniforms() {
+    if (!landSeaMask) return;
+    updateLandSeaMaskProjection(landSeaMask, projectionHelper.value);
     redraw();
   }
 
@@ -257,6 +314,9 @@ export function useSharedGridLogic() {
     redraw();
   }
 
+  /**
+   * Get projected bounds for the current projection helper.
+   */
   function getProjectedBounds() {
     const helper = projectionHelper.value;
 
@@ -473,7 +533,7 @@ export function useSharedGridLogic() {
 
     // Apply the projection matrix with current offset
     const aspect = camera.aspect;
-    const fov = (camera.fov * Math.PI) / 180;
+    const fov = THREE.MathUtils.degToRad(camera.fov);
     const near = camera.near;
     const far = camera.far;
 
@@ -534,6 +594,57 @@ export function useSharedGridLogic() {
         getResizeObserver()!.observe(box.value);
       }
     }
+  }
+
+  /**
+   * Handle right-click drag to change projection center on flat projections.
+   * Movement is in screen space: dragging right increases longitude,
+   * dragging up increases latitude.
+   */
+  function handleRightMouseDown(event: MouseEvent) {
+    if (event.button !== 2) return; // Only right mouse button
+    if (!projectionHelper.value.isFlat) return; // Only for flat projections
+
+    event.preventDefault();
+    rightMouseDown = true;
+    rightDragStartX = event.clientX;
+    rightDragStartY = event.clientY;
+    const center = projectionCenter.value ?? { lat: 0, lon: 0 };
+    rightDragStartCenterLon = center.lon;
+    rightDragStartCenterLat = center.lat;
+  }
+
+  function handleRightMouseMove(event: MouseEvent) {
+    if (!rightMouseDown) return;
+    if (!projectionHelper.value.isFlat) return;
+
+    event.preventDefault();
+
+    const deltaX = event.clientX - rightDragStartX;
+    const deltaY = event.clientY - rightDragStartY;
+
+    // Calculate sensitivity based on canvas size
+    // Larger canvas = smaller sensitivity (more precision)
+    const canvasWidth = width.value ?? 800;
+    const canvasHeight = height.value ?? 600;
+
+    // Full drag across canvas width = 180° longitude change
+    // Full drag across canvas height = 90° latitude change
+    const lonSensitivity = 180 / canvasWidth;
+    const latSensitivity = 90 / canvasHeight;
+
+    // Dragging right increases longitude (moves center east)
+    // Dragging up increases latitude (moves center north)
+    let newLon = rightDragStartCenterLon + deltaX * lonSensitivity;
+    let newLat = rightDragStartCenterLat - deltaY * latSensitivity;
+
+    // Clamp latitude to valid range
+    newLat = Math.max(-90, Math.min(90, newLat));
+
+    // Normalize longitude to [-180, 180]
+    newLon = projectionHelper.value.normalizeLongitude(newLon);
+
+    projectionCenter.value = { lat: newLat, lon: newLon };
   }
 
   function toggleRotate() {
@@ -605,6 +716,40 @@ export function useSharedGridLogic() {
         mouseDown = false;
       },
       { passive: true }
+    );
+
+    // Right-click drag for projection center adjustment on flat projections
+    useEventListener(
+      canvas.value,
+      "mousedown",
+      (e: MouseEvent) => {
+        if (e.button === 2) {
+          handleRightMouseDown(e);
+        }
+      },
+      { passive: false }
+    );
+
+    useEventListener(
+      canvas.value,
+      "mousemove",
+      (e: MouseEvent) => {
+        if (rightMouseDown) {
+          handleRightMouseMove(e);
+        }
+      },
+      { passive: false }
+    );
+
+    useEventListener(
+      canvas.value,
+      "mouseup",
+      (e: MouseEvent) => {
+        if (e.button === 2) {
+          rightMouseDown = false;
+        }
+      },
+      { passive: false }
     );
 
     useEventListener(box.value, "keydown", (e: KeyboardEvent) => {
@@ -749,8 +894,7 @@ export function useSharedGridLogic() {
     try {
       const json = atob(encoded.replace(/-/g, "+").replace(/_/g, "/"));
       return JSON.parse(json);
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    } catch (ignore) {
+    } catch {
       return null;
     }
   }

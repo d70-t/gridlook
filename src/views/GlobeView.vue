@@ -30,12 +30,12 @@ const props = defineProps<{ src: string }>();
 useUrlSync();
 const { logError } = useLog();
 const store = useGlobeControlStore();
+const urlParameterStore = useUrlParameterStore();
 
 const { varnameSelector, loading, colormap, invertColormap } =
   storeToRefs(store);
 
 const isDev = import.meta.env.MODE === "development";
-const urlParameterStore = useUrlParameterStore();
 const { paramVarname } = storeToRefs(urlParameterStore);
 
 const globe: Ref<typeof GridTriangular | null> = ref(null);

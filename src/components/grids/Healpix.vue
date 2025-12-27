@@ -14,7 +14,8 @@ import {
 } from "../store/store.js";
 import {
   calculateColorMapProperties,
-  makeTextureMaterial,
+  makeGpuProjectedTextureMaterial,
+  updateProjectionUniforms,
 } from "../utils/colormapShaders.ts";
 import { getDimensionInfo } from "../utils/dimensionHandling.ts";
 import { useLog } from "../utils/logging.ts";
@@ -38,6 +39,8 @@ const {
   dimSlidersValues,
   isInitializingVariable,
   varinfo,
+  projectionMode,
+  projectionCenter,
 } = storeToRefs(store);
 
 const urlParameterStore = useUrlParameterStore();
@@ -69,8 +72,6 @@ let mainMeshes: THREE.Mesh<
   THREE.Material,
   THREE.Object3DEventMap
 >[] = new Array(HEALPIX_NUMCHUNKS);
-const healpixLatLonCache: { lat: Float32Array; lon: Float32Array }[] =
-  new Array(HEALPIX_NUMCHUNKS);
 
 watch(
   () => varnameSelector.value,
@@ -109,12 +110,30 @@ watch(
   }
 );
 
+// GPU projection: update shader uniforms instead of rebuilding geometry
 watch(
-  () => projectionHelper.value,
+  [() => projectionMode.value, () => projectionCenter.value],
   () => {
-    reprojectHealpixMeshes();
-  }
+    updateMeshProjectionUniforms();
+  },
+  { deep: true }
 );
+
+/**
+ * Update projection uniforms on all mesh materials.
+ * This is the fast path - no geometry rebuild needed.
+ */
+function updateMeshProjectionUniforms() {
+  const helper = projectionHelper.value;
+  const center = projectionCenter.value;
+
+  for (const mesh of mainMeshes) {
+    const material = mesh.material as THREE.ShaderMaterial;
+    if (material.uniforms?.projectionType) {
+      updateProjectionUniforms(material, helper.type, center.lon, center.lat);
+    }
+  }
+}
 
 const timeIndexSlider = computed(() => {
   if (varinfo.value?.dimRanges[0]?.name !== "time") {
@@ -138,7 +157,7 @@ async function fetchGrid() {
   const gridStep = 64 + 1;
   try {
     for (let ipix = 0; ipix < HEALPIX_NUMCHUNKS; ipix++) {
-      const { geometry, latitudes, longitudes } = makeHealpixGeometry(
+      const { geometry } = makeHealpixGeometry(
         1,
         ipix,
         gridStep,
@@ -146,8 +165,9 @@ async function fetchGrid() {
       );
       mainMeshes[ipix].geometry.dispose();
       mainMeshes[ipix].geometry = geometry;
-      healpixLatLonCache[ipix] = { lat: latitudes, lon: longitudes };
     }
+    // Update projection uniforms after geometry change
+    updateMeshProjectionUniforms();
     redraw();
   } catch (error) {
     logError(error, "Could not fetch grid");
@@ -298,13 +318,6 @@ function distanceSquared(
   return (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1) + (z2 - z1) * (z2 - z1);
 }
 
-function vectorToLatLon(x: number, y: number, z: number) {
-  const r = Math.sqrt(x * x + y * y + z * z);
-  const lat = (Math.asin(z / r) * 180) / Math.PI;
-  const lon = (Math.atan2(y, x) * 180) / Math.PI;
-  return { lat, lon };
-}
-
 function makeHealpixGeometry(
   nside: number,
   ipix: number,
@@ -312,10 +325,11 @@ function makeHealpixGeometry(
   helper: ProjectionHelper
 ) {
   const vertexCount = steps * steps;
-  const vertices = new Float32Array(vertexCount * 3);
+  const positionValues = new Float32Array(vertexCount * 3);
   const uv = new Float32Array(vertexCount * 2);
   const latitudes = new Float32Array(vertexCount);
   const longitudes = new Float32Array(vertexCount);
+  const latLonValues = new Float32Array(vertexCount * 2);
   const indices = [];
   let vertexIndex = 0;
 
@@ -324,14 +338,22 @@ function makeHealpixGeometry(
     for (let j = 0; j < steps; ++j) {
       const v = j / (steps - 1);
       const vec = healpix.pixcoord2vec_nest(nside, ipix, u, v);
-      const { lat, lon } = vectorToLatLon(vec[0], vec[1], vec[2]);
+      const { lat, lon } = ProjectionHelper.cartesianToLatLon(
+        vec[0],
+        vec[1],
+        vec[2]
+      );
       latitudes[vertexIndex] = lat;
       longitudes[vertexIndex] = lon;
-      const [x, y, z] = helper.project(lat, lon, 1);
-      const baseIndex = vertexIndex * 3;
-      vertices[baseIndex] = x;
-      vertices[baseIndex + 1] = y;
-      vertices[baseIndex + 2] = z;
+      const positionOffset = vertexIndex * 3;
+      helper.projectLatLonToArrays(
+        lat,
+        lon,
+        positionValues,
+        positionOffset,
+        latLonValues,
+        vertexIndex * 2
+      );
       const uvIndex = vertexIndex * 2;
       uv[uvIndex] = u;
       uv[uvIndex + 1] = v;
@@ -347,20 +369,20 @@ function makeHealpixGeometry(
       const d = (i + 1) * steps + (j + 1);
 
       const dac2 = distanceSquared(
-        vertices[3 * a + 0],
-        vertices[3 * a + 1],
-        vertices[3 * a + 2],
-        vertices[3 * c + 0],
-        vertices[3 * c + 1],
-        vertices[3 * c + 2]
+        positionValues[3 * a + 0],
+        positionValues[3 * a + 1],
+        positionValues[3 * a + 2],
+        positionValues[3 * c + 0],
+        positionValues[3 * c + 1],
+        positionValues[3 * c + 2]
       );
       const dbd2 = distanceSquared(
-        vertices[3 * b + 0],
-        vertices[3 * b + 1],
-        vertices[3 * b + 2],
-        vertices[3 * d + 0],
-        vertices[3 * d + 1],
-        vertices[3 * d + 2]
+        positionValues[3 * b + 0],
+        positionValues[3 * b + 1],
+        positionValues[3 * b + 2],
+        positionValues[3 * d + 0],
+        positionValues[3 * d + 1],
+        positionValues[3 * d + 2]
       );
       if (dac2 < dbd2) {
         indices.push(a, c, d);
@@ -375,37 +397,15 @@ function makeHealpixGeometry(
   geometry.setIndex(indices);
   geometry.setAttribute(
     "position",
-    new THREE.Float32BufferAttribute(vertices, 3)
+    new THREE.Float32BufferAttribute(positionValues, 3)
   );
   geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  // Add latLon attribute for GPU projection
+  geometry.setAttribute(
+    "latLon",
+    new THREE.Float32BufferAttribute(latLonValues, 2)
+  );
   return { geometry, latitudes, longitudes };
-}
-
-function reprojectHealpixMeshes() {
-  for (let ipix = 0; ipix < HEALPIX_NUMCHUNKS; ipix++) {
-    const mesh = mainMeshes[ipix];
-    const cache = healpixLatLonCache[ipix];
-    if (!mesh || !cache) continue;
-    const positionAttr = mesh.geometry.getAttribute(
-      "position"
-    ) as THREE.BufferAttribute;
-    if (!positionAttr) continue;
-    const array = positionAttr.array as Float32Array;
-    for (let v = 0; v < cache.lat.length; v++) {
-      const [x, y, z] = projectionHelper.value.project(
-        cache.lat[v],
-        cache.lon[v],
-        1
-      );
-      const baseIndex = v * 3;
-      array[baseIndex] = x;
-      array[baseIndex + 1] = y;
-      array[baseIndex + 2] = z;
-    }
-    positionAttr.needsUpdate = true;
-    mesh.geometry.computeBoundingSphere();
-  }
-  redraw();
 }
 
 function getUnshuffleIndex(
@@ -570,20 +570,27 @@ onBeforeMount(async () => {
 
   const gridStep = 64 + 1;
   for (let ipix = 0; ipix < HEALPIX_NUMCHUNKS; ++ipix) {
-    const material = makeTextureMaterial(
+    // Use GPU-projected material for instant projection center changes
+    const material = makeGpuProjectedTextureMaterial(
       new THREE.Texture(),
       colormap.value,
       addOffset,
       scaleFactor
     );
-    const { geometry, latitudes, longitudes } = makeHealpixGeometry(
+    // Set initial projection uniforms
+    const helper = projectionHelper.value;
+    const center = projectionCenter.value;
+    updateProjectionUniforms(material, helper.type, center.lon, center.lat);
+
+    const { geometry } = makeHealpixGeometry(
       1,
       ipix,
       gridStep,
       projectionHelper.value
     );
     mainMeshes[ipix] = new THREE.Mesh(geometry, material);
-    healpixLatLonCache[ipix] = { lat: latitudes, lon: longitudes };
+    // Disable frustum culling - GPU projection changes actual positions
+    mainMeshes[ipix].frustumCulled = false;
   }
   await datasourceUpdate();
 });
