@@ -24,7 +24,7 @@ const { projectionMode } = storeToRefs(useGlobeControlStore());
         :disabled="projectionMode !== PROJECTION_TYPES.NEARSIDE_PERSPECTIVE"
         :title="
           projectionMode !== PROJECTION_TYPES.NEARSIDE_PERSPECTIVE
-            ? 'Rotate is only available for globe projection'
+            ? 'Rotate is only available for nearside perspective projection'
             : 'Rotate the globe'
         "
         @click="() => $emit('onRotate')"
