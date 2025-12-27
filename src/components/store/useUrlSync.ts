@@ -68,6 +68,10 @@ export function useUrlSync() {
     }
   }
 
+  const debouncedUserBoundsSync = debounce(() => {
+    handleUserBounds();
+  }, 200);
+
   watch(
     () => varnameSelector.value,
     () => {
@@ -81,14 +85,14 @@ export function useUrlSync() {
   watch(
     () => userBoundsLow.value,
     () => {
-      handleUserBounds();
+      debouncedUserBoundsSync();
     }
   );
 
   watch(
     () => userBoundsHigh.value,
     () => {
-      handleUserBounds();
+      debouncedUserBoundsSync();
     }
   );
 
