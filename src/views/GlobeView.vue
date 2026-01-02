@@ -1,29 +1,34 @@
 <script lang="ts" setup>
-import * as zarr from "zarrita";
-import AboutView from "@/views/AboutView.vue";
-import GridHealpix from "@/components/grids/Healpix.vue";
-import GridRegular from "@/components/grids/Regular.vue";
-import GridIrregular from "@/components/grids/Irregular.vue";
-import GridTriangular from "@/components/grids/Triangular.vue";
-import GridGaussianReduced from "@/components/grids/GaussianReduced.vue";
-import GridCurvilinear from "@/components/grids/Curvilinear.vue";
-import GlobeControls from "@/components/GlobeControls.vue";
-import DebugPanel from "@/components/DebugPanel.vue";
-import { availableColormaps } from "@/components/utils/colormapShaders.js";
-import { ref, computed, watch, onMounted, type Ref } from "vue";
-import type { TColorMap, TSources } from "../types/GlobeTypes";
-import { useGlobeControlStore } from "../components/store/store";
-import { useLog } from "../components/utils/logging";
 import { storeToRefs } from "pinia";
-import { useUrlParameterStore } from "../components/store/paramStore";
+import { computed, onMounted, ref, watch, type Ref } from "vue";
+import * as zarr from "zarrita";
+
+import type { TModelInfo, TSources } from "../lib/types/GlobeTypes";
+
 import {
   getGridType,
   GRID_TYPES,
   type T_GRID_TYPES,
-} from "../components/utils/gridTypeDetector";
-import { useUrlSync } from "../components/store/useUrlSync";
-import { ZarrDataManager } from "@/components/utils/ZarrDataManager";
-import Toast from "@/components/Toast.vue";
+} from "@/lib/data/gridTypeDetector";
+import { ZarrDataManager } from "@/lib/data/ZarrDataManager";
+import {
+  availableColormaps,
+  type TColorMap,
+} from "@/lib/shaders/colormapShaders";
+import { useUrlParameterStore } from "@/store/paramStore";
+import { useGlobeControlStore } from "@/store/store";
+import { useUrlSync } from "@/store/useUrlSync";
+import Toast from "@/ui/common/Toast.vue";
+import GridCurvilinear from "@/ui/grids/Curvilinear.vue";
+import GridGaussianReduced from "@/ui/grids/GaussianReduced.vue";
+import GridHealpix from "@/ui/grids/Healpix.vue";
+import GridIrregular from "@/ui/grids/Irregular.vue";
+import GridRegular from "@/ui/grids/Regular.vue";
+import GridTriangular from "@/ui/grids/Triangular.vue";
+import AboutView from "@/ui/overlays/AboutModal.vue";
+import GlobeControls from "@/ui/overlays/Controls.vue";
+import DebugPanel from "@/ui/overlays/DebugPanel.vue";
+import { useLog } from "@/utils/logging";
 
 const props = defineProps<{ src: string }>();
 
@@ -56,7 +61,7 @@ const modelInfo = computed(() => {
       vars: datasources.value.levels[0].datasources,
       defaultVar: datasources.value.default_var,
       colormaps: Object.keys(availableColormaps) as TColorMap[],
-    };
+    } as TModelInfo;
   }
 });
 
@@ -125,7 +130,9 @@ function isValidVariable(varname: string, variable: zarr.Array<zarr.DataType>) {
   ] as const;
 
   const dims = variable.attrs?._ARRAY_DIMENSIONS;
-  if (!Array.isArray(dims)) return false;
+  if (!Array.isArray(dims)) {
+    return false;
+  }
 
   const hasTime = dims.includes("time");
   const shapeValid = hasTime
@@ -140,59 +147,75 @@ function isValidVariable(varname: string, variable: zarr.Array<zarr.DataType>) {
   return shapeValid && !hasExcludedName && !isLatLon;
 }
 
-async function indexFromZarr(src: string) {
-  const store = await zarr.withConsolidated(new zarr.FetchStore(src));
-  const root = await zarr.open(store, { kind: "group" });
+async function processZarrVariables(
+  store: zarr.Listable<zarr.FetchStore>,
+  root: zarr.Group<zarr.FetchStore>,
+  src: string
+) {
   const dimensions = new Set<string>();
+
   const candidates = await Promise.allSettled(
     store.contents().map(async ({ path, kind }) => {
       const varname = path.slice(1);
       if (kind !== "array") {
         return {};
       }
-      let variable = await zarr.open(root.resolve(path), { kind: "array" });
+
+      const variable = await zarr.open(root.resolve(path), { kind: "array" });
+
+      // Collect dimensions from _ARRAY_DIMENSIONS attribute
       if (variable.attrs?._ARRAY_DIMENSIONS) {
-        let arrayDims = variable.attrs._ARRAY_DIMENSIONS as string[];
-        for (let dim of arrayDims) {
+        const arrayDims = variable.attrs._ARRAY_DIMENSIONS as string[];
+        for (const dim of arrayDims) {
           dimensions.add(dim);
         }
       }
+
+      // Collect dimensions from coordinates attribute
       if (variable.attrs.coordinates) {
-        let coords = variable.attrs.coordinates as string;
-        for (let coord of coords.split(" ")) {
+        const coords = variable.attrs.coordinates as string;
+        for (const coord of coords.split(" ")) {
           dimensions.add(coord);
         }
       }
+
+      // Return valid variables
       if (isValidVariable(varname, variable)) {
         return {
           [varname]: {
             store: src,
             dataset: "",
-            attrs: {
-              ...variable.attrs,
-            },
+            attrs: { ...variable.attrs },
           },
         };
-      } else {
-        return {};
       }
+
+      return {};
     })
   );
+
+  // Filter and merge datasources
   const datasources = candidates
     .filter((promise) => promise.status === "fulfilled")
     .map((promise) => promise.value)
     .filter((obj) => {
-      // Filter out all dimensions and coordinates
+      // Filter out dimensions and coordinates
       return (
         Object.keys(obj).length > 0 && !dimensions.has(Object.keys(obj)[0])
       );
     })
-    .reduce((a, b) => {
-      return { ...a, ...b };
-    }, {});
+    .reduce((a, b) => ({ ...a, ...b }), {});
+
+  return datasources;
+}
+
+async function indexFromZarr(src: string): Promise<TSources> {
+  const store = await zarr.withConsolidated(new zarr.FetchStore(src));
+  const root = await zarr.open(store, { kind: "group" });
+  const datasources = await processZarrVariables(store, root, src);
 
   return {
-    name: root.attrs?.title,
+    name: root.attrs?.title as string,
     levels: [
       {
         time: {
@@ -209,7 +232,7 @@ async function indexFromZarr(src: string) {
   };
 }
 
-async function indexFromIndex(src: string) {
+async function indexFromIndex(src: string): Promise<TSources> {
   const res = await fetch(src);
   if (!res.ok) {
     throw new Error(`Failed to fetch index from ${src}: ${res.statusText}`);
@@ -217,6 +240,33 @@ async function indexFromIndex(src: string) {
     throw new Error(`Index not found at ${src}`);
   }
   return await res.json();
+}
+
+function prepareDefaults(src: string, index: TSources) {
+  if (src === props.src) {
+    datasources.value = index;
+  }
+  varnameSelector.value =
+    paramVarname.value ??
+    modelInfo.value!.defaultVar ??
+    Object.keys(modelInfo.value!.vars)[0];
+
+  if (
+    datasources.value &&
+    varnameSelector.value in datasources.value.levels[0].datasources
+  ) {
+    const variableDefaults =
+      datasources.value.levels[0].datasources[varnameSelector.value];
+    if (variableDefaults.default_colormap) {
+      colormap.value = variableDefaults.default_colormap.name;
+      if (Object.hasOwn(variableDefaults.default_colormap, "inverted")) {
+        invertColormap.value = variableDefaults.default_colormap.inverted;
+      }
+    }
+    if (variableDefaults.default_range) {
+      store.updateBounds(variableDefaults.default_range);
+    }
+  }
 }
 
 const updateSrc = async () => {
@@ -237,35 +287,7 @@ const updateSrc = async () => {
   for (const index of indices) {
     if (index.status === "fulfilled") {
       sourceValid.value = true;
-      if (src === props.src) {
-        datasources.value = index.value;
-      }
-      varnameSelector.value =
-        paramVarname.value ??
-        modelInfo.value!.defaultVar ??
-        Object.keys(modelInfo.value!.vars)[0];
-
-      if (
-        datasources.value &&
-        varnameSelector.value in datasources.value.levels[0].datasources
-      ) {
-        const variableDefaults =
-          datasources.value.levels[0].datasources[varnameSelector.value];
-        if (variableDefaults.default_colormap) {
-          colormap.value = variableDefaults.default_colormap.name;
-          if (
-            Object.prototype.hasOwnProperty.call(
-              variableDefaults.default_colormap,
-              "inverted"
-            )
-          ) {
-            invertColormap.value = variableDefaults.default_colormap.inverted;
-          }
-        }
-        if (variableDefaults.default_range) {
-          store.updateBounds(variableDefaults.default_range);
-        }
-      }
+      prepareDefaults(src, index.value);
       break;
     } else {
       lastError = index.reason;
