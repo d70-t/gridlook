@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
+
 import HashGlobeView from "../views/HashGlobeView.vue";
 
 const router = createRouter({

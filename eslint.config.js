@@ -1,9 +1,11 @@
-import globals from "globals";
 import js from "@eslint/js";
-import ts from "typescript-eslint";
-import vue from "eslint-plugin-vue";
-import pluginPromise from "eslint-plugin-promise";
+import boundaries from "eslint-plugin-boundaries";
+import importPlugin from "eslint-plugin-import";
 import prettier from "eslint-plugin-prettier/recommended";
+import pluginPromise from "eslint-plugin-promise";
+import vue from "eslint-plugin-vue";
+import globals from "globals";
+import ts from "typescript-eslint";
 
 export default [
   {
@@ -27,7 +29,31 @@ export default [
       camelcase: "warn",
       eqeqeq: "error",
       strict: "error",
+      "max-lines-per-function": [
+        "warn",
+        { max: 50, skipComments: true, skipBlankLines: true },
+      ],
       "no-confusing-arrow": ["error", { allowParens: false }],
+    },
+  },
+  importPlugin.flatConfigs.recommended,
+  {
+    rules: {
+      "import/no-unresolved": "off",
+      "import/named": "off",
+      "import/namespace": "off",
+      "import/default": "off",
+      "import/no-named-as-default-member": "off",
+      "import/order": [
+        "warn",
+        {
+          "newlines-between": "always",
+          alphabetize: {
+            order: "asc",
+            caseInsensitive: true,
+          },
+        },
+      ],
     },
   },
 
@@ -110,12 +136,62 @@ export default [
       "vue/valid-define-options": "error",
     },
   },
-
-  // prettier
   prettier,
   {
     rules: {
       "prettier/prettier": "warn",
+    },
+  },
+  // prettier disables style rules, re-enable curly
+  {
+    rules: {
+      curly: "warn",
+    },
+  },
+  {
+    plugins: { boundaries },
+    settings: {
+      "boundaries/elements": [
+        { type: "assets", pattern: "src/assets/**" },
+        { type: "lib", pattern: "src/lib/**" },
+        { type: "store", pattern: "src/store/**" },
+        { type: "ui", pattern: "src/ui/**" },
+        { type: "views", pattern: "src/views/**" },
+        { type: "types", pattern: "src/types/**" },
+        { type: "utils", pattern: "src/utils/**" },
+        { type: "router", pattern: "src/router/**" },
+        { type: "src", pattern: "src/*", mode: "file" },
+      ],
+      "boundaries/ignore": [
+        "**/*.spec.ts",
+        "**/*.test.ts",
+        "env.d.ts",
+        "vite.config.ts",
+        "eslint.config.js",
+      ],
+      "import/resolver": {
+        typescript: true,
+      },
+    },
+    rules: {
+      ...boundaries.configs.recommended.rules,
+      "boundaries/no-unknown-files": "warn",
+      "boundaries/no-unknown": "warn",
+      "boundaries/element-types": [
+        2,
+        {
+          default: "disallow",
+          rules: [
+            { from: "ui", allow: ["store", "lib", "ui", "utils"] },
+            { from: "store", allow: ["lib", "utils"] },
+            { from: "lib", allow: ["assets"] },
+            { from: "views", allow: ["lib", "store", "ui", "utils"] },
+            { from: "src", allow: ["lib", "src", "router", "views"] },
+            { from: "router", allow: ["views"] },
+            { from: "utils", disallow: ["*"] },
+          ],
+        },
+      ],
     },
   },
 ];
