@@ -18,7 +18,7 @@ import {
   makeGpuProjectedMeshMaterial,
   updateProjectionUniforms,
 } from "@/lib/shaders/gridShaders.ts";
-import type { TSources } from "@/lib/types/GlobeTypes.ts";
+import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import {
   UPDATE_MODE,
@@ -162,6 +162,8 @@ async function getGrid(
     isMissingOrFill
   );
 
+  console.log("shouldFlipLongitude:", shouldFlipLongitude);
+
   await buildCurvilinearGeometry(
     latitudesData,
     longitudesData,
@@ -177,6 +179,7 @@ function detectLongitudeFlip(
   isMissingOrFill: (value: number) => boolean
 ): boolean {
   let previousValidLon: number | undefined;
+  console.log("longitudes", longitudes);
   for (let i = 0; i < longitudes.length; i++) {
     const lon = longitudes[i];
     if (isMissingOrFill(lon)) {
@@ -196,6 +199,18 @@ function detectLongitudeFlip(
   return true;
 }
 
+function resetMeshesIfGridShrank(totalBatches: number) {
+  if (meshes.length <= totalBatches) {
+    return;
+  }
+
+  for (const mesh of meshes) {
+    mesh.geometry.dispose();
+    getScene()?.remove(mesh);
+  }
+  meshes.length = 0;
+}
+
 async function buildCurvilinearGeometry(
   latitudes: Float64Array, // 2D array flattened: lat values at each (j,i) grid point
   longitudes: Float64Array, // 2D array flattened: lon values at each (j,i) grid point
@@ -207,15 +222,7 @@ async function buildCurvilinearGeometry(
   // Clean up: remove old meshes from scene and dispose their geometries
 
   const totalBatches = Math.ceil((nj - 1) / BATCH_SIZE);
-  if (meshes.length > totalBatches) {
-    // we have more meshes than needed
-    // Seems like the grid has changed to a smaller size
-    for (const mesh of meshes) {
-      mesh.geometry.dispose(); // Free GPU memory
-      getScene()?.remove(mesh); // Remove from Three.js scene
-    }
-    meshes.length = 0; // Clear our mesh array
-  }
+  resetMeshesIfGridShrank(totalBatches);
 
   // Calculate total number of batches
 
@@ -268,50 +275,33 @@ async function buildCurvilinearGeometry(
         const idx11 = (j + 1) * ni + iNext; // Next row + column (j+1, i±1)
 
         // Extract latitude and longitude values for each corner of the cell
-        const v0Lat = latitudes[idx00];
-        const v0Lon = longitudes[idx00];
-        const v1Lat = latitudes[idx01];
-        const v1Lon = longitudes[idx01];
-        const v2Lat = latitudes[idx11];
-        const v2Lon = longitudes[idx11];
-        const v3Lat = latitudes[idx10];
-        const v3Lon = longitudes[idx10];
-
-        // Convert lat/lon to 3D Cartesian coordinates and store in positions array
-        // Vertices are arranged counter-clockwise: 00 -> 01 -> 11 -> 10
-        const latLonOffset = cellIndex * 8;
-        helper.projectLatLonToArrays(
-          v0Lat,
-          v0Lon,
-          positionValues,
-          positionOffset,
-          latLonValues,
-          latLonOffset
-        ); // Bottom-left
-        helper.projectLatLonToArrays(
-          v1Lat,
-          v1Lon,
-          positionValues,
-          positionOffset + 3,
-          latLonValues,
-          latLonOffset + 2
-        ); // Bottom-right
-        helper.projectLatLonToArrays(
-          v2Lat,
-          v2Lon,
-          positionValues,
-          positionOffset + 6,
-          latLonValues,
-          latLonOffset + 4
-        ); // Top-right
-        helper.projectLatLonToArrays(
-          v3Lat,
-          v3Lon,
-          positionValues,
-          positionOffset + 9,
-          latLonValues,
-          latLonOffset + 6
-        ); // Top-left
+        const latPoints = [
+          latitudes[idx00],
+          latitudes[idx01],
+          latitudes[idx11],
+          latitudes[idx10],
+        ];
+        const lonPoints = [
+          longitudes[idx00],
+          longitudes[idx01],
+          longitudes[idx11],
+          longitudes[idx10],
+        ];
+        let latLonOffset = cellIndex * 8;
+        console.log(positionOffset);
+        for (let k = 0; k < 4; k++) {
+          // from bottom-left, anti-clockwise
+          helper.projectLatLonToArrays(
+            latPoints[k],
+            lonPoints[k],
+            positionValues,
+            positionOffset,
+            latLonValues,
+            latLonOffset
+          );
+          positionOffset += 3;
+          latLonOffset += 2;
+        }
 
         // Assign data value to all 4 vertices of this cell
         // We use the data value from the bottom-left corner (idx00)
@@ -327,7 +317,6 @@ async function buildCurvilinearGeometry(
         indices.set([v, v + 1, v + 2, v, v + 2, v + 3], idxOffset);
 
         // Move to next position in arrays for the next cell
-        positionOffset += 12; // 4 vertices × 3 coordinates = 12 floats
         idxOffset += 6; // 2 triangles × 3 indices = 6 indices
         cellIndex++; // Increment cell counter
       }
@@ -368,6 +357,63 @@ async function buildCurvilinearGeometry(
   updateMeshProjectionUniforms();
 }
 
+async function fetchDataVar(localVarname: string) {
+  const datavar = await getDataVar(localVarname, props.datasources!);
+  if (!datavar) {
+    return null;
+  }
+
+  const { dimensionRanges, indices } = getDimensionInfo(
+    datavar,
+    paramDimIndices.value,
+    paramDimMinBounds.value,
+    paramDimMaxBounds.value,
+    dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
+    [datavar.shape.length - 2, datavar.shape.length - 1],
+    varinfo.value?.dimRanges,
+    false
+  );
+
+  const rawData = castDataVarToFloat32(
+    (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
+  );
+
+  return { datavar, dimensionRanges, indices, rawData };
+}
+
+async function processAndRenderData(
+  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  dimensionRanges: TDimensionRange[],
+  indices: (number | zarr.Slice | null)[],
+  rawData: Float32Array<ArrayBufferLike>,
+  updateMode: TUpdateMode
+) {
+  const { min, max, missingValue, fillValue } = getDataBounds(datavar, rawData);
+
+  await getGrid(datavar, rawData);
+
+  for (let mesh of meshes) {
+    const material = mesh.material as THREE.ShaderMaterial;
+    material.uniforms.missingValue.value = missingValue;
+    material.uniforms.fillValue.value = fillValue;
+  }
+
+  const timeinfo = await getTime(props.datasources!, dimensionRanges, indices);
+
+  store.updateVarInfo(
+    {
+      attrs: datavar.attrs,
+      timeinfo,
+      bounds: { low: min, high: max },
+      dimRanges: dimensionRanges,
+    },
+    indices as number[],
+    updateMode
+  );
+
+  redraw();
+}
+
 async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
   store.startLoading();
   try {
@@ -378,54 +424,17 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
     }
     updatingData.value = true;
     const localVarname = varnameSelector.value;
-    const datavar = await getDataVar(localVarname, props.datasources!);
+    const fetchResult = await fetchDataVar(localVarname);
+    if (fetchResult) {
+      const { datavar, dimensionRanges, indices, rawData } = fetchResult;
 
-    if (datavar !== undefined) {
-      const { dimensionRanges, indices } = getDimensionInfo(
+      await processAndRenderData(
         datavar,
-        paramDimIndices.value,
-        paramDimMinBounds.value,
-        paramDimMaxBounds.value,
-        dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
-        [datavar.shape.length - 2, datavar.shape.length - 1],
-        varinfo.value?.dimRanges,
-        updateMode === UPDATE_MODE.SLIDER_TOGGLE
-      );
-
-      let rawData = castDataVarToFloat32(
-        (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
-      );
-
-      let { min, max, missingValue, fillValue } = getDataBounds(
-        datavar,
-        rawData
-      );
-
-      await getGrid(datavar, rawData);
-
-      for (let mesh of meshes) {
-        const material = mesh.material as THREE.ShaderMaterial;
-        material.uniforms.missingValue.value = missingValue;
-        material.uniforms.fillValue.value = fillValue;
-      }
-
-      const timeinfo = await getTime(
-        props.datasources!,
         dimensionRanges,
-        indices
-      );
-
-      store.updateVarInfo(
-        {
-          attrs: datavar.attrs,
-          timeinfo,
-          bounds: { low: min, high: max },
-          dimRanges: dimensionRanges,
-        },
-        indices as number[],
+        indices,
+        rawData,
         updateMode
       );
-      redraw();
     }
     updatingData.value = false;
     if (updateCount.value !== myUpdatecount) {
