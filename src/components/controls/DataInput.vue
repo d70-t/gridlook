@@ -12,12 +12,7 @@ function setLocationHash() {
 
 <template>
   <div class="panel-block">
-    <input
-      v-model="dataPath"
-      class="input"
-      type="url"
-      placeholder="Zarr data url"
-    />
+    <input v-model="dataPath" class="input" type="url" placeholder="Zarr URI" />
     <button
       class="button"
       type="button"
