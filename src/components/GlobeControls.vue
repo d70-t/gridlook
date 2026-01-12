@@ -12,6 +12,7 @@ import DimensionSliders from "./controls/DimensionSliders.vue";
 import MaskControls from "./controls/MaskControls.vue";
 import TimeControls from "./controls/TimeControls.vue";
 import VariableSelector from "./controls/VariableSelector.vue";
+import DataInput from "./controls/DataInput.vue";
 import { useUrlParameterStore } from "./store/paramStore.ts";
 
 // Import control components
@@ -265,6 +266,7 @@ onMounted(() => {
 
     <Transition name="slide">
       <div v-if="modelInfo && !isHidden" class="controls-scroll full-panel">
+        <DataInput />
         <VariableSelector v-model="varnameSelector" :model-info="modelInfo" />
         <TimeControls />
         <DimensionSliders />
