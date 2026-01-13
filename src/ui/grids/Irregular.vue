@@ -307,6 +307,63 @@ function updateLOD() {
   material.uniforms.maxPointSize.value = maxPointSize;
 }
 
+async function fetchAndRenderData(
+  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  updateMode: TUpdateMode
+) {
+  // Load latitudes and longitudes arrays (1D)
+  const { latitudes, longitudes, latitudesAttrs, longitudesAttrs } =
+    await getLatLonData(datavar, props.datasources);
+  const dimensions = datavar.attrs._ARRAY_DIMENSIONS as string[];
+  const geoDims: number[] = [];
+  for (let i = 0; i < dimensions.length; i++) {
+    let latDims = latitudesAttrs._ARRAY_DIMENSIONS as string[];
+    let lonDims = longitudesAttrs._ARRAY_DIMENSIONS as string[];
+    if (latDims.includes(dimensions[i])) {
+      geoDims.push(i);
+    } else if (lonDims.includes(dimensions[i])) {
+      geoDims.push(i);
+    }
+  }
+  const { dimensionRanges, indices } = getDimensionInfo(
+    datavar,
+    paramDimIndices.value,
+    paramDimMinBounds.value,
+    paramDimMaxBounds.value,
+    dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
+    geoDims,
+    varinfo.value?.dimRanges,
+    updateMode === UPDATE_MODE.SLIDER_TOGGLE
+  );
+
+  let rawData = castDataVarToFloat32(
+    (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
+  );
+  if (rawData instanceof Float64Array) {
+    // WebGL doesn't support Float64Array textures
+    // we convert it to Float32Array and accept the loss of precision
+    rawData = Float32Array.from(rawData);
+  }
+
+  let { min, max, fillValue, missingValue } = getDataBounds(datavar, rawData);
+  const material = points!.material as THREE.ShaderMaterial;
+  material.uniforms.fillValue.value = fillValue;
+  material.uniforms.missingValue.value = missingValue;
+  await getGrid(latitudes, longitudes, rawData);
+
+  const timeinfo = await getTime(props.datasources!, dimensionRanges, indices);
+  store.updateVarInfo(
+    {
+      attrs: datavar.attrs,
+      timeinfo,
+      bounds: { low: min, high: max },
+      dimRanges: dimensionRanges,
+    },
+    indices as number[],
+    updateMode
+  );
+}
+
 async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
   store.startLoading();
   try {
@@ -319,64 +376,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
     const localVarname = varnameSelector.value;
     const datavar = await getDataVar(localVarname, props.datasources!);
     if (datavar !== undefined) {
-      // Load latitudes and longitudes arrays (1D)
-      const { latitudes, longitudes, latitudesAttrs, longitudesAttrs } =
-        await getLatLonData(datavar, props.datasources);
-      const dimensions = datavar.attrs._ARRAY_DIMENSIONS as string[];
-      const geoDims: number[] = [];
-      for (let i = 0; i < dimensions.length; i++) {
-        let latDims = latitudesAttrs._ARRAY_DIMENSIONS as string[];
-        let lonDims = longitudesAttrs._ARRAY_DIMENSIONS as string[];
-        if (latDims.includes(dimensions[i])) {
-          geoDims.push(i);
-        } else if (lonDims.includes(dimensions[i])) {
-          geoDims.push(i);
-        }
-      }
-      const { dimensionRanges, indices } = getDimensionInfo(
-        datavar,
-        paramDimIndices.value,
-        paramDimMinBounds.value,
-        paramDimMaxBounds.value,
-        dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
-        geoDims,
-        varinfo.value?.dimRanges,
-        updateMode === UPDATE_MODE.SLIDER_TOGGLE
-      );
-
-      let rawData = castDataVarToFloat32(
-        (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
-      );
-      if (rawData instanceof Float64Array) {
-        // WebGL doesn't support Float64Array textures
-        // we convert it to Float32Array and accept the loss of precision
-        rawData = Float32Array.from(rawData);
-      }
-
-      let { min, max, fillValue, missingValue } = getDataBounds(
-        datavar,
-        rawData
-      );
-      const material = points!.material as THREE.ShaderMaterial;
-      material.uniforms.fillValue.value = fillValue;
-      material.uniforms.missingValue.value = missingValue;
-      await getGrid(latitudes, longitudes, rawData);
-
-      const timeinfo = await getTime(
-        props.datasources!,
-        dimensionRanges,
-        indices
-      );
-      store.updateVarInfo(
-        {
-          attrs: datavar.attrs,
-          timeinfo,
-          bounds: { low: min, high: max },
-          dimRanges: dimensionRanges,
-        },
-        indices as number[],
-        updateMode
-      );
+      await fetchAndRenderData(datavar, updateMode);
     }
     updatingData.value = false;
     if (updateCount.value !== myUpdatecount) {

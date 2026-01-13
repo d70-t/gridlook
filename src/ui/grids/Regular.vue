@@ -2,6 +2,7 @@
 import { storeToRefs } from "pinia";
 import * as THREE from "three";
 import { computed, onBeforeMount, onMounted, ref, watch } from "vue";
+import type * as zarr from "zarrita";
 
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
@@ -434,6 +435,55 @@ async function makeMaterial(rawData: Float32Array) {
   );
 }
 
+async function fetchAndRenderData(
+  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  updateMode: TUpdateMode
+) {
+  const { dimensionRanges, indices } = getDimensionInfo(
+    datavar,
+    paramDimIndices.value,
+    paramDimMinBounds.value,
+    paramDimMaxBounds.value,
+    dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
+    [datavar.shape.length - 2, datavar.shape.length - 1],
+    varinfo.value?.dimRanges,
+    updateMode === UPDATE_MODE.SLIDER_TOGGLE
+  );
+
+  let rawData = castDataVarToFloat32(
+    (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
+  );
+
+  const material = await makeMaterial(rawData);
+
+  // Set initial projection uniforms
+  const helper = projectionHelper.value;
+  const center = projectionCenter.value;
+  updateProjectionUniforms(material, helper.type, center.lon, center.lat);
+
+  const { min, max, missingValue, fillValue } = getDataBounds(datavar, rawData);
+  // Set missing/fill values as uniforms for the shader
+  material.uniforms.missingValue.value = missingValue;
+  material.uniforms.fillValue.value = fillValue;
+
+  mainMesh!.material = material;
+  mainMesh!.material.needsUpdate = true;
+
+  const timeinfo = await getTime(props.datasources!, dimensionRanges, indices);
+
+  store.updateVarInfo(
+    {
+      attrs: datavar.attrs,
+      timeinfo,
+      bounds: { low: min, high: max },
+      dimRanges: dimensionRanges,
+    },
+    indices as number[],
+    updateMode
+  );
+  redraw();
+}
+
 async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
   store.startLoading();
   try {
@@ -449,56 +499,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
     const datavar = await getDataVar(localVarname, props.datasources!);
 
     if (datavar !== undefined) {
-      const { dimensionRanges, indices } = getDimensionInfo(
-        datavar,
-        paramDimIndices.value,
-        paramDimMinBounds.value,
-        paramDimMaxBounds.value,
-        dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
-        [datavar.shape.length - 2, datavar.shape.length - 1],
-        varinfo.value?.dimRanges,
-        updateMode === UPDATE_MODE.SLIDER_TOGGLE
-      );
-
-      let rawData = castDataVarToFloat32(
-        (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
-      );
-
-      const material = await makeMaterial(rawData);
-
-      // Set initial projection uniforms
-      const helper = projectionHelper.value;
-      const center = projectionCenter.value;
-      updateProjectionUniforms(material, helper.type, center.lon, center.lat);
-
-      const { min, max, missingValue, fillValue } = getDataBounds(
-        datavar,
-        rawData
-      );
-      // Set missing/fill values as uniforms for the shader
-      material.uniforms.missingValue.value = missingValue;
-      material.uniforms.fillValue.value = fillValue;
-
-      mainMesh!.material = material;
-      mainMesh!.material.needsUpdate = true;
-
-      const timeinfo = await getTime(
-        props.datasources!,
-        dimensionRanges,
-        indices
-      );
-
-      store.updateVarInfo(
-        {
-          attrs: datavar.attrs,
-          timeinfo,
-          bounds: { low: min, high: max },
-          dimRanges: dimensionRanges,
-        },
-        indices as number[],
-        updateMode
-      );
-      redraw();
+      await fetchAndRenderData(datavar, updateMode);
     }
     updatingData.value = false;
     if (updateCount.value !== myUpdatecount) {

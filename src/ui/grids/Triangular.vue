@@ -319,6 +319,56 @@ function data2valueBuffer(
   };
 }
 
+async function fetchAndRenderData(
+  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  updateMode: TUpdateMode
+) {
+  const { dimensionRanges, indices } = getDimensionInfo(
+    datavar,
+    paramDimIndices.value,
+    paramDimMinBounds.value,
+    paramDimMaxBounds.value,
+    dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
+    [datavar.shape.length - 1],
+    varinfo.value?.dimRanges,
+    updateMode === UPDATE_MODE.SLIDER_TOGGLE
+  );
+
+  const rawData = await ZarrDataManager.getVariableDataFromArray(
+    datavar,
+    indices
+  );
+  const dataBuffer = data2valueBuffer(rawData, datavar);
+  // Distribute data values to each mesh
+  let offset = 0;
+  for (const mesh of meshes) {
+    const nVerts = mesh.geometry.getAttribute("position").count;
+    // Each triangle has 3 vertices, each vertex has a value
+    const meshData = dataBuffer.dataValues.subarray(offset, offset + nVerts);
+    mesh.geometry.setAttribute(
+      "data_value",
+      new THREE.BufferAttribute(meshData, 1)
+    );
+    const material = mesh.material as THREE.ShaderMaterial;
+    material.uniforms.missingValue.value = dataBuffer.missingValue;
+    material.uniforms.fillValue.value = dataBuffer.fillValue;
+    offset += nVerts;
+  }
+
+  const timeinfo = await getTime(props.datasources!, dimensionRanges, indices);
+  store.updateVarInfo(
+    {
+      attrs: datavar.attrs,
+      timeinfo,
+      bounds: { low: dataBuffer.dataMin, high: dataBuffer.dataMax },
+      dimRanges: dimensionRanges,
+    },
+    indices as number[],
+    updateMode
+  );
+  redraw();
+}
+
 async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
   store.startLoading();
   try {
@@ -336,57 +386,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
     );
 
     if (datavar !== undefined) {
-      const { dimensionRanges, indices } = getDimensionInfo(
-        datavar,
-        paramDimIndices.value,
-        paramDimMinBounds.value,
-        paramDimMaxBounds.value,
-        dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
-        [datavar.shape.length - 1],
-        varinfo.value?.dimRanges,
-        updateMode === UPDATE_MODE.SLIDER_TOGGLE
-      );
-
-      const rawData = await ZarrDataManager.getVariableDataFromArray(
-        datavar,
-        indices
-      );
-      const dataBuffer = data2valueBuffer(rawData, datavar);
-      // Distribute data values to each mesh
-      let offset = 0;
-      for (const mesh of meshes) {
-        const nVerts = mesh.geometry.getAttribute("position").count;
-        // Each triangle has 3 vertices, each vertex has a value
-        const meshData = dataBuffer.dataValues.subarray(
-          offset,
-          offset + nVerts
-        );
-        mesh.geometry.setAttribute(
-          "data_value",
-          new THREE.BufferAttribute(meshData, 1)
-        );
-        const material = mesh.material as THREE.ShaderMaterial;
-        material.uniforms.missingValue.value = dataBuffer.missingValue;
-        material.uniforms.fillValue.value = dataBuffer.fillValue;
-        offset += nVerts;
-      }
-
-      const timeinfo = await getTime(
-        props.datasources!,
-        dimensionRanges,
-        indices
-      );
-      store.updateVarInfo(
-        {
-          attrs: datavar.attrs,
-          timeinfo,
-          bounds: { low: dataBuffer.dataMin, high: dataBuffer.dataMax },
-          dimRanges: dimensionRanges,
-        },
-        indices as number[],
-        updateMode
-      );
-      redraw();
+      await fetchAndRenderData(datavar, updateMode);
     }
     updatingData.value = false;
     if (updateCount.value !== myUpdatecount) {

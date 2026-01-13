@@ -357,12 +357,10 @@ async function buildCurvilinearGeometry(
   updateMeshProjectionUniforms();
 }
 
-async function fetchDataVar(localVarname: string) {
-  const datavar = await getDataVar(localVarname, props.datasources!);
-  if (!datavar) {
-    return null;
-  }
-
+async function fetchAndRenderData(
+  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  updateMode: TUpdateMode
+) {
   const { dimensionRanges, indices } = getDimensionInfo(
     datavar,
     paramDimIndices.value,
@@ -377,17 +375,6 @@ async function fetchDataVar(localVarname: string) {
   const rawData = castDataVarToFloat32(
     (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
   );
-
-  return { datavar, dimensionRanges, indices, rawData };
-}
-
-async function processAndRenderData(
-  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
-  dimensionRanges: TDimensionRange[],
-  indices: (number | zarr.Slice | null)[],
-  rawData: Float32Array<ArrayBufferLike>,
-  updateMode: TUpdateMode
-) {
   const { min, max, missingValue, fillValue } = getDataBounds(datavar, rawData);
 
   await getGrid(datavar, rawData);
@@ -424,18 +411,11 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
     }
     updatingData.value = true;
     const localVarname = varnameSelector.value;
-    const fetchResult = await fetchDataVar(localVarname);
-    if (fetchResult) {
-      const { datavar, dimensionRanges, indices, rawData } = fetchResult;
-
-      await processAndRenderData(
-        datavar,
-        dimensionRanges,
-        indices,
-        rawData,
-        updateMode
-      );
+    const datavar = await getDataVar(localVarname, props.datasources!);
+    if (datavar) {
+      await fetchAndRenderData(datavar, updateMode);
     }
+
     updatingData.value = false;
     if (updateCount.value !== myUpdatecount) {
       await getData();

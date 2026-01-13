@@ -493,7 +493,9 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
     }
     updatingData.value = true;
     const datavar = await getDataVar(varnameSelector.value, props.datasources!);
-    await processDataVar(datavar, updateMode);
+    if (datavar) {
+      await processDataVar(datavar, updateMode);
+    }
     updatingData.value = false;
 
     if (updateCount.value !== myUpdatecount) {
@@ -508,12 +510,9 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
 }
 
 async function processDataVar(
-  datavar: zarr.Array<zarr.DataType, zarr.FetchStore> | undefined,
+  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
   updateMode: TUpdateMode
 ) {
-  if (datavar === undefined) {
-    return;
-  }
   const { dimensionRanges, indices } = getDimensionInfo(
     datavar,
     paramDimIndices.value,
