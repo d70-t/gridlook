@@ -187,7 +187,17 @@ export const projectionShaderFunctions = `
       return vec3(0.0, 0.0, 0.0);
     }
 
-    float k = c / sin(c);
+    // Compute k = c / sin(c) with better numerical stability
+    // Use Taylor series approximation for small c, and clamp for large c
+    float sinC = sin(c);
+    float k;
+    if (abs(sinC) < 0.0001 || c > 3.0) {
+      // Near antipodal point or unstable region - clamp to reasonable value
+      k = 1.0;
+    } else {
+      k = c / sinC;
+    }
+
     float x = k * cos(latRad) * sin(lonRad);
     float y = k * sin(latRad);
 
