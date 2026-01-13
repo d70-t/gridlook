@@ -14,13 +14,13 @@ function setLocationHash() {
   <form class="panel-block" @submit.prevent="setLocationHash">
     <input v-model="dataPath" class="input" type="url" placeholder="Zarr URI" />
     <button
-      class="button"
+      class="button is-link"
       type="button"
       title="Load dataset"
       @click="setLocationHash"
     >
       <span class="icon">
-        <i class="fas fa-rotate"></i>
+        <i class="fas fa-play"></i>
       </span>
     </button>
   </form>
