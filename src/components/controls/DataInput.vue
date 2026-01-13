@@ -5,7 +5,7 @@ const dataPath = ref("");
 
 function setLocationHash() {
   if (dataPath.value) {
-    location.hash = "#" + dataPath.value;
+    location.hash = "#" + dataPath.value.trim();
   }
 }
 </script>
