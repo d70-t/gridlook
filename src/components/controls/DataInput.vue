@@ -11,7 +11,7 @@ function setLocationHash() {
 </script>
 
 <template>
-  <div class="panel-block">
+  <form class="panel-block" @submit.prevent="setLocationHash">
     <input v-model="dataPath" class="input" type="url" placeholder="Zarr URI" />
     <button
       class="button"
@@ -23,5 +23,5 @@ function setLocationHash() {
         <i class="fas fa-rotate"></i>
       </span>
     </button>
-  </div>
+  </form>
 </template>
