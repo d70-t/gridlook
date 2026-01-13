@@ -131,6 +131,7 @@ function updateMeshProjectionUniforms() {
   const center = projectionCenter.value;
 
   updateProjectionUniforms(material, helper.type, center.lon, center.lat);
+  redraw();
 }
 
 async function datasourceUpdate() {

@@ -133,6 +133,7 @@ function updateMeshProjectionUniforms() {
       updateProjectionUniforms(material, helper.type, center.lon, center.lat);
     }
   }
+  redraw();
 }
 
 async function datasourceUpdate() {

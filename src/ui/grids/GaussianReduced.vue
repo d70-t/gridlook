@@ -114,6 +114,7 @@ function updateMeshProjectionUniforms() {
       center.lat
     );
   }
+  redraw();
 }
 
 const colormapMaterial = computed(() => {

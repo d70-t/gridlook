@@ -66,6 +66,7 @@ const {
   updateLandSeaMask,
   updateColormap,
   projectionHelper,
+  redraw,
   canvas,
   box,
 } = useSharedGridLogic();
@@ -133,6 +134,7 @@ function updatePointsProjectionUniforms() {
   const center = projectionCenter.value;
 
   updateProjectionUniforms(material, helper.type, center.lon, center.lat);
+  redraw();
 }
 
 const colormapMaterial = computed(() => {
