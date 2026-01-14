@@ -438,6 +438,34 @@ class GpuProjectedMaskRenderer {
     }
   }
 
+  // Clip angle for azimuthal equidistant projection (matches coastline clipping)
+  private static readonly AZIMUTHAL_CLIP_ANGLE = 173;
+
+  /**
+   * Calculate angular distance from projection center to a point.
+   * Uses the spherical law of cosines.
+   */
+  private static angularDistanceFromCenter(
+    lat: number,
+    lon: number,
+    centerLat: number,
+    centerLon: number
+  ): number {
+    const toRad = Math.PI / 180;
+    const lat1 = centerLat * toRad;
+    const lat2 = lat * toRad;
+    const dLon = (lon - centerLon) * toRad;
+
+    // Spherical law of cosines
+    const cosAngle =
+      Math.sin(lat1) * Math.sin(lat2) +
+      Math.cos(lat1) * Math.cos(lat2) * Math.cos(dLon);
+
+    // Clamp to [-1, 1] to handle floating point errors
+    const clampedCos = Math.max(-1, Math.min(1, cosAngle));
+    return Math.acos(clampedCos) * (180 / Math.PI);
+  }
+
   private static generateVerticesAndUVs(
     projectionHelper: ProjectionHelper,
     latSegments: number,
@@ -448,27 +476,52 @@ class GpuProjectedMaskRenderer {
     const zOffset = isBackground ? -0.01 : 0.01;
     const vertices: number[] = [];
     const uvs: number[] = [];
+    const angularDistances: number[] = []; // Track angular distance from center for azimuthal clipping
     const isMercator = projectionHelper.type === PROJECTION_TYPES.MERCATOR;
+    const isAzimuthal =
+      projectionHelper.type === PROJECTION_TYPES.AZIMUTHAL_EQUIDISTANT;
+
+    const centerLat = projectionHelper.center.lat;
+    const centerLon = projectionHelper.center.lon;
+
     // Generate vertices using the helper projection (matches data orientation).
     // For Mercator, clamp projection latitude to avoid infinity, then discard
     // outside the valid band in the fragment shader.
     for (let latIdx = 0; latIdx <= latSegments; latIdx++) {
       const latRaw = 90 - (latIdx / latSegments) * 180;
-      const latProjected = isMercator
-        ? Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, latRaw))
-        : latRaw;
+      let latProjected = latRaw;
+      if (isAzimuthal && Math.abs(latProjected) >= 90) {
+        // Avoid antipode singularity in azimuthal projections.
+        latProjected = Math.sign(latProjected) * 89.999;
+      }
+      if (isMercator) {
+        latProjected = Math.max(
+          -MERCATOR_LAT_LIMIT,
+          Math.min(MERCATOR_LAT_LIMIT, latProjected)
+        );
+      }
       const v = (90 - latRaw) / 180; // top (90) -> 0, bottom (-90) -> 1
 
       for (let lonIdx = 0; lonIdx <= lonSegments; lonIdx++) {
         const lon = (lonIdx / lonSegments) * 360 - 180;
         const u = lonIdx / lonSegments;
-
         const [x, y, z] = projectionHelper.project(latProjected, lon, 1);
         vertices.push(x, y, z + zOffset);
         uvs.push(u, 1 - v);
+
+        // For azimuthal projection, track angular distance for clipping
+        if (isAzimuthal) {
+          const angularDist = this.angularDistanceFromCenter(
+            latRaw,
+            lon,
+            centerLat,
+            centerLon
+          );
+          angularDistances.push(angularDist);
+        }
       }
     }
-    return { vertices, uvs };
+    return { vertices, uvs, angularDistances, isAzimuthal };
   }
 
   private static getVertexPosition(vertices: number[], index: number) {
@@ -522,6 +575,23 @@ class GpuProjectedMaskRenderer {
   }
 
   /**
+   * Check if any vertex in a triangle exceeds the azimuthal clip angle.
+   */
+  private static isTriangleWithinClipAngle(
+    angularDistances: number[],
+    i1: number,
+    i2: number,
+    i3: number,
+    clipAngle: number
+  ): boolean {
+    return (
+      angularDistances[i1] < clipAngle &&
+      angularDistances[i2] < clipAngle &&
+      angularDistances[i3] < clipAngle
+    );
+  }
+
+  /**
    * Create geometry projected by d3 with proper antimeridian clipping.
    */
   private static createD3ProjectedGeometry(
@@ -533,13 +603,14 @@ class GpuProjectedMaskRenderer {
     const geometry = new THREE.BufferGeometry();
 
     const indices: number[] = [];
-    const { vertices, uvs } = this.generateVerticesAndUVs(
-      projectionHelper,
-      latSegments,
-      lonSegments,
-      mode
-    );
-    // Generate indices, but skip triangles that span the projection cut
+    const { vertices, uvs, angularDistances, isAzimuthal } =
+      this.generateVerticesAndUVs(
+        projectionHelper,
+        latSegments,
+        lonSegments,
+        mode
+      );
+    // Generate indices, but skip triangles that span the projection cut.
     const width = this.getProjectionWidth(projectionHelper);
     const threshold = width * 0.4; // Triangles spanning more than 40% of width are cut
 
@@ -550,13 +621,39 @@ class GpuProjectedMaskRenderer {
         const c = a + 1;
         const d = b + 1;
 
+        // For azimuthal projection, also check if triangle is within clip angle
+        const withinClipABC =
+          !isAzimuthal ||
+          this.isTriangleWithinClipAngle(
+            angularDistances,
+            a,
+            b,
+            c,
+            this.AZIMUTHAL_CLIP_ANGLE
+          );
+        const withinClipCBD =
+          !isAzimuthal ||
+          this.isTriangleWithinClipAngle(
+            angularDistances,
+            c,
+            b,
+            d,
+            this.AZIMUTHAL_CLIP_ANGLE
+          );
+
         // Triangle ABC
-        if (this.shouldIncludeTriangle(vertices, a, b, c, threshold)) {
+        if (
+          withinClipABC &&
+          this.shouldIncludeTriangle(vertices, a, b, c, threshold)
+        ) {
           indices.push(a, b, c);
         }
 
         // Triangle CBD
-        if (this.shouldIncludeTriangle(vertices, c, b, d, threshold)) {
+        if (
+          withinClipCBD &&
+          this.shouldIncludeTriangle(vertices, c, b, d, threshold)
+        ) {
           indices.push(c, b, d);
         }
       }

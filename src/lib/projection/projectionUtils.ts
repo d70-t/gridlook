@@ -74,8 +74,8 @@ export class ProjectionHelper {
         d3Projection = d3.geoMercator();
         break;
       case PROJECTION_TYPES.ROBINSON:
+        // Use precision for better adaptive resampling at curved edges
         d3Projection = geoRobinson();
-
         break;
       case PROJECTION_TYPES.MOLLWEIDE:
         d3Projection = geoMollweide();
@@ -87,7 +87,9 @@ export class ProjectionHelper {
         d3Projection = d3.geoEquirectangular();
         break;
       case PROJECTION_TYPES.AZIMUTHAL_EQUIDISTANT:
-        d3Projection = d3.geoAzimuthalEquidistant();
+        // The azimuthal equidistant projection needs to be clipped to avoid
+        // extreme distortion near the edges.
+        d3Projection = d3.geoAzimuthalEquidistant().clipAngle(173);
         break;
       default:
         d3Projection = null;
