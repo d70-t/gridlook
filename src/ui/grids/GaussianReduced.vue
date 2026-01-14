@@ -135,6 +135,33 @@ async function datasourceUpdate() {
 
 const BATCH_SIZE = 64; // Adjust based on memory and browser limits
 
+function updateOrCreateMesh(
+  batchIndex: number,
+  geometry: THREE.BufferGeometry
+) {
+  if (meshes[batchIndex]) {
+    meshes[batchIndex].geometry.dispose();
+    meshes[batchIndex].geometry = geometry;
+  } else {
+    const mesh = new THREE.Mesh(geometry, colormapMaterial.value);
+    mesh.frustumCulled = false;
+    meshes.push(mesh);
+    getScene()?.add(mesh);
+  }
+}
+
+function cleanupMeshes(totalBatches: number) {
+  if (meshes.length <= totalBatches) {
+    return; // No cleanup needed
+  }
+
+  for (const mesh of meshes) {
+    mesh.geometry.dispose(); // Free GPU memory
+    getScene()?.remove(mesh); // Remove from Three.js scene
+  }
+  meshes.length = 0; // Clear our mesh array
+}
+
 async function getGrid(
   latitudes: Float64Array,
   longitudes: Float64Array,
@@ -142,16 +169,6 @@ async function getGrid(
 ) {
   const { rows, uniqueLats } = buildRows(latitudes, longitudes, data);
   const totalBatches = Math.ceil((uniqueLats.length - 1) / BATCH_SIZE);
-
-  if (meshes.length > totalBatches) {
-    // we have more meshes than needed
-    // Seems like the grid has changed to a smaller size
-    for (const mesh of meshes) {
-      mesh.geometry.dispose(); // Free GPU memory
-      getScene()?.remove(mesh); // Remove from Three.js scene
-    }
-    meshes.length = 0; // Clear our mesh array
-  }
 
   for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
     const lStart = batchIndex * BATCH_SIZE;
@@ -266,16 +283,7 @@ async function getGrid(
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
     geometry.computeBoundingSphere();
 
-    if (meshes[batchIndex]) {
-      meshes[batchIndex].geometry.dispose();
-      meshes[batchIndex].geometry = geometry;
-    } else {
-      const mesh = new THREE.Mesh(geometry, colormapMaterial.value);
-      // Disable frustum culling - GPU projection changes actual positions
-      mesh.frustumCulled = false;
-      meshes.push(mesh);
-      getScene()?.add(mesh);
-    }
+    updateOrCreateMesh(batchIndex, geometry);
   }
 }
 

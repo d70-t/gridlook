@@ -152,22 +152,24 @@ async function datasourceUpdate() {
   }
 }
 
+function cleanupMeshes() {
+  for (const mesh of meshes) {
+    getScene()?.remove(mesh);
+    mesh.geometry.dispose();
+    if (mesh.material instanceof THREE.Material) {
+      mesh.material.dispose();
+    }
+  }
+  meshes.length = 0;
+}
+
 // Split triangles into batches for multiple meshes
 const BATCH_SIZE = 3000000; // number of triangles per mesh (tune as needed)
 
 async function fetchGrid() {
   try {
     const verts = await grid2buffer(gridsource.value!);
-
-    // Remove old meshes from scene
-    for (const mesh of meshes) {
-      getScene()?.remove(mesh);
-      mesh.geometry.dispose();
-      if (mesh.material instanceof THREE.Material) {
-        mesh.material.dispose();
-      }
-    }
-    meshes.length = 0;
+    cleanupMeshes();
 
     const nTriangles = verts.length / 9;
     for (let i = 0; i < nTriangles; i += BATCH_SIZE) {

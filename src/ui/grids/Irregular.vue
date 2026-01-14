@@ -232,7 +232,6 @@ async function getGrid(
   // Allocate typed arrays for positions, latLon, and values
   const positions = new Float32Array(N * 3);
   const latLonValues = new Float32Array(N * 2);
-  const dataValues = new Float32Array(N);
 
   // Convert lat/lon to Cartesian positions and store latLon for GPU projection
   const helper = projectionHelper.value;
@@ -252,7 +251,6 @@ async function getGrid(
       latLonValues,
       latLonOffset
     );
-    dataValues[i] = data[i];
   }
 
   estimatedSpacing.value = estimateAverageSpacing(positions);
@@ -268,7 +266,7 @@ async function getGrid(
   );
   points!.geometry.setAttribute(
     "data_value",
-    new THREE.BufferAttribute(dataValues, 1)
+    new THREE.BufferAttribute(data, 1)
   );
   points!.geometry.computeBoundingSphere();
   const material = points!.material as THREE.ShaderMaterial;

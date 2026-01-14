@@ -200,7 +200,7 @@ function detectLongitudeFlip(
   return true;
 }
 
-function resetMeshesIfGridShrank(totalBatches: number) {
+function cleanupMeshes(totalBatches: number) {
   if (meshes.length <= totalBatches) {
     return;
   }
@@ -223,7 +223,7 @@ async function buildCurvilinearGeometry(
   // Clean up: remove old meshes from scene and dispose their geometries
 
   const totalBatches = Math.ceil((nj - 1) / BATCH_SIZE);
-  resetMeshesIfGridShrank(totalBatches);
+  cleanupMeshes(totalBatches);
 
   // Calculate total number of batches
 
