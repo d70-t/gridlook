@@ -182,21 +182,21 @@ export const projectionShaderFunctions = `
     float cosC = cos(latRad) * cos(lonRad);
     float c = acos(clamp(cosC, -1.0, 1.0));
 
+    // Clip points beyond ~173 degrees (3.02 radians) to avoid antipodal singularity
+    // Return NaN to cause GPU to discard the geometry entirely
+    if (c > 3.02) {
+      float nan = sqrt(-1.0);  // Generate NaN
+      return vec3(nan, nan, nan);
+    }
+
     // Handle the center point (c = 0)
     if (c < 0.0001) {
       return vec3(0.0, 0.0, 0.0);
     }
 
-    // Compute k = c / sin(c) with better numerical stability
-    // Use Taylor series approximation for small c, and clamp for large c
+    // Compute k = c / sin(c)
     float sinC = sin(c);
-    float k;
-    if (abs(sinC) < 0.0001 || c > 3.0) {
-      // Near antipodal point or unstable region - clamp to reasonable value
-      k = 1.0;
-    } else {
-      k = c / sinC;
-    }
+    float k = c / sinC;
 
     float x = k * cos(latRad) * sin(lonRad);
     float y = k * sin(latRad);
