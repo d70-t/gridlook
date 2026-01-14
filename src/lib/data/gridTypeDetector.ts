@@ -87,7 +87,7 @@ function checkRegularGridFromDimensions(dimensions: string[]): boolean {
 async function determineGridTypeFromCRS(
   datasources: TSources,
   varnameSelector: string
-): Promise<string | null> {
+): Promise<T_GRID_TYPES | null> {
   try {
     const crs = await ZarrDataManager.getCRSInfo(datasources, varnameSelector);
 
@@ -108,7 +108,7 @@ async function determineGridTypeFromCRS(
 async function determineGridTypeFromData(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
   datasources: TSources | undefined
-): Promise<string | null> {
+): Promise<T_GRID_TYPES | null> {
   const { latitudes, longitudes } = await getLatLonData(datavar, datasources);
   const latitudesData = latitudes.data as Float64Array;
   const longitudesData = longitudes.data as Float64Array;
@@ -130,7 +130,7 @@ export async function getGridType(
   varnameSelector: string,
   datasources: TSources | undefined,
   logError: (maybeError: unknown, context?: string) => void
-) {
+): Promise<T_GRID_TYPES> {
   // FIXME: This is a clumsy hack to distinguish between different
   // grid types.
   if (!sourceValid) {
