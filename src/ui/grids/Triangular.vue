@@ -221,6 +221,35 @@ async function fetchGrid() {
   }
 }
 
+function getVertexCoordinates(
+  index: number,
+  vx: zarr.Chunk<zarr.DataType>,
+  vy: zarr.Chunk<zarr.DataType>,
+  vz: zarr.Chunk<zarr.DataType>
+) {
+  return {
+    x: (vx.data as Float64Array)[index],
+    y: (vy.data as Float64Array)[index],
+    z: (vz.data as Float64Array)[index],
+  };
+}
+
+function shouldFlipTriangle(
+  v0: { x: number; y: number; z: number },
+  v1: { x: number; y: number; z: number },
+  v2: { x: number; y: number; z: number }
+) {
+  const a = new THREE.Vector3(v0.x, v0.y, v0.z);
+  const b = new THREE.Vector3(v1.x, v1.y, v1.z);
+  const c = new THREE.Vector3(v2.x, v2.y, v2.z);
+
+  const ab = new THREE.Vector3().subVectors(b, a);
+  const ac = new THREE.Vector3().subVectors(c, a);
+  const centroid = new THREE.Vector3().add(a).add(b).add(c);
+
+  return ab.cross(ac).dot(centroid) < 0;
+}
+
 async function grid2buffer(grid: { store: string; dataset: string }) {
   const [voc, vx, vy, vz] = await Promise.all([
     ZarrDataManager.getVariableData(grid, "vertex_of_cell"),
@@ -237,56 +266,31 @@ async function grid2buffer(grid: { store: string; dataset: string }) {
   const vs1 = (voc.data as Int32Array).slice(ncells * 1, ncells * 2);
   const vs2 = (voc.data as Int32Array).slice(ncells * 2, ncells * 3);
 
-  const a = new THREE.Vector3();
-  const b = new THREE.Vector3();
-  const c = new THREE.Vector3();
-  const ab = new THREE.Vector3();
-  const ac = new THREE.Vector3();
-
   for (let i = 0; i < ncells; i++) {
-    const v0 = vs0[i] - 1;
-    const v1 = vs1[i] - 1;
-    const v2 = vs2[i] - 1;
+    const v0Idx = vs0[i] - 1;
+    const v1Idx = vs1[i] - 1;
+    const v2Idx = vs2[i] - 1;
 
     // Cache vertex values
-    const v0x = (vx.data as Float64Array)[v0],
-      v0y = (vy.data as Float64Array)[v0],
-      v0z = (vz.data as Float64Array)[v0];
-    let v1x = (vx.data as Float64Array)[v1] as number,
-      v1y = (vy.data as Float64Array)[v1] as number,
-      v1z = (vz.data as Float64Array)[v1] as number;
-    let v2x = (vx.data as Float64Array)[v2] as number,
-      v2y = (vy.data as Float64Array)[v2] as number,
-      v2z = (vz.data as Float64Array)[v2] as number;
+    let v0 = getVertexCoordinates(v0Idx, vx, vy, vz);
+    let v1 = getVertexCoordinates(v1Idx, vx, vy, vz);
+    let v2 = getVertexCoordinates(v2Idx, vx, vy, vz);
 
-    // Set vector values
-    a.set(v0x, v0y, v0z);
-    b.set(v1x, v1y, v1z);
-    c.set(v2x, v2y, v2z);
-
-    // Perform in-place operations
-    ab.subVectors(b, a);
-    ac.subVectors(c, a);
-
-    if (ab.cross(ac).dot(a.add(b).add(c)) < 0) {
-      [v1x, v2x] = [v2x, v1x];
-      [v1y, v2y] = [v2y, v1y];
-      [v1z, v2z] = [v2z, v1z];
+    if (shouldFlipTriangle(v0, v1, v2)) {
+      [v1, v2] = [v2, v1];
     }
 
     // Set verts array values
     const baseIndex = 9 * i;
-    verts[baseIndex + 0] = v0x;
-    verts[baseIndex + 1] = v0y;
-    verts[baseIndex + 2] = v0z;
-
-    verts[baseIndex + 3] = v1x;
-    verts[baseIndex + 4] = v1y;
-    verts[baseIndex + 5] = v1z;
-
-    verts[baseIndex + 6] = v2x;
-    verts[baseIndex + 7] = v2y;
-    verts[baseIndex + 8] = v2z;
+    verts[baseIndex + 0] = v0.x;
+    verts[baseIndex + 1] = v0.y;
+    verts[baseIndex + 2] = v0.z;
+    verts[baseIndex + 3] = v1.x;
+    verts[baseIndex + 4] = v1.y;
+    verts[baseIndex + 5] = v1.z;
+    verts[baseIndex + 6] = v2.x;
+    verts[baseIndex + 7] = v2.y;
+    verts[baseIndex + 8] = v2.z;
   }
 
   return verts;

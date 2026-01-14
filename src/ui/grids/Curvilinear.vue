@@ -18,7 +18,7 @@ import {
   makeGpuProjectedMeshMaterial,
   updateProjectionUniforms,
 } from "@/lib/shaders/gridShaders.ts";
-import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
+import type { TSources } from "@/lib/types/GlobeTypes.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import {
   UPDATE_MODE,
@@ -212,6 +212,204 @@ function cleanupMeshes(totalBatches: number) {
   meshes.length = 0;
 }
 
+function getNextColumnIndex(
+  i: number,
+  ni: number,
+  flipLongitude: boolean
+): number {
+  if (flipLongitude) {
+    return i === 0 ? ni - 1 : i - 1;
+  }
+  return (i + 1) % ni;
+}
+
+// Calculate the four corner indices for a grid cell
+function getCellCornerIndices(
+  j: number,
+  i: number,
+  ni: number,
+  flipLongitude: boolean
+) {
+  const iNext = getNextColumnIndex(i, ni, flipLongitude);
+  return {
+    idx00: j * ni + i,
+    idx01: j * ni + iNext,
+    idx10: (j + 1) * ni + i,
+    idx11: (j + 1) * ni + iNext,
+  };
+}
+
+// Extract corner coordinates for a cell
+function extractCellCorners(
+  indices: { idx00: number; idx01: number; idx10: number; idx11: number },
+  latitudes: Float64Array,
+  longitudes: Float64Array
+) {
+  const { idx00, idx01, idx11, idx10 } = indices;
+  return {
+    latPoints: [
+      latitudes[idx00],
+      latitudes[idx01],
+      latitudes[idx11],
+      latitudes[idx10],
+    ],
+    lonPoints: [
+      longitudes[idx00],
+      longitudes[idx01],
+      longitudes[idx11],
+      longitudes[idx10],
+    ],
+  };
+}
+
+function createBatchGeometry(
+  positionValues: Float32Array,
+  dataValues: Float32Array,
+  latLonValues: Float32Array,
+  indices: Uint32Array
+) {
+  const geometry = new THREE.BufferGeometry();
+
+  geometry.setAttribute(
+    "position",
+    new THREE.BufferAttribute(positionValues, 3)
+  );
+  geometry.setAttribute("data_value", new THREE.BufferAttribute(dataValues, 1));
+  geometry.setAttribute("latLon", new THREE.BufferAttribute(latLonValues, 2));
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+
+  return geometry;
+}
+
+function updateBatchMesh(
+  batchIndex: number,
+  geometry: THREE.BufferGeometry,
+  meshes: THREE.Mesh[]
+) {
+  if (meshes[batchIndex]) {
+    meshes[batchIndex].geometry.dispose();
+    meshes[batchIndex].geometry = geometry;
+  } else {
+    const mesh = new THREE.Mesh(geometry, colormapMaterial.value);
+    mesh.frustumCulled = false;
+    meshes.push(mesh);
+    getScene()?.add(mesh);
+  }
+}
+
+function initializeArrays(jEnd: number, jStart: number, ni: number) {
+  // Calculate cells in this batch
+  const batchCells = (jEnd - jStart) * ni;
+
+  // Pre-allocate arrays for this batch's Three.js geometry
+  // Each cell becomes a quad (4 vertices), each vertex has 3 coordinates (x,y,z)
+  const positionValues = new Float32Array(batchCells * 4 * 3);
+  // Each vertex gets a data value for the colormap shader
+  const dataValues = new Float32Array(batchCells * 4);
+  // Each vertex gets lat/lon for GPU projection (2 values per vertex)
+  const latLonValues = new Float32Array(batchCells * 4 * 2);
+  // Each quad is made of 2 triangles, each triangle needs 3 indices
+  const indices = new Uint32Array(batchCells * 6);
+  return { positionValues, dataValues, latLonValues, indices };
+}
+
+// Project all 4 vertices of a cell and update offsets
+function projectCellVertices(
+  latPoints: number[],
+  lonPoints: number[],
+  positionValues: Float32Array,
+  latLonValues: Float32Array,
+  positionOffset: number,
+  cellIndex: number
+): number {
+  const helper = projectionHelper.value;
+  let latLonOffset = cellIndex * 8;
+  let currentOffset = positionOffset;
+
+  for (let k = 0; k < 4; k++) {
+    helper.projectLatLonToArrays(
+      latPoints[k],
+      lonPoints[k],
+      positionValues,
+      currentOffset,
+      latLonValues,
+      latLonOffset
+    );
+    currentOffset += 3;
+    latLonOffset += 2;
+  }
+
+  return currentOffset;
+}
+
+function buildBatchGeometryData(
+  latitudes: Float64Array,
+  longitudes: Float64Array,
+  data: Float32Array,
+  jStart: number,
+  jEnd: number,
+  ni: number,
+  flipLongitude: boolean
+) {
+  const { positionValues, dataValues, latLonValues, indices } =
+    initializeArrays(jEnd, jStart, ni);
+
+  let positionOffset = 0; // Offset into positions array (increments by 12 per cell)
+  let idxOffset = 0; // Offset into indices array (increments by 6 per cell)
+  let cellIndex = 0; // Current cell number (used for vertex indexing)
+
+  // Main loop: iterate through grid cells in this batch
+  // j goes from jStart to jEnd-1 (we need j+1 to exist for each cell)
+  // i goes from 0 to ni-1 (full width, with wraparound for last column)
+  for (let j = jStart; j < jEnd; j++) {
+    for (let i = 0; i < ni; i++) {
+      // Convert 2D grid coordinates (j,i) to 1D array indices
+      // The 2D arrays are flattened in row-major order: index = j * ni + i
+      // Calculate indices for the 4 corners of this grid cell:
+      // Handle longitude ordering based on flip flag
+      const { idx00, idx01, idx10, idx11 } = getCellCornerIndices(
+        j,
+        i,
+        ni,
+        flipLongitude
+      );
+
+      const { latPoints, lonPoints } = extractCellCorners(
+        { idx00, idx01, idx10, idx11 },
+        latitudes,
+        longitudes
+      );
+
+      positionOffset = projectCellVertices(
+        latPoints,
+        lonPoints,
+        positionValues,
+        latLonValues,
+        positionOffset,
+        cellIndex
+      );
+
+      // Assign data value to all 4 vertices of this cell
+      // We use the data value from the bottom-left corner (idx00)
+      dataValues.fill(data[idx00], cellIndex * 4, cellIndex * 4 + 4);
+
+      // Create triangle indices to form a quad from our 4 vertices
+      // Each quad is split into 2 triangles:
+      // Triangle 1: vertices 0, 1, 2 (bottom-left, bottom-right, top-right)
+      // Triangle 2: vertices 0, 2, 3 (bottom-left, top-right, top-left)
+      // This creates counter-clockwise winding for proper rendering
+      const v = cellIndex * 4; // Base vertex index for this cell
+      indices.set([v, v + 1, v + 2, v, v + 2, v + 3], idxOffset);
+
+      // Move to next position in arrays for the next cell
+      idxOffset += 6; // 2 triangles × 3 indices = 6 indices
+      cellIndex++; // Increment cell counter
+    }
+  }
+
+  return createBatchGeometry(positionValues, dataValues, latLonValues, indices);
+}
+
 async function buildCurvilinearGeometry(
   latitudes: Float64Array, // 2D array flattened: lat values at each (j,i) grid point
   longitudes: Float64Array, // 2D array flattened: lon values at each (j,i) grid point
@@ -220,139 +418,23 @@ async function buildCurvilinearGeometry(
   ni: number, // Number of columns in the grid (i dimension)
   flipLongitude: boolean = false // Whether to flip longitude ordering
 ) {
-  // Clean up: remove old meshes from scene and dispose their geometries
-
   const totalBatches = Math.ceil((nj - 1) / BATCH_SIZE);
   cleanupMeshes(totalBatches);
-
-  // Calculate total number of batches
 
   for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
     const jStart = batchIndex * BATCH_SIZE;
     const jEnd = Math.min(jStart + BATCH_SIZE, nj - 1);
 
-    // Calculate cells in this batch
-    const batchCells = (jEnd - jStart) * ni;
-
-    // Pre-allocate arrays for this batch's Three.js geometry
-    // Each cell becomes a quad (4 vertices), each vertex has 3 coordinates (x,y,z)
-    const positionValues = new Float32Array(batchCells * 4 * 3);
-    // Each vertex gets a data value for the colormap shader
-    const dataValues = new Float32Array(batchCells * 4);
-    // Each vertex gets lat/lon for GPU projection (2 values per vertex)
-    const latLonValues = new Float32Array(batchCells * 4 * 2);
-    // Each quad is made of 2 triangles, each triangle needs 3 indices
-    const indices = new Uint32Array(batchCells * 6);
-
-    // Track our current position in the output arrays
-    let positionOffset = 0; // Offset into positions array (increments by 12 per cell)
-    let idxOffset = 0; // Offset into indices array (increments by 6 per cell)
-    let cellIndex = 0; // Current cell number (used for vertex indexing)
-
-    const helper = projectionHelper.value;
-
-    // Main loop: iterate through grid cells in this batch
-    // j goes from jStart to jEnd-1 (we need j+1 to exist for each cell)
-    // i goes from 0 to ni-1 (full width, with wraparound for last column)
-    for (let j = jStart; j < jEnd; j++) {
-      for (let i = 0; i < ni; i++) {
-        // Convert 2D grid coordinates (j,i) to 1D array indices
-        // The 2D arrays are flattened in row-major order: index = j * ni + i
-
-        // Calculate indices for the 4 corners of this grid cell:
-        // Handle longitude ordering based on flip flag
-        let iNext;
-        if (flipLongitude) {
-          // For datasets with decreasing longitude, reverse the progression
-          iNext = i === 0 ? ni - 1 : i - 1;
-        } else {
-          // Normal progression: wraparound for longitude
-          iNext = (i + 1) % ni;
-        }
-
-        const idx00 = j * ni + i; // Current position (j, i)
-        const idx01 = j * ni + iNext; // Next/previous column based on flip (j, i±1)
-        const idx10 = (j + 1) * ni + i; // Next row (j+1, i)
-        const idx11 = (j + 1) * ni + iNext; // Next row + column (j+1, i±1)
-
-        // Extract latitude and longitude values for each corner of the cell
-        const latPoints = [
-          latitudes[idx00],
-          latitudes[idx01],
-          latitudes[idx11],
-          latitudes[idx10],
-        ];
-        const lonPoints = [
-          longitudes[idx00],
-          longitudes[idx01],
-          longitudes[idx11],
-          longitudes[idx10],
-        ];
-        let latLonOffset = cellIndex * 8;
-        console.log(positionOffset);
-        for (let k = 0; k < 4; k++) {
-          // from bottom-left, anti-clockwise
-          helper.projectLatLonToArrays(
-            latPoints[k],
-            lonPoints[k],
-            positionValues,
-            positionOffset,
-            latLonValues,
-            latLonOffset
-          );
-          positionOffset += 3;
-          latLonOffset += 2;
-        }
-
-        // Assign data value to all 4 vertices of this cell
-        // We use the data value from the bottom-left corner (idx00)
-        const dataValue = data[idx00];
-        dataValues.fill(dataValue, cellIndex * 4, cellIndex * 4 + 4);
-
-        // Create triangle indices to form a quad from our 4 vertices
-        // Each quad is split into 2 triangles:
-        // Triangle 1: vertices 0, 1, 2 (bottom-left, bottom-right, top-right)
-        // Triangle 2: vertices 0, 2, 3 (bottom-left, top-right, top-left)
-        // This creates counter-clockwise winding for proper rendering
-        const v = cellIndex * 4; // Base vertex index for this cell
-        indices.set([v, v + 1, v + 2, v, v + 2, v + 3], idxOffset);
-
-        // Move to next position in arrays for the next cell
-        idxOffset += 6; // 2 triangles × 3 indices = 6 indices
-        cellIndex++; // Increment cell counter
-      }
-    }
-    // Create Three.js BufferGeometry from our arrays for this batch
-    const geometry = new THREE.BufferGeometry();
-
-    // Set vertex positions (x, y, z coordinates for each vertex)
-    geometry.setAttribute(
-      "position",
-      new THREE.BufferAttribute(positionValues, 3)
+    const geometry = buildBatchGeometryData(
+      latitudes,
+      longitudes,
+      data,
+      jStart,
+      jEnd,
+      ni,
+      flipLongitude
     );
-
-    // Set data values for colormap shader (one value per vertex)
-    geometry.setAttribute(
-      "data_value",
-      new THREE.BufferAttribute(dataValues, 1)
-    );
-
-    // Set lat/lon for GPU projection
-    geometry.setAttribute("latLon", new THREE.BufferAttribute(latLonValues, 2));
-
-    // Set triangle indices (which vertices form each triangle)
-    geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-
-    if (meshes[batchIndex]) {
-      meshes[batchIndex].geometry.dispose();
-      meshes[batchIndex].geometry = geometry;
-    } else {
-      const mesh = new THREE.Mesh(geometry, colormapMaterial.value);
-      // Disable frustum culling - GPU projection changes actual positions
-      mesh.frustumCulled = false;
-      meshes.push(mesh);
-      getScene()?.add(mesh);
-    }
+    updateBatchMesh(batchIndex, geometry, meshes);
   }
   // Update projection uniforms after geometry is built
   updateMeshProjectionUniforms();

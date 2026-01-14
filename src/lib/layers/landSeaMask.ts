@@ -9,6 +9,7 @@ import {
   getProjectionTypeFromMode,
 } from "@/lib/projection/projectionShaders";
 import {
+  AZIMUTHAL_CLIP_ANGLE,
   MERCATOR_LAT_LIMIT,
   PROJECTION_TYPES,
   ProjectionHelper,
@@ -438,9 +439,6 @@ class GpuProjectedMaskRenderer {
     }
   }
 
-  // Clip angle for azimuthal equidistant projection (matches coastline clipping)
-  private static readonly AZIMUTHAL_CLIP_ANGLE = 173;
-
   /**
    * Calculate angular distance from projection center to a point.
    * Uses the spherical law of cosines.
@@ -599,10 +597,6 @@ class GpuProjectedMaskRenderer {
     mode?: TLandSeaMaskMode
   ): THREE.BufferGeometry {
     const { latSegments, lonSegments } = this.GRID_RESOLUTION;
-
-    const geometry = new THREE.BufferGeometry();
-
-    const indices: number[] = [];
     const { vertices, uvs, angularDistances, isAzimuthal } =
       this.generateVerticesAndUVs(
         projectionHelper,
@@ -610,10 +604,46 @@ class GpuProjectedMaskRenderer {
         lonSegments,
         mode
       );
-    // Generate indices, but skip triangles that span the projection cut.
+    const indices = this.generateD3MaskIndices(
+      vertices,
+      angularDistances,
+      isAzimuthal,
+      latSegments,
+      lonSegments,
+      projectionHelper
+    );
+    return this.createBufferGeometry(vertices, uvs, indices);
+  }
+
+  private static generateD3MaskIndices(
+    vertices: number[],
+    angularDistances: number[],
+    isAzimuthal: boolean,
+    latSegments: number,
+    lonSegments: number,
+    projectionHelper: ProjectionHelper
+  ): number[] {
     const width = this.getProjectionWidth(projectionHelper);
     const threshold = width * 0.4; // Triangles spanning more than 40% of width are cut
+    return this.collectMaskTriangleIndices(
+      vertices,
+      angularDistances,
+      isAzimuthal,
+      latSegments,
+      lonSegments,
+      threshold
+    );
+  }
 
+  private static collectMaskTriangleIndices(
+    vertices: number[],
+    angularDistances: number[],
+    isAzimuthal: boolean,
+    latSegments: number,
+    lonSegments: number,
+    threshold: number
+  ): number[] {
+    const indices: number[] = [];
     for (let latIdx = 0; latIdx < latSegments; latIdx++) {
       for (let lonIdx = 0; lonIdx < lonSegments; lonIdx++) {
         const a = latIdx * (lonSegments + 1) + lonIdx;
@@ -629,7 +659,7 @@ class GpuProjectedMaskRenderer {
             a,
             b,
             c,
-            this.AZIMUTHAL_CLIP_ANGLE
+            AZIMUTHAL_CLIP_ANGLE
           );
         const withinClipCBD =
           !isAzimuthal ||
@@ -638,7 +668,7 @@ class GpuProjectedMaskRenderer {
             c,
             b,
             d,
-            this.AZIMUTHAL_CLIP_ANGLE
+            AZIMUTHAL_CLIP_ANGLE
           );
 
         // Triangle ABC
@@ -658,6 +688,15 @@ class GpuProjectedMaskRenderer {
         }
       }
     }
+    return indices;
+  }
+
+  private static createBufferGeometry(
+    vertices: number[],
+    uvs: number[],
+    indices: number[]
+  ): THREE.BufferGeometry {
+    const geometry = new THREE.BufferGeometry();
 
     geometry.setAttribute(
       "position",

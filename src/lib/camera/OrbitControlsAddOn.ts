@@ -28,6 +28,62 @@ declare module "three" {
 const TWO_PI = 2 * Math.PI;
 const ZOOM_STEP = 96;
 
+function handleArrowUp(
+  orbitControls: CustomOrbitControls,
+  isFlatProjection: boolean
+) {
+  if (isFlatProjection && orbitControls.enablePan) {
+    orbitControls._pan(0, -orbitControls.keyPanSpeed);
+  } else {
+    orbitControls._rotateUp(
+      (TWO_PI * orbitControls.rotateSpeed) /
+        orbitControls.domElement.clientHeight
+    );
+  }
+}
+
+function handleArrowDown(
+  orbitControls: CustomOrbitControls,
+  isFlatProjection: boolean
+) {
+  if (isFlatProjection && orbitControls.enablePan) {
+    orbitControls._pan(0, orbitControls.keyPanSpeed);
+  } else {
+    orbitControls._rotateUp(
+      (-TWO_PI * orbitControls.rotateSpeed) /
+        orbitControls.domElement.clientHeight
+    );
+  }
+}
+
+function handleArrowLeft(
+  orbitControls: CustomOrbitControls,
+  isFlatProjection: boolean
+) {
+  if (isFlatProjection && orbitControls.enablePan) {
+    orbitControls._pan(-orbitControls.keyPanSpeed, 0);
+  } else {
+    orbitControls._rotateLeft(
+      (TWO_PI * orbitControls.rotateSpeed) /
+        orbitControls.domElement.clientHeight
+    );
+  }
+}
+
+function handleArrowRight(
+  orbitControls: CustomOrbitControls,
+  isFlatProjection: boolean
+) {
+  if (isFlatProjection && orbitControls.enablePan) {
+    orbitControls._pan(orbitControls.keyPanSpeed, 0);
+  } else {
+    orbitControls._rotateLeft(
+      (-TWO_PI * orbitControls.rotateSpeed) /
+        orbitControls.domElement.clientHeight
+    );
+  }
+}
+
 export function handleKeyDown(
   event: KeyboardEvent,
   oC: OrbitControls,
@@ -36,53 +92,20 @@ export function handleKeyDown(
   const orbitControls = oC as CustomOrbitControls;
   switch (event.key) {
     case "ArrowUp":
-      if (isFlatProjection && orbitControls.enablePan) {
-        orbitControls._pan(0, -orbitControls.keyPanSpeed);
-      } else {
-        orbitControls._rotateUp(
-          (TWO_PI * orbitControls.rotateSpeed) /
-            orbitControls.domElement.clientHeight
-        );
-      }
+      handleArrowUp(orbitControls, isFlatProjection);
       break;
-
     case "ArrowDown":
-      if (isFlatProjection && orbitControls.enablePan) {
-        orbitControls._pan(0, orbitControls.keyPanSpeed);
-      } else {
-        orbitControls._rotateUp(
-          (-TWO_PI * orbitControls.rotateSpeed) /
-            orbitControls.domElement.clientHeight
-        );
-      }
+      handleArrowDown(orbitControls, isFlatProjection);
       break;
-
     case "ArrowLeft":
-      if (isFlatProjection && orbitControls.enablePan) {
-        orbitControls._pan(-orbitControls.keyPanSpeed, 0);
-      } else {
-        orbitControls._rotateLeft(
-          (TWO_PI * orbitControls.rotateSpeed) /
-            orbitControls.domElement.clientHeight
-        );
-      }
+      handleArrowLeft(orbitControls, isFlatProjection);
       break;
-
     case "ArrowRight":
-      if (isFlatProjection && orbitControls.enablePan) {
-        orbitControls._pan(orbitControls.keyPanSpeed, 0);
-      } else {
-        orbitControls._rotateLeft(
-          (-TWO_PI * orbitControls.rotateSpeed) /
-            orbitControls.domElement.clientHeight
-        );
-      }
+      handleArrowRight(orbitControls, isFlatProjection);
       break;
-
     case "+":
       orbitControls._dollyIn(orbitControls._getZoomScale(-ZOOM_STEP));
       break;
-
     case "-":
       orbitControls._dollyOut(orbitControls._getZoomScale(ZOOM_STEP));
       break;

@@ -30,6 +30,9 @@ export type TProjectionOptions = {
 
 export const MERCATOR_LAT_LIMIT = 85;
 
+// Clip angle for azimuthal equidistant projection (matches coastline clipping)
+export const AZIMUTHAL_CLIP_ANGLE = 173;
+
 // Clamp helper for projection center; falls back to 0 for non-finite input
 // because (lat: 0, lon: 0) is the neutral "reset" center used elsewhere.
 export function clamp(value: number, min: number, max: number) {
@@ -89,7 +92,9 @@ export class ProjectionHelper {
       case PROJECTION_TYPES.AZIMUTHAL_EQUIDISTANT:
         // The azimuthal equidistant projection needs to be clipped to avoid
         // extreme distortion near the edges.
-        d3Projection = d3.geoAzimuthalEquidistant().clipAngle(173);
+        d3Projection = d3
+          .geoAzimuthalEquidistant()
+          .clipAngle(AZIMUTHAL_CLIP_ANGLE);
         break;
       default:
         d3Projection = null;

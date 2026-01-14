@@ -343,6 +343,63 @@ function distanceSquared(
   return (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1) + (z2 - z1) * (z2 - z1);
 }
 
+function createGeometry(
+  positionValues: Float32Array,
+  uv: Float32Array,
+  latLonValues: Float32Array,
+  indices: number[]
+) {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setIndex(indices);
+  geometry.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute(positionValues, 3)
+  );
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  // Add latLon attribute for GPU projection
+  geometry.setAttribute(
+    "latLon",
+    new THREE.Float32BufferAttribute(latLonValues, 2)
+  );
+  return geometry;
+}
+
+function generateHealpixIndices(positionValues: Float32Array, steps: number) {
+  const indices = [];
+  for (let i = 0; i < steps - 1; ++i) {
+    for (let j = 0; j < steps - 1; ++j) {
+      const a = i * steps + (j + 1);
+      const b = i * steps + j;
+      const c = (i + 1) * steps + j;
+      const d = (i + 1) * steps + (j + 1);
+      const dac2 = distanceSquared(
+        positionValues[3 * a + 0],
+        positionValues[3 * a + 1],
+        positionValues[3 * a + 2],
+        positionValues[3 * c + 0],
+        positionValues[3 * c + 1],
+        positionValues[3 * c + 2]
+      );
+      const dbd2 = distanceSquared(
+        positionValues[3 * b + 0],
+        positionValues[3 * b + 1],
+        positionValues[3 * b + 2],
+        positionValues[3 * d + 0],
+        positionValues[3 * d + 1],
+        positionValues[3 * d + 2]
+      );
+      if (dac2 < dbd2) {
+        indices.push(a, c, d);
+        indices.push(b, c, a);
+      } else {
+        indices.push(a, b, d);
+        indices.push(b, c, d);
+      }
+    }
+  }
+  return indices;
+}
+
 function makeHealpixGeometry(
   nside: number,
   ipix: number,
@@ -355,7 +412,6 @@ function makeHealpixGeometry(
   const latitudes = new Float32Array(vertexCount);
   const longitudes = new Float32Array(vertexCount);
   const latLonValues = new Float32Array(vertexCount * 2);
-  const indices = [];
   let vertexIndex = 0;
 
   for (let i = 0; i < steps; ++i) {
@@ -386,50 +442,8 @@ function makeHealpixGeometry(
     }
   }
 
-  for (let i = 0; i < steps - 1; ++i) {
-    for (let j = 0; j < steps - 1; ++j) {
-      const a = i * steps + (j + 1);
-      const b = i * steps + j;
-      const c = (i + 1) * steps + j;
-      const d = (i + 1) * steps + (j + 1);
-
-      const dac2 = distanceSquared(
-        positionValues[3 * a + 0],
-        positionValues[3 * a + 1],
-        positionValues[3 * a + 2],
-        positionValues[3 * c + 0],
-        positionValues[3 * c + 1],
-        positionValues[3 * c + 2]
-      );
-      const dbd2 = distanceSquared(
-        positionValues[3 * b + 0],
-        positionValues[3 * b + 1],
-        positionValues[3 * b + 2],
-        positionValues[3 * d + 0],
-        positionValues[3 * d + 1],
-        positionValues[3 * d + 2]
-      );
-      if (dac2 < dbd2) {
-        indices.push(a, c, d);
-        indices.push(b, c, a);
-      } else {
-        indices.push(a, b, d);
-        indices.push(b, c, d);
-      }
-    }
-  }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setIndex(indices);
-  geometry.setAttribute(
-    "position",
-    new THREE.Float32BufferAttribute(positionValues, 3)
-  );
-  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
-  // Add latLon attribute for GPU projection
-  geometry.setAttribute(
-    "latLon",
-    new THREE.Float32BufferAttribute(latLonValues, 2)
-  );
+  const indices = generateHealpixIndices(positionValues, steps);
+  const geometry = createGeometry(positionValues, uv, latLonValues, indices);
   return { geometry, latitudes, longitudes };
 }
 
@@ -510,7 +524,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
   }
 }
 
-async function processDataVar(
+async function prepareDimensionData(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
   updateMode: TUpdateMode
 ) {
@@ -523,6 +537,18 @@ async function processDataVar(
     [datavar.shape.length - 1],
     varinfo.value?.dimRanges,
     updateMode === UPDATE_MODE.SLIDER_TOGGLE
+  );
+
+  return { dimensionRanges, indices };
+}
+
+async function processDataVar(
+  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  updateMode: TUpdateMode
+) {
+  const { dimensionRanges, indices } = await prepareDimensionData(
+    datavar,
+    updateMode
   );
 
   let dataMin = Number.POSITIVE_INFINITY;

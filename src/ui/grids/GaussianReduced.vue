@@ -162,126 +162,178 @@ function cleanupMeshes(totalBatches: number) {
   meshes.length = 0; // Clear our mesh array
 }
 
-async function getGrid(
+function createBatchGeometry(
+  positionValues: Float32Array,
+  dataValues: Float32Array,
+  latLonValues: Float32Array,
+  indices: Uint32Array
+) {
+  const geometry = new THREE.BufferGeometry();
+
+  geometry.setAttribute(
+    "position",
+    new THREE.BufferAttribute(positionValues, 3)
+  );
+  geometry.setAttribute("data_value", new THREE.BufferAttribute(dataValues, 1));
+  geometry.setAttribute("latLon", new THREE.BufferAttribute(latLonValues, 2));
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  geometry.computeBoundingSphere();
+
+  return geometry;
+}
+
+function initializeArrays(totalCells: number) {
+  const latLonValues = new Float32Array(totalCells * 4 * 2); // 4 vertices, 2 values (lat, lon)
+  const positionValues = new Float32Array(totalCells * 4 * 3); // 4 vertices, 3 values (x, y, z)
+  const dataValues = new Float32Array(totalCells * 4);
+  const indices = new Uint32Array(totalCells * 6);
+
+  return { positionValues, dataValues, latLonValues, indices };
+}
+
+const EPSILON = 0.002; // Small overlap in degrees to avoid z-fighting
+
+function createQuadVertices(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number,
+  positionValues: Float32Array,
+  latLonValues: Float32Array,
+  positionOffset: number,
+  latLonOffset: number
+) {
+  const helper = projectionHelper.value;
+  // Vertex 0: top-left
+  helper.projectLatLonToArrays(
+    lat1,
+    lon1 + EPSILON,
+    positionValues,
+    positionOffset,
+    latLonValues,
+    latLonOffset
+  );
+
+  // Vertex 1: top-right
+  helper.projectLatLonToArrays(
+    lat1,
+    lon1 - lon2 - EPSILON,
+    positionValues,
+    positionOffset + 3,
+    latLonValues,
+    latLonOffset + 2
+  );
+
+  // Vertex 2: bottom-right
+  helper.projectLatLonToArrays(
+    lat2 - EPSILON,
+    lon1 - lon2 - EPSILON,
+    positionValues,
+    positionOffset + 6,
+    latLonValues,
+    latLonOffset + 4
+  );
+
+  // Vertex 3: bottom-left
+  helper.projectLatLonToArrays(
+    lat2 - EPSILON,
+    lon1 + EPSILON,
+    positionValues,
+    positionOffset + 9,
+    latLonValues,
+    latLonOffset + 6
+  );
+}
+
+// Precompute total number of cells (quads) in this batch
+function getTotalCellNumber(
+  rows: Record<number, { lon: number; value: number }[]>,
+  lStart: number,
+  lEnd: number,
+  uniqueLats: number[]
+) {
+  let totalCells = 0;
+  for (let l = lStart; l < lEnd; l++) {
+    totalCells += rows[uniqueLats[l]].length;
+  }
+  return totalCells;
+}
+
+function getCellData(row1: { lon: number; value: number }[], i: number) {
+  const cell = row1[i];
+  const nextCell = row1[(i + 1) % row1.length];
+  const lon1 = cell.lon;
+  const lon2 = nextCell.lon;
+  // wrap-around adjustment
+  const dLon = (lon2 - lon1 + 360) % 360;
+  return { cell, lon1, lon2: dLon, nextCell };
+}
+
+function buildBatchGeometryData(
+  rows: Record<number, { lon: number; value: number }[]>,
+  uniqueLats: number[],
+  lStart: number,
+  lEnd: number
+) {
+  const totalCells = getTotalCellNumber(rows, lStart, lEnd, uniqueLats);
+  const { positionValues, dataValues, latLonValues, indices } =
+    initializeArrays(totalCells);
+
+  let latLonOffset = 0;
+  let positionOffset = 0;
+  let idxOffset = 0;
+  let cellIndex = 0;
+
+  for (let l = lStart; l < lEnd; l++) {
+    const lat1 = uniqueLats[l];
+    const lat2 = uniqueLats[l + 1];
+    const row = rows[lat1];
+
+    for (let i = 0; i < row.length; i++) {
+      const { cell, lon1, lon2 } = getCellData(row, i);
+
+      createQuadVertices(
+        lat1,
+        lon1,
+        lat2,
+        lon2,
+        positionValues,
+        latLonValues,
+        positionOffset,
+        latLonOffset
+      );
+
+      // Data value
+      dataValues.fill(cell.value, cellIndex * 4, cellIndex * 4 + 4);
+
+      // Indices for two triangles
+      const v = cellIndex * 4;
+      indices.set([v, v + 1, v + 2, v, v + 2, v + 3], idxOffset);
+
+      // Offsets
+      latLonOffset += 8; // 4 vertices * 2 values each
+      positionOffset += 12; // 4 vertices * 3 values each
+      idxOffset += 6;
+      cellIndex++;
+    }
+  }
+
+  return createBatchGeometry(positionValues, dataValues, latLonValues, indices);
+}
+
+async function buildGaussianReducedGeometry(
   latitudes: Float64Array,
   longitudes: Float64Array,
   data: Float32Array
 ) {
   const { rows, uniqueLats } = buildRows(latitudes, longitudes, data);
   const totalBatches = Math.ceil((uniqueLats.length - 1) / BATCH_SIZE);
+  cleanupMeshes(totalBatches);
 
   for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
     const lStart = batchIndex * BATCH_SIZE;
     const lEnd = Math.min(lStart + BATCH_SIZE, uniqueLats.length - 1);
-    let totalCells = 0;
-
-    // Precompute total number of cells (quads) in this batch
-    for (let l = lStart; l < lEnd; l++) {
-      totalCells += rows[uniqueLats[l]].length;
-    }
-
-    const latLonValues = new Float32Array(totalCells * 4 * 2); // 4 vertices, 2 values (lat, lon)
-    const positionValues = new Float32Array(totalCells * 4 * 3); // 4 vertices, 3 values (x, y, z)
-    const dataValues = new Float32Array(totalCells * 4);
-    const indices = new Uint32Array(totalCells * 6);
-
-    let latLonOffset = 0;
-    let positionOffset = 0;
-    let idxOffset = 0;
-    let cellIndex = 0;
-
-    const helper = projectionHelper.value;
-
-    for (let l = lStart; l < lEnd; l++) {
-      const lat1 = uniqueLats[l];
-      const lat2 = uniqueLats[l + 1];
-      const row1 = rows[lat1];
-
-      for (let i = 0; i < row1.length; i++) {
-        const cell = row1[i];
-        const nextCell = row1[(i + 1) % row1.length];
-        const lon1 = cell.lon;
-        const lon2 = nextCell.lon;
-        const dLon = (lon2 - lon1 + 360) % 360;
-
-        const EPSILON = 0.002; // Small overlap in degrees to avoid z-fighting
-
-        // Vertex 0: top-left
-        const v0Lat = lat1;
-        const v0Lon = lon1 + EPSILON;
-        helper.projectLatLonToArrays(
-          v0Lat,
-          v0Lon,
-          positionValues,
-          positionOffset,
-          latLonValues,
-          latLonOffset
-        );
-
-        // Vertex 1: top-right
-        const v1Lat = lat1;
-        const v1Lon = lon1 - dLon - EPSILON;
-        helper.projectLatLonToArrays(
-          v1Lat,
-          v1Lon,
-          positionValues,
-          positionOffset + 3,
-          latLonValues,
-          latLonOffset + 2
-        );
-
-        // Vertex 2: bottom-right
-        const v2Lat = lat2 - EPSILON;
-        const v2Lon = lon1 - dLon - EPSILON;
-        helper.projectLatLonToArrays(
-          v2Lat,
-          v2Lon,
-          positionValues,
-          positionOffset + 6,
-          latLonValues,
-          latLonOffset + 4
-        );
-
-        // Vertex 3: bottom-left
-        const v3Lat = lat2 - EPSILON;
-        const v3Lon = lon1 + EPSILON;
-        helper.projectLatLonToArrays(
-          v3Lat,
-          v3Lon,
-          positionValues,
-          positionOffset + 9,
-          latLonValues,
-          latLonOffset + 6
-        );
-
-        // Data value
-        dataValues.fill(cell.value, cellIndex * 4, cellIndex * 4 + 4);
-
-        // Indices for two triangles
-        const v = cellIndex * 4;
-        indices.set([v, v + 1, v + 2, v, v + 2, v + 3], idxOffset);
-
-        // Offsets
-        latLonOffset += 8; // 4 vertices * 2 values each
-        positionOffset += 12; // 4 vertices * 3 values each
-        idxOffset += 6;
-        cellIndex++;
-      }
-    }
-
-    // Build geometry with position and latLon attributes
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute(
-      "position",
-      new THREE.BufferAttribute(positionValues, 3)
-    );
-    geometry.setAttribute("latLon", new THREE.BufferAttribute(latLonValues, 2));
-    geometry.setAttribute(
-      "data_value",
-      new THREE.BufferAttribute(dataValues, 1)
-    );
-    geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-    geometry.computeBoundingSphere();
+    const geometry = buildBatchGeometryData(rows, uniqueLats, lStart, lEnd);
 
     updateOrCreateMesh(batchIndex, geometry);
   }
@@ -335,7 +387,7 @@ async function fetchAndRenderData(
 
   let { min, max, missingValue, fillValue } = getDataBounds(datavar, rawData);
 
-  await getGrid(latitudesData, longitudesData, rawData);
+  await buildGaussianReducedGeometry(latitudesData, longitudesData, rawData);
 
   // Set projection uniforms on all meshes after grid creation
   updateMeshProjectionUniforms();
