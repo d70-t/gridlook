@@ -228,17 +228,9 @@ onMounted(() => {
 </script>
 
 <template>
-  <nav
-    id="main_controls"
-    class="panel gl_controls"
-    :class="{ 'mobile-visible': !isHidden }"
-  >
-    <div class="panel-heading">
-      <div
-        v-if="modelInfo"
-        class="mobile-title text-wrap is-flex is-align-items-center"
-        style="display: flex; align-items: center"
-      >
+  <div class="header-container">
+    <div class="header-content">
+      <div v-if="modelInfo" class="mobile-title">
         <button
           type="button"
           class="button is-primary is-hidden-tablet p-3 mr-3"
@@ -262,9 +254,14 @@ onMounted(() => {
         ></i>
       </button>
     </div>
-
-    <Transition name="slide">
-      <div v-if="modelInfo && !isHidden" class="controls-scroll full-panel">
+  </div>
+  <Transition name="slide">
+    <nav
+      v-if="modelInfo && !isHidden"
+      id="main_controls"
+      class="panel gl_controls"
+    >
+      <div class="full-panel">
         <DataInput />
         <VariableSelector v-model="varnameSelector" :model-info="modelInfo" />
         <TimeControls />
@@ -290,23 +287,84 @@ onMounted(() => {
           @on-rotate="() => $emit('onRotate')"
         />
       </div>
-    </Transition>
-  </nav>
+    </nav>
+  </Transition>
 </template>
 
 <style lang="scss">
 @use "bulma/sass/utilities" as bulmaUt;
 
-.gl_controls {
+.header-container {
+  flex-wrap: nowrap;
+  overflow: visible;
+  border-radius: 0;
+  font-size: 1.1rem;
   position: fixed;
-  top: 0;
-  left: 0;
   width: 24rem;
-  max-height: 100vh; // Full screen height limit
+  z-index: 10;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  background: var(--bulma-scheme-main);
+  padding: 0 16px;
+  @media only screen and (max-width: bulmaUt.$tablet) {
+    width: 100%;
+  }
+}
+
+.header-content {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.header-content > button {
+  flex-shrink: 0;
+}
+
+.mobile-title {
+  display: flex;
+  align-items: center;
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.mobile-title > button {
+  flex-shrink: 0;
+}
+
+.ellipsis {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+@media only screen and (max-width: bulmaUt.$tablet) {
+  .header-content .mobile-title {
+    flex: 1;
+    min-width: 0;
+    overflow: auto;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .header-container {
+    background: var(--bulma-scheme-main);
+  }
+}
+
+.gl_controls {
+  margin-top: 56px;
+  width: 24rem;
+  min-width: 0;
   overflow-y: auto;
-  overflow-x: hidden;
-  border-radius: 0 0 bulmaUt.$radius bulmaUt.$radius !important;
-  z-index: 9;
+  flex-shrink: 0;
+  z-index: 10;
 
   .full-panel {
     background: var(--bulma-scheme-main);
@@ -323,47 +381,14 @@ onMounted(() => {
     margin-right: 3px;
   }
 
-  .panel-heading {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    flex-wrap: nowrap;
-    overflow: visible;
-    padding-left: 16px;
-    padding-right: 16px;
-    padding-top: 12px;
-    padding-bottom: 12px;
-    border-radius: 0;
-    font-size: 1.1rem;
-  }
-
-  .panel-heading .mobile-title {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .ellipsis {
-    overflow: hidden;
-    word-break: break-word;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    display: block;
-    width: 100%;
-  }
-
   @media only screen and (max-width: bulmaUt.$tablet) {
     width: 100%;
-    height: auto;
-    right: 0;
+    position: fixed;
+    height: 95%;
     border-radius: 0 !important;
 
     &.panel {
       border-radius: 0 !important;
-    }
-
-    .panel-heading .mobile-title {
-      flex: 1;
-      min-width: 0;
     }
 
     &.mobile-visible {
@@ -371,31 +396,26 @@ onMounted(() => {
     }
   }
 
-  @media (prefers-color-scheme: dark) {
-    .panel-heading {
-      background: var(--bulma-scheme-main);
-    }
+  &.slide-enter-active,
+  &.slide-leave-active {
+    transition: width 0.3s ease-out;
   }
 
-  .slide-enter-active,
-  .slide-leave-active {
-    transition: all 0.3s ease-out;
-  }
-
-  .slide-enter-from,
-  .slide-leave-to {
-    transform: translateX(-400px);
+  &.slide-enter-from,
+  &.slide-leave-to {
+    width: 0;
   }
 
   @media only screen and (max-width: bulmaUt.$tablet) {
-    .slide-enter-active,
-    .slide-leave-active {
-      transition: all 0.3s ease-out;
+    &.slide-enter-active,
+    &.slide-leave-active {
+      transition: height 0.3s ease-in;
     }
 
-    .slide-enter-from,
-    .slide-leave-to {
-      transform: translateY(-400px);
+    &.slide-enter-from,
+    &.slide-leave-to {
+      width: 100%;
+      height: 0;
     }
   }
 }

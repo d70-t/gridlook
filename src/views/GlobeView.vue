@@ -373,8 +373,14 @@ onMounted(async () => {
 </template>
 
 <style lang="scss">
+@use "bulma/sass/utilities" as bulmaUt;
+
 main {
   overflow: hidden;
+  display: flex;
+  @media only screen and (max-width: bulmaUt.$tablet) {
+    flex-direction: column;
+  }
 }
 div.top-right-loader {
   position: absolute;
