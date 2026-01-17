@@ -1,14 +1,13 @@
 <script lang="ts" setup>
-import { ref, onBeforeMount, type Ref } from "vue";
-import GlobeView from "./GlobeView.vue";
-import { useGlobeControlStore } from "../components/store/store";
-import { storeToRefs } from "pinia";
-import { type TURLParameterValues } from "../components/utils/urlParams";
-import {
-  STORE_PARAM_MAPPING,
-  useUrlParameterStore,
-} from "../components/store/paramStore";
 import { useEventListener } from "@vueuse/core";
+import { storeToRefs } from "pinia";
+import { ref, onBeforeMount, type Ref } from "vue";
+
+import GlobeView from "./GlobeView.vue";
+
+import { STORE_PARAM_MAPPING, useUrlParameterStore } from "@/store/paramStore";
+import { useGlobeControlStore } from "@/store/store";
+import type { TURLParameterValues } from "@/utils/urlParams";
 
 type TParams = Partial<Record<TURLParameterValues, string>>;
 
