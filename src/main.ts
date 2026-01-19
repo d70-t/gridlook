@@ -1,3 +1,4 @@
+import Aura from "@primevue/themes/aura";
 import { createPinia } from "pinia";
 import PrimeVue from "primevue/config";
 import ToastService from "primevue/toastservice";
@@ -10,6 +11,14 @@ const pinia = createPinia();
 
 app.use(router);
 app.use(pinia);
-app.use(PrimeVue);
+app.use(PrimeVue, {
+  theme: {
+    preset: Aura,
+    options: {
+      darkModeSelector: "system",
+    },
+  },
+  ripple: true,
+});
 app.use(ToastService);
 app.mount("#app");

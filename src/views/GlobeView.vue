@@ -50,7 +50,6 @@ const isInitialized = ref(false);
 const sourceValid = ref(false);
 const datasources: Ref<TSources | undefined> = ref(undefined);
 const gridType: Ref<T_GRID_TYPES | undefined> = ref(undefined);
-const debugPanelOpen = ref(false);
 
 const modelInfo = computed(() => {
   if (datasources.value === undefined) {
@@ -311,10 +310,6 @@ const toggleRotate = () => {
   }
 };
 
-const toggleDebugPanel = () => {
-  debugPanelOpen.value = !debugPanelOpen.value;
-};
-
 onMounted(async () => {
   // stop loading is handled in the grid components after data load
   store.startLoading();
@@ -336,14 +331,7 @@ onMounted(async () => {
     />
 
     <!-- Debug Panel (dev mode only) -->
-    <DebugPanel
-      v-if="isDev"
-      :datasources="datasources"
-      :grid-type="gridType"
-      :is-open="debugPanelOpen"
-      @close="debugPanelOpen = false"
-      @toggle="toggleDebugPanel"
-    />
+    <DebugPanel v-if="isDev" :datasources="datasources" :grid-type="gridType" />
 
     <div v-if="loading" class="top-right-loader loader" />
     <section

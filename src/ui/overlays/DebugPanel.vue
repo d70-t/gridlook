@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { storeToRefs } from "pinia";
+import { Drawer } from "primevue";
 import { ref, watch, computed } from "vue";
 import VueJsonPretty from "vue-json-pretty";
 import * as zarr from "zarrita";
@@ -15,12 +16,6 @@ import { useLog } from "@/utils/logging";
 const props = defineProps<{
   datasources?: TSources;
   gridType?: T_GRID_TYPES;
-  isOpen: boolean;
-}>();
-
-const emit = defineEmits<{
-  close: [];
-  toggle: [];
 }>();
 
 const { logError } = useLog();
@@ -34,6 +29,7 @@ const dimensions = ref<{ name: string; size: number }[]>([]);
 const latSlice = ref<{ first10: number[]; last10: number[] } | null>(null);
 const lonSlice = ref<{ first10: number[]; last10: number[] } | null>(null);
 const error = ref<string | null>(null);
+const isOpen = ref(false);
 
 const hasLatLon = computed(
   () => latSlice.value !== null || lonSlice.value !== null
@@ -123,9 +119,9 @@ async function fetchDebugInfo() {
 }
 
 watch(
-  () => [props.datasources, varnameSelector.value, props.isOpen],
+  () => [props.datasources, varnameSelector.value, isOpen.value],
   () => {
-    if (props.isOpen) {
+    if (isOpen.value) {
       fetchDebugInfo();
     }
   },
@@ -150,22 +146,17 @@ function formatValue(value: unknown): string {
     type="button"
     class="debug-toggle-button button is-small is-info"
     :title="isOpen ? 'Close debug panel' : 'Open debug panel'"
-    @click="emit('toggle')"
+    @click="isOpen = true"
   >
     <span>Show debug</span>
   </button>
 
-  <div class="debug-panel" :class="[{ 'is-open': isOpen }]">
-    <div class="debug-panel-header">
-      <h3 class="title is-5">Debug Info</h3>
-      <button
-        type="button"
-        class="delete"
-        aria-label="close"
-        @click="emit('close')"
-      ></button>
-    </div>
-
+  <Drawer
+    v-model:visible="isOpen"
+    header="Debug Info"
+    position="right"
+    :style="{ width: '400px' }"
+  >
     <div v-if="error" class="debug-panel-content">
       <div class="notification is-danger is-light">
         <strong>Error:</strong> {{ error }}
@@ -299,40 +290,13 @@ function formatValue(value: unknown): string {
         </div>
       </div>
     </div>
-  </div>
+  </Drawer>
 </template>
 
 <style lang="scss" scoped>
 @use "bulma/sass/utilities" as bulmaUt;
-
-.debug-panel {
-  position: fixed;
-  top: 0;
-  right: -400px;
+.panel-width {
   width: 400px;
-  height: 100vh;
-  background: var(--bulma-scheme-main);
-  box-shadow: -2px 0 8px rgba(0, 0, 0, 0.15);
-  z-index: 1001;
-  transition: right 0.3s ease-in-out;
-  display: flex;
-  flex-direction: column;
-
-  &.is-open {
-    right: 0;
-  }
-}
-
-.debug-panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1rem;
-  border-bottom: 1px solid var(--bulma-border);
-  flex-shrink: 0;
-  .title {
-    margin-bottom: 0;
-  }
 }
 
 .debug-panel-content {

@@ -7,6 +7,7 @@ import ActionControls from "./controls/ActionControls.vue";
 import BoundsControls from "./controls/BoundsControls.vue";
 import ColormapControls from "./controls/ColormapControls.vue";
 import DataInput from "./controls/DataInput.vue";
+import DimensionControl from "./controls/DimensionControl.vue";
 import DimensionSliders from "./controls/DimensionSliders.vue";
 import MaskControls from "./controls/MaskControls.vue";
 import ProjectionControls from "./controls/ProjectionControls.vue";
@@ -264,6 +265,7 @@ onMounted(() => {
       <div class="full-panel">
         <DataInput />
         <VariableSelector v-model="varnameSelector" :model-info="modelInfo" />
+        <DimensionControl />
         <TimeControls />
         <DimensionSliders />
         <BoundsControls

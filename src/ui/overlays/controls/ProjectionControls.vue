@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { storeToRefs } from "pinia";
+import { Panel } from "primevue";
 import { computed, ref, watch } from "vue";
 
 import { clamp, PROJECTION_TYPES } from "@/lib/projection/projectionUtils";
@@ -55,7 +56,7 @@ function resetProjectionCenter() {
 </script>
 
 <template>
-  <div class="panel-block is-flex is-flex-direction-column gap-2">
+  <Panel header="Projection" toggleable>
     <div class="select is-fullwidth mb-2">
       <select v-model="projectionMode">
         <option :value="PROJECTION_TYPES.NEARSIDE_PERSPECTIVE">
@@ -126,7 +127,7 @@ function resetProjectionCenter() {
         </div>
       </div>
     </div>
-  </div>
+  </Panel>
 </template>
 
 <style scoped>

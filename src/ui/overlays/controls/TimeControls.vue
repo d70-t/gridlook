@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import debounce from "lodash.debounce";
 import { storeToRefs } from "pinia";
+import { Panel } from "primevue";
 import { computed, ref, watch } from "vue";
 
 import { useGlobeControlStore } from "@/store/store";
@@ -84,10 +85,10 @@ console.log("timeRangeIndex", dimSlidersDisplay.value[timeRangeIndex.value]);
 </script>
 
 <template>
-  <div class="panel-block">
+  <Panel header="Time" toggleable>
     <div class="control">
       <div class="mb-2 w-100 is-flex is-justify-content-space-between">
-        <div class="my-2">Time:</div>
+        <div class="my-2">Time Index:</div>
         <div class="is-flex">
           <input
             v-model.number="localTimeValue"
@@ -129,5 +130,5 @@ console.log("timeRangeIndex", dimSlidersDisplay.value[timeRangeIndex.value]);
         {{ currentVarLongname }} / {{ currentVarUnits }}
       </div>
     </div>
-  </div>
+  </Panel>
 </template>

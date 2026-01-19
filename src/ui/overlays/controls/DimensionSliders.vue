@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import debounce from "lodash.debounce";
 import { storeToRefs } from "pinia";
+import { Panel } from "primevue";
 import { computed, ref, watch } from "vue";
 
 import { useGlobeControlStore } from "@/store/store";
@@ -79,9 +80,10 @@ watch(
 </script>
 
 <template>
-  <div v-if="hasNonTimeDimensions" class="panel-block">
+  <Panel v-if="hasNonTimeDimensions" header="Dimensions" class="shadow-sm m-2">
     <!-- Generic dimension sliders -->
     <div class="control">
+      <div class="mb-1 has-text-weight-semibold is-size-7">Dimensions</div>
       <template v-for="(range, index) in varinfo!.dimRanges" :key="index">
         <div
           v-if="range && range.name !== 'time'"
@@ -114,6 +116,6 @@ watch(
         />
       </template>
     </div>
-  </div>
+  </Panel>
   <div v-else></div>
 </template>

@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { storeToRefs } from "pinia";
+import { Panel } from "primevue";
 
 import ColorBar from "./ColorBar.vue";
 
@@ -20,7 +21,7 @@ const { colormap, invertColormap } = storeToRefs(store);
 </script>
 
 <template>
-  <div class="panel-block is-block w-100">
+  <Panel header="Colormap" toggleable class="shadow-sm m-2">
     <!-- Colormap Select + ColorBar -->
     <div class="columns is-mobile compact-row">
       <div class="column">
@@ -62,7 +63,7 @@ const { colormap, invertColormap } = storeToRefs(store);
         <label for="auto_colormap">auto</label>
       </div>
     </div>
-  </div>
+  </Panel>
 </template>
 
 <style lang="scss" scoped>

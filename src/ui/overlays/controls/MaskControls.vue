@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { storeToRefs } from "pinia";
+import { Panel } from "primevue";
 
 import { useGlobeControlStore } from "@/store/store";
 
@@ -8,14 +9,14 @@ const { landSeaMaskChoice, landSeaMaskUseTexture } = storeToRefs(store);
 </script>
 
 <template>
-  <div class="panel-block">
+  <Panel header="Masks" toggleable class="shadow-sm m-2">
     <div class="w-100 pt-2">
       <div class="columns compact-row is-flex is-align-items-center">
         <div class="column">
           <div class="control has-icons-left">
             <div class="select">
               <select id="land_sea_mask" v-model="landSeaMaskChoice">
-                <option value="off">-- Land/Sea Mask --</option>
+                <option value="off">-- Mask: Off --</option>
                 <option value="land">Land</option>
                 <option value="sea">Sea</option>
                 <option value="globe">Globe</option>
@@ -66,5 +67,5 @@ const { landSeaMaskChoice, landSeaMaskUseTexture } = storeToRefs(store);
         </div>
       </div>
     </div>
-  </div>
+  </Panel>
 </template>

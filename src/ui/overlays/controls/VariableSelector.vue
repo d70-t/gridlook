@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import { Panel } from "primevue";
 import { computed } from "vue";
 
 import type { TModelInfo } from "@/lib/types/GlobeTypes.js";
@@ -15,7 +16,7 @@ const variableOptions = computed(() => {
 </script>
 
 <template>
-  <div class="panel-block">
+  <Panel header="Variable" toggleable class="shadow-sm m-2">
     <div class="select is-fullwidth">
       <select v-model="model" class="form-control">
         <option
@@ -30,5 +31,5 @@ const variableOptions = computed(() => {
         </option>
       </select>
     </div>
-  </div>
+  </Panel>
 </template>
