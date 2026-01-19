@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import type { Dayjs } from "dayjs";
 import debounce from "lodash.debounce";
 import { storeToRefs } from "pinia";
 import { Panel } from "primevue";
@@ -105,6 +106,31 @@ function capitalize(str: string): string {
             :min="range.minBound"
             :max="range.maxBound"
           />
+          <div class="w-100 is-flex is-justify-content-space-between">
+            <div>
+              Current value:<span
+                :class="{ loader: store.loading === true }"
+              ></span>
+            </div>
+            <div class="has-text-right">
+              <span v-if="varinfo.dimRanges[index]?.name === 'time'">
+                {{
+                  (varinfo.dimInfo[index]?.current as Dayjs)?.format?.() ?? "-"
+                }}
+              </span>
+              <span v-else>{{ varinfo.dimInfo[index]?.current ?? "-" }}</span>
+              <br />
+            </div>
+          </div>
+          <div
+            v-if="
+              varinfo.dimInfo[index]?.longName || varinfo.dimInfo[index]?.units
+            "
+            class="has-text-right"
+          >
+            {{ varinfo.dimInfo[index]?.longName ?? "-" }} /
+            {{ varinfo.dimInfo[index]?.units ?? "-" }}
+          </div>
         </div>
       </Panel>
     </template>

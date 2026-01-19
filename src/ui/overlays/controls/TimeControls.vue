@@ -29,7 +29,7 @@ const isTimeSlider = computed(() => {
 
 const currentTimeValue = computed(() => {
   console.log(varinfo.value);
-  return varinfo.value?.timeinfo?.current;
+  return varinfo.value?.dimInfo?.current;
 });
 
 const currentVarName = computed(() => {

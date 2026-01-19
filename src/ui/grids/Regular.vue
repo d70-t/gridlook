@@ -6,7 +6,7 @@ import type * as zarr from "zarrita";
 
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
-import { getDimensionInfo } from "@/lib/data/dimensionHandling.ts";
+import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { castDataVarToFloat32, getDataBounds } from "@/lib/data/zarrUtils.ts";
 import {
@@ -53,7 +53,7 @@ const {
   toggleRotate,
   resetDataVars,
   getDataVar,
-  getTime,
+  fetchDimensionDetails,
   updateLandSeaMask,
   updateColormap,
   projectionHelper,
@@ -440,7 +440,7 @@ async function fetchAndRenderData(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
   updateMode: TUpdateMode
 ) {
-  const { dimensionRanges, indices } = getDimensionInfo(
+  const { dimensionRanges, indices } = buildDimensionRangesAndIndices(
     datavar,
     paramDimIndices.value,
     paramDimMinBounds.value,
@@ -470,12 +470,17 @@ async function fetchAndRenderData(
   mainMesh!.material = material;
   mainMesh!.material.needsUpdate = true;
 
-  const timeinfo = await getTime(props.datasources!, dimensionRanges, indices);
+  const dimInfo = await fetchDimensionDetails(
+    varnameSelector.value,
+    props.datasources!,
+    dimensionRanges,
+    indices
+  );
 
   store.updateVarInfo(
     {
       attrs: datavar.attrs,
-      timeinfo,
+      dimInfo: dimInfo,
       bounds: { low: min, high: max },
       dimRanges: dimensionRanges,
     },

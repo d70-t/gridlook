@@ -266,8 +266,6 @@ onMounted(() => {
         <DataInput />
         <VariableSelector v-model="varnameSelector" :model-info="modelInfo" />
         <DimensionControl />
-        <TimeControls />
-        <DimensionSliders />
         <BoundsControls
           :picked-bounds-mode="pickedBoundsMode"
           :active-bounds-mode="activeBoundsMode"

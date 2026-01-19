@@ -5,9 +5,10 @@ import type * as zarr from "zarrita";
 import { decodeTime } from "@/lib/data/timeHandling.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import type {
+  TDataSource,
   TDimensionRange,
   TSources,
-  TTimeInfo,
+  TDimInfo,
 } from "@/lib/types/GlobeTypes";
 import { useLog } from "@/utils/logging.ts";
 
@@ -43,7 +44,7 @@ export function useGridDataAccess() {
     datasources: TSources,
     dimensionRanges: TDimensionRange[],
     index: number
-  ): Promise<TTimeInfo> {
+  ): Promise<TDimInfo> {
     if (dimensionRanges[0]?.name !== "time") {
       return {};
     }
@@ -67,9 +68,44 @@ export function useGridDataAccess() {
     }
   }
 
+  async function getDimensionInfo(
+    datasource: TDataSource,
+    dimension: TDimensionRange,
+    index: number
+  ): Promise<TDimInfo> {
+    try {
+      const dimensionName = dimension?.name;
+      if (!dimensionName) {
+        return {};
+      }
+
+      const dimValues = (
+        await ZarrDataManager.getVariableData(datasource, dimensionName, [null])
+      ).data as Int32Array;
+
+      const dimvar = await ZarrDataManager.getVariableInfo(
+        datasource,
+        dimensionName
+      );
+      console.log(dimvar.attrs);
+      console.log("value", dimValues[index]);
+      return {
+        values: dimValues,
+        current: dimValues[index],
+        units: dimvar.attrs.units as string,
+        longName: (dimvar.attrs.long_name ??
+          dimvar.attrs.standard_name) as string,
+      };
+    } catch (error) {
+      console.error("Error fetching dimension info", error);
+      return {};
+    }
+  }
+
   return {
     resetDataVars,
     getDataVar,
     getTimeInfo,
+    getDimensionInfo,
   };
 }

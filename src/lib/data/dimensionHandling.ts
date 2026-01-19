@@ -1,5 +1,7 @@
 import * as zarr from "zarrita";
 
+import { ZarrDataManager } from "./ZarrDataManager";
+
 import type { TDimensionRange } from "@/lib/types/GlobeTypes";
 
 function setDimensionStart(
@@ -152,7 +154,7 @@ function calculateIndices(
   return indices;
 }
 
-export function getDimensionInfo(
+export function buildDimensionRangesAndIndices(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
   presetStarts: Record<string, string>,
   presetMinBounds: Record<string, string>,
