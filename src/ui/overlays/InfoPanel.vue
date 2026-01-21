@@ -160,7 +160,7 @@ function formatValue(value: unknown): string {
 
   <div class="info-panel" :class="[{ 'is-open': isOpen }]">
     <div class="info-panel-header">
-      <h3 class="title is-5">info Info</h3>
+      <h3 class="title is-5">Dataset Info</h3>
       <button
         type="button"
         class="delete"

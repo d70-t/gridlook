@@ -275,11 +275,11 @@ const updateSrc = async () => {
   // works. If both fail, we log the last error which is from the json-index.
   // This leads to confusing error messages if the zarr source is supposed to
   // work but fails for some reason.
-  let indices: PromiseSettledResult<TSources>[];
-  indices = await Promise.allSettled([indexFromZarr(src), indexFromIndex(src)]);
-  // FIXME: Trying zarr and json-index in parallel and picking the first that
+  const indices = await Promise.allSettled([
+    indexFromZarr(src),
+    indexFromIndex(src),
+  ]);
   let lastError = null;
-  // FIXME: Trying zarr and json-index in parallel and picking the first that
   store.isInitializingVariable = true;
   sourceValid.value = false;
   for (const index of indices) {
@@ -291,7 +291,6 @@ const updateSrc = async () => {
       lastError = index.reason;
     }
   }
-  // FIXME: Trying zarr and json-index in parallel and picking the first that
   if (!sourceValid.value && lastError) {
     store.stopLoading();
     logError(lastError, "Failed to fetch data");
