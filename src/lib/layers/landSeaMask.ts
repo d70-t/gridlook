@@ -938,9 +938,17 @@ class GpuProjectedMaskRenderer {
     const path = d3.geoPath(projection, ctx);
 
     if (isGlobeMaskMode(mode)) {
-      this.renderGlobeMode(ctx, path, land, useTexture, width, height);
+      await this.renderGlobeMode(ctx, path, land, useTexture, width, height);
     } else {
-      this.renderMaskedMode(ctx, path, land, useTexture, config, width, height);
+      await this.renderMaskedMode(
+        ctx,
+        path,
+        land,
+        useTexture,
+        config,
+        width,
+        height
+      );
     }
 
     const texture = new THREE.CanvasTexture(canvas);
