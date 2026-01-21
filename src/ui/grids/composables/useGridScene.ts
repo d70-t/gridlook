@@ -106,8 +106,9 @@ export function useGridScene(options: UseGridSceneOptions) {
     if (updateLOD) {
       updateLOD();
     }
-    getOrbitControls()?.update();
+    const controlsUpdated = getOrbitControls()?.update() ?? false;
     getRenderer()?.render(getScene()!, getCamera()!);
+    return controlsUpdated;
   }
 
   function getProjectedBounds() {
@@ -196,6 +197,7 @@ export function useGridScene(options: UseGridSceneOptions) {
 
     controls.enablePan = true;
     controls.enableRotate = false;
+    controls.enableDamping = false;
     controls.mouseButtons = {
       LEFT: THREE.MOUSE.PAN,
       MIDDLE: THREE.MOUSE.DOLLY,
@@ -212,6 +214,8 @@ export function useGridScene(options: UseGridSceneOptions) {
     cam.up.set(0, 0, 1);
     controls.enablePan = false;
     controls.enableRotate = true;
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
     controls.mouseButtons = {
       LEFT: THREE.MOUSE.ROTATE,
       MIDDLE: THREE.MOUSE.DOLLY,
@@ -443,15 +447,14 @@ export function useGridScene(options: UseGridSceneOptions) {
 
   function animationLoop() {
     cancelAnimationFrame(frameId.value);
-    if (!mouseDown && !getOrbitControls()?.autoRotate) {
-      render();
+    const controlsUpdated = render();
+    if (!mouseDown && !getOrbitControls()?.autoRotate && !controlsUpdated) {
       const cam = getCamera();
       if (cam) {
         cameraState.debouncedEncodeCameraToURL(cam);
       }
       return;
     }
-    render();
     frameId.value = requestAnimationFrame(animationLoop);
   }
 
