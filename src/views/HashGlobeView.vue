@@ -11,8 +11,11 @@ import type { TURLParameterValues } from "@/utils/urlParams";
 
 type TParams = Partial<Record<TURLParameterValues, string>>;
 
-const defaultSrc = ref("static/index_mr_dpp0066.json");
-const src = ref("static/index_mr_dpp0066.json");
+const DEFAULT_DATASET =
+  "https://s3.eu-dkrz-1.dkrz.cloud/wrcp-hackathon/data/ICON/d3hp003.zarr/P1D_mean_z7_atm";
+
+const defaultSrc = ref(DEFAULT_DATASET);
+const src = ref(DEFAULT_DATASET);
 const params: Ref<TParams> = ref({});
 
 const store = useGlobeControlStore();
