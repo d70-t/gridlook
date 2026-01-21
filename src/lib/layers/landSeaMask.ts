@@ -989,7 +989,7 @@ export async function getLandSeaMask(
 
     // Fallback to globe renderer if no projection helper
     return await GlobeMaskRenderer.render(choice, useTexture);
-  } catch (e) {
+  } catch {
     return undefined;
   }
 }

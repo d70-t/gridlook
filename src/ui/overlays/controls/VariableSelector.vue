@@ -1,19 +1,19 @@
 <script lang="ts" setup>
+import { storeToRefs } from "pinia";
 import { computed } from "vue";
 
 import type { TModelInfo } from "@/lib/types/GlobeTypes.js";
 import { useGlobeControlStore } from "@/store/store";
-import { storeToRefs } from "pinia";
-
-const store = useGlobeControlStore();
-
-const { loading } = storeToRefs(store);
 
 const model = defineModel<string>({ required: true });
 
 const props = defineProps<{
   modelInfo: TModelInfo;
 }>();
+
+const store = useGlobeControlStore();
+
+const { loading } = storeToRefs(store);
 
 const variableOptions = computed(() => {
   return Object.keys(props.modelInfo.vars);
