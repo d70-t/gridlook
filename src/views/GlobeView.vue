@@ -27,7 +27,7 @@ import GridRegular from "@/ui/grids/Regular.vue";
 import GridTriangular from "@/ui/grids/Triangular.vue";
 import AboutView from "@/ui/overlays/AboutModal.vue";
 import GlobeControls from "@/ui/overlays/Controls.vue";
-import DebugPanel from "@/ui/overlays/DebugPanel.vue";
+import InfoPanel from "@/ui/overlays/InfoPanel.vue";
 import { useLog } from "@/utils/logging";
 
 const props = defineProps<{ src: string }>();
@@ -40,7 +40,6 @@ const urlParameterStore = useUrlParameterStore();
 const { varnameSelector, loading, colormap, invertColormap } =
   storeToRefs(store);
 
-const isDev = import.meta.env.MODE === "development";
 const { paramVarname } = storeToRefs(urlParameterStore);
 
 const globe: Ref<typeof GridTriangular | null> = ref(null);
@@ -50,7 +49,7 @@ const isInitialized = ref(false);
 const sourceValid = ref(false);
 const datasources: Ref<TSources | undefined> = ref(undefined);
 const gridType: Ref<T_GRID_TYPES | undefined> = ref(undefined);
-const debugPanelOpen = ref(false);
+const infoPanelOpen = ref(false);
 
 const modelInfo = computed(() => {
   if (datasources.value === undefined) {
@@ -272,16 +271,15 @@ function prepareDefaults(src: string, index: TSources) {
 const updateSrc = async () => {
   const src = props.src;
   ZarrDataManager.invalidateCache();
-
   // FIXME: Trying zarr and json-index in parallel and picking the first that
   // works. If both fail, we log the last error which is from the json-index.
   // This leads to confusing error messages if the zarr source is supposed to
   // work but fails for some reason.
-  const indices = await Promise.allSettled([
-    indexFromZarr(src),
-    indexFromIndex(src),
-  ]);
+  let indices: PromiseSettledResult<TSources>[];
+  indices = await Promise.allSettled([indexFromZarr(src), indexFromIndex(src)]);
+  // FIXME: Trying zarr and json-index in parallel and picking the first that
   let lastError = null;
+  // FIXME: Trying zarr and json-index in parallel and picking the first that
   store.isInitializingVariable = true;
   sourceValid.value = false;
   for (const index of indices) {
@@ -293,9 +291,11 @@ const updateSrc = async () => {
       lastError = index.reason;
     }
   }
+  // FIXME: Trying zarr and json-index in parallel and picking the first that
   if (!sourceValid.value && lastError) {
     store.stopLoading();
     logError(lastError, "Failed to fetch data");
+    setGridType();
   }
 };
 
@@ -311,8 +311,8 @@ const toggleRotate = () => {
   }
 };
 
-const toggleDebugPanel = () => {
-  debugPanelOpen.value = !debugPanelOpen.value;
+const toggleInfoPanel = () => {
+  infoPanelOpen.value = !infoPanelOpen.value;
 };
 
 onMounted(async () => {
@@ -328,21 +328,11 @@ onMounted(async () => {
   <main>
     <Toast />
     <GlobeControls
-      v-if="sourceValid"
       :key="globeControlKey"
       :model-info="modelInfo"
+      :current-source="props.src"
       @on-snapshot="makeSnapshot"
       @on-rotate="toggleRotate"
-    />
-
-    <!-- Debug Panel (dev mode only) -->
-    <DebugPanel
-      v-if="isDev"
-      :datasources="datasources"
-      :grid-type="gridType"
-      :is-open="debugPanelOpen"
-      @close="debugPanelOpen = false"
-      @toggle="toggleDebugPanel"
     />
 
     <div v-if="loading" class="top-right-loader loader" />
@@ -368,7 +358,16 @@ onMounted(async () => {
       :datasources="datasources"
       :is-rotated="gridType === GRID_TYPES.REGULAR_ROTATED"
     />
-    <AboutView />
+    <div class="buttons about-corner-link">
+      <InfoPanel
+        :datasources="datasources"
+        :grid-type="gridType"
+        :is-open="infoPanelOpen"
+        @close="infoPanelOpen = false"
+        @toggle="toggleInfoPanel"
+      />
+      <AboutView />
+    </div>
   </main>
 </template>
 
@@ -376,6 +375,7 @@ onMounted(async () => {
 main {
   overflow: hidden;
 }
+
 div.top-right-loader {
   position: absolute;
   top: 10px;
@@ -385,12 +385,9 @@ div.top-right-loader {
   z-index: 1000;
 }
 
-.dev-gridtype {
-  position: fixed;
-  border-radius: 0.375rem;
-  background-color: #f3f4f6d8;
+.about-corner-link {
+  position: absolute;
   bottom: 18px;
-  left: 18px;
-  z-index: 8;
+  right: 18px;
 }
 </style>

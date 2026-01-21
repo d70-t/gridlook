@@ -78,7 +78,7 @@ async function getLatLonSample(
   };
 }
 
-async function fetchDebugInfo() {
+async function fetchInfoInfo() {
   if (
     !props.datasources ||
     !varnameSelector.value ||
@@ -126,7 +126,7 @@ watch(
   () => [props.datasources, varnameSelector.value, props.isOpen],
   () => {
     if (props.isOpen) {
-      fetchDebugInfo();
+      fetchInfoInfo();
     }
   },
   { immediate: true }
@@ -148,16 +148,19 @@ function formatValue(value: unknown): string {
   <button
     v-if="!isOpen"
     type="button"
-    class="debug-toggle-button button is-small is-info"
-    :title="isOpen ? 'Close debug panel' : 'Open debug panel'"
+    class="button is-small is-info"
+    :title="isOpen ? 'Close info panel' : 'Open info panel'"
     @click="emit('toggle')"
   >
-    <span>Show debug</span>
+    <span class="icon">
+      <i class="fa-solid fa-circle-info"></i>
+    </span>
+    <span>Dataset Info</span>
   </button>
 
-  <div class="debug-panel" :class="[{ 'is-open': isOpen }]">
-    <div class="debug-panel-header">
-      <h3 class="title is-5">Debug Info</h3>
+  <div class="info-panel" :class="[{ 'is-open': isOpen }]">
+    <div class="info-panel-header">
+      <h3 class="title is-5">info Info</h3>
       <button
         type="button"
         class="delete"
@@ -166,15 +169,15 @@ function formatValue(value: unknown): string {
       ></button>
     </div>
 
-    <div v-if="error" class="debug-panel-content">
+    <div v-if="error" class="info-panel-content">
       <div class="notification is-danger is-light">
         <strong>Error:</strong> {{ error }}
       </div>
     </div>
 
-    <div v-else class="debug-panel-content">
+    <div v-else class="info-panel-content">
       <!-- Grid Type -->
-      <section class="debug-section">
+      <section class="info-section">
         <h4
           class="title is-6 is-flex is-justify-content-space-between is-align-items-center"
         >
@@ -184,7 +187,7 @@ function formatValue(value: unknown): string {
       </section>
 
       <!-- Variable Info -->
-      <section class="debug-section">
+      <section class="info-section">
         <h4
           class="title is-6 is-flex is-justify-content-space-between is-align-items-center"
         >
@@ -194,7 +197,7 @@ function formatValue(value: unknown): string {
       </section>
 
       <!-- Dimensions -->
-      <section class="debug-section">
+      <section class="info-section">
         <h4 class="title is-6">Dimensions</h4>
         <div v-if="dimensions.length > 0" class="content">
           <table class="table is-narrow is-fullwidth is-size-7">
@@ -218,11 +221,11 @@ function formatValue(value: unknown): string {
       </section>
 
       <!-- Group Attributes -->
-      <section class="debug-section">
+      <section class="info-section">
         <h4 class="title is-6">Group Attributes</h4>
         <div
           v-if="groupAttrs && Object.keys(groupAttrs).length > 0"
-          class="debug-pre"
+          class="info-pre"
         >
           <VueJsonPretty :data="groupAttrs" />
         </div>
@@ -230,11 +233,11 @@ function formatValue(value: unknown): string {
       </section>
 
       <!-- Variable Attributes -->
-      <section class="debug-section">
+      <section class="info-section">
         <h4 class="title is-6">Variable Attributes</h4>
         <div
           v-if="variableAttrs && Object.keys(variableAttrs).length > 0"
-          class="debug-pre"
+          class="info-pre"
         >
           <VueJsonPretty :data="variableAttrs" />
         </div>
@@ -242,7 +245,7 @@ function formatValue(value: unknown): string {
       </section>
 
       <!-- Latitude Values -->
-      <section v-if="latSlice" class="debug-section">
+      <section v-if="latSlice" class="info-section">
         <h4 class="title is-6">Latitude Values</h4>
         <div class="">
           <p class="is-size-7 has-text-weight-semibold mb-2">First 10:</p>
@@ -267,7 +270,7 @@ function formatValue(value: unknown): string {
       </section>
 
       <!-- Longitude Values -->
-      <section v-if="lonSlice" class="debug-section">
+      <section v-if="lonSlice" class="info-section">
         <h4 class="title is-6">Longitude Values</h4>
         <div class="">
           <p class="is-size-7 has-text-weight-semibold mb-2">First 10:</p>
@@ -292,7 +295,7 @@ function formatValue(value: unknown): string {
       </section>
 
       <!-- No Lat/Lon Notice -->
-      <div v-if="!hasLatLon" class="debug-section">
+      <div v-if="!hasLatLon" class="info-section">
         <div class="notification is-info is-light is-size-7">
           <strong>Note:</strong> No lat/lon coordinates found for this grid
           type.
@@ -305,7 +308,7 @@ function formatValue(value: unknown): string {
 <style lang="scss" scoped>
 @use "bulma/sass/utilities" as bulmaUt;
 
-.debug-panel {
+.info-panel {
   position: fixed;
   top: 0;
   right: -400px;
@@ -323,7 +326,7 @@ function formatValue(value: unknown): string {
   }
 }
 
-.debug-panel-header {
+.info-panel-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -335,13 +338,13 @@ function formatValue(value: unknown): string {
   }
 }
 
-.debug-panel-content {
+.info-panel-content {
   flex: 1;
   overflow-y: auto;
   padding: 1rem;
 }
 
-.debug-section {
+.info-section {
   margin-bottom: 1.5rem;
   // border-bottom: 1px solid var(--bulma-border);
 
@@ -354,7 +357,7 @@ function formatValue(value: unknown): string {
   }
 }
 
-.debug-pre {
+.info-pre {
   padding: 0.75rem;
   border-radius: 4px;
   overflow-x: auto;
@@ -363,7 +366,7 @@ function formatValue(value: unknown): string {
   overflow-y: auto;
 }
 
-.debug-toggle-button {
+.info-toggle-button {
   position: fixed !important;
   top: 18px;
   right: 18px;

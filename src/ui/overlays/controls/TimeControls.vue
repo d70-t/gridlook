@@ -27,7 +27,6 @@ const isTimeSlider = computed(() => {
 });
 
 const currentTimeValue = computed(() => {
-  console.log(varinfo.value);
   return varinfo.value?.timeinfo?.current;
 });
 
@@ -79,8 +78,6 @@ watch(localTimeValue, (newValue) => {
     debouncedTimeUpdater.value(newValue);
   }
 });
-
-console.log("timeRangeIndex", dimSlidersDisplay.value[timeRangeIndex.value]);
 </script>
 
 <template>
@@ -110,11 +107,7 @@ console.log("timeRangeIndex", dimSlidersDisplay.value[timeRangeIndex.value]);
         :max="timeRange?.maxBound ?? 0"
       />
       <div class="w-100 is-flex is-justify-content-space-between">
-        <div>
-          Currently shown:<span
-            :class="{ loader: store.loading === true }"
-          ></span>
-        </div>
+        <div>Currently shown:</div>
         <div class="has-text-right">
           {{ currentVarName }} @
           {{ timeRangeIndex !== -1 ? dimSlidersDisplay[timeRangeIndex] : "-" }}

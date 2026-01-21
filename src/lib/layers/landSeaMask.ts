@@ -990,7 +990,6 @@ export async function getLandSeaMask(
     // Fallback to globe renderer if no projection helper
     return await GlobeMaskRenderer.render(choice, useTexture);
   } catch (e) {
-    console.error("Failed to create land/sea mask:", e);
     return undefined;
   }
 }

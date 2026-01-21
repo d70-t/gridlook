@@ -20,7 +20,7 @@ import { useUrlParameterStore } from "@/store/paramStore";
 import { useGlobeControlStore } from "@/store/store";
 import { MOBILE_BREAKPOINT } from "@/ui/common/viewConstants";
 
-const props = defineProps<{ modelInfo?: TModelInfo }>();
+const props = defineProps<{ modelInfo?: TModelInfo; currentSource: string }>();
 
 defineEmits<{
   onSnapshot: [];
@@ -234,6 +234,7 @@ onMounted(() => {
     :class="{ 'mobile-visible': !isHidden }"
   >
     <div class="panel-heading">
+      <DataInput :current-source="currentSource" />
       <div
         v-if="modelInfo"
         class="mobile-title text-wrap is-flex is-align-items-center"
@@ -251,8 +252,12 @@ onMounted(() => {
           {{ modelInfo.title }}
         </span>
       </div>
-      <div v-else>No data available</div>
-      <button type="button" class="is-hidden-mobile" @click="toggleMenu">
+      <div v-else class="mobile-title">No data available</div>
+      <button
+        type="button"
+        class="panel-toggle is-hidden-mobile"
+        @click="toggleMenu"
+      >
         <i
           class="fa-solid"
           :class="{
@@ -265,7 +270,6 @@ onMounted(() => {
 
     <Transition name="slide">
       <div v-if="modelInfo && !isHidden" class="controls-scroll full-panel">
-        <DataInput />
         <VariableSelector v-model="varnameSelector" :model-info="modelInfo" />
         <TimeControls />
         <DimensionSliders />
@@ -342,6 +346,18 @@ onMounted(() => {
     min-width: 0;
   }
 
+  .panel-heading .data-input-trigger {
+    order: 0;
+  }
+
+  .panel-heading .mobile-title {
+    order: 1;
+  }
+
+  .panel-heading .panel-toggle {
+    order: 2;
+  }
+
   .ellipsis {
     overflow: hidden;
     word-break: break-word;
@@ -364,6 +380,11 @@ onMounted(() => {
     .panel-heading .mobile-title {
       flex: 1;
       min-width: 0;
+    }
+
+    .panel-heading .data-input-trigger {
+      order: 2;
+      margin-left: auto;
     }
 
     &.mobile-visible {
