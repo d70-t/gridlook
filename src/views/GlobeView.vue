@@ -15,6 +15,7 @@ import {
   availableColormaps,
   type TColorMap,
 } from "@/lib/shaders/colormapShaders";
+import { lru } from "@/lib/data/lruStore";
 import { useUrlParameterStore } from "@/store/paramStore";
 import { useGlobeControlStore } from "@/store/store";
 import { useUrlSync } from "@/store/useUrlSync";
@@ -209,7 +210,7 @@ async function processZarrVariables(
 }
 
 async function indexFromZarr(src: string): Promise<TSources> {
-  const store = await zarr.withConsolidated(new zarr.FetchStore(src));
+  const store = await zarr.withConsolidated(lru(new zarr.FetchStore(src)));
   const root = await zarr.open(store, { kind: "group" });
   const datasources = await processZarrVariables(store, root, src);
 

@@ -23,6 +23,7 @@
     "lodash.debounce": "4.0.8",
     "pinia": "^3.0.4",
     "primevue": "^4.3.6",
+    "quick-lru": "^7.3.0",
     "three": "^0.182",
     "three-conic-polygon-geometry": "^2.1.2",
     "three-geojson-geometry": "^2.1.1",
