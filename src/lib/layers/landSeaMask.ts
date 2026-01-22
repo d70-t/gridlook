@@ -938,9 +938,17 @@ class GpuProjectedMaskRenderer {
     const path = d3.geoPath(projection, ctx);
 
     if (isGlobeMaskMode(mode)) {
-      this.renderGlobeMode(ctx, path, land, useTexture, width, height);
+      await this.renderGlobeMode(ctx, path, land, useTexture, width, height);
     } else {
-      this.renderMaskedMode(ctx, path, land, useTexture, config, width, height);
+      await this.renderMaskedMode(
+        ctx,
+        path,
+        land,
+        useTexture,
+        config,
+        width,
+        height
+      );
     }
 
     const texture = new THREE.CanvasTexture(canvas);
@@ -989,8 +997,7 @@ export async function getLandSeaMask(
 
     // Fallback to globe renderer if no projection helper
     return await GlobeMaskRenderer.render(choice, useTexture);
-  } catch (e) {
-    console.error("Failed to create land/sea mask:", e);
+  } catch {
     return undefined;
   }
 }

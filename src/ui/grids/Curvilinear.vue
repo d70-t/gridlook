@@ -163,8 +163,6 @@ async function getGrid(
     isMissingOrFill
   );
 
-  console.log("shouldFlipLongitude:", shouldFlipLongitude);
-
   await buildCurvilinearGeometry(
     latitudesData,
     longitudesData,
@@ -180,7 +178,6 @@ function detectLongitudeFlip(
   isMissingOrFill: (value: number) => boolean
 ): boolean {
   let previousValidLon: number | undefined;
-  console.log("longitudes", longitudes);
   for (let i = 0; i < longitudes.length; i++) {
     const lon = longitudes[i];
     if (isMissingOrFill(lon)) {
