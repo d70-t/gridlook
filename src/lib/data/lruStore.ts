@@ -30,10 +30,7 @@ export function lru<S extends zarr.Readable>(store: S, maxSize = 300) {
     const cacheKey = normalizeKey(key);
     const cached = cache.get(cacheKey);
     if (cached) {
-      console.log("LRU cache hit for key:", cacheKey);
       return cached;
-    } else {
-      console.log("LRU cache miss for key:", cacheKey);
     }
     const result = Promise.resolve(store.get(key, opts)).catch((err) => {
       cache.delete(cacheKey);
