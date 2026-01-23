@@ -62,7 +62,7 @@ const {
   box,
 } = useSharedGridLogic();
 
-const updateCount = ref(0);
+const pendingUpdate = ref(false);
 const updatingData = ref(false);
 
 const HEALPIX_NUMCHUNKS = 12;
@@ -139,15 +139,13 @@ function updateMeshProjectionUniforms() {
 async function datasourceUpdate() {
   resetDataVars();
   if (props.datasources !== undefined) {
-    if (props.datasources !== undefined) {
-      await Promise.all([fetchGrid(), getData()]);
-      updateLandSeaMask();
-      updateColormap(mainMeshes);
-    }
+    await Promise.all([fetchGrid(), getData()]);
+    updateLandSeaMask();
+    updateColormap(mainMeshes);
   }
 }
 
-async function fetchGrid() {
+function fetchGrid() {
   const gridStep = 64 + 1;
   try {
     for (let ipix = 0; ipix < HEALPIX_NUMCHUNKS; ipix++) {
@@ -500,22 +498,24 @@ function data2texture(
 
 async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
   store.startLoading();
-  try {
-    updateCount.value += 1;
-    const myUpdatecount = updateCount.value;
-    if (updatingData.value) {
-      return;
-    }
-    updatingData.value = true;
-    const datavar = await getDataVar(varnameSelector.value, props.datasources!);
-    if (datavar) {
-      await processDataVar(datavar, updateMode);
-    }
-    updatingData.value = false;
+  if (updatingData.value) {
+    pendingUpdate.value = true;
+    return;
+  }
 
-    if (updateCount.value !== myUpdatecount) {
-      await getData(updateMode);
-    }
+  updatingData.value = true;
+  try {
+    do {
+      pendingUpdate.value = false;
+      const datavar = await getDataVar(
+        varnameSelector.value,
+        props.datasources!
+      );
+      if (datavar) {
+        await processDataVar(datavar, updateMode);
+      }
+      updatingData.value = false;
+    } while (pendingUpdate.value);
   } catch (error) {
     logError(error, "Could not fetch data");
     updatingData.value = false;
@@ -524,7 +524,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
   }
 }
 
-async function prepareDimensionData(
+function prepareDimensionData(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
   updateMode: TUpdateMode
 ) {

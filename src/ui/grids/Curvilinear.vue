@@ -50,7 +50,7 @@ const urlParameterStore = useUrlParameterStore();
 const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
   storeToRefs(urlParameterStore);
 
-const updateCount = ref(0);
+const pendingUpdate = ref(false);
 const updatingData = ref(false);
 
 let meshes: THREE.Mesh[] = [];
@@ -163,7 +163,7 @@ async function getGrid(
     isMissingOrFill
   );
 
-  await buildCurvilinearGeometry(
+  buildCurvilinearGeometry(
     latitudesData,
     longitudesData,
     data,
@@ -407,7 +407,7 @@ function buildBatchGeometryData(
   return createBatchGeometry(positionValues, dataValues, latLonValues, indices);
 }
 
-async function buildCurvilinearGeometry(
+function buildCurvilinearGeometry(
   latitudes: Float64Array, // 2D array flattened: lat values at each (j,i) grid point
   longitudes: Float64Array, // 2D array flattened: lon values at each (j,i) grid point
   data: Float32Array, // 2D array flattened: data values at each (j,i) grid point
@@ -483,23 +483,23 @@ async function fetchAndRenderData(
 
 async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
   store.startLoading();
-  try {
-    updateCount.value += 1;
-    const myUpdatecount = updateCount.value;
-    if (updatingData.value) {
-      return;
-    }
-    updatingData.value = true;
-    const localVarname = varnameSelector.value;
-    const datavar = await getDataVar(localVarname, props.datasources!);
-    if (datavar) {
-      await fetchAndRenderData(datavar, updateMode);
-    }
+  if (updatingData.value) {
+    pendingUpdate.value = true;
+    return;
+  }
+  updatingData.value = true;
 
-    updatingData.value = false;
-    if (updateCount.value !== myUpdatecount) {
-      await getData();
-    }
+  try {
+    do {
+      pendingUpdate.value = false;
+      const localVarname = varnameSelector.value;
+      const datavar = await getDataVar(localVarname, props.datasources!);
+      if (datavar) {
+        await fetchAndRenderData(datavar, updateMode);
+      }
+
+      updatingData.value = false;
+    } while (pendingUpdate.value);
   } catch (error) {
     logError(error, "Could not fetch data");
     updatingData.value = false;

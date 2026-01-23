@@ -206,8 +206,8 @@ export const projectionShaderFunctions = `
 
   // Main projection function that dispatches to the appropriate projection
   vec3 projectLatLon(float lat, float lon, int projectionType, float centerLon, float centerLat, float radius) {
-    if (projectionType == PROJ_GLOBE) {
-      return projectGlobe(lat, lon, radius);
+    if (projectionType == PROJ_AZIMUTHAL_EQUIDISTANT) {
+      return projectAzimuthalEquidistant(lat, lon, centerLon, centerLat) * radius;
     } else if (projectionType == PROJ_EQUIRECTANGULAR) {
       return projectEquirectangular(lat, lon, centerLon, centerLat) * radius;
     } else if (projectionType == PROJ_MERCATOR) {
@@ -218,11 +218,9 @@ export const projectionShaderFunctions = `
       return projectMollweide(lat, lon, centerLon, centerLat) * radius;
     } else if (projectionType == PROJ_CYLINDRICAL_EQUAL_AREA) {
       return projectCylindricalEqualArea(lat, lon, centerLon, centerLat) * radius;
-    } else if (projectionType == PROJ_AZIMUTHAL_EQUIDISTANT) {
-      return projectAzimuthalEquidistant(lat, lon, centerLon, centerLat) * radius;
+    } else {
+      return projectGlobe(lat, lon, radius);
     }
-    // Fallback to equirectangular
-    return projectEquirectangular(lat, lon, centerLon, centerLat) * radius;
   }
 `;
 

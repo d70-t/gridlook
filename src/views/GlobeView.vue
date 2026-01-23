@@ -10,6 +10,7 @@ import {
   GRID_TYPES,
   type T_GRID_TYPES,
 } from "@/lib/data/gridTypeDetector";
+import { lru } from "@/lib/data/lruStore";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager";
 import {
   availableColormaps,
@@ -209,7 +210,7 @@ async function processZarrVariables(
 }
 
 async function indexFromZarr(src: string): Promise<TSources> {
-  const store = await zarr.withConsolidated(new zarr.FetchStore(src));
+  const store = await zarr.withConsolidated(lru(new zarr.FetchStore(src)));
   const root = await zarr.open(store, { kind: "group" });
   const datasources = await processZarrVariables(store, root, src);
 
