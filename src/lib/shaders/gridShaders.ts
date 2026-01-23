@@ -17,8 +17,16 @@ import {
   type TColorMap,
 } from "./colormapShaders";
 
+const isNaNGLSL = `
+bool is_nan(float v) {
+    return v != v;
+}
+`;
+
 const textureColormapFragmentShader = `
 ${colormapShaders}
+
+${isNaNGLSL}
 
 
 uniform float addOffset;
@@ -33,7 +41,7 @@ varying vec2 vUv;
 void main() {
     gl_FragColor.a = 1.0;
     float v_value = texture(data, vUv).r;
-    if (isnan(v_value) || v_value == fillValue || v_value == missingValue) {
+    if (is_nan(v_value) || v_value == fillValue || v_value == missingValue) {
         gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
         return;
     }
@@ -47,6 +55,8 @@ void main() {
 const scalarColormapFragmentShader = `
 ${colormapShaders}
 
+${isNaNGLSL}
+
 varying float v_value;
 uniform float addOffset;
 uniform float scaleFactor;
@@ -55,7 +65,7 @@ uniform float missingValue;
 uniform float fillValue;
 
 void main() {
-    if (isnan(v_value) || v_value == fillValue || v_value == missingValue) {
+    if (is_nan(v_value) || v_value == fillValue || v_value == missingValue) {
         gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
         return;
     }
@@ -78,6 +88,8 @@ const screenQuadValueVertexShader = `
 const pointFalloffFragmentShader = `
 ${colormapShaders}
 
+${isNaNGLSL}
+
 varying float v_value;
 uniform float addOffset;
 uniform float scaleFactor;
@@ -96,7 +108,7 @@ void main() {
     if (falloff < 0.01) discard; // Optional: discard transparent fragments
 
 
-    if (isnan(v_value) || v_value == fillValue || v_value == missingValue) {
+    if (is_nan(v_value) || v_value == fillValue || v_value == missingValue) {
         gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
         return;
     }
