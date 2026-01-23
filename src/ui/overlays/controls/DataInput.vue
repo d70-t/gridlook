@@ -1,10 +1,11 @@
 <script lang="ts" setup>
-import { ref, watch } from "vue";
+import { nextTick, ref, watch } from "vue";
 
 const props = defineProps<{ currentSource: string }>();
 
 const visible = ref(false);
 const dataPath = ref("");
+const datasetInput = ref<HTMLInputElement | null>(null);
 
 const syncPath = () => {
   dataPath.value = props.currentSource?.trim() ?? "";
@@ -18,9 +19,12 @@ watch(
   { immediate: true }
 );
 
-function open() {
+async function open() {
   syncPath();
   visible.value = true;
+  await nextTick();
+  datasetInput.value?.focus();
+  datasetInput.value?.select();
 }
 
 function close() {
@@ -58,6 +62,7 @@ function setLocationHash() {
               <div class="control has-icons-left">
                 <input
                   id="dataset-url"
+                  ref="datasetInput"
                   v-model="dataPath"
                   class="input"
                   type="url"
