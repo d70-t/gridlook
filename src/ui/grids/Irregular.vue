@@ -48,7 +48,7 @@ const urlParameterStore = useUrlParameterStore();
 const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
   storeToRefs(urlParameterStore);
 
-const updateCount = ref(0);
+const pendingUpdate = ref(false);
 const updatingData = ref(false);
 
 const estimatedSpacing = ref(0);
@@ -213,7 +213,7 @@ function estimateAverageSpacing(
   return totalWeight > 0 ? totalDistance / totalWeight : 0.01;
 }
 
-async function getGrid(
+function getGrid(
   latitudesVar: zarr.Chunk<zarr.DataType>,
   longitudesVar: zarr.Chunk<zarr.DataType>,
   data: Float32Array
@@ -349,7 +349,7 @@ async function fetchAndRenderData(
   const material = points!.material as THREE.ShaderMaterial;
   material.uniforms.fillValue.value = fillValue;
   material.uniforms.missingValue.value = missingValue;
-  await getGrid(latitudes, longitudes, rawData);
+  getGrid(latitudes, longitudes, rawData);
 
   const timeinfo = await getTime(props.datasources!, dimensionRanges, indices);
   store.updateVarInfo(
@@ -367,21 +367,20 @@ async function fetchAndRenderData(
 async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
   store.startLoading();
   try {
-    updateCount.value += 1;
-    const myUpdatecount = updateCount.value;
     if (updatingData.value) {
+      pendingUpdate.value = true;
       return;
     }
     updatingData.value = true;
-    const localVarname = varnameSelector.value;
-    const datavar = await getDataVar(localVarname, props.datasources!);
-    if (datavar !== undefined) {
-      await fetchAndRenderData(datavar, updateMode);
-    }
-    updatingData.value = false;
-    if (updateCount.value !== myUpdatecount) {
-      await getData(updateMode);
-    }
+    do {
+      pendingUpdate.value = false;
+      const localVarname = varnameSelector.value;
+      const datavar = await getDataVar(localVarname, props.datasources!);
+      if (datavar !== undefined) {
+        await fetchAndRenderData(datavar, updateMode);
+      }
+      updatingData.value = false;
+    } while (pendingUpdate.value);
   } catch (error) {
     logError(error, "Could not fetch data");
     updatingData.value = false;

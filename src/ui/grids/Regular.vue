@@ -61,7 +61,7 @@ const {
   box,
 } = useSharedGridLogic();
 
-const updateCount = ref(0);
+const pendingUpdate = ref(false);
 const updatingData = ref(false);
 
 const longitudes = ref(new Float64Array());
@@ -386,11 +386,7 @@ async function makeGeometry() {
   }
 }
 
-async function getRegularData(
-  arr: Float32Array,
-  latCount: number,
-  lonCount: number
-) {
+function getRegularData(arr: Float32Array, latCount: number, lonCount: number) {
   const texture = new THREE.DataTexture(
     arr,
     lonCount,
@@ -413,8 +409,8 @@ async function getRotatedNorthPole(): Promise<{ lat: number; lon: number }> {
   return { lat, lon };
 }
 
-async function makeMaterial(rawData: Float32Array) {
-  const textures = await getRegularData(
+function makeMaterial(rawData: Float32Array) {
+  const textures = getRegularData(
     rawData,
     latitudes.value.length,
     longitudes.value.length
@@ -455,7 +451,7 @@ async function fetchAndRenderData(
     (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
   );
 
-  const material = await makeMaterial(rawData);
+  const material = makeMaterial(rawData);
 
   // Set initial projection uniforms
   const helper = projectionHelper.value;
@@ -487,25 +483,25 @@ async function fetchAndRenderData(
 
 async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
   store.startLoading();
+  if (updatingData.value) {
+    pendingUpdate.value = true;
+    return;
+  }
+
   try {
-    updateCount.value += 1;
-    const myUpdatecount = updateCount.value;
-    if (updatingData.value) {
-      return;
-    }
-    updatingData.value = true;
+    do {
+      pendingUpdate.value = false;
+      updatingData.value = true;
 
-    const localVarname = varnameSelector.value;
+      const localVarname = varnameSelector.value;
 
-    const datavar = await getDataVar(localVarname, props.datasources!);
+      const datavar = await getDataVar(localVarname, props.datasources!);
 
-    if (datavar !== undefined) {
-      await fetchAndRenderData(datavar, updateMode);
-    }
-    updatingData.value = false;
-    if (updateCount.value !== myUpdatecount) {
-      await getData(updateMode);
-    }
+      if (datavar !== undefined) {
+        await fetchAndRenderData(datavar, updateMode);
+      }
+      updatingData.value = false;
+    } while (pendingUpdate.value);
   } catch (error) {
     logError(error, "Could not fetch data");
     updatingData.value = false;

@@ -45,7 +45,7 @@ const urlParameterStore = useUrlParameterStore();
 const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
   storeToRefs(urlParameterStore);
 
-const updateCount = ref(0);
+const pendingUpdate = ref(false);
 const updatingData = ref(false);
 
 let meshes: THREE.Mesh[] = [];
@@ -378,27 +378,25 @@ async function fetchAndRenderData(
 
 async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
   store.startLoading();
+  if (updatingData.value) {
+    return;
+  }
+  updatingData.value = true;
+
   try {
-    updateCount.value += 1;
-    const myUpdatecount = updateCount.value;
-    if (updatingData.value) {
-      return;
-    }
-    updatingData.value = true;
+    do {
+      pendingUpdate.value = false;
+      const localVarname = varnameSelector.value;
+      const datavar = await ZarrDataManager.getVariableInfo(
+        ZarrDataManager.getDatasetSource(props.datasources!, localVarname),
+        localVarname
+      );
 
-    const localVarname = varnameSelector.value;
-    const datavar = await ZarrDataManager.getVariableInfo(
-      ZarrDataManager.getDatasetSource(props.datasources!, localVarname),
-      localVarname
-    );
-
-    if (datavar !== undefined) {
-      await fetchAndRenderData(datavar, updateMode);
-    }
-    updatingData.value = false;
-    if (updateCount.value !== myUpdatecount) {
-      await getData(updateMode);
-    }
+      if (datavar !== undefined) {
+        await fetchAndRenderData(datavar, updateMode);
+      }
+      updatingData.value = false;
+    } while (pendingUpdate.value);
   } catch (error) {
     logError(error, "Could not fetch data");
     updatingData.value = false;

@@ -1,3 +1,5 @@
+// CREDITS: This code is adapted from Vizarr
+// https://github.com/hms-dbmi/vizarr/blob/537a4036641fe8600091f6a5bd5f76751ba01892/src/lru-store.ts
 import QuickLRU from "quick-lru";
 import type * as zarr from "zarrita";
 
