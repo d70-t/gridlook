@@ -152,7 +152,7 @@ function calculateIndices(
   return indices;
 }
 
-export function getDimensionInfo(
+export function buildDimensionRangesAndIndices(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
   presetStarts: Record<string, string>,
   presetMinBounds: Record<string, string>,

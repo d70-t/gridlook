@@ -6,7 +6,7 @@ import * as zarr from "zarrita";
 
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
-import { getDimensionInfo } from "@/lib/data/dimensionHandling.ts";
+import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   castDataVarToFloat32,
@@ -18,7 +18,7 @@ import {
   makeGpuProjectedMeshMaterial,
   updateProjectionUniforms,
 } from "@/lib/shaders/gridShaders.ts";
-import type { TSources } from "@/lib/types/GlobeTypes.ts";
+import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import {
   UPDATE_MODE,
@@ -61,7 +61,7 @@ const {
   makeSnapshot,
   toggleRotate,
   getDataVar,
-  getTime,
+  fetchDimensionDetails,
   updateLandSeaMask,
   updateColormap,
   projectionHelper,
@@ -437,11 +437,24 @@ function buildCurvilinearGeometry(
   updateMeshProjectionUniforms();
 }
 
+async function getDimensionValues(
+  dimensionRanges: TDimensionRange[],
+  indices: (number | zarr.Slice | null)[]
+) {
+  const dimValues = await fetchDimensionDetails(
+    varnameSelector.value,
+    props.datasources!,
+    dimensionRanges,
+    indices
+  );
+  return dimValues;
+}
+
 async function fetchAndRenderData(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
   updateMode: TUpdateMode
 ) {
-  const { dimensionRanges, indices } = getDimensionInfo(
+  const { dimensionRanges, indices } = buildDimensionRangesAndIndices(
     datavar,
     paramDimIndices.value,
     paramDimMinBounds.value,
@@ -465,12 +478,12 @@ async function fetchAndRenderData(
     material.uniforms.fillValue.value = fillValue;
   }
 
-  const timeinfo = await getTime(props.datasources!, dimensionRanges, indices);
+  const dimInfo = await getDimensionValues(dimensionRanges, indices);
 
   store.updateVarInfo(
     {
       attrs: datavar.attrs,
-      timeinfo,
+      dimInfo,
       bounds: { low: min, high: max },
       dimRanges: dimensionRanges,
     },

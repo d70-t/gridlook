@@ -14,7 +14,7 @@ import { getColormapScaleOffset } from "@/lib/shaders/gridShaders.ts";
 import type {
   TDimensionRange,
   TSources,
-  TTimeInfo,
+  TDimInfo,
 } from "@/lib/types/GlobeTypes";
 import { useGlobeControlStore } from "@/store/store.ts";
 
@@ -80,7 +80,8 @@ export function useSharedGridLogic() {
 
   updateCoastlines = updateCoastlinesInternal;
 
-  const { resetDataVars, getDataVar, getTimeInfo } = useGridDataAccess();
+  const { resetDataVars, getDataVar, getTimeInfo, getDimensionInfo } =
+    useGridDataAccess();
 
   const bounds = computed(() => {
     return selection.value;
@@ -151,26 +152,31 @@ export function useSharedGridLogic() {
     redraw();
   }
 
-  function getTimeIndex(
-    dimensionRanges: TDimensionRange[],
-    dimSlidersValues: (number | zarr.Slice | null)[]
-  ) {
-    if (dimensionRanges[0]?.name !== "time") {
-      return 0;
-    }
-    return dimSlidersValues[0];
-  }
-
-  async function getTime(
+  async function fetchDimensionDetails(
+    currentVariable: string,
     datasources: TSources,
     dimensionRanges: TDimensionRange[],
     dimSlidersValues: (number | zarr.Slice | null)[]
-  ): Promise<TTimeInfo> {
-    const currentTimeIndex = getTimeIndex(
-      dimensionRanges,
-      dimSlidersValues
-    ) as number;
-    return getTimeInfo(datasources, dimensionRanges, currentTimeIndex);
+  ): Promise<TDimInfo[]> {
+    const array: TDimInfo[] = [];
+    for (const dim of dimensionRanges) {
+      if (dim?.name === "time") {
+        const timeInfo = await getTimeInfo(
+          datasources,
+          dimensionRanges,
+          dimSlidersValues[0] as number
+        );
+        array.push(timeInfo);
+      } else {
+        const dimInfo = await getDimensionInfo(
+          datasources.levels[0].datasources[currentVariable],
+          dim!,
+          dimSlidersValues[dimensionRanges.indexOf(dim)] as number
+        );
+        array.push(dimInfo);
+      }
+    }
+    return array;
   }
 
   return {
@@ -182,7 +188,7 @@ export function useSharedGridLogic() {
     makeSnapshot,
     resetDataVars,
     getDataVar,
-    getTime,
+    fetchDimensionDetails,
     registerUpdateLOD,
     updateLandSeaMask,
     updateColormap,
