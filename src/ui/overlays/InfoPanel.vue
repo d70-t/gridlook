@@ -86,15 +86,13 @@ async function fetchInfoInfo() {
   ) {
     return;
   }
-
   error.value = null;
 
   try {
-    const gridSource = props.datasources.levels[0].grid;
     const varSource =
       props.datasources.levels[0].datasources[varnameSelector.value];
 
-    const group = await ZarrDataManager.getDatasetGroup(gridSource);
+    const group = await ZarrDataManager.getDatasetGroup(varSource);
     groupAttrs.value = group.attrs;
 
     const variable = await ZarrDataManager.getVariableInfo(
