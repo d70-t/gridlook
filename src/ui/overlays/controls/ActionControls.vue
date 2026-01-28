@@ -1,6 +1,6 @@
 <script lang="ts" setup>
-import { useToast } from "primevue/usetoast";
 import { storeToRefs } from "pinia";
+import { useToast } from "primevue/usetoast";
 
 import { PROJECTION_TYPES } from "@/lib/projection/projectionUtils";
 import { useGlobeControlStore } from "@/store/store";
@@ -41,7 +41,7 @@ async function shareUrl() {
       severity: "success",
       life: 3000,
     });
-  } catch (err) {
+  } catch {
     toast.add({
       summary: "Failed to copy",
       detail: "Could not copy the URL to clipboard",
@@ -54,7 +54,9 @@ async function shareUrl() {
 
 <template>
   <div class="panel-block">
-    <div class="w-100 is-flex is-justify-content-space-between is-flex-wrap-wrap action-buttons">
+    <div
+      class="w-100 is-flex is-justify-content-space-between is-flex-wrap-wrap action-buttons"
+    >
       <button class="button" type="button" @click="() => $emit('onSnapshot')">
         <span class="icon"><i class="fa-solid fa-image"></i></span>
         <span> Snapshot</span>
