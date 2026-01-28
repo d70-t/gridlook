@@ -327,6 +327,7 @@ function formatValue(value: unknown): string {
 @media only screen and (max-width: bulmaUt.$tablet) {
   .info-panel {
     width: 100%;
+    right: -100%;
   }
 }
 
