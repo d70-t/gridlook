@@ -17,8 +17,11 @@ function parseTimeUnits(units: string): { interval: string; ref: Dayjs } {
   const interval = regExMatch[1];
   let refdate = regExMatch[2];
   if (refdate.indexOf(" ") !== refdate.lastIndexOf(" ")) {
-    // if there are multiple spaces, it's likely because the timezone is included
-    // remove the timezone for dayjs parsing
+    // If there are multiple spaces, it's likely because the timezone is included.
+    // For example, CF-style units may look like:
+    //   "seconds since 2001-01-01 00:00:00.0 0:00"
+    // where "2001-01-01 00:00:00.0" is the reference datetime and "0:00" is the timezone.
+    // In that case, we remove the trailing timezone substring for dayjs parsing.
     const lastSpace = refdate.lastIndexOf(" ");
     refdate = refdate.substring(0, lastSpace);
   }
@@ -105,7 +108,9 @@ export function findTimeIndex(
   // Heuristic: assume uniform time steps
   const delta = toNumber(timeArray[1]) - firstValue;
   if (delta <= 0) {
-    throw new Error("Time array must be monotonically increasing");
+    throw new Error(
+      "Time array must be monotonically increasing (found duplicate or decreasing values)"
+    );
   }
 
   // Estimate index based on uniform step assumption (use floor for floor-index)

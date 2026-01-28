@@ -27,13 +27,13 @@ watch(
   () => {
     const newRanges = varinfo.value?.dimRanges;
     if (newRanges) {
-      // Initialize local sliders for non-time dimensions (skip index 0 which is time)
+      // Initialize local sliders fordimensions (skip index 0 which is time)
       localSliders.value = newRanges.map(
         (range, index) =>
           dimSlidersValues.value[index] ?? range?.startPos ?? null
       );
 
-      // Create stable debounced functions for non-time dimensions
+      // Create stable debounced functions for dimensions
       debouncedUpdaters.value = newRanges.map((_, index) => {
         return debounce((value: number) => {
           if (dimSlidersValues.value[index] !== undefined) {
