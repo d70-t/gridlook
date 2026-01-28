@@ -231,7 +231,7 @@ function openPicker() {
                   </strong>
                 </p>
                 <p class="has-text-grey mt-2 pt-2 current-hint">
-                  Old Index {{ currentIndex }}
+                  Old Index: {{ currentIndex }}
                 </p>
               </template>
               <template v-else>
