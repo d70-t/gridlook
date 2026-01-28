@@ -149,7 +149,7 @@ function openPicker() {
   <!-- Modal -->
 
   <Teleport to="body">
-    <div class="datetime-picker">
+    <div>
       <div class="modal" :class="{ 'is-active': isOpen }">
         <div class="modal-background" @click="onCancel"></div>
         <div class="modal-card">
@@ -164,8 +164,8 @@ function openPicker() {
           </header>
           <section class="modal-card-body">
             <!-- Range info -->
-            <div v-if="minDatetime && maxDatetime" class="mb-4">
-              <p class="has-text-grey">Available range:</p>
+            <div v-if="minDatetime && maxDatetime" class="mb-2">
+              <p class="has-text-grey">Available range</p>
               <p>
                 <strong>{{ minDatetime.format("YYYY-MM-DD HH:mm:ss") }}</strong>
                 to
@@ -174,8 +174,8 @@ function openPicker() {
             </div>
 
             <!-- Input field -->
-            <div class="field">
-              <label class="label">Enter datetime</label>
+            <div class="field mb-2">
+              <label class="label mb-1">Enter datetime</label>
               <div class="control">
                 <DatePicker
                   v-model="inputDatetime"
@@ -209,9 +209,7 @@ function openPicker() {
             <div
               class="is-flex is-justify-content-space-between is-align-items-center mb-2"
             >
-              <span class="has-text-weight-semibold has-text-grey"
-                >Selection Preview</span
-              >
+              <span class="has-text-grey">Selection Preview</span>
               <span v-if="errorMessage" class="is-size-7 has-text-danger">
                 <i class="fas fa-exclamation-circle"></i>
                 {{ errorMessage }}
@@ -220,7 +218,7 @@ function openPicker() {
             <div class="preview-content">
               <template v-if="previewIndex !== null && previewDatetime">
                 <p class="mb-1">
-                  <span class="has-text-grey">Index:</span>
+                  <span class="has-text-grey">New Index:</span>
                   <strong class="ml-2">{{ previewIndex }}</strong>
                   <span class="has-text-grey-light ml-2"
                     >(of {{ minIndex }}–{{ maxIndex }})</span
@@ -233,7 +231,7 @@ function openPicker() {
                   </strong>
                 </p>
                 <p class="has-text-grey mt-2 pt-2 current-hint">
-                  Current: Index {{ currentIndex }}
+                  Old Index {{ currentIndex }}
                 </p>
               </template>
               <template v-else>
