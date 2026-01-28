@@ -36,35 +36,15 @@ export function encodeTime(datetime: Dayjs, attrs: zarr.Attributes): number {
 
   const intervalLower = interval.toLowerCase();
 
-  // Calculate the difference in milliseconds first
-  const diffMs = datetime.diff(ref, "millisecond");
-
   // Convert to the target unit
   switch (intervalLower) {
     case "nanosecond":
     case "nanoseconds":
-    case "ns":
+    case "ns": {
+      // Calculate the difference in milliseconds first
+      const diffMs = datetime.diff(ref, "millisecond");
       return diffMs * 1e6;
-    case "millisecond":
-    case "milliseconds":
-    case "ms":
-      return diffMs;
-    case "second":
-    case "seconds":
-    case "s":
-      return diffMs / 1000;
-    case "minute":
-    case "minutes":
-    case "min":
-      return diffMs / (1000 * 60);
-    case "hour":
-    case "hours":
-    case "h":
-      return diffMs / (1000 * 60 * 60);
-    case "day":
-    case "days":
-    case "d":
-      return diffMs / (1000 * 60 * 60 * 24);
+    }
     default:
       // Fall back to dayjs diff for other units (month, year, etc.)
       return datetime.diff(ref, interval as dayjs.ManipulateType);

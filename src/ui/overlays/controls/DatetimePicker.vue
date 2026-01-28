@@ -77,14 +77,24 @@ function onInputChange() {
   previewIndex.value = null;
   previewDatetime.value = null;
 
-  console.log("Input datetime:", inputDatetime.value);
   if (!inputDatetime.value || !props.timeValues || !props.timeAttrs) {
     errorMessage.value = "Invalid datetime format";
     return;
   }
 
   try {
-    const parsed = dayjs.utc(inputDatetime.value);
+    // The DatePicker returns a Date object in local time, but we want to
+    // interpret the displayed values as UTC. Extract the components and
+    // construct a UTC datetime directly.
+    const date = inputDatetime.value;
+    const parsed = dayjs
+      .utc()
+      .year(date.getFullYear())
+      .month(date.getMonth())
+      .date(date.getDate())
+      .hour(date.getHours())
+      .minute(date.getMinutes())
+      .second(date.getSeconds());
     if (!parsed.isValid()) {
       errorMessage.value = "Invalid datetime format";
       return;
@@ -183,8 +193,11 @@ function openPicker() {
                   @blur="onInputChange"
                 >
                   <template #footer>
-                    <span v-if="previewIndex !== null" class="index-badge">
-                      Index: {{ previewIndex }}
+                    <span
+                      v-if="previewIndex !== null"
+                      class="tag is-info is-light"
+                    >
+                      New Index: {{ previewIndex }}
                     </span>
                   </template>
                 </DatePicker>
@@ -193,43 +206,41 @@ function openPicker() {
             </div>
 
             <!-- Preview section - always visible with fixed height -->
-            <div class="box">
-              <div
-                class="is-flex is-justify-content-space-between is-align-items-center mb-2"
+            <div
+              class="is-flex is-justify-content-space-between is-align-items-center mb-2"
+            >
+              <span class="has-text-weight-semibold has-text-grey"
+                >Selection Preview</span
               >
-                <span class="has-text-weight-semibold has-text-grey"
-                  >Selection Preview</span
-                >
-                <span v-if="errorMessage" class="is-size-7 has-text-danger">
-                  <i class="fas fa-exclamation-circle"></i>
-                  {{ errorMessage }}
-                </span>
-              </div>
-              <div class="preview-content">
-                <template v-if="previewIndex !== null && previewDatetime">
-                  <p class="mb-1">
-                    <span class="has-text-grey">Index:</span>
-                    <strong class="ml-2">{{ previewIndex }}</strong>
-                    <span class="has-text-grey-light ml-2"
-                      >(of {{ minIndex }}–{{ maxIndex }})</span
-                    >
-                  </p>
-                  <p class="mb-1">
-                    <span class="has-text-grey">Datetime:</span>
-                    <strong class="ml-2"
-                      >{{ previewDatetime.format("YYYY-MM-DD HH:mm:ss") }}
-                    </strong>
-                  </p>
-                  <p class="has-text-grey mt-2 pt-2 current-hint">
-                    Current: Index {{ currentIndex }}
-                  </p>
-                </template>
-                <template v-else>
-                  <p class="has-text-grey-light has-text-centered py-4">
-                    Select a datetime to preview
-                  </p>
-                </template>
-              </div>
+              <span v-if="errorMessage" class="is-size-7 has-text-danger">
+                <i class="fas fa-exclamation-circle"></i>
+                {{ errorMessage }}
+              </span>
+            </div>
+            <div class="preview-content">
+              <template v-if="previewIndex !== null && previewDatetime">
+                <p class="mb-1">
+                  <span class="has-text-grey">Index:</span>
+                  <strong class="ml-2">{{ previewIndex }}</strong>
+                  <span class="has-text-grey-light ml-2"
+                    >(of {{ minIndex }}–{{ maxIndex }})</span
+                  >
+                </p>
+                <p class="mb-1">
+                  <span class="has-text-grey">Datetime:</span>
+                  <strong class="ml-2"
+                    >{{ previewDatetime.format("YYYY-MM-DD HH:mm:ss") }}
+                  </strong>
+                </p>
+                <p class="has-text-grey mt-2 pt-2 current-hint">
+                  Current: Index {{ currentIndex }}
+                </p>
+              </template>
+              <template v-else>
+                <p class="has-text-grey-light has-text-centered py-4">
+                  Select a datetime to preview
+                </p>
+              </template>
             </div>
           </section>
           <footer class="modal-card-foot is-justify-content-flex-end">

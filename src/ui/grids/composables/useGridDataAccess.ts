@@ -88,8 +88,6 @@ export function useGridDataAccess() {
         datasource,
         dimensionName
       );
-      console.log(dimvar.attrs);
-      console.log("value", dimValues[index]);
       return {
         values: dimValues,
         current: dimValues[index],
@@ -98,8 +96,7 @@ export function useGridDataAccess() {
         longName: (dimvar.attrs.long_name ??
           dimvar.attrs.standard_name) as string,
       };
-    } catch (error) {
-      console.log("foo", error);
+    } catch {
       return {};
     }
   }
