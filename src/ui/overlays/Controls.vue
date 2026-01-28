@@ -7,10 +7,9 @@ import ActionControls from "./controls/ActionControls.vue";
 import BoundsControls from "./controls/BoundsControls.vue";
 import ColormapControls from "./controls/ColormapControls.vue";
 import DataInput from "./controls/DataInput.vue";
-import DimensionSliders from "./controls/DimensionSliders.vue";
+import DimensionControl from "./controls/DimensionControl.vue";
 import MaskControls from "./controls/MaskControls.vue";
 import ProjectionControls from "./controls/ProjectionControls.vue";
-import TimeControls from "./controls/TimeControls.vue";
 import VariableSelector from "./controls/VariableSelector.vue";
 
 // Import control components
@@ -271,8 +270,7 @@ onMounted(() => {
     <Transition name="slide">
       <div v-if="modelInfo && !isHidden" class="controls-scroll full-panel">
         <VariableSelector v-model="varnameSelector" :model-info="modelInfo" />
-        <TimeControls />
-        <DimensionSliders />
+        <DimensionControl />
         <BoundsControls
           :picked-bounds-mode="pickedBoundsMode"
           :active-bounds-mode="activeBoundsMode"

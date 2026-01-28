@@ -18,10 +18,18 @@ export type TDimensionRange = {
   maxBound: number;
 } | null;
 
-export type TTimeInfo = EmptyObj | { current: Dayjs; values: Int32Array };
+export type TDimInfo =
+  | EmptyObj
+  | {
+      current: Dayjs | number;
+      values: Int32Array;
+      units?: string;
+      attrs: zarr.Attributes;
+      longName?: string;
+    };
 
 export type TVarInfo = {
-  timeinfo: TTimeInfo;
+  dimInfo: TDimInfo[];
   bounds: TBounds;
   dimRanges: TDimensionRange[];
   attrs: zarr.Attributes;
