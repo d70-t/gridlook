@@ -17,12 +17,12 @@ async function shareViaAPI(url: string) {
           } else {
             reject(new Error("Canvas conversion failed"));
           }
-        });
+        }, "image/png");
       });
 
       // Create a File object for sharing
       canvasFile = new File([canvasBlob], "data.png", {
-        type: canvasBlob.type,
+        type: "image/png",
       });
     } catch {
       // Ignore errors in capturing canvas
@@ -37,7 +37,11 @@ async function shareViaAPI(url: string) {
     };
 
     // Add file if canvas was captured and sharing files is supported
-    if (canvasFile) {
+    if (
+      canvasFile &&
+      navigator.canShare &&
+      navigator.canShare({ files: [canvasFile] })
+    ) {
       shareData.files = [canvasFile];
     }
 
@@ -60,6 +64,7 @@ async function shareUrl() {
     if (shareSucceeded) {
       return;
     }
+    // If share failed (not cancelled), fall through to clipboard
   }
 
   // Fall back to clipboard (URL only)
