@@ -1,7 +1,6 @@
 <script lang="ts" setup>
 import dayjs from "dayjs";
 import duration from "dayjs/plugin/duration";
-import relativeTime from "dayjs/plugin/relativeTime";
 import humanizeDuration from "humanize-duration";
 import { storeToRefs } from "pinia";
 import { ref, watch, computed } from "vue";
@@ -31,7 +30,6 @@ const emit = defineEmits<{
 }>();
 
 dayjs.extend(duration);
-dayjs.extend(relativeTime);
 
 const { logError } = useLog();
 
@@ -383,7 +381,7 @@ function formatValue(value: unknown): string {
               <tr>
                 <td><strong>License</strong></td>
                 <td>
-                  <CollapsibleText :text="datasetLicense" :max-length="40" />
+                  <CollapsibleText :text="datasetLicense" />
                 </td>
               </tr>
             </tbody>
