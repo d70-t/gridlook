@@ -1,11 +1,18 @@
 <script lang="ts" setup>
+import dayjs from "dayjs";
+import duration from "dayjs/plugin/duration";
+import relativeTime from "dayjs/plugin/relativeTime";
+import humanizeDuration from "humanize-duration";
 import { storeToRefs } from "pinia";
 import { ref, watch, computed } from "vue";
 import VueJsonPretty from "vue-json-pretty";
 import * as zarr from "zarrita";
 
 import "vue-json-pretty/lib/styles.css";
+import CollapsibleText from "../common/CollapsibleText.vue";
+
 import { GRID_TYPES, type T_GRID_TYPES } from "@/lib/data/gridTypeDetector";
+import { decodeTime } from "@/lib/data/timeHandling";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager";
 import { getLatLonData } from "@/lib/data/zarrUtils";
 import type { TSources } from "@/lib/types/GlobeTypes";
@@ -23,6 +30,9 @@ const emit = defineEmits<{
   toggle: [];
 }>();
 
+dayjs.extend(duration);
+dayjs.extend(relativeTime);
+
 const { logError } = useLog();
 
 const store = useGlobeControlStore();
@@ -33,11 +43,153 @@ const variableAttrs = ref<zarr.Attributes | null>(null);
 const dimensions = ref<{ name: string; size: number }[]>([]);
 const latSlice = ref<{ first10: number[]; last10: number[] } | null>(null);
 const lonSlice = ref<{ first10: number[]; last10: number[] } | null>(null);
+const variableUnits = ref<string | null>(null);
+const variableLongName = ref<string | null>(null);
+const variableStandardName = ref<string | null>(null);
+const timeInfo = ref<{
+  units: string;
+  calendar: string;
+  firstTimestamp: string;
+  lastTimestamp: string;
+  timestep: string | null;
+  numTimesteps: number;
+} | null>(null);
 const error = ref<string | null>(null);
 
 const hasLatLon = computed(
   () => latSlice.value !== null || lonSlice.value !== null
 );
+
+// Computed properties for common group attributes
+const datasetTitle = computed(() => (groupAttrs.value?.title as string) || "-");
+
+const datasetContact = computed(
+  () =>
+    (groupAttrs.value?.contact as string) ||
+    (groupAttrs.value?.creator_email as string) ||
+    "-"
+);
+
+const datasetCreationDate = computed(
+  () =>
+    (groupAttrs.value?.creation_date as string) ||
+    (groupAttrs.value?.date_created as string) ||
+    "-"
+);
+
+const datasetInstitution = computed(
+  () =>
+    (groupAttrs.value?.institution as string) ||
+    (groupAttrs.value?.institute as string) ||
+    "-"
+);
+
+const datasetLicense = computed(
+  () =>
+    (groupAttrs.value?.license as string) ||
+    (groupAttrs.value?.licence as string) ||
+    "-"
+);
+
+const datasetDescription = computed(
+  () =>
+    (groupAttrs.value?.description as string) ||
+    (groupAttrs.value?.summary as string) ||
+    "-"
+);
+
+const datasetCreators = computed(
+  () =>
+    (groupAttrs.value?.creators as string) ||
+    (groupAttrs.value?.authors as string) ||
+    "-"
+);
+
+/**
+ * Converts a bigint or number to a number, handling BigInt64Array values.
+ */
+function toNumber(value: number | bigint): number {
+  return typeof value === "bigint" ? Number(value) : value;
+}
+
+/**
+ * Fetches time dimension data and decodes timestamps.
+ */
+async function fetchTimeData(
+  varSource: { store: string; dataset: string },
+  timeDimName: string
+) {
+  const timeVar = await ZarrDataManager.getVariableInfo(varSource, timeDimName);
+
+  const units = (timeVar.attrs?.units as string) || "unknown";
+  const calendar = (timeVar.attrs?.calendar as string) || "standard";
+  const numTimesteps = timeVar.shape[0];
+
+  // Get time values
+  const timeData = await ZarrDataManager.getVariableDataFromArray(timeVar);
+  const timeArray = timeData.data as
+    | Float64Array
+    | Float32Array
+    | BigInt64Array;
+
+  const firstValue = toNumber(timeArray[0]);
+  const lastValue = toNumber(timeArray[numTimesteps - 1]);
+
+  const firstTimestamp = decodeTime(firstValue, timeVar.attrs);
+  const lastTimestamp = decodeTime(lastValue, timeVar.attrs);
+
+  // Calculate timestep if more than 1 timestep
+  let timestep: string | null = null;
+  if (numTimesteps > 1) {
+    const secondValue = toNumber(timeArray[1]);
+    const secondTimestamp = decodeTime(secondValue, timeVar.attrs);
+    const diff = secondTimestamp.diff(firstTimestamp);
+    timestep = humanizeDuration(diff);
+  }
+
+  return {
+    units,
+    calendar,
+    firstTimestamp: firstTimestamp.format("YYYY-MM-DD HH:mm:ss"),
+    lastTimestamp: lastTimestamp.format("YYYY-MM-DD HH:mm:ss"),
+    timestep,
+    numTimesteps,
+  };
+}
+
+async function getTimeDimensionInfo(
+  variable: zarr.Array<zarr.DataType, zarr.FetchStore>
+) {
+  if (!props.datasources) {
+    return;
+  }
+
+  const arrayDims = variable.attrs?._ARRAY_DIMENSIONS as string[] | undefined;
+  if (!arrayDims) {
+    return;
+  }
+
+  // Find a time-like dimension
+  const timeDimNames = ["time", "t", "datetime", "date", "valid_time"];
+  const timeDimIndex = arrayDims.findIndex((dim) =>
+    timeDimNames.includes(dim.toLowerCase())
+  );
+
+  if (timeDimIndex === -1) {
+    timeInfo.value = null;
+    return;
+  }
+
+  const timeDimName = arrayDims[timeDimIndex];
+
+  try {
+    const varSource = props.datasources.levels[0].time;
+    timeInfo.value = await fetchTimeData(varSource, timeDimName);
+  } catch (err) {
+    logError(err);
+    timeInfo.value = null;
+  }
+}
 
 async function getLatLonSample(
   variable: zarr.Array<zarr.DataType, zarr.FetchStore>
@@ -101,6 +253,15 @@ async function fetchInfoInfo() {
     );
     variableAttrs.value = variable.attrs;
 
+    // Get variable units and long name
+    variableUnits.value = (variable.attrs?.units as string) || null;
+    variableStandardName.value =
+      (variable.attrs?.standard_name as string) || null;
+    variableLongName.value =
+      (variable.attrs?.long_name as string) ||
+      (variable.attrs?.name as string) ||
+      null;
+
     // Get dimensions
     const arrayDims = variable.attrs?._ARRAY_DIMENSIONS as string[] | undefined;
     if (arrayDims && Array.isArray(arrayDims)) {
@@ -115,6 +276,7 @@ async function fetchInfoInfo() {
       }));
     }
     getLatLonSample(variable);
+    getTimeDimensionInfo(variable);
   } catch (err) {
     logError(err);
   }
@@ -156,6 +318,9 @@ function formatValue(value: unknown): string {
     <span>Dataset Info</span>
   </button>
 
+  <!-- Backdrop for click-outside to close -->
+  <div v-if="isOpen" class="info-panel-backdrop" @click="emit('close')"></div>
+
   <div class="info-panel" :class="[{ 'is-open': isOpen }]">
     <div class="info-panel-header">
       <h3 class="title is-5">Dataset Info</h3>
@@ -184,6 +349,51 @@ function formatValue(value: unknown): string {
         </h4>
       </section>
 
+      <!-- Dataset Metadata -->
+      <section class="info-section">
+        <h4 class="title is-6">Dataset Metadata</h4>
+        <div class="content">
+          <table class="table is-narrow is-fullwidth is-size-7">
+            <tbody>
+              <tr>
+                <td><strong>Title</strong></td>
+                <td>{{ datasetTitle }}</td>
+              </tr>
+              <tr>
+                <td><strong>Description</strong></td>
+                <td>
+                  <CollapsibleText :text="datasetDescription" />
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Institution</strong></td>
+                <td>{{ datasetInstitution }}</td>
+              </tr>
+              <tr>
+                <td><strong>Creators</strong></td>
+                <td>
+                  <CollapsibleText :text="datasetCreators" />
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Contact</strong></td>
+                <td>{{ datasetContact }}</td>
+              </tr>
+              <tr>
+                <td><strong>Creation Date</strong></td>
+                <td>{{ datasetCreationDate }}</td>
+              </tr>
+              <tr>
+                <td><strong>License</strong></td>
+                <td>
+                  <CollapsibleText :text="datasetLicense" :max-length="40" />
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       <!-- Variable Info -->
       <section class="info-section">
         <h4
@@ -192,6 +402,35 @@ function formatValue(value: unknown): string {
           <span>Current Variable</span>
           <code>{{ varnameSelector }}</code>
         </h4>
+        <div class="content">
+          <table class="table is-narrow is-fullwidth is-size-7">
+            <tbody>
+              <tr>
+                <td><strong>Long name</strong></td>
+                <td>
+                  <span v-if="variableLongName">{{ variableLongName }}</span>
+                  <span v-else class="has-text-grey-light">-</span>
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Standard name</strong></td>
+                <td>
+                  <code v-if="variableStandardName">{{
+                    variableStandardName
+                  }}</code>
+                  <span v-else class="has-text-grey-light">-</span>
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Units</strong></td>
+                <td>
+                  <code v-if="variableUnits">{{ variableUnits }}</code>
+                  <span v-else class="has-text-grey-light">-</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <!-- Dimensions -->
@@ -216,6 +455,52 @@ function formatValue(value: unknown): string {
           </table>
         </div>
         <p v-else class="has-text-grey-light">No dimension info available</p>
+      </section>
+
+      <!-- Time Dimension Info -->
+      <section v-if="timeInfo" class="info-section">
+        <h4 class="title is-6">Time Dimension</h4>
+        <div class="content">
+          <table class="table is-narrow is-fullwidth is-size-7">
+            <tbody>
+              <tr>
+                <td><strong>Units</strong></td>
+                <td>
+                  <code>{{ timeInfo.units }}</code>
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Calendar</strong></td>
+                <td>
+                  <code>{{ timeInfo.calendar }}</code>
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Timesteps</strong></td>
+                <td>{{ timeInfo.numTimesteps }}</td>
+              </tr>
+              <tr v-if="timeInfo.timestep">
+                <td>
+                  <strong>Initial interval</strong>
+                  <span class="ml-1 has-text-grey is-size-7">(1st→2nd)</span>
+                </td>
+                <td>{{ timeInfo.timestep }}</td>
+              </tr>
+              <tr>
+                <td><strong>First timestamp</strong></td>
+                <td>
+                  <code>{{ timeInfo.firstTimestamp }}</code>
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Last timestamp</strong></td>
+                <td>
+                  <code>{{ timeInfo.lastTimestamp }}</code>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <!-- Group Attributes -->
@@ -305,6 +590,16 @@ function formatValue(value: unknown): string {
 
 <style lang="scss" scoped>
 @use "bulma/sass/utilities" as bulmaUt;
+
+.info-panel-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  z-index: 1000;
+}
 
 .info-panel {
   position: fixed;
