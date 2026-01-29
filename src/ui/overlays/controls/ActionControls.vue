@@ -1,6 +1,8 @@
 <script lang="ts" setup>
 import { storeToRefs } from "pinia";
 
+import ShareButton from "./ShareButton.vue";
+
 import { PROJECTION_TYPES } from "@/lib/projection/projectionUtils";
 import { useGlobeControlStore } from "@/store/store";
 
@@ -14,7 +16,9 @@ const { projectionMode } = storeToRefs(useGlobeControlStore());
 
 <template>
   <div class="panel-block">
-    <div class="w-100 is-flex is-justify-content-space-between">
+    <div
+      class="w-100 is-flex is-justify-content-space-between is-flex-wrap-wrap action-buttons"
+    >
       <button class="button" type="button" @click="() => $emit('onSnapshot')">
         <span class="icon"><i class="fa-solid fa-image"></i></span>
         <span> Snapshot</span>
@@ -35,6 +39,13 @@ const { projectionMode } = storeToRefs(useGlobeControlStore());
         </span>
         <span> Rotate </span>
       </button>
+      <ShareButton />
     </div>
   </div>
 </template>
+
+<style lang="scss" scoped>
+.action-buttons {
+  gap: 0.5rem;
+}
+</style>
