@@ -6,7 +6,7 @@ async function shareViaAPI(url: string) {
   let canvasFile: File | null = null;
 
   // Capture canvas if requested
-  const canvas = document.querySelector("canvas") as HTMLCanvasElement;
+  const canvas = document.querySelector("globe_box") as HTMLCanvasElement;
   if (canvas) {
     try {
       // Convert canvas to blob
