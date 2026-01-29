@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { storeToRefs } from "pinia";
-import { useToast } from "primevue/usetoast";
+
+import ShareButton from "./ShareButton.vue";
 
 import { PROJECTION_TYPES } from "@/lib/projection/projectionUtils";
 import { useGlobeControlStore } from "@/store/store";
@@ -11,45 +12,6 @@ defineEmits<{
 }>();
 
 const { projectionMode } = storeToRefs(useGlobeControlStore());
-const toast = useToast();
-
-async function shareUrl() {
-  const url = window.location.href;
-
-  // Try native share API first (mobile devices)
-  if (navigator.share) {
-    try {
-      await navigator.share({
-        title: document.title,
-        url: url,
-      });
-      return;
-    } catch (err) {
-      // User cancelled or share failed, fall back to clipboard
-      if ((err as Error).name === "AbortError") {
-        return; // User cancelled, don't show any message
-      }
-    }
-  }
-
-  // Fall back to clipboard
-  try {
-    await navigator.clipboard.writeText(url);
-    toast.add({
-      summary: "Link copied",
-      detail: "The URL has been copied to your clipboard",
-      severity: "success",
-      life: 3000,
-    });
-  } catch {
-    toast.add({
-      summary: "Failed to copy",
-      detail: "Could not copy the URL to clipboard",
-      severity: "error",
-      life: 4000,
-    });
-  }
-}
 </script>
 
 <template>
@@ -77,17 +39,7 @@ async function shareUrl() {
         </span>
         <span> Rotate </span>
       </button>
-      <button
-        class="button"
-        type="button"
-        title="Share the current view URL"
-        @click="shareUrl"
-      >
-        <span class="icon">
-          <i class="fa-solid fa-share-nodes"></i>
-        </span>
-        <span> Share </span>
-      </button>
+      <ShareButton />
     </div>
   </div>
 </template>
