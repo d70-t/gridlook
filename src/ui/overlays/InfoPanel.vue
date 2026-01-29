@@ -318,9 +318,6 @@ function formatValue(value: unknown): string {
     <span>Dataset Info</span>
   </button>
 
-  <!-- Backdrop for click-outside to close -->
-  <div v-if="isOpen" class="info-panel-backdrop" @click="emit('close')"></div>
-
   <div class="info-panel" :class="[{ 'is-open': isOpen }]">
     <div class="info-panel-header">
       <h3 class="title is-5">Dataset Info</h3>
@@ -590,16 +587,6 @@ function formatValue(value: unknown): string {
 
 <style lang="scss" scoped>
 @use "bulma/sass/utilities" as bulmaUt;
-
-.info-panel-backdrop {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: transparent;
-  z-index: 1000;
-}
 
 .info-panel {
   position: fixed;
