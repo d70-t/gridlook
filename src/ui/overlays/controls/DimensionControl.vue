@@ -21,6 +21,16 @@ const timeRangeIndex = computed(() => {
   );
 });
 
+const hasValidDimensions = computed(() => {
+  return (
+    varinfo.value &&
+    varinfo.value.dimRanges.length > 1 &&
+    varinfo.value.dimRanges.some(
+      (range) => range && (range.maxBound > 0 || range.name === "time")
+    )
+  );
+});
+
 // Watch for changes in varinfo to update local state
 watch(
   () => varinfo.value,
@@ -78,12 +88,15 @@ function capitalize(str: string): string {
 
 <template>
   <div
-    v-if="varinfo"
+    v-if="varinfo && hasValidDimensions"
     class="panel-block is-flex-direction-column"
     style="gap: 1.5em"
   >
     <template v-for="(range, index) in varinfo!.dimRanges" :key="index">
-      <div v-if="range" class="control">
+      <div
+        v-if="range && (range.maxBound > 0 || range.name === 'time')"
+        class="control"
+      >
         <!-- Generic dimension sliders -->
         <div class="">
           <div
