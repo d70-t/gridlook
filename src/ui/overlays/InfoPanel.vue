@@ -10,11 +10,16 @@ import * as zarr from "zarrita";
 import "vue-json-pretty/lib/styles.css";
 import CollapsibleText from "../common/CollapsibleText.vue";
 
-import { GRID_TYPES, type T_GRID_TYPES } from "@/lib/data/gridTypeDetector";
+import {
+  GRID_TYPE_DISPLAY_OVERRIDES,
+  GRID_TYPES,
+  type T_GRID_TYPES,
+} from "@/lib/data/gridTypeDetector";
 import { decodeTime } from "@/lib/data/timeHandling";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager";
 import { getLatLonData } from "@/lib/data/zarrUtils";
 import type { TSources } from "@/lib/types/GlobeTypes";
+import { useUrlParameterStore } from "@/store/paramStore";
 import { useGlobeControlStore } from "@/store/store";
 import { useLog } from "@/utils/logging";
 
@@ -27,6 +32,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   close: [];
   toggle: [];
+  toggleGridType: [];
 }>();
 
 dayjs.extend(duration);
@@ -35,6 +41,9 @@ const { logError } = useLog();
 
 const store = useGlobeControlStore();
 const { varnameSelector } = storeToRefs(store);
+
+const paramStore = useUrlParameterStore();
+const { paramGridType } = storeToRefs(paramStore);
 
 const groupAttrs = ref<zarr.Attributes | null>(null);
 const variableAttrs = ref<zarr.Attributes | null>(null);
@@ -53,6 +62,20 @@ const timeInfo = ref<{
   numTimesteps: number;
 } | null>(null);
 const error = ref<string | null>(null);
+
+const isGridTypeToggleAllowed = computed(() => {
+  if (!props.gridType) {
+    return false;
+  }
+  return !!GRID_TYPE_DISPLAY_OVERRIDES[props.gridType];
+});
+
+const activeGridType = computed(() => {
+  if (!props.gridType) {
+    return undefined;
+  }
+  return paramGridType.value || props.gridType;
+});
 
 const hasLatLon = computed(
   () => latSlice.value !== null || lonSlice.value !== null
@@ -340,7 +363,20 @@ function formatValue(value: unknown): string {
           class="title is-6 is-flex is-justify-content-space-between is-align-items-center"
         >
           <span>Grid Type</span>
-          <code>{{ gridType ?? "Unknown" }}</code>
+          <button
+            type="button"
+            class="button is-small is-light grid-type-toggle"
+            style="color: var(--bulma-code)"
+            :title="
+              isGridTypeToggleAllowed
+                ? 'Click to switch to the alternative rendering method'
+                : undefined
+            "
+            :disabled="!isGridTypeToggleAllowed"
+            @click="emit('toggleGridType')"
+          >
+            {{ activeGridType ?? "Unknown" }}
+          </button>
         </h4>
       </section>
 

@@ -7,6 +7,7 @@ import type { TModelInfo, TSources } from "../lib/types/GlobeTypes";
 
 import {
   getGridType,
+  GRID_TYPE_DISPLAY_OVERRIDES,
   GRID_TYPES,
   type T_GRID_TYPES,
 } from "@/lib/data/gridTypeDetector";
@@ -41,7 +42,7 @@ const urlParameterStore = useUrlParameterStore();
 const { varnameSelector, loading, colormap, invertColormap } =
   storeToRefs(store);
 
-const { paramVarname } = storeToRefs(urlParameterStore);
+const { paramVarname, paramGridType } = storeToRefs(urlParameterStore);
 
 const globe: Ref<typeof GridTriangular | null> = ref(null);
 const globeKey = ref(0);
@@ -49,8 +50,20 @@ const globeControlKey = ref(0);
 const isInitialized = ref(false);
 const sourceValid = ref(false);
 const datasources: Ref<TSources | undefined> = ref(undefined);
-const gridType: Ref<T_GRID_TYPES | undefined> = ref(undefined);
+const detectedGridType: Ref<T_GRID_TYPES | undefined> = ref(undefined);
 const infoPanelOpen = ref(false);
+
+const activeGridType = computed(() => {
+  const detected = detectedGridType.value;
+  if (!detected) {
+    return undefined;
+  }
+  if (paramGridType.value) {
+    return paramGridType.value as T_GRID_TYPES;
+  } else {
+    return detected;
+  }
+});
 
 const modelInfo = computed(() => {
   if (datasources.value === undefined) {
@@ -76,7 +89,7 @@ const currentGlobeComponent = computed(() => {
     [GRID_TYPES.CURVILINEAR]: GridCurvilinear,
   };
 
-  return gridMapping[gridType.value as keyof typeof gridMapping];
+  return gridMapping[activeGridType.value as keyof typeof gridMapping];
 });
 
 async function setGridType() {
@@ -89,7 +102,7 @@ async function setGridType() {
     datasources.value,
     logError
   );
-  gridType.value = localGridType;
+  detectedGridType.value = localGridType;
   if (localGridType === GRID_TYPES.ERROR) {
     store.stopLoading();
   }
@@ -100,7 +113,7 @@ watch(
   async () => {
     // Rerender controls and globe and reset store
     // if new data is provided
-    gridType.value = undefined;
+    detectedGridType.value = undefined;
     globeKey.value += 1;
     globeControlKey.value += 1;
     store.$reset();
@@ -311,6 +324,19 @@ const toggleRotate = () => {
   }
 };
 
+const toggleGridTypeOverride = () => {
+  const detected = detectedGridType.value;
+  if (!detected) {
+    return;
+  }
+
+  const override = GRID_TYPE_DISPLAY_OVERRIDES[detected];
+  if (!override) {
+    return;
+  }
+  paramGridType.value = paramGridType.value === override ? undefined : override;
+};
+
 const toggleInfoPanel = () => {
   infoPanelOpen.value = !infoPanelOpen.value;
 };
@@ -337,7 +363,7 @@ onMounted(async () => {
 
     <div v-if="loading" class="top-right-loader loader" />
     <section
-      v-if="gridType === GRID_TYPES.ERROR"
+      v-if="detectedGridType === GRID_TYPES.ERROR"
       class="hero is-fullheight"
       style="background: linear-gradient(135deg, #f8fafc 60%, #ffe5e5 100%)"
     >
@@ -352,19 +378,20 @@ onMounted(async () => {
       </div>
     </section>
     <currentGlobeComponent
-      v-else-if="gridType !== undefined"
+      v-else-if="detectedGridType !== undefined"
       ref="globe"
       :key="globeKey"
       :datasources="datasources"
-      :is-rotated="gridType === GRID_TYPES.REGULAR_ROTATED"
+      :is-rotated="detectedGridType === GRID_TYPES.REGULAR_ROTATED"
     />
     <div class="buttons about-corner-link">
       <InfoPanel
         :datasources="datasources"
-        :grid-type="gridType"
+        :grid-type="detectedGridType"
         :is-open="infoPanelOpen"
         @close="infoPanelOpen = false"
         @toggle="toggleInfoPanel"
+        @toggle-grid-type="toggleGridTypeOverride"
       />
       <AboutView />
     </div>

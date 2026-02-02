@@ -10,7 +10,7 @@ const URL_PARAMETERS = {
   PROJECTION: "projection",
   PROJECTION_CENTER_LAT: "projectionCenterLat",
   PROJECTION_CENTER_LON: "projectionCenterLon",
-
+  GRID_TYPE: "gridtype",
   DIM_INDICES: "dimIndices",
   DIM_MIN_BOUNDS: "dimMinBounds",
   DIM_MAX_BOUNDS: "dimMaxBounds",

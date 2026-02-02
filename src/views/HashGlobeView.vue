@@ -5,6 +5,7 @@ import { ref, onBeforeMount, type Ref } from "vue";
 
 import GlobeView from "./GlobeView.vue";
 
+import { GRID_TYPES, type T_GRID_TYPES } from "@/lib/data/gridTypeDetector";
 import { STORE_PARAM_MAPPING, useUrlParameterStore } from "@/store/paramStore";
 import { useGlobeControlStore } from "@/store/store";
 import type { TURLParameterValues } from "@/utils/urlParams";
@@ -57,6 +58,11 @@ const onHashChange = () => {
         urlParameterStore[STORE_PARAM_MAPPING.dimMaxBounds][
           key.substring("dimMaxBounds_".length)
         ] = value;
+      } else if (STORE_PARAM_MAPPING[key] === STORE_PARAM_MAPPING.gridtype) {
+        // Simple input validation: Check if the provided gridtype is a real grid type
+        if (!Object.values(GRID_TYPES).includes(value as T_GRID_TYPES)) {
+          continue;
+        }
       } else if (STORE_PARAM_MAPPING[key] === undefined) {
         continue;
       }
