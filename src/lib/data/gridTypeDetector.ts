@@ -18,6 +18,14 @@ export const GRID_TYPES = {
 
 export type T_GRID_TYPES = (typeof GRID_TYPES)[keyof typeof GRID_TYPES];
 
+/* Some grid types can be displayed as others. */
+export const GRID_TYPE_DISPLAY_OVERRIDES: Partial<
+  Record<T_GRID_TYPES, T_GRID_TYPES>
+> = {
+  [GRID_TYPES.CURVILINEAR]: GRID_TYPES.IRREGULAR,
+  [GRID_TYPES.GAUSSIAN_REDUCED]: GRID_TYPES.IRREGULAR,
+};
+
 async function checkTriangularGrid(
   datasources: TSources | undefined
 ): Promise<boolean> {

@@ -21,7 +21,7 @@ export function useUrlSync() {
   } = storeToRefs(store);
 
   const urlParameterStore = useUrlParameterStore();
-  const { paramCameraState } = storeToRefs(urlParameterStore);
+  const { paramCameraState, paramGridType } = storeToRefs(urlParameterStore);
 
   function changeURLHash(
     entries: Partial<Record<TURLParameterValues, string | number>>
@@ -186,6 +186,16 @@ export function useUrlSync() {
         return;
       }
       debouncedProjectionCenterSync(center.lat, center.lon);
+    }
+  );
+
+  watch(
+    () => paramGridType.value,
+    () => {
+      const gridType = paramGridType.value;
+      changeURLHash({
+        [URL_PARAMETERS.GRID_TYPE]: gridType === undefined ? "" : gridType,
+      });
     }
   );
 }
