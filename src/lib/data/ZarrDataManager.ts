@@ -135,6 +135,19 @@ export class ZarrDataManager {
     return datasources.levels[0].datasources[varname];
   }
 
+  static async getDimensionNames(datasources: TSources, varname: string) {
+    const source = this.getDatasetSource(datasources, varname) as TDataSource;
+    if (source.attrs && source.attrs.dimensionNames) {
+      return source.attrs.dimensionNames as string[];
+    }
+
+    const datavar = await ZarrDataManager.getVariableInfo(
+      ZarrDataManager.getDatasetSource(datasources, varname),
+      varname
+    );
+    return datavar.attrs._ARRAY_DIMENSIONS as string[];
+  }
+
   static invalidateCache() {
     this.fetchStore = null;
     this.fetchStorePath = null;

@@ -164,8 +164,10 @@ export async function getGridType(
       return crsGridType;
     }
 
-    // Check if it's a regular grid based on dimensions
-    const dimensions = datavar.attrs._ARRAY_DIMENSIONS as string[];
+    const dimensions = await ZarrDataManager.getDimensionNames(
+      datasources!,
+      varnameSelector
+    );
     if (checkRegularGridFromDimensions(dimensions)) {
       return GRID_TYPES.REGULAR;
     }

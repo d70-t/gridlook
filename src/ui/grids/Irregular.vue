@@ -320,6 +320,29 @@ async function getDimensionValues(
   return dimValues;
 }
 
+async function prepareDimensionData(
+  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  updateMode: TUpdateMode
+) {
+  const dimensionNames = await ZarrDataManager.getDimensionNames(
+    props.datasources!,
+    varnameSelector.value
+  );
+  const { dimensionRanges, indices } = buildDimensionRangesAndIndices(
+    datavar,
+    dimensionNames,
+    paramDimIndices.value,
+    paramDimMinBounds.value,
+    paramDimMaxBounds.value,
+    dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
+    [datavar.shape.length - 1],
+    varinfo.value?.dimRanges,
+    updateMode === UPDATE_MODE.SLIDER_TOGGLE
+  );
+
+  return { dimensionRanges, indices };
+}
+
 async function fetchAndRenderData(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
   updateMode: TUpdateMode
@@ -327,6 +350,7 @@ async function fetchAndRenderData(
   // Load latitudes and longitudes arrays (1D)
   const { latitudes, longitudes, latitudesAttrs, longitudesAttrs } =
     await getLatLonData(datavar, props.datasources);
+  // FIXME: Needs to be changed for Zarr V3
   const dimensions = datavar.attrs._ARRAY_DIMENSIONS as string[];
   const geoDims: number[] = [];
   for (let i = 0; i < dimensions.length; i++) {
@@ -338,15 +362,10 @@ async function fetchAndRenderData(
       geoDims.push(i);
     }
   }
-  const { dimensionRanges, indices } = buildDimensionRangesAndIndices(
+
+  const { dimensionRanges, indices } = await prepareDimensionData(
     datavar,
-    paramDimIndices.value,
-    paramDimMinBounds.value,
-    paramDimMaxBounds.value,
-    dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
-    geoDims,
-    varinfo.value?.dimRanges,
-    updateMode === UPDATE_MODE.SLIDER_TOGGLE
+    updateMode
   );
 
   let rawData = castDataVarToFloat32(
