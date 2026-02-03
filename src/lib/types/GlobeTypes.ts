@@ -69,3 +69,12 @@ export type TSources = {
     datasources: Record<string, TDataSource>;
   }[];
 };
+
+export type TZarrV3RootMetadata = {
+  zarr_format: 3;
+  node_type: "group";
+  attributes?: Record<string, unknown>;
+  consolidated_metadata: {
+    metadata: Record<string, zarr.ArrayMetadata | zarr.GroupMetadata>;
+  };
+};

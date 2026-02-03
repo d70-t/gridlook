@@ -82,13 +82,14 @@ function setDimensionMinMaxBounds(
  */
 function createDimensionRanges(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  dimensionNames: string[] | undefined,
   presetStarts: Record<string, string>,
   presetMinBounds: Record<string, string>,
   presetMaxBounds: Record<string, string>,
   indicesToIgnore: number[]
 ) {
-  const dimensions = datavar.attrs._ARRAY_DIMENSIONS as string[];
   const shape = datavar.shape;
+  const dimensions = dimensionNames || [];
   const indices: TDimensionRange[] = shape.map((size, i) => {
     if (indicesToIgnore.includes(i)) {
       return null;
@@ -154,6 +155,7 @@ function calculateIndices(
 
 export function buildDimensionRangesAndIndices(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  dimensionNames: string[] | undefined,
   presetStarts: Record<string, string>,
   presetMinBounds: Record<string, string>,
   presetMaxBounds: Record<string, string>,
@@ -165,6 +167,7 @@ export function buildDimensionRangesAndIndices(
   let dimensionRanges: TDimensionRange[] = [];
   dimensionRanges = createDimensionRanges(
     datavar,
+    dimensionNames,
     presetStarts,
     presetMinBounds,
     presetMaxBounds,

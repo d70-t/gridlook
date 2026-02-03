@@ -3,7 +3,11 @@ import { storeToRefs } from "pinia";
 import { computed, onMounted, ref, watch, type Ref } from "vue";
 import * as zarr from "zarrita";
 
-import type { TModelInfo, TSources } from "../lib/types/GlobeTypes";
+import type {
+  TModelInfo,
+  TSources,
+  TZarrV3RootMetadata,
+} from "../lib/types/GlobeTypes";
 
 import {
   getGridType,
@@ -133,7 +137,11 @@ watch(
   }
 );
 
-function isValidVariable(varname: string, variable: zarr.Array<zarr.DataType>) {
+function isValidVariable(
+  varname: string,
+  shape: number[],
+  dimensions?: string[]
+) {
   const EXCLUDED_VAR_PATTERNS = [
     "bnds",
     "bounds",
@@ -142,15 +150,12 @@ function isValidVariable(varname: string, variable: zarr.Array<zarr.DataType>) {
     "longitude",
   ] as const;
 
-  const dims = variable.attrs?._ARRAY_DIMENSIONS;
-  if (!Array.isArray(dims)) {
+  if (!Array.isArray(dimensions)) {
     return false;
   }
 
-  const hasTime = dims.includes("time");
-  const shapeValid = hasTime
-    ? variable.shape.length >= 2
-    : variable.shape.length >= 1;
+  const hasTime = dimensions.includes("time");
+  const shapeValid = hasTime ? shape.length >= 2 : shape.length >= 1;
 
   const hasExcludedName = EXCLUDED_VAR_PATTERNS.some((pattern) =>
     varname.includes(pattern)
@@ -160,7 +165,7 @@ function isValidVariable(varname: string, variable: zarr.Array<zarr.DataType>) {
   return shapeValid && !hasExcludedName && !isLatLon;
 }
 
-async function processZarrVariables(
+async function processZarrV2Variables(
   store: zarr.Listable<zarr.FetchStore>,
   root: zarr.Group<zarr.FetchStore>,
   src: string
@@ -175,11 +180,10 @@ async function processZarrVariables(
       }
 
       const variable = await zarr.open(root.resolve(path), { kind: "array" });
-
+      const arrayDimensions = variable.attrs?._ARRAY_DIMENSIONS;
       // Collect dimensions from _ARRAY_DIMENSIONS attribute
-      if (variable.attrs?._ARRAY_DIMENSIONS) {
-        const arrayDims = variable.attrs._ARRAY_DIMENSIONS as string[];
-        for (const dim of arrayDims) {
+      if (Array.isArray(arrayDimensions)) {
+        for (const dim of arrayDimensions) {
           dimensions.add(dim);
         }
       }
@@ -193,12 +197,14 @@ async function processZarrVariables(
       }
 
       // Return valid variables
-      if (isValidVariable(varname, variable)) {
+      if (
+        isValidVariable(varname, variable.shape, arrayDimensions as string[])
+      ) {
         return {
           [varname]: {
             store: src,
             dataset: "",
-            attrs: { ...variable.attrs },
+            attrs: { ...variable.attrs, dimensionNames: arrayDimensions },
           },
         };
       }
@@ -222,27 +228,112 @@ async function processZarrVariables(
   return datasources;
 }
 
-async function indexFromZarr(src: string): Promise<TSources> {
-  const store = await zarr.withConsolidated(lru(new zarr.FetchStore(src)));
-  const root = await zarr.open(store, { kind: "group" });
-  const datasources = await processZarrVariables(store, root, src);
+function processZarrV3Variables(
+  group: zarr.Group<zarr.FetchStore>,
+  src: string
+) {
+  const datasources: Record<
+    string,
+    { store: string; dataset: string; attrs: Record<string, unknown> }
+  > = {};
+  const dimensions = new Set<string>();
+  const attributes = group.attrs as TZarrV3RootMetadata;
+  const consolidatedMetadata = attributes.consolidated_metadata;
+  const metadata = consolidatedMetadata.metadata;
 
-  return {
-    name: root.attrs?.title as string,
-    levels: [
-      {
-        time: {
-          store: src,
-          dataset: "",
+  for (const node of Object.values(metadata)) {
+    if (node.node_type === "array" && Array.isArray(node.dimension_names)) {
+      for (const dim of node.dimension_names) {
+        dimensions.add(dim);
+      }
+    }
+  }
+  for (const [name, node] of Object.entries(metadata)) {
+    if (node.node_type !== "array") {
+      continue;
+    }
+    const arrayNode = node as zarr.ArrayMetadata;
+    if (
+      isValidVariable(name, arrayNode.shape, arrayNode.dimension_names) &&
+      !dimensions.has(name)
+    ) {
+      datasources[name] = {
+        store: src,
+        dataset: "",
+        attrs: {
+          ...node.attributes,
+          dimensionNames: node.dimension_names,
+        } as Record<string, unknown>,
+      };
+    }
+  }
+  return datasources;
+}
+
+async function openExperimentalV3Consolidated<Store extends zarr.Readable>(
+  store: Store
+): Promise<zarr.Group<Store>> {
+  const location = zarr.root(store);
+  const rootMetadata: TZarrV3RootMetadata = JSON.parse(
+    new TextDecoder().decode(
+      await store.get(location.resolve("zarr.json").path)
+    )
+  );
+  // eslint-disable-next-line camelcase
+  const { attributes, consolidated_metadata } = rootMetadata;
+  return new zarr.Group(store, location.path, {
+    /* eslint-disable camelcase */
+    zarr_format: 3,
+    node_type: "group",
+    attributes: { ...attributes, consolidated_metadata },
+    /* eslint-enable camelcase */
+  });
+}
+
+async function indexFromZarr(src: string): Promise<TSources> {
+  try {
+    const store = await zarr.withConsolidated(lru(new zarr.FetchStore(src)));
+    const root = await zarr.open(store, { kind: "group" });
+    const datasources = await processZarrV2Variables(store, root, src);
+
+    return {
+      name: root.attrs?.title as string,
+      levels: [
+        {
+          time: {
+            store: src,
+            dataset: "",
+          },
+          grid: {
+            store: src,
+            dataset: "",
+          },
+          datasources,
         },
-        grid: {
-          store: src,
-          dataset: "",
+      ],
+    };
+  } catch {
+    const group = await openExperimentalV3Consolidated(
+      new zarr.FetchStore(src)
+    );
+    const datasources = processZarrV3Variables(group, src);
+    return {
+      name: group.attrs?.title as string,
+      levels: [
+        {
+          time: {
+            store: src,
+            dataset: "",
+          },
+          grid: {
+            store: src,
+            dataset: "",
+          },
+          datasources,
         },
-        datasources,
-      },
-    ],
-  };
+      ],
+    };
+  }
 }
 
 async function indexFromIndex(src: string): Promise<TSources> {

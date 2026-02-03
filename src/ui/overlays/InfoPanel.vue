@@ -284,7 +284,10 @@ async function fetchInfoInfo() {
       null;
 
     // Get dimensions
-    const arrayDims = variable.attrs?._ARRAY_DIMENSIONS as string[] | undefined;
+    const arrayDims = await ZarrDataManager.getDimensionNames(
+      props.datasources,
+      varnameSelector.value
+    );
     if (arrayDims && Array.isArray(arrayDims)) {
       dimensions.value = arrayDims.map((name, idx) => ({
         name,
