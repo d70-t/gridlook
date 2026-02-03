@@ -350,7 +350,7 @@ async function fetchAndRenderData(
   // Load latitudes and longitudes arrays (1D)
   const { latitudes, longitudes, latitudesAttrs, longitudesAttrs } =
     await getLatLonData(datavar, props.datasources);
-  // FIXME: Needs to be changed for Zarr V3
+  // FIXME: Needs to be changed for Zarr V3 as V3 uses different attribute names
   const dimensions = datavar.attrs._ARRAY_DIMENSIONS as string[];
   const geoDims: number[] = [];
   for (let i = 0; i < dimensions.length; i++) {
