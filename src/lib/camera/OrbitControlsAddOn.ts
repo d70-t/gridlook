@@ -25,8 +25,8 @@ declare module "three" {
   }
 }
 
-const TWO_PI = 2 * Math.PI;
 const ZOOM_STEP = 96;
+const KEYBOARD_ROTATION_SPEED = 0.025; // Radians per key press
 
 function handleArrowUp(
   orbitControls: CustomOrbitControls,
@@ -35,10 +35,7 @@ function handleArrowUp(
   if (isFlatProjection && orbitControls.enablePan) {
     orbitControls._pan(0, -orbitControls.keyPanSpeed);
   } else {
-    orbitControls._rotateUp(
-      (TWO_PI * orbitControls.rotateSpeed) /
-        orbitControls.domElement.clientHeight
-    );
+    orbitControls._rotateUp(KEYBOARD_ROTATION_SPEED);
   }
 }
 
@@ -49,10 +46,7 @@ function handleArrowDown(
   if (isFlatProjection && orbitControls.enablePan) {
     orbitControls._pan(0, orbitControls.keyPanSpeed);
   } else {
-    orbitControls._rotateUp(
-      (-TWO_PI * orbitControls.rotateSpeed) /
-        orbitControls.domElement.clientHeight
-    );
+    orbitControls._rotateUp(-KEYBOARD_ROTATION_SPEED);
   }
 }
 
@@ -63,10 +57,7 @@ function handleArrowLeft(
   if (isFlatProjection && orbitControls.enablePan) {
     orbitControls._pan(-orbitControls.keyPanSpeed, 0);
   } else {
-    orbitControls._rotateLeft(
-      (TWO_PI * orbitControls.rotateSpeed) /
-        orbitControls.domElement.clientHeight
-    );
+    orbitControls._rotateLeft(KEYBOARD_ROTATION_SPEED);
   }
 }
 
@@ -77,10 +68,7 @@ function handleArrowRight(
   if (isFlatProjection && orbitControls.enablePan) {
     orbitControls._pan(orbitControls.keyPanSpeed, 0);
   } else {
-    orbitControls._rotateLeft(
-      (-TWO_PI * orbitControls.rotateSpeed) /
-        orbitControls.domElement.clientHeight
-    );
+    orbitControls._rotateLeft(-KEYBOARD_ROTATION_SPEED);
   }
 }
 
