@@ -452,7 +452,7 @@ export function useGridScene(options: UseGridSceneOptions) {
     if (!projectionHelper.value.isFlat && orbitControls && camera) {
       const distance = camera.position.length();
       const normalizedDistance = distance / 30;
-      orbitControls.rotateSpeed = Math.min(1, 0.01 + (normalizedDistance ** 2));
+      orbitControls.rotateSpeed = Math.min(1, 0.01 + normalizedDistance ** 2);
     }
 
     const controlsUpdated = render();
