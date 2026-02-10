@@ -56,11 +56,11 @@ export function useGridScene(options: UseGridSceneOptions) {
   let baseSurface: THREE.Mesh | undefined = undefined;
   let mouseDown = false;
 
-  let rightMouseDown = false;
-  let rightDragStartX = 0;
-  let rightDragStartY = 0;
-  let rightDragStartCenterLon = 0;
-  let rightDragStartCenterLat = 0;
+  let projectionDragActive = false;
+  let dragStartX = 0;
+  let dragStartY = 0;
+  let dragStartCenterLon = 0;
+  let dragStartCenterLat = 0;
 
   let init = true;
   let currentOffset = 0;
@@ -391,35 +391,26 @@ export function useGridScene(options: UseGridSceneOptions) {
     }
   }
 
-  function handleRightMouseDown(event: MouseEvent) {
-    if (event.button !== 2) {
-      return;
-    }
+  function startProjectionDrag(clientX: number, clientY: number) {
     if (!projectionHelper.value.isFlat) {
-      return;
+      return false;
     }
-
-    event.preventDefault();
-    rightMouseDown = true;
-    rightDragStartX = event.clientX;
-    rightDragStartY = event.clientY;
+    projectionDragActive = true;
+    dragStartX = clientX;
+    dragStartY = clientY;
     const center = projectionCenter.value ?? { lat: 0, lon: 0 };
-    rightDragStartCenterLon = center.lon;
-    rightDragStartCenterLat = center.lat;
+    dragStartCenterLon = center.lon;
+    dragStartCenterLat = center.lat;
+    return true;
   }
 
-  function handleRightMouseMove(event: MouseEvent) {
-    if (!rightMouseDown) {
-      return;
-    }
-    if (!projectionHelper.value.isFlat) {
+  function updateProjectionDrag(clientX: number, clientY: number) {
+    if (!projectionDragActive || !projectionHelper.value.isFlat) {
       return;
     }
 
-    event.preventDefault();
-
-    const deltaX = event.clientX - rightDragStartX;
-    const deltaY = event.clientY - rightDragStartY;
+    const deltaX = clientX - dragStartX;
+    const deltaY = clientY - dragStartY;
 
     const canvasWidth = width.value ?? 800;
     const canvasHeight = height.value ?? 600;
@@ -427,13 +418,29 @@ export function useGridScene(options: UseGridSceneOptions) {
     const lonSensitivity = 180 / canvasWidth;
     const latSensitivity = 90 / canvasHeight;
 
-    let newLon = rightDragStartCenterLon + deltaX * lonSensitivity;
-    let newLat = rightDragStartCenterLat - deltaY * latSensitivity;
+    let newLon = dragStartCenterLon + deltaX * lonSensitivity;
+    let newLat = dragStartCenterLat - deltaY * latSensitivity;
 
     newLat = Math.max(-90, Math.min(90, newLat));
     newLon = projectionHelper.value.normalizeLongitude(newLon);
 
     projectionCenter.value = { lat: newLat, lon: newLon };
+  }
+
+  function handleRightMouseDown(event: MouseEvent) {
+    if (event.button !== 2) {
+      return;
+    }
+    if (startProjectionDrag(event.clientX, event.clientY)) {
+      event.preventDefault();
+    }
+  }
+
+  function handleRightMouseMove(event: MouseEvent) {
+    if (projectionDragActive) {
+      event.preventDefault();
+      updateProjectionDrag(event.clientX, event.clientY);
+    }
   }
 
   function toggleRotate() {
@@ -537,7 +544,7 @@ export function useGridScene(options: UseGridSceneOptions) {
       canvas.value,
       "mousemove",
       (e: MouseEvent) => {
-        if (rightMouseDown) {
+        if (projectionDragActive) {
           handleRightMouseMove(e);
         }
       },
@@ -549,8 +556,46 @@ export function useGridScene(options: UseGridSceneOptions) {
       "mouseup",
       (e: MouseEvent) => {
         if (e.button === 2) {
-          rightMouseDown = false;
+          projectionDragActive = false;
         }
+      },
+      { passive: false }
+    );
+  }
+
+  // Setup touch drag listeners for projection center adjustment
+  function setupTouchProjectionListeners() {
+    useEventListener(
+      canvas.value,
+      "touchstart",
+      (e: TouchEvent) => {
+        const shouldPrevent =
+          e.touches.length === 1 &&
+          startProjectionDrag(e.touches[0].clientX, e.touches[0].clientY);
+        if (shouldPrevent) {
+          e.preventDefault();
+        }
+      },
+      { passive: false }
+    );
+
+    useEventListener(
+      canvas.value,
+      "touchmove",
+      (e: TouchEvent) => {
+        if (e.touches.length === 1 && projectionDragActive) {
+          e.preventDefault();
+          updateProjectionDrag(e.touches[0].clientX, e.touches[0].clientY);
+        }
+      },
+      { passive: false }
+    );
+
+    useEventListener(
+      canvas.value,
+      "touchend",
+      () => {
+        projectionDragActive = false;
       },
       { passive: false }
     );
@@ -582,6 +627,7 @@ export function useGridScene(options: UseGridSceneOptions) {
 
     setupInteractionListeners();
     setupRightClickListeners();
+    setupTouchProjectionListeners();
     setupKeyboardListeners();
 
     initEssentials();
