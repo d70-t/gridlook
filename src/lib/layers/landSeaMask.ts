@@ -29,7 +29,16 @@ export const LAND_SEA_MASK_MODES = {
 export type TLandSeaMaskMode =
   (typeof LAND_SEA_MASK_MODES)[keyof typeof LAND_SEA_MASK_MODES];
 
-type MaskConfig = {
+type TMaskContext = {
+  vertices: number[];
+  angularDistances: number[];
+  isAzimuthal: boolean;
+  lonSegments: number;
+  threshold: number;
+  straddleMultiplier: number;
+};
+
+type TMaskConfig = {
   showLand: boolean;
   showSea: boolean;
 };
@@ -43,7 +52,7 @@ const MASK_COLORS = {
 // Mask Configuration
 // =============================================================================
 
-function getMaskConfig(mode: TLandSeaMaskMode): MaskConfig {
+function getMaskConfig(mode: TLandSeaMaskMode): TMaskConfig {
   const isGlobeMode = mode === LAND_SEA_MASK_MODES.GLOBE;
   const isLandMode = mode === LAND_SEA_MASK_MODES.LAND;
   const isSeaMode = mode === LAND_SEA_MASK_MODES.SEA;
@@ -561,7 +570,8 @@ class GpuProjectedMaskRenderer {
     i1: number,
     i2: number,
     i3: number,
-    threshold: number
+    threshold: number,
+    straddleMultiplier: number = 0.5
   ): boolean {
     const { maxDx, maxDy } = this.calculateMaxTriangleDistance(
       vertices,
@@ -569,7 +579,47 @@ class GpuProjectedMaskRenderer {
       i2,
       i3
     );
-    return maxDx < threshold && maxDy < threshold;
+
+    // Primary check: no edge should span more than threshold
+    if (maxDx >= threshold || maxDy >= threshold) {
+      return false;
+    }
+
+    // Secondary check for elliptical projections (Mollweide):
+    // Triangles that straddle x=0 (the center longitude) with significant
+    // span should be clipped. This catches triangles where vertices are on
+    // opposite sides of the projection center but individual edges are short.
+    const v1 = this.getVertexPosition(vertices, i1);
+    const v2 = this.getVertexPosition(vertices, i2);
+    const v3 = this.getVertexPosition(vertices, i3);
+
+    let minX = v1.x;
+    let maxX = v1.x;
+
+    if (v2.x < minX) {
+      minX = v2.x;
+    }
+    if (v2.x > maxX) {
+      maxX = v2.x;
+    }
+
+    if (v3.x < minX) {
+      minX = v3.x;
+    }
+    if (v3.x > maxX) {
+      maxX = v3.x;
+    }
+    // If triangle straddles x=0 and total x-span is significant, clip it
+    // The straddleMultiplier varies by projection type:
+    // - Mollweide uses 0.12 (aggressive) due to its elliptical shape causing polar bands
+    // - Other projections use 0.5 (less aggressive) to avoid over-clipping
+    const straddlesCenter = minX < 0 && maxX > 0;
+    const totalXSpan = maxX - minX;
+    if (straddlesCenter && totalXSpan > threshold * straddleMultiplier) {
+      return false;
+    }
+
+    return true;
   }
 
   /**
@@ -586,6 +636,54 @@ class GpuProjectedMaskRenderer {
       angularDistances[i1] < clipAngle &&
       angularDistances[i2] < clipAngle &&
       angularDistances[i3] < clipAngle
+    );
+  }
+
+  private static isWithinClipAngle(
+    angularDistances: number[],
+    isAzimuthal: boolean,
+    idx1: number,
+    idx2: number,
+    idx3: number
+  ): boolean {
+    if (!isAzimuthal) {
+      return true;
+    }
+
+    return this.isTriangleWithinClipAngle(
+      angularDistances,
+      idx1,
+      idx2,
+      idx3,
+      AZIMUTHAL_CLIP_ANGLE
+    );
+  }
+
+  private static isValidTriangle(
+    context: TMaskContext,
+    idx1: number,
+    idx2: number,
+    idx3: number
+  ): boolean {
+    const withinClip = this.isWithinClipAngle(
+      context.angularDistances,
+      context.isAzimuthal,
+      idx1,
+      idx2,
+      idx3
+    );
+
+    if (!withinClip) {
+      return false;
+    }
+
+    return this.shouldIncludeTriangle(
+      context.vertices,
+      idx1,
+      idx2,
+      idx3,
+      context.threshold,
+      context.straddleMultiplier
     );
   }
 
@@ -625,65 +723,54 @@ class GpuProjectedMaskRenderer {
   ): number[] {
     const width = this.getProjectionWidth(projectionHelper);
     const threshold = width * 0.4; // Triangles spanning more than 40% of width are cut
-    return this.collectMaskTriangleIndices(
+
+    // Mollweide's elliptical shape requires aggressive straddle clipping at poles
+    const isMollweide = projectionHelper.type === PROJECTION_TYPES.MOLLWEIDE;
+    const straddleMultiplier = isMollweide ? 0.12 : 0.5;
+
+    const context: TMaskContext = {
       vertices,
       angularDistances,
       isAzimuthal,
-      latSegments,
       lonSegments,
-      threshold
-    );
+      threshold,
+      straddleMultiplier,
+    };
+
+    return this.collectMaskTriangleIndices(context, latSegments);
+  }
+
+  private static getQuadIndices(
+    latIdx: number,
+    lonIdx: number,
+    lonSegments: number
+  ): { a: number; b: number; c: number; d: number } {
+    const a = latIdx * (lonSegments + 1) + lonIdx;
+    const b = a + lonSegments + 1;
+    const c = a + 1;
+    const d = b + 1;
+
+    return { a, b, c, d };
   }
 
   private static collectMaskTriangleIndices(
-    vertices: number[],
-    angularDistances: number[],
-    isAzimuthal: boolean,
-    latSegments: number,
-    lonSegments: number,
-    threshold: number
+    context: TMaskContext,
+    latSegments: number
   ): number[] {
     const indices: number[] = [];
+
     for (let latIdx = 0; latIdx < latSegments; latIdx++) {
-      for (let lonIdx = 0; lonIdx < lonSegments; lonIdx++) {
-        const a = latIdx * (lonSegments + 1) + lonIdx;
-        const b = a + lonSegments + 1;
-        const c = a + 1;
-        const d = b + 1;
+      for (let lonIdx = 0; lonIdx < context.lonSegments; lonIdx++) {
+        const { a, b, c, d } = this.getQuadIndices(
+          latIdx,
+          lonIdx,
+          context.lonSegments
+        );
 
-        // For azimuthal projection, also check if triangle is within clip angle
-        const withinClipABC =
-          !isAzimuthal ||
-          this.isTriangleWithinClipAngle(
-            angularDistances,
-            a,
-            b,
-            c,
-            AZIMUTHAL_CLIP_ANGLE
-          );
-        const withinClipCBD =
-          !isAzimuthal ||
-          this.isTriangleWithinClipAngle(
-            angularDistances,
-            c,
-            b,
-            d,
-            AZIMUTHAL_CLIP_ANGLE
-          );
-
-        // Triangle ABC
-        if (
-          withinClipABC &&
-          this.shouldIncludeTriangle(vertices, a, b, c, threshold)
-        ) {
+        if (this.isValidTriangle(context, a, b, c)) {
           indices.push(a, b, c);
         }
-
-        // Triangle CBD
-        if (
-          withinClipCBD &&
-          this.shouldIncludeTriangle(vertices, c, b, d, threshold)
-        ) {
+        if (this.isValidTriangle(context, c, b, d)) {
           indices.push(c, b, d);
         }
       }
@@ -858,7 +945,7 @@ class GpuProjectedMaskRenderer {
     path: d3.GeoPath,
     land: GeoJSON.FeatureCollection,
     useTexture: boolean,
-    config: MaskConfig,
+    config: TMaskConfig,
     width: number,
     height: number
   ) {
@@ -928,7 +1015,7 @@ class GpuProjectedMaskRenderer {
   private static async createMaskTexture(
     mode: TLandSeaMaskMode,
     useTexture: boolean,
-    config: MaskConfig
+    config: TMaskConfig
   ): Promise<THREE.Texture> {
     const { canvas, ctx, width, height } = CanvasFactory.create(4096, 2048);
     const land = await ResourceCache.loadLandGeoJSON();
