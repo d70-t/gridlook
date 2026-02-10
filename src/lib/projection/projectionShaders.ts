@@ -39,20 +39,31 @@ export const projectionShaderFunctions = `
   #define PROJ_CYLINDRICAL_EQUAL_AREA 5
   #define PROJ_AZIMUTHAL_EQUIDISTANT 6
 
-  // Robinson projection lookup table (X and Y coefficients for each 5° latitude band)
-  // Based on Robinson's original tabular definition
-  const float robinsonX[19] = float[19](
-    1.0000, 0.9986, 0.9954, 0.9900, 0.9822,
-    0.9730, 0.9600, 0.9427, 0.9216, 0.8962,
-    0.8679, 0.8350, 0.7986, 0.7597, 0.7186,
-    0.6732, 0.6213, 0.5722, 0.5322
-  );
-
-  const float robinsonY[19] = float[19](
-    0.0000, 0.0620, 0.1240, 0.1860, 0.2480,
-    0.3100, 0.3720, 0.4340, 0.4958, 0.5571,
-    0.6176, 0.6769, 0.7346, 0.7903, 0.8435,
-    0.8936, 0.9394, 0.9761, 1.0000
+  // Robinson projection lookup table (X and Y coefficients)
+  // Matches d3-geo-projection's K array exactly
+  // Y values are pre-multiplied by 1.593415793900743 (pi/2 scaling factor)
+  const float robinsonK[40] = float[40](
+    // [X, Y] pairs for each 5° band from -5° to 90° (20 entries)
+    0.9986, -0.09879178,    // index 0: edge case for interpolation
+    1.0000,  0.00000000,    // index 1: 0°
+    0.9986,  0.09879178,    // index 2: 5°
+    0.9954,  0.19758356,    // index 3: 10°
+    0.9900,  0.29637534,    // index 4: 15°
+    0.9822,  0.39516712,    // index 5: 20°
+    0.9730,  0.49395890,    // index 6: 25°
+    0.9600,  0.59275068,    // index 7: 30°
+    0.9427,  0.69154245,    // index 8: 35°
+    0.9216,  0.79001555,    // index 9: 40°
+    0.8962,  0.88769194,    // index 10: 45°
+    0.8679,  0.98409359,    // index 11: 50°
+    0.8350,  1.07858315,    // index 12: 55°
+    0.7986,  1.17052324,    // index 13: 60°
+    0.7597,  1.25927650,    // index 14: 65°
+    0.7186,  1.34404622,    // index 15: 70°
+    0.6732,  1.42387635,    // index 16: 75°
+    0.6213,  1.49685480,    // index 17: 80°
+    0.5722,  1.55533316,    // index 18: 85°
+    0.5322,  1.59341579     // index 19: 90°
   );
 
   // Apply rotation to coordinates (for projection center)
@@ -113,24 +124,36 @@ export const projectionShaderFunctions = `
     return vec3(x, y, 0.0);
   }
 
-  // Robinson projection (using lookup table with linear interpolation)
-  // Matches d3-geo-projection's geoRobinson output with scale(1)
+  // Robinson projection (using quadratic interpolation to match d3-geo-projection)
+  // Uses the same 3-point interpolation formula as d3's robinsonRaw function
   vec3 projectRobinson(float lat, float lon, float centerLon, float centerLat) {
     vec2 rotated = rotateCoords(lat, lon, centerLon, centerLat);
+    float latRad = rotated.x * DEG_TO_RAD;
 
-    float absLat = abs(rotated.x);
-    float index = absLat / 5.0;
-    int i0 = int(floor(index));
-    int i1 = min(i0 + 1, 18);
-    float t = fract(index);
+    // d3 formula: i = min(18, abs(phi) * 36 / pi)
+    float i = min(18.0, abs(latRad) * 36.0 / PI);
+    int i0 = int(floor(i));
+    float di = i - float(i0);
 
-    // Linear interpolation of Robinson coefficients
-    float xCoeff = mix(robinsonX[i0], robinsonX[i1], t);
-    float yCoeff = mix(robinsonY[i0], robinsonY[i1], t);
+    // Get three consecutive points for quadratic interpolation
+    // K array has [X, Y] pairs, so multiply index by 2
+    float ax = robinsonK[i0 * 2];
+    float ay = robinsonK[i0 * 2 + 1];
+    float bx = robinsonK[(i0 + 1) * 2];
+    float by = robinsonK[(i0 + 1) * 2 + 1];
+    int i2 = min(i0 + 2, 19);
+    float cx = robinsonK[i2 * 2];
+    float cy = robinsonK[i2 * 2 + 1];
 
-    // d3 uses: x = λ * xCoeff, y = (π/2) * yCoeff * sign(φ)
+    // d3's quadratic interpolation formula:
+    // result = b + di * (c - a) / 2 + di * di * (c - 2*b + a) / 2
+    float xCoeff = bx + di * (cx - ax) / 2.0 + di * di * (cx - 2.0 * bx + ax) / 2.0;
+    float yCoeff = by + di * (cy - ay) / 2.0 + di * di * (cy - 2.0 * by + ay) / 2.0;
+
+    // d3 uses: x = lambda * xCoeff (lambda in radians)
+    // Y values are already pre-scaled by pi/2
     float x = xCoeff * rotated.y * DEG_TO_RAD;
-    float y = yCoeff * sign(rotated.x) * (PI / 2.0);
+    float y = sign(rotated.x) * yCoeff;
 
     return vec3(x, y, 0.0);
   }
