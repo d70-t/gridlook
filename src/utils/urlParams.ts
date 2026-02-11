@@ -2,6 +2,7 @@ const URL_PARAMETERS = {
   VARNAME: "varname",
   COLORMAP: "colormap",
   INVERT_COLORMAP: "invertcolormap",
+  POSTERIZE_LEVELS: "posterizelevels",
   USER_BOUNDS_LOW: "boundlow",
   USER_BOUNDS_HIGH: "boundhigh",
   CAMERA_STATE: "camerastate",

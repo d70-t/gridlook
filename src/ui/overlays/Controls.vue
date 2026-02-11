@@ -40,6 +40,7 @@ const store = useGlobeControlStore();
 const {
   colormap,
   invertColormap,
+  posterizeLevels,
   varnameSelector,
   landSeaMaskChoice,
   landSeaMaskUseTexture,
@@ -60,6 +61,7 @@ const urlParameterStore = useUrlParameterStore();
 const {
   paramColormap,
   paramInvertColormap,
+  paramPosterizeLevels,
   paramMaskMode,
   paramMaskingUseTexture,
   paramProjection,
@@ -215,6 +217,13 @@ onMounted(() => {
       invertColormap.value = false;
     } else if (paramInvertColormap.value === "true") {
       invertColormap.value = true;
+    }
+  }
+
+  if (paramPosterizeLevels.value) {
+    const levels = Number(paramPosterizeLevels.value);
+    if (!isNaN(levels) && levels >= 0 && levels <= 32) {
+      posterizeLevels.value = levels;
     }
   }
 

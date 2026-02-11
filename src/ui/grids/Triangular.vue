@@ -34,6 +34,7 @@ const {
   varnameSelector,
   colormap,
   invertColormap,
+  posterizeLevels,
   selection,
   isInitializingVariable,
   varinfo,
@@ -94,7 +95,12 @@ const bounds = computed(() => {
 });
 
 watch(
-  [() => bounds.value, () => invertColormap.value, () => colormap.value],
+  [
+    () => bounds.value,
+    () => invertColormap.value,
+    () => colormap.value,
+    () => posterizeLevels.value,
+  ],
   () => {
     updateColormap(meshes);
   }

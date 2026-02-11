@@ -23,17 +23,30 @@ bool is_nan(float v) {
 }
 `;
 
+const posterizeGLSL = `
+float posterize(float value, float levels) {
+    if (levels > 1.0) {
+        float step = floor(value * levels);
+        step = min(step, levels - 1.0);  // Prevent overflow at max value
+        return step / (levels - 1.0);
+    }
+    return value;
+}
+`;
+
 const textureColormapFragmentShader = `
 ${colormapShaders}
 
 ${isNaNGLSL}
 
+${posterizeGLSL}
 
 uniform float addOffset;
 uniform float scaleFactor;
 uniform float missingValue;
 uniform float fillValue;
 uniform int colormap;
+uniform float posterizeLevels;
 uniform sampler2D data;
 
 varying vec2 vUv;
@@ -46,6 +59,7 @@ void main() {
         return;
     }
     float normalized_value = clamp(addOffset + scaleFactor * v_value, 0.0, 1.0);
+    normalized_value = posterize(normalized_value, posterizeLevels);
 
     ${applyColormapShaders}
 }`;
@@ -57,12 +71,15 @@ ${colormapShaders}
 
 ${isNaNGLSL}
 
+${posterizeGLSL}
+
 varying float v_value;
 uniform float addOffset;
 uniform float scaleFactor;
 uniform int colormap;
 uniform float missingValue;
 uniform float fillValue;
+uniform float posterizeLevels;
 
 void main() {
     if (is_nan(v_value) || v_value == fillValue || v_value == missingValue) {
@@ -70,6 +87,7 @@ void main() {
         return;
     }
     float normalized_value = clamp(addOffset + scaleFactor * v_value, 0.0, 1.0);
+    normalized_value = posterize(normalized_value, posterizeLevels);
     ${applyColormapShaders}
     gl_FragColor.a = 1.0;
 }`;
@@ -90,18 +108,22 @@ ${colormapShaders}
 
 ${isNaNGLSL}
 
+${posterizeGLSL}
+
 varying float v_value;
 uniform float addOffset;
 uniform float scaleFactor;
 uniform int colormap;
 uniform float fillValue;
 uniform float missingValue;
+uniform float posterizeLevels;
 
 void main() {
     vec2 uv = gl_PointCoord * 2.0 - 1.0;
 
     // Normalize scalar value for color mapping
     float normalized_value = clamp(addOffset + scaleFactor * v_value, 0.0, 1.0);
+    normalized_value = posterize(normalized_value, posterizeLevels);
     float r2 = dot(uv, uv);
     // Soft circular splat using Gaussian falloff
     float falloff = exp(-r2 * 2.0); // Adjust the 4.0 as needed (sharpness)
@@ -127,6 +149,7 @@ export function makeColormapLutMaterial(
       addOffset: { value: addOffset },
       scaleFactor: { value: scaleFactor },
       colormap: { value: availableColormaps[colormap] },
+      posterizeLevels: { value: 0.0 },
     },
 
     vertexShader: screenQuadValueVertexShader,
@@ -142,6 +165,14 @@ export function getColormapScaleOffset(
 ) {
   let addOffset: number;
   let scaleFactor: number;
+
+  // Handle edge case where min equals max (single value dataset)
+  if (high === low) {
+    addOffset = 0.5;
+    scaleFactor = 0.0;
+    return { addOffset, scaleFactor };
+  }
+
   if (invertColormap) {
     scaleFactor = -1 / (high - low);
     addOffset = -high * scaleFactor;
@@ -256,6 +287,7 @@ export function makeGpuProjectedTextureMaterial(
       colormap: { value: availableColormaps[colormap] },
       fillValue: { value: Number.POSITIVE_INFINITY },
       missingValue: { value: Number.POSITIVE_INFINITY },
+      posterizeLevels: { value: 0.0 },
       data: { value: texture },
       // Projection uniforms
       projectionType: {
@@ -289,6 +321,7 @@ export function makeGpuProjectedMeshMaterial(
       colormap: { value: availableColormaps[colormap] },
       fillValue: { value: Number.POSITIVE_INFINITY },
       missingValue: { value: Number.POSITIVE_INFINITY },
+      posterizeLevels: { value: 0.0 },
       // Projection uniforms
       projectionType: {
         value: PROJECTION_TYPE_BY_MODE[PROJECTION_TYPES.NEARSIDE_PERSPECTIVE],
@@ -322,6 +355,7 @@ export function makeGpuProjectedPointMaterial(
       maxPointSize: { value: 10.0 },
       fillValue: { value: Number.POSITIVE_INFINITY },
       missingValue: { value: Number.POSITIVE_INFINITY },
+      posterizeLevels: { value: 0.0 },
       colormap: { value: availableColormaps[colormap] },
       // Projection uniforms
       projectionType: {

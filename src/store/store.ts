@@ -34,6 +34,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
       selection: { low: 0, high: 0 } as TBounds, // all the knobs and buttons in GlobeControl which do not require a reload
       colormap: "turbo" as TColorMap,
       invertColormap: true,
+      posterizeLevels: 0 as number,
       userBoundsLow: undefined as number | undefined,
       userBoundsHigh: undefined as number | undefined,
       dimSlidersValues: [] as (number | null)[],

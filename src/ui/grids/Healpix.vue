@@ -35,6 +35,7 @@ const {
   varnameSelector,
   colormap,
   invertColormap,
+  posterizeLevels,
   selection,
   dimSlidersValues,
   isInitializingVariable,
@@ -104,7 +105,12 @@ const bounds = computed(() => {
 });
 
 watch(
-  [() => bounds.value, () => invertColormap.value, () => colormap.value],
+  [
+    () => bounds.value,
+    () => invertColormap.value,
+    () => colormap.value,
+    () => posterizeLevels.value,
+  ],
   () => {
     updateColormap(mainMeshes);
   }

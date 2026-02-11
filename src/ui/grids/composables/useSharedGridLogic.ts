@@ -28,6 +28,7 @@ export function useSharedGridLogic() {
     selection,
     colormap,
     invertColormap,
+    posterizeLevels,
     controlPanelVisible,
     projectionMode,
     projectionCenter,
@@ -147,6 +148,9 @@ export function useSharedGridLogic() {
       material.uniforms.colormap.value = availableColormaps[colormap.value];
       material.uniforms.addOffset.value = addOffset;
       material.uniforms.scaleFactor.value = scaleFactor;
+      if (material.uniforms.posterizeLevels) {
+        material.uniforms.posterizeLevels.value = posterizeLevels.value;
+      }
       material.needsUpdate = true;
     }
     redraw();

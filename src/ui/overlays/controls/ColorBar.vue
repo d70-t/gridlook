@@ -13,10 +13,12 @@ const props = withDefaults(
   defineProps<{
     colormap?: TColorMap;
     invertColormap?: boolean;
+    posterizeLevels?: number;
   }>(),
   {
     colormap: "turbo",
     invertColormap: false,
+    posterizeLevels: 0,
   }
 );
 
@@ -66,6 +68,13 @@ watch(
 
 watch(
   () => props.invertColormap,
+  () => {
+    updateColormap();
+  }
+);
+
+watch(
+  () => props.posterizeLevels,
   () => {
     updateColormap();
   }
@@ -154,6 +163,9 @@ function updateColormap() {
   shaderMaterial.uniforms.colormap.value = availableColormaps[props.colormap];
   shaderMaterial.uniforms.addOffset.value = addOffset.value;
   shaderMaterial.uniforms.scaleFactor.value = scaleFactor.value;
+  if (shaderMaterial.uniforms.posterizeLevels) {
+    shaderMaterial.uniforms.posterizeLevels.value = props.posterizeLevels;
+  }
   redraw();
 }
 </script>
