@@ -36,7 +36,6 @@ export const availableColormaps = {
   PuOr: 29,
   Purples: 9,
   PuRd: 17,
-  Quantized: 58,
   rain: 51,
   RdBu: 31,
   RdGy: 30,
@@ -285,21 +284,6 @@ vec3 YlOrRd(float t) {
 
     return coeffs0+t*(coeffs1+t*(coeffs2+t*(coeffs3+t*(coeffs4+t*(coeffs5+t*coeffs6)))));
 
-}
-
-vec3 Quantized(float t) {
-    const vec3 coeffs0 = vec3(0.628929186238068, 0.004637053094083576, 0.1207579418086837);
-    const vec3 coeffs1 = vec3(3.040779235404921, 1.690121009291412, 1.657197563214252);
-    const vec3 coeffs2 = vec3(-11.70306219218746, 0.3378982650388359, -21.77011200914948);
-    const vec3 coeffs3 = vec3(28.60184360556573, 22.05406660897056, 131.5079295863619);
-    const vec3 coeffs4 = vec3(-38.31366271913282, -80.1381687860117, -300.6947580601619);
-    const vec3 coeffs5 = vec3(18.28428184433216, 89.92129861131023, 290.4924429551797);
-    const vec3 coeffs6 = vec3(-0.5218331356744457, -33.49874906873701, -101.1734062672855);
-
-    float steps = 10.0;
-    float quantized = floor(t * steps) / steps;
-
-    return coeffs0+quantized*(coeffs1+quantized*(coeffs2+quantized*(coeffs3+quantized*(coeffs4+quantized*(coeffs5+quantized*coeffs6)))));
 }
 
 vec3 OrRd(float t) {
@@ -1007,7 +991,5 @@ export const applyColormapShaders = `
         gl_FragColor.rgb = diff(normalized_value);
     } else if (colormap == 57) {
         gl_FragColor.rgb = tarn(normalized_value);
-    } else if (colormap == 58) {
-        gl_FragColor.rgb = Quantized(normalized_value);
     }
 `;
