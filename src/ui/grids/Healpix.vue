@@ -340,9 +340,9 @@ async function getHealpixData(
       dataSlice,
       min,
       max,
+      HISTOGRAM_SUMMARY_BINS,
       fillValue,
-      missingValue,
-      HISTOGRAM_SUMMARY_BINS
+      missingValue
     ),
     min,
     max,
