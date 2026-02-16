@@ -197,25 +197,6 @@ export function useSharedGridLogic() {
     return posterizeLevels.value > 0 ? posterizeLevels.value : 50;
   }
 
-  function resolveHistogramBounds(min?: number, max?: number) {
-    const selectedLow = bounds.value?.low as number | undefined;
-    const selectedHigh = bounds.value?.high as number | undefined;
-    const hasValidSelectedBounds =
-      selectedLow !== undefined &&
-      selectedHigh !== undefined &&
-      isFinite(selectedLow) &&
-      isFinite(selectedHigh) &&
-      selectedHigh > selectedLow;
-
-    if (hasValidSelectedBounds) {
-      return { low: selectedLow, high: selectedHigh };
-    }
-
-    const low = min ?? selectedLow;
-    const high = max ?? selectedHigh;
-    return { low, high };
-  }
-
   function recomputeHistogramFromSummary(
     summary: THistogramSummary,
     low: number,
@@ -264,8 +245,8 @@ export function useSharedGridLogic() {
 
   function updateHistogram(
     data: ArrayLike<number> | THistogramSummary[] | undefined,
-    min?: number,
-    max?: number,
+    min: number,
+    max: number,
     missingValue?: number,
     fillValue?: number
   ) {
@@ -275,14 +256,7 @@ export function useSharedGridLogic() {
       return;
     }
 
-    const { low, high } = resolveHistogramBounds(min, max);
-
-    if (
-      low === undefined ||
-      high === undefined ||
-      !isFinite(low) ||
-      !isFinite(high)
-    ) {
+    if (!isFinite(min) || !isFinite(max)) {
       store.updateHistogram(undefined);
       lastHistogramSummary.value = null;
       return;
@@ -292,8 +266,8 @@ export function useSharedGridLogic() {
       // Data is already a histogram summary
       summary = mergeHistogramSummaries(
         data as THistogramSummary[],
-        low,
-        high,
+        min,
+        max,
         HISTOGRAM_SUMMARY_BINS
       );
     } else {
@@ -307,15 +281,15 @@ export function useSharedGridLogic() {
 
       summary = buildHistogramSummary(
         data as ArrayLike<number>,
-        low,
-        high,
+        min,
+        max,
         HISTOGRAM_SUMMARY_BINS,
         fillValue,
         missingValue
       );
     }
+    recomputeHistogramFromSummary(summary, bounds.value.low, bounds.value.high);
     lastHistogramSummary.value = summary;
-    recomputeHistogramFromSummary(summary, low, high);
   }
 
   return {

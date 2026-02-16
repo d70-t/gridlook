@@ -45,7 +45,6 @@ const {
   landSeaMaskChoice,
   landSeaMaskUseTexture,
   varinfo,
-  histogram,
   userBoundsLow,
   userBoundsHigh,
   projectionCenter,
@@ -293,7 +292,6 @@ onMounted(() => {
         <ColormapControls
           :model-info="modelInfo"
           :auto-colormap="autoColormap"
-          :histogram="histogram"
           :data-bounds="dataBounds"
           @update:auto-colormap="autoColormap = $event"
         />

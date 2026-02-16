@@ -10,7 +10,6 @@ import { useGlobeControlStore } from "@/store/store";
 const props = defineProps<{
   modelInfo: TModelInfo;
   autoColormap: boolean;
-  histogram?: number[];
   dataBounds?: TBounds;
 }>();
 
@@ -19,7 +18,7 @@ defineEmits<{
 }>();
 
 const store = useGlobeControlStore();
-const { colormap, invertColormap, posterizeLevels, selection } =
+const { colormap, invertColormap, posterizeLevels, selection, histogram } =
   storeToRefs(store);
 
 const previousValue = ref(posterizeLevels.value);
@@ -66,7 +65,7 @@ function handlePosterizeLevelsInput(event: Event) {
           :bounds-high="selection.high"
           :data-bounds-low="props.dataBounds?.low"
           :data-bounds-high="props.dataBounds?.high"
-          :histogram="props.histogram"
+          :histogram="histogram"
         />
       </div>
     </div>
