@@ -70,6 +70,7 @@ const {
   redraw,
   canvas,
   box,
+  updateHistogram,
 } = useSharedGridLogic();
 
 watch(
@@ -326,13 +327,11 @@ async function getDimensionValues(
   return dimValues;
 }
 
-async function fetchAndRenderData(
+function getGeographicDimensionIndices(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
-  updateMode: TUpdateMode
+  latitudesAttrs: zarr.Attributes,
+  longitudesAttrs: zarr.Attributes
 ) {
-  // Load latitudes and longitudes arrays (1D)
-  const { latitudes, longitudes, latitudesAttrs, longitudesAttrs } =
-    await getLatLonData(datavar, props.datasources);
   const dimensions = datavar.attrs._ARRAY_DIMENSIONS as string[];
   const geoDims: number[] = [];
   for (let i = 0; i < dimensions.length; i++) {
@@ -344,6 +343,21 @@ async function fetchAndRenderData(
       geoDims.push(i);
     }
   }
+  return geoDims;
+}
+
+async function fetchAndRenderData(
+  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  updateMode: TUpdateMode
+) {
+  // Load latitudes and longitudes arrays (1D)
+  const { latitudes, longitudes, latitudesAttrs, longitudesAttrs } =
+    await getLatLonData(datavar, props.datasources);
+  const geoDims: number[] = getGeographicDimensionIndices(
+    datavar,
+    latitudesAttrs,
+    longitudesAttrs
+  );
   const { dimensionRanges, indices } = buildDimensionRangesAndIndices(
     datavar,
     paramDimIndices.value,
@@ -371,6 +385,8 @@ async function fetchAndRenderData(
   getGrid(latitudes, longitudes, rawData);
 
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
+  updateHistogram(rawData, min, max, missingValue, fillValue);
+
   store.updateVarInfo(
     {
       attrs: datavar.attrs,

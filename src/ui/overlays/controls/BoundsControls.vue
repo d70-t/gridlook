@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { storeToRefs } from "pinia";
+import { computed } from "vue";
 
 import type { TBounds } from "@/lib/types/GlobeTypes.js";
 import { useGlobeControlStore } from "@/store/store";
@@ -22,6 +23,24 @@ defineEmits<{
 
 const store = useGlobeControlStore();
 const { userBoundsLow, userBoundsHigh } = storeToRefs(store);
+
+const lowBound = computed({
+  get() {
+    return userBoundsLow.value;
+  },
+  set(value: number | string | undefined) {
+    store.updateLowUserBound(value);
+  },
+});
+
+const highBound = computed({
+  get() {
+    return userBoundsHigh.value;
+  },
+  set(value: number | string | undefined) {
+    store.updateHighUserBound(value);
+  },
+});
 </script>
 
 <template>
@@ -123,7 +142,7 @@ const { userBoundsLow, userBoundsHigh } = storeToRefs(store);
         </div>
         <div class="column">
           <input
-            v-model.number="userBoundsLow"
+            v-model.number="lowBound"
             size="10"
             class="input"
             type="number"
@@ -131,7 +150,7 @@ const { userBoundsLow, userBoundsHigh } = storeToRefs(store);
         </div>
         <div class="column has-text-right">
           <input
-            v-model.number="userBoundsHigh"
+            v-model.number="highBound"
             size="10"
             class="input"
             type="number"

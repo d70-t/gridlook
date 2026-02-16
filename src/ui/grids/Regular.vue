@@ -57,6 +57,7 @@ const {
   fetchDimensionDetails,
   updateLandSeaMask,
   updateColormap,
+  updateHistogram,
   projectionHelper,
   canvas,
   box,
@@ -481,6 +482,7 @@ async function fetchAndRenderData(
   // Set missing/fill values as uniforms for the shader
   material.uniforms.missingValue.value = missingValue;
   material.uniforms.fillValue.value = fillValue;
+  updateHistogram(rawData, min, max, missingValue, fillValue);
 
   mainMesh!.material = material;
   mainMesh!.material.needsUpdate = true;

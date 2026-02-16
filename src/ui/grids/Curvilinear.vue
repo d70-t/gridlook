@@ -68,6 +68,7 @@ const {
   projectionHelper,
   canvas,
   box,
+  updateHistogram,
 } = useSharedGridLogic();
 
 watch(
@@ -485,6 +486,8 @@ async function fetchAndRenderData(
   }
 
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
+
+  updateHistogram(rawData, min, max, missingValue, fillValue);
 
   store.updateVarInfo(
     {

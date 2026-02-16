@@ -4,12 +4,14 @@ import { ref, watch } from "vue";
 
 import ColorBar from "./ColorBar.vue";
 
-import type { TModelInfo } from "@/lib/types/GlobeTypes.js";
+import type { TBounds, TModelInfo } from "@/lib/types/GlobeTypes.js";
 import { useGlobeControlStore } from "@/store/store";
 
-defineProps<{
+const props = defineProps<{
   modelInfo: TModelInfo;
   autoColormap: boolean;
+  histogram?: number[];
+  dataBounds?: TBounds;
 }>();
 
 defineEmits<{
@@ -17,7 +19,8 @@ defineEmits<{
 }>();
 
 const store = useGlobeControlStore();
-const { colormap, invertColormap, posterizeLevels } = storeToRefs(store);
+const { colormap, invertColormap, posterizeLevels, selection } =
+  storeToRefs(store);
 
 const previousValue = ref(posterizeLevels.value);
 
@@ -59,6 +62,11 @@ function handlePosterizeLevelsInput(event: Event) {
           :colormap="colormap"
           :invert-colormap="invertColormap"
           :posterize-levels="posterizeLevels"
+          :bounds-low="selection.low"
+          :bounds-high="selection.high"
+          :data-bounds-low="props.dataBounds?.low"
+          :data-bounds-high="props.dataBounds?.high"
+          :histogram="props.histogram"
         />
       </div>
     </div>
@@ -86,11 +94,11 @@ function handlePosterizeLevelsInput(event: Event) {
     </div>
 
     <!-- Posterize control -->
-    <div class="columns is-mobile compact-row">
+    <div class="columns is-mobile is-vcentered compact-row">
       <div class="column">
         <label for="posterize_levels" class="label is-small">Posterize</label>
       </div>
-      <div class="column">
+      <div class="column slider-column">
         <input
           id="posterize_levels"
           :value="posterizeLevels"
@@ -124,5 +132,14 @@ function handlePosterizeLevelsInput(event: Event) {
 .posterize-tag {
   min-width: 3em;
   text-align: center;
+}
+
+.slider-column {
+  display: flex;
+  align-items: center;
+}
+
+.slider {
+  margin: 0;
 }
 </style>

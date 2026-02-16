@@ -23,6 +23,11 @@ import {
   useGlobeControlStore,
   type TUpdateMode,
 } from "@/store/store.ts";
+import {
+  HISTOGRAM_SUMMARY_BINS,
+  buildHistogramSummary,
+  type THistogramSummary,
+} from "@/utils/histogram.ts";
 import { useLog } from "@/utils/logging.ts";
 
 const props = defineProps<{
@@ -58,6 +63,7 @@ const {
   fetchDimensionDetails,
   updateLandSeaMask,
   updateColormap,
+  updateHistogram,
   projectionHelper,
   canvas,
   box,
@@ -327,8 +333,17 @@ async function getHealpixData(
   }
 
   let { min, max, missingValue, fillValue } = getDataBounds(datavar, dataSlice);
+  // Filter out missing and fill values before building histogram
   return {
     texture: data2texture(dataSlice, {}),
+    histogramSummary: buildHistogramSummary(
+      dataSlice,
+      min,
+      max,
+      fillValue,
+      missingValue,
+      HISTOGRAM_SUMMARY_BINS
+    ),
     min,
     max,
     missingValue,
@@ -561,19 +576,20 @@ async function getDimensionValues(
   return dimValues;
 }
 
-async function fetchAndRenderData(
+async function processHealpixChunks(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
-  updateMode: TUpdateMode
-) {
-  const { dimensionRanges, indices } = await prepareDimensionData(
-    datavar,
-    updateMode
-  );
-
+  cellCoord: number[] | undefined,
+  nside: number,
+  indices: (number | zarr.Slice | null)[]
+): Promise<{
+  dataMin: number;
+  dataMax: number;
+  histogramSummaries: THistogramSummary[];
+}> {
   let dataMin = Number.POSITIVE_INFINITY;
   let dataMax = Number.NEGATIVE_INFINITY;
-  const cellCoord = await getCells();
-  const nside = await getNside();
+  const histogramSummaries: THistogramSummary[] = [];
+
   await Promise.all(
     [...Array(HEALPIX_NUMCHUNKS).keys()].map(async (ipix) => {
       const texData = await getHealpixData(
@@ -590,7 +606,7 @@ async function fetchAndRenderData(
         return;
       }
 
-      // Update global data range
+      histogramSummaries.push(texData.histogramSummary);
       dataMin = dataMin > texData.min ? texData.min : dataMin;
       dataMax = dataMax < texData.max ? texData.max : dataMax;
 
@@ -603,6 +619,29 @@ async function fetchAndRenderData(
       redraw();
     })
   );
+
+  return { dataMin, dataMax, histogramSummaries };
+}
+
+async function fetchAndRenderData(
+  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  updateMode: TUpdateMode
+) {
+  const { dimensionRanges, indices } = await prepareDimensionData(
+    datavar,
+    updateMode
+  );
+
+  const cellCoord = await getCells();
+  const nside = await getNside();
+  const { dataMin, dataMax, histogramSummaries } = await processHealpixChunks(
+    datavar,
+    cellCoord,
+    nside,
+    indices
+  );
+
+  updateHistogram(histogramSummaries, dataMin, dataMax);
 
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
 
