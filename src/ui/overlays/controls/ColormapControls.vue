@@ -70,6 +70,30 @@ function handlePosterizeLevelsInput(event: Event) {
       </div>
     </div>
 
+    <!-- Posterize control -->
+    <div class="columns is-mobile is-vcentered compact-row">
+      <div class="column is-one-third">
+        <label for="posterize_levels" class="label is-small">Posterize</label>
+      </div>
+      <div class="column slider-column">
+        <input
+          id="posterize_levels"
+          :value="posterizeLevels"
+          type="range"
+          min="0"
+          max="32"
+          step="1"
+          class="slider w-100"
+          @input="handlePosterizeLevelsInput"
+        />
+      </div>
+      <div class="column is-narrow">
+        <span class="tag posterize-tag">{{
+          posterizeLevels === 0 ? "off" : posterizeLevels
+        }}</span>
+      </div>
+    </div>
+
     <!-- Colormap checkboxes -->
     <div class="columns is-mobile compact-row">
       <div class="column py-2">
@@ -89,30 +113,6 @@ function handlePosterizeLevelsInput(event: Event) {
           "
         />
         <label for="auto_colormap">auto</label>
-      </div>
-    </div>
-
-    <!-- Posterize control -->
-    <div class="columns is-mobile is-vcentered compact-row">
-      <div class="column">
-        <label for="posterize_levels" class="label is-small">Posterize</label>
-      </div>
-      <div class="column slider-column">
-        <input
-          id="posterize_levels"
-          :value="posterizeLevels"
-          type="range"
-          min="0"
-          max="32"
-          step="1"
-          class="slider is-fullwidth"
-          @input="handlePosterizeLevelsInput"
-        />
-      </div>
-      <div class="column is-narrow">
-        <span class="tag posterize-tag">{{
-          posterizeLevels === 0 ? "off" : posterizeLevels
-        }}</span>
       </div>
     </div>
   </div>

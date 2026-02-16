@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useEventListener } from "@vueuse/core";
 import * as THREE from "three";
 import { ref, computed, onMounted, watch, onBeforeUnmount } from "vue";
 import type { Ref } from "vue";
@@ -35,10 +36,24 @@ const props = withDefaults(
 const box: Ref<HTMLDivElement | undefined> = ref(undefined);
 const canvas: Ref<HTMLCanvasElement | undefined> = ref(undefined);
 const histogramCanvas: Ref<HTMLCanvasElement | undefined> = ref(undefined);
-const tooltip: Ref<HTMLDivElement | undefined> = ref(undefined);
 
 const hoveredBin = ref<number | null>(null);
-const tooltipPosition = ref({ x: 0, y: 0 });
+const tooltipPosition = computed(() => {
+  if (
+    hoveredBin.value === null ||
+    !props.histogram ||
+    props.histogram.length === 0 ||
+    !box.value
+  ) {
+    return { left: "50%", top: "8px" };
+  }
+  const rect = box.value.getBoundingClientRect();
+  const left =
+    rect.left +
+    ((hoveredBin.value + 0.5) / props.histogram.length) * rect.width;
+  const top = rect.top - 6;
+  return { left: `${left}px`, top: `${top}px` };
+});
 
 let width: number | undefined;
 let height: number | undefined;
@@ -156,9 +171,10 @@ function drawHistogram() {
   const barWidth = width / bins.length;
   const gap = Math.min(1, barWidth * 0.2);
   const drawWidth = Math.max(0.5, barWidth - gap);
+  const maxBarHeight = height * 0.85;
 
   for (let i = 0; i < bins.length; i++) {
-    const barHeight = (bins[i] / maxCount) * height;
+    const barHeight = (bins[i] / maxCount) * maxBarHeight;
     if (barHeight <= 0) {
       continue;
     }
@@ -192,7 +208,6 @@ function handleHistogramMouseMove(event: MouseEvent) {
 
   if (binIndex >= 0 && binIndex < numBins) {
     hoveredBin.value = binIndex;
-    tooltipPosition.value = { x: event.clientX, y: event.clientY };
     drawHistogram();
   }
 }
@@ -299,11 +314,13 @@ onMounted(() => {
   });
   // Add hover listeners for histogram
   if (histogramCanvas.value) {
-    histogramCanvas.value.addEventListener(
+    useEventListener(
+      histogramCanvas.value,
       "mousemove",
       handleHistogramMouseMove
     );
-    histogramCanvas.value.addEventListener(
+    useEventListener(
+      histogramCanvas.value,
       "mouseleave",
       handleHistogramMouseLeave
     );
@@ -315,19 +332,6 @@ onBeforeUnmount(() => {
     resizeObserver?.unobserve(box.value as Element);
   }
   resizeObserver?.disconnect();
-
-  // Remove hover listeners
-  if (histogramCanvas.value) {
-    histogramCanvas.value.removeEventListener(
-      "mousemove",
-      handleHistogramMouseMove
-    );
-    histogramCanvas.value.removeEventListener(
-      "mouseleave",
-      handleHistogramMouseLeave
-    );
-  }
-
   lutMesh?.geometry.dispose();
   scene?.clear();
   camera?.clear();
@@ -423,12 +427,8 @@ function updateColormap() {
     </canvas>
     <div
       v-if="tooltipContent"
-      ref="tooltip"
       class="histogram-tooltip box"
-      :style="{
-        left: `${tooltipPosition.x}px`,
-        top: `${tooltipPosition.y - (tooltipContent.clamping ? 70 : 55)}px`,
-      }"
+      :style="tooltipPosition"
     >
       <p><strong>Range:</strong> {{ tooltipContent.range }}</p>
       <p><strong>Frequency:</strong> {{ tooltipContent.percentage }}</p>
@@ -507,7 +507,7 @@ function updateColormap() {
   pointer-events: none;
   z-index: 1000;
   white-space: nowrap;
-  transform: translateX(-50%);
+  transform: translate(-50%, -100%);
 
   /* Ensure readable text in both light and dark mode */
   background-color: #fff;
