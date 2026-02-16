@@ -222,7 +222,11 @@ export function useSharedGridLogic() {
   watch(
     () => posterizeLevels.value,
     () => {
-      if (lastHistogramSummary.value) {
+      if (
+        lastHistogramSummary.value &&
+        bounds.value?.low !== undefined &&
+        bounds.value?.high !== undefined
+      ) {
         const low = bounds.value?.low as number;
         const high = bounds.value?.high as number;
         recomputeHistogramFromSummary(lastHistogramSummary.value, low, high);
@@ -234,7 +238,11 @@ export function useSharedGridLogic() {
   watch(
     () => bounds.value,
     (newBounds) => {
-      if (lastHistogramSummary.value && newBounds) {
+      if (
+        lastHistogramSummary.value &&
+        newBounds.low !== undefined &&
+        newBounds.high !== undefined
+      ) {
         const low = newBounds.low;
         const high = newBounds.high;
         recomputeHistogramFromSummary(lastHistogramSummary.value, low, high);
@@ -250,17 +258,12 @@ export function useSharedGridLogic() {
     missingValue?: number,
     fillValue?: number
   ) {
-    if (!data || data.length === 0) {
+    if (!data || data.length === 0 || !isFinite(min) || !isFinite(max)) {
       store.updateHistogram(undefined);
       lastHistogramSummary.value = null;
       return;
     }
 
-    if (!isFinite(min) || !isFinite(max)) {
-      store.updateHistogram(undefined);
-      lastHistogramSummary.value = null;
-      return;
-    }
     let summary: THistogramSummary;
     if (isHistogramSummary(data[0])) {
       // Data is already a histogram summary
@@ -271,14 +274,6 @@ export function useSharedGridLogic() {
         HISTOGRAM_SUMMARY_BINS
       );
     } else {
-      // Filter out missing/fill values and non-finite values
-
-      if (data.length === 0) {
-        store.updateHistogram(undefined);
-        lastHistogramSummary.value = null;
-        return;
-      }
-
       summary = buildHistogramSummary(
         data as ArrayLike<number>,
         min,

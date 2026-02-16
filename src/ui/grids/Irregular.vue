@@ -372,11 +372,6 @@ async function fetchAndRenderData(
   let rawData = castDataVarToFloat32(
     (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
   );
-  if (rawData instanceof Float64Array) {
-    // WebGL doesn't support Float64Array textures
-    // we convert it to Float32Array and accept the loss of precision
-    rawData = Float32Array.from(rawData);
-  }
 
   let { min, max, fillValue, missingValue } = getDataBounds(datavar, rawData);
   const material = points!.material as THREE.ShaderMaterial;
