@@ -232,6 +232,8 @@ export function useSharedGridLogic() {
         const low = bounds.value?.low as number;
         const high = bounds.value?.high as number;
         recomputeHistogramFromSummary(lastHistogramSummary.value, low, high);
+      } else {
+        store.updateHistogram(undefined);
       }
     }
   );
@@ -248,6 +250,8 @@ export function useSharedGridLogic() {
         const low = newBounds.low;
         const high = newBounds.high;
         recomputeHistogramFromSummary(lastHistogramSummary.value, low, high);
+      } else {
+        store.updateHistogram(undefined);
       }
     },
     { deep: true }
