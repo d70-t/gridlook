@@ -65,19 +65,20 @@ function filterInvalidData(
   missingValue?: number,
   fillValue?: number
 ) {
-  const rawData = data as ArrayLike<number>;
-  const validData = Array.from(rawData).filter((value) => {
+  const validData: number[] = [];
+  for (let i = 0; i < data.length; i++) {
+    const value = data[i];
     if (!isFinite(value)) {
-      return false;
+      continue;
     }
     if (missingValue !== undefined && value === missingValue) {
-      return false;
+      continue;
     }
     if (fillValue !== undefined && value === fillValue) {
-      return false;
+      continue;
     }
-    return true;
-  });
+    validData.push(value);
+  }
   return validData;
 }
 

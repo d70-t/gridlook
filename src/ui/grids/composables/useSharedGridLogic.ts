@@ -215,6 +215,8 @@ export function useSharedGridLogic() {
         high
       );
       store.updateHistogram(histogram);
+    } else {
+      store.updateHistogram(undefined);
     }
   }
 
