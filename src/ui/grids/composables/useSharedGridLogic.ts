@@ -1,6 +1,6 @@
 import { storeToRefs } from "pinia";
 import type * as THREE from "three";
-import { computed, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import type * as zarr from "zarrita";
 
 import { useGridCameraState } from "./useGridCameraState.ts";
@@ -17,6 +17,14 @@ import type {
   TDimInfo,
 } from "@/lib/types/GlobeTypes";
 import { useGlobeControlStore } from "@/store/store.ts";
+import {
+  HISTOGRAM_SUMMARY_BINS,
+  buildHistogramSummary,
+  isHistogramSummary,
+  mergeHistogramSummaries,
+  rebinHistogramSummary,
+  type THistogramSummary,
+} from "@/utils/histogram.ts";
 
 /* eslint-disable-next-line max-lines-per-function */
 export function useSharedGridLogic() {
@@ -28,6 +36,7 @@ export function useSharedGridLogic() {
     selection,
     colormap,
     invertColormap,
+    posterizeLevels,
     controlPanelVisible,
     projectionMode,
     projectionCenter,
@@ -147,6 +156,9 @@ export function useSharedGridLogic() {
       material.uniforms.colormap.value = availableColormaps[colormap.value];
       material.uniforms.addOffset.value = addOffset;
       material.uniforms.scaleFactor.value = scaleFactor;
+      if (material.uniforms.posterizeLevels) {
+        material.uniforms.posterizeLevels.value = posterizeLevels.value;
+      }
       material.needsUpdate = true;
     }
     redraw();
@@ -179,6 +191,108 @@ export function useSharedGridLogic() {
     return array;
   }
 
+  const lastHistogramSummary = ref<THistogramSummary | null>(null);
+
+  function getDisplayHistogramBinCount() {
+    return posterizeLevels.value > 0 ? posterizeLevels.value : 50;
+  }
+
+  function recomputeHistogramFromSummary(
+    summary: THistogramSummary,
+    low: number,
+    high: number
+  ) {
+    if (
+      low !== undefined &&
+      high !== undefined &&
+      isFinite(low) &&
+      isFinite(high)
+    ) {
+      const histogram = rebinHistogramSummary(
+        summary,
+        getDisplayHistogramBinCount(),
+        low,
+        high
+      );
+      store.updateHistogram(histogram);
+    } else {
+      store.updateHistogram(undefined);
+    }
+  }
+
+  // Watch posterizeLevels and recompute histogram with new bin count
+  watch(
+    () => posterizeLevels.value,
+    () => {
+      if (
+        lastHistogramSummary.value &&
+        bounds.value?.low !== undefined &&
+        bounds.value?.high !== undefined
+      ) {
+        const low = bounds.value?.low as number;
+        const high = bounds.value?.high as number;
+        recomputeHistogramFromSummary(lastHistogramSummary.value, low, high);
+      } else {
+        store.updateHistogram(undefined);
+      }
+    }
+  );
+
+  // Watch bounds and recompute histogram with new range
+  watch(
+    () => bounds.value,
+    (newBounds) => {
+      if (
+        lastHistogramSummary.value &&
+        newBounds.low !== undefined &&
+        newBounds.high !== undefined
+      ) {
+        const low = newBounds.low;
+        const high = newBounds.high;
+        recomputeHistogramFromSummary(lastHistogramSummary.value, low, high);
+      } else {
+        store.updateHistogram(undefined);
+      }
+    },
+    { deep: true }
+  );
+
+  function updateHistogram(
+    data: ArrayLike<number> | THistogramSummary[] | undefined,
+    min: number,
+    max: number,
+    missingValue?: number,
+    fillValue?: number
+  ) {
+    if (!data || data.length === 0 || !isFinite(min) || !isFinite(max)) {
+      store.updateHistogram(undefined);
+      lastHistogramSummary.value = null;
+      return;
+    }
+
+    let summary: THistogramSummary;
+    if (isHistogramSummary(data[0])) {
+      // Data is already a histogram summary
+      summary = mergeHistogramSummaries(
+        data as THistogramSummary[],
+        min,
+        max,
+        HISTOGRAM_SUMMARY_BINS
+      );
+    } else {
+      summary = buildHistogramSummary(
+        data as ArrayLike<number>,
+        min,
+        max,
+        HISTOGRAM_SUMMARY_BINS,
+        fillValue,
+        missingValue
+      );
+    }
+    recomputeHistogramFromSummary(summary, bounds.value.low, bounds.value.high);
+    lastHistogramSummary.value = summary;
+  }
+
   return {
     getScene,
     getCamera,
@@ -192,6 +306,7 @@ export function useSharedGridLogic() {
     registerUpdateLOD,
     updateLandSeaMask,
     updateColormap,
+    updateHistogram,
     projectionHelper,
     canvas,
     box,

@@ -35,6 +35,7 @@ const {
   colormap,
   varnameSelector,
   invertColormap,
+  posterizeLevels,
   selection,
   isInitializingVariable,
   varinfo,
@@ -56,6 +57,7 @@ const {
   fetchDimensionDetails,
   updateLandSeaMask,
   updateColormap,
+  updateHistogram,
   projectionHelper,
   canvas,
   box,
@@ -99,7 +101,12 @@ const bounds = computed(() => {
 });
 
 watch(
-  [() => bounds.value, () => invertColormap.value, () => colormap.value],
+  [
+    () => bounds.value,
+    () => invertColormap.value,
+    () => colormap.value,
+    () => posterizeLevels.value,
+  ],
   () => {
     updateColormap([mainMesh]);
   }
@@ -475,6 +482,7 @@ async function fetchAndRenderData(
   // Set missing/fill values as uniforms for the shader
   material.uniforms.missingValue.value = missingValue;
   material.uniforms.fillValue.value = fillValue;
+  updateHistogram(rawData, min, max, missingValue, fillValue);
 
   mainMesh!.material = material;
   mainMesh!.material.needsUpdate = true;

@@ -38,6 +38,7 @@ const {
   colormap,
   varnameSelector,
   invertColormap,
+  posterizeLevels,
   selection,
   isInitializingVariable,
   varinfo,
@@ -66,6 +67,7 @@ const {
   projectionHelper,
   canvas,
   box,
+  updateHistogram,
 } = useSharedGridLogic();
 
 watch(
@@ -92,7 +94,12 @@ const bounds = computed(() => {
 });
 
 watch(
-  [() => bounds.value, () => invertColormap.value, () => colormap.value],
+  [
+    () => bounds.value,
+    () => invertColormap.value,
+    () => colormap.value,
+    () => posterizeLevels.value,
+  ],
   () => {
     updateColormap(meshes);
   }
@@ -412,6 +419,7 @@ async function fetchAndRenderData(
   }
 
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
+  updateHistogram(rawData, min, max, missingValue, fillValue);
 
   store.updateVarInfo(
     {

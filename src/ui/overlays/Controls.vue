@@ -40,6 +40,7 @@ const store = useGlobeControlStore();
 const {
   colormap,
   invertColormap,
+  posterizeLevels,
   varnameSelector,
   landSeaMaskChoice,
   landSeaMaskUseTexture,
@@ -60,6 +61,7 @@ const urlParameterStore = useUrlParameterStore();
 const {
   paramColormap,
   paramInvertColormap,
+  paramPosterizeLevels,
   paramMaskMode,
   paramMaskingUseTexture,
   paramProjection,
@@ -218,6 +220,13 @@ onMounted(() => {
     }
   }
 
+  if (paramPosterizeLevels.value) {
+    const levels = Number(paramPosterizeLevels.value);
+    if (!isNaN(levels) && levels >= 0 && levels <= 32) {
+      posterizeLevels.value = levels;
+    }
+  }
+
   // Initialize control panel visibility
   const initiallyVisible = isMobileView.value
     ? !mobileMenuCollapsed.value
@@ -283,6 +292,7 @@ onMounted(() => {
         <ColormapControls
           :model-info="modelInfo"
           :auto-colormap="autoColormap"
+          :data-bounds="dataBounds"
           @update:auto-colormap="autoColormap = $event"
         />
         <ProjectionControls />

@@ -34,6 +34,7 @@ const {
   varnameSelector,
   colormap,
   invertColormap,
+  posterizeLevels,
   selection,
   isInitializingVariable,
   varinfo,
@@ -61,6 +62,7 @@ const {
   projectionHelper,
   canvas,
   box,
+  updateHistogram,
 } = useSharedGridLogic();
 
 watch(
@@ -94,7 +96,12 @@ const bounds = computed(() => {
 });
 
 watch(
-  [() => bounds.value, () => invertColormap.value, () => colormap.value],
+  [
+    () => bounds.value,
+    () => invertColormap.value,
+    () => colormap.value,
+    () => posterizeLevels.value,
+  ],
   () => {
     updateColormap(meshes);
   }
@@ -339,6 +346,29 @@ async function getDimensionValues(
   return dimValues;
 }
 
+function distributeDataToMeshes(dataBuffer: {
+  dataValues: Float32Array;
+  dataMin: number;
+  dataMax: number;
+  missingValue: number;
+  fillValue: number;
+}) {
+  let offset = 0;
+  for (const mesh of meshes) {
+    const nVerts = mesh.geometry.getAttribute("position").count;
+    // Each triangle has 3 vertices, each vertex has a value
+    const meshData = dataBuffer.dataValues.subarray(offset, offset + nVerts);
+    mesh.geometry.setAttribute(
+      "data_value",
+      new THREE.BufferAttribute(meshData, 1)
+    );
+    const material = mesh.material as THREE.ShaderMaterial;
+    material.uniforms.missingValue.value = dataBuffer.missingValue;
+    material.uniforms.fillValue.value = dataBuffer.fillValue;
+    offset += nVerts;
+  }
+}
+
 async function fetchAndRenderData(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
   updateMode: TUpdateMode
@@ -360,22 +390,17 @@ async function fetchAndRenderData(
   );
   const dataBuffer = data2valueBuffer(rawData, datavar);
   // Distribute data values to each mesh
-  let offset = 0;
-  for (const mesh of meshes) {
-    const nVerts = mesh.geometry.getAttribute("position").count;
-    // Each triangle has 3 vertices, each vertex has a value
-    const meshData = dataBuffer.dataValues.subarray(offset, offset + nVerts);
-    mesh.geometry.setAttribute(
-      "data_value",
-      new THREE.BufferAttribute(meshData, 1)
-    );
-    const material = mesh.material as THREE.ShaderMaterial;
-    material.uniforms.missingValue.value = dataBuffer.missingValue;
-    material.uniforms.fillValue.value = dataBuffer.fillValue;
-    offset += nVerts;
-  }
+  distributeDataToMeshes(dataBuffer);
 
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
+  updateHistogram(
+    dataBuffer.dataValues,
+    dataBuffer.dataMin,
+    dataBuffer.dataMax,
+    dataBuffer.missingValue,
+    dataBuffer.fillValue
+  );
+
   store.updateVarInfo(
     {
       attrs: datavar.attrs,

@@ -16,6 +16,7 @@ export function useUrlSync() {
     varnameSelector,
     colormap,
     invertColormap,
+    posterizeLevels,
     dimSlidersDisplay,
     projectionCenter,
   } = storeToRefs(store);
@@ -58,11 +59,8 @@ export function useUrlSync() {
   function handleUserBounds() {
     if (
       (userBoundsLow.value !== undefined &&
-        (userBoundsLow.value as unknown as string) !== "" &&
-        userBoundsHigh.value !== undefined &&
-        (userBoundsHigh.value as unknown as string) !== "") ||
-      ((userBoundsLow.value as unknown as string) === "" &&
-        (userBoundsHigh.value as unknown as string) === "")
+        userBoundsHigh.value !== undefined) ||
+      (userBoundsLow.value === undefined && userBoundsHigh.value === undefined)
     ) {
       changeURLHash({
         [URL_PARAMETERS.USER_BOUNDS_LOW]: userBoundsLow.value as number,
@@ -112,6 +110,15 @@ export function useUrlSync() {
     () => colormap.value,
     () => {
       changeURLHash({ [URL_PARAMETERS.COLORMAP]: colormap.value });
+    }
+  );
+
+  watch(
+    () => posterizeLevels.value,
+    () => {
+      changeURLHash({
+        [URL_PARAMETERS.POSTERIZE_LEVELS]: String(posterizeLevels.value),
+      });
     }
   );
 
