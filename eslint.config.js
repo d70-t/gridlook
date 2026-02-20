@@ -184,7 +184,7 @@ export default [
           rules: [
             { from: "ui", allow: ["store", "lib", "ui", "utils"] },
             { from: "store", allow: ["lib", "utils"] },
-            { from: "lib", allow: ["assets"] },
+            { from: "lib", allow: ["assets", "utils"] },
             { from: "views", allow: ["lib", "store", "ui", "utils"] },
             { from: "src", allow: ["lib", "src", "router", "views"] },
             { from: "router", allow: ["views"] },

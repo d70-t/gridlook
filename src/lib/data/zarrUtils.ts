@@ -2,7 +2,8 @@ import * as zarr from "zarrita";
 
 import { ZarrDataManager } from "./ZarrDataManager";
 
-import type { TSources } from "@/lib/types/GlobeTypes";
+import { ZARR_FORMAT, type TSources } from "@/lib/types/GlobeTypes";
+import trim from "@/utils/trim";
 
 export function getMissingValue(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>
@@ -116,8 +117,10 @@ export async function getLatLonData(
   const gridsource = datasources!.levels[0].grid;
 
   let v3Attributes: zarr.Attributes = {};
-  if (datasources?.zarr_format === 3) {
-    const store = new zarr.FetchStore(gridsource.store + "/" + latitudeName);
+  if (datasources?.zarr_format === ZARR_FORMAT.V3) {
+    const store = new zarr.FetchStore(
+      trim(gridsource.store) + "/" + trim(latitudeName)
+    );
 
     const group = await ZarrDataManager.openZarrV3Metadata(store);
     v3Attributes = group.attrs;
