@@ -115,6 +115,17 @@ export async function getLatLonData(
   const { latitudeName, longitudeName } = findLatLonNames(datavar, isRotated);
   const gridsource = datasources!.levels[0].grid;
 
+  let v3Attributes: zarr.Attributes = {};
+  if (datasources?.zarr_format === 3) {
+    const store = new zarr.FetchStore(gridsource.store + "/" + latitudeName);
+
+    const group = await ZarrDataManager.openZarrV3Metadata(store);
+    v3Attributes = group.attrs;
+    if (v3Attributes.dimension_names) {
+      v3Attributes._ARRAY_DIMENSIONS = v3Attributes.dimension_names;
+    }
+  }
+
   const latitudesVar = await ZarrDataManager.getVariableInfo(
     gridsource,
     latitudeName
@@ -130,9 +141,9 @@ export async function getLatLonData(
     await ZarrDataManager.getVariableDataFromArray(longitudesVar);
 
   return {
-    latitudesAttrs: latitudesVar.attrs,
+    latitudesAttrs: { ...latitudesVar.attrs, ...v3Attributes },
     latitudes,
-    longitudesAttrs: longitudesVar.attrs,
+    longitudesAttrs: { ...longitudesVar.attrs, ...v3Attributes },
     longitudes,
   };
 }

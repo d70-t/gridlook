@@ -162,12 +162,11 @@ async function getDims() {
   // On the other hand, I didn't find any case where latitudes and longitudes were not
   // the two last dimensions of the data variable.
   const grid = props.datasources!.levels[0].grid;
-  const datavar = await ZarrDataManager.getVariableInfo(
-    ZarrDataManager.getDatasetSource(props.datasources!, varnameSelector.value),
+  const dimensions = await ZarrDataManager.getDimensionNames(
+    props.datasources!,
     varnameSelector.value
   );
 
-  const dimensions = datavar.attrs._ARRAY_DIMENSIONS as string[];
   const latName = dimensions[dimensions.length - 2];
   const lonName = dimensions[dimensions.length - 1];
   const [latitudesData, longitudesData] = await Promise.all([
@@ -456,8 +455,13 @@ async function fetchAndRenderData(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
   updateMode: TUpdateMode
 ) {
+  const dimensionNames = await ZarrDataManager.getDimensionNames(
+    props.datasources!,
+    varnameSelector.value
+  );
   const { dimensionRanges, indices } = buildDimensionRangesAndIndices(
     datavar,
+    dimensionNames,
     paramDimIndices.value,
     paramDimMinBounds.value,
     paramDimMaxBounds.value,

@@ -55,6 +55,7 @@ export type TModelInfo = {
 
 export type TSources = {
   name?: string;
+  zarr_format: number;
   default_var?: string;
   levels: {
     name?: string;
@@ -68,4 +69,13 @@ export type TSources = {
     };
     datasources: Record<string, TDataSource>;
   }[];
+};
+
+export type TZarrV3RootMetadata = {
+  zarr_format: 3;
+  node_type: "group";
+  attributes?: Record<string, unknown>;
+  consolidated_metadata: {
+    metadata: Record<string, zarr.ArrayMetadata | zarr.GroupMetadata>;
+  };
 };

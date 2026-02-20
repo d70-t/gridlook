@@ -328,11 +328,10 @@ async function getDimensionValues(
 }
 
 function getGeographicDimensionIndices(
-  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  dimensions: string[],
   latitudesAttrs: zarr.Attributes,
   longitudesAttrs: zarr.Attributes
 ) {
-  const dimensions = datavar.attrs._ARRAY_DIMENSIONS as string[];
   const geoDims: number[] = [];
   for (let i = 0; i < dimensions.length; i++) {
     let latDims = latitudesAttrs._ARRAY_DIMENSIONS as string[];
@@ -353,13 +352,19 @@ async function fetchAndRenderData(
   // Load latitudes and longitudes arrays (1D)
   const { latitudes, longitudes, latitudesAttrs, longitudesAttrs } =
     await getLatLonData(datavar, props.datasources);
+  const dimensions = await ZarrDataManager.getDimensionNames(
+    props.datasources!,
+    varnameSelector.value
+  );
   const geoDims: number[] = getGeographicDimensionIndices(
-    datavar,
+    dimensions,
     latitudesAttrs,
     longitudesAttrs
   );
+
   const { dimensionRanges, indices } = buildDimensionRangesAndIndices(
     datavar,
+    dimensions,
     paramDimIndices.value,
     paramDimMinBounds.value,
     paramDimMaxBounds.value,
