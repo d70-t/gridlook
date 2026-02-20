@@ -236,6 +236,34 @@ function collectStores(
 }
 
 /**
+ * Enrich the index with dimension names and attributes from Zarr V2
+ * consolidated metadata.
+ */
+async function enrichMetadataWithZarrV2(
+  stores: Record<string, Set<string>>,
+  datasources: Record<string, TDataSource>
+) {
+  for (const [store, vars] of Object.entries(stores)) {
+    const zarrStore = await zarr.withConsolidated(
+      lru(new zarr.FetchStore(store))
+    );
+    const root = await zarr.open(zarrStore, { kind: "group" });
+
+    for (const varname of vars) {
+      const variable = await zarr.open(root.resolve(`/${varname}`), {
+        kind: "array",
+      });
+      const arrayDimensions = variable.attrs?._ARRAY_DIMENSIONS;
+      datasources[varname].attrs = {
+        ...datasources[varname].attrs,
+        ...variable.attrs,
+        dimensionNames: arrayDimensions,
+      } as Record<string, unknown>;
+    }
+  }
+}
+
+/**
  * Zarrita does not provide a proper way to get dimension names for Zarr V3
  * arrays, so we need to fetch metadata for each store and enrich the index with
  * dimension names and attributes.
@@ -253,9 +281,7 @@ async function enrichMetadataWithZarrV3(
       const metadata = rootMetadata.consolidated_metadata.metadata;
       if (metadata) {
         for (const varname of vars) {
-          console.log("Enriching metadata for variable", varname, metadata);
           const node = metadata[varname];
-          console.log("bla1", node);
           if (node && node.node_type === "array") {
             const arrayNode = node as zarr.ArrayMetadata;
             datasources[varname].attrs = {
@@ -278,13 +304,13 @@ export async function indexFromIndex(src: string): Promise<TSources> {
     throw new Error(`Index not found at ${src}`);
   }
   const sources = (await res.json()) as TSources;
+  const datasources = sources.levels[0].datasources;
+  const stores = collectStores(datasources);
   try {
-    const datasources = sources.levels[0].datasources;
-    const stores = collectStores(datasources);
     await enrichMetadataWithZarrV3(stores, datasources);
-    console.log("Index enriched with Zarr V3 metadata", datasources);
     sources.zarr_format = ZARR_FORMAT.V3; // eslint-disable-line camelcase
   } catch {
+    await enrichMetadataWithZarrV2(stores, datasources);
     sources.zarr_format = ZARR_FORMAT.V2; // eslint-disable-line camelcase
   }
   return sources;
