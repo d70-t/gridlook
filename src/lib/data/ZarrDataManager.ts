@@ -1,7 +1,11 @@
 import * as zarr from "zarrita";
 
 import { lru } from "@/lib/data/lruStore";
-import type { TDataSource, TSources } from "@/lib/types/GlobeTypes";
+import type {
+  TDataSource,
+  TSources,
+  TZarrV3RootMetadata,
+} from "@/lib/types/GlobeTypes";
 
 export type TZarrDatasetMetadata = {
   attrs: zarr.Attributes;
@@ -44,7 +48,27 @@ export class ZarrDataManager {
     const root = this.fetchStore!;
     const datasetPath = this.normalizeDatasetPath(datasource.dataset);
     const target = datasetPath ? root.resolve(datasetPath) : root;
-    return await zarr.open(target, { kind: "group" });
+    const dataset = await zarr.open(target, { kind: "group" });
+    return dataset;
+  }
+
+  public static async openZarrV3Metadata<Store extends zarr.Readable>(
+    store: Store
+  ): Promise<zarr.Group<Store>> {
+    const location = zarr.root(store);
+    const rootMetadata: TZarrV3RootMetadata = JSON.parse(
+      new TextDecoder().decode(
+        await store.get(location.resolve("zarr.json").path)
+      )
+    );
+
+    return new zarr.Group(store, location.path, {
+      /* eslint-disable camelcase */
+      zarr_format: 3,
+      node_type: "group",
+      attributes: { ...rootMetadata },
+      /* eslint-enable camelcase */
+    });
   }
 
   private static async getVariable(
@@ -133,6 +157,19 @@ export class ZarrDataManager {
     varname: string
   ): TDatasetSource {
     return datasources.levels[0].datasources[varname];
+  }
+
+  static async getDimensionNames(datasources: TSources, varname: string) {
+    const source = this.getDatasetSource(datasources, varname) as TDataSource;
+    if (source.attrs && source.attrs.dimensionNames) {
+      return source.attrs.dimensionNames as string[];
+    }
+
+    const datavar = await ZarrDataManager.getVariableInfo(
+      ZarrDataManager.getDatasetSource(datasources, varname),
+      varname
+    );
+    return datavar.attrs._ARRAY_DIMENSIONS as string[];
   }
 
   static invalidateCache() {

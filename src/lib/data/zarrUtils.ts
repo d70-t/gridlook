@@ -2,7 +2,8 @@ import * as zarr from "zarrita";
 
 import { ZarrDataManager } from "./ZarrDataManager";
 
-import type { TSources } from "@/lib/types/GlobeTypes";
+import { ZARR_FORMAT, type TSources } from "@/lib/types/GlobeTypes";
+import trim from "@/utils/trim";
 
 export function getMissingValue(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>
@@ -107,6 +108,19 @@ function findLatLonNames(
   return { latitudeName, longitudeName };
 }
 
+async function getZarrV3Attributes(
+  storeName: string,
+  varname: string
+): Promise<zarr.Attributes> {
+  const store = new zarr.FetchStore(trim(storeName) + "/" + trim(varname));
+  const group = await ZarrDataManager.openZarrV3Metadata(store);
+  const v3Attributes = group.attrs;
+  if (v3Attributes.dimension_names) {
+    v3Attributes._ARRAY_DIMENSIONS = v3Attributes.dimension_names;
+  }
+  return v3Attributes;
+}
+
 export async function getLatLonData(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
   datasources: TSources | undefined,
@@ -114,6 +128,16 @@ export async function getLatLonData(
 ) {
   const { latitudeName, longitudeName } = findLatLonNames(datavar, isRotated);
   const gridsource = datasources!.levels[0].grid;
+
+  let latV3Attributes: zarr.Attributes = {};
+  let lonV3Attributes: zarr.Attributes = {};
+  if (datasources?.zarr_format === ZARR_FORMAT.V3) {
+    latV3Attributes = await getZarrV3Attributes(gridsource.store, latitudeName);
+    lonV3Attributes = await getZarrV3Attributes(
+      gridsource.store,
+      longitudeName
+    );
+  }
 
   const latitudesVar = await ZarrDataManager.getVariableInfo(
     gridsource,
@@ -130,9 +154,9 @@ export async function getLatLonData(
     await ZarrDataManager.getVariableDataFromArray(longitudesVar);
 
   return {
-    latitudesAttrs: latitudesVar.attrs,
+    latitudesAttrs: { ...latitudesVar.attrs, ...latV3Attributes },
     latitudes,
-    longitudesAttrs: longitudesVar.attrs,
+    longitudesAttrs: { ...longitudesVar.attrs, ...lonV3Attributes },
     longitudes,
   };
 }

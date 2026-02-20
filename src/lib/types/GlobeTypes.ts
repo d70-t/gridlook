@@ -3,6 +3,13 @@ import * as zarr from "zarrita";
 
 import type { TColorMap } from "@/lib/shaders/colormapShaders";
 
+export const ZARR_FORMAT = {
+  V2: 2,
+  V3: 3,
+} as const;
+
+export type TZarrFormat = (typeof ZARR_FORMAT)[keyof typeof ZARR_FORMAT];
+
 export type EmptyObj = Record<PropertyKey, never>;
 
 export type TBounds = EmptyObj | { low: number; high: number };
@@ -55,6 +62,7 @@ export type TModelInfo = {
 
 export type TSources = {
   name?: string;
+  zarr_format: TZarrFormat;
   default_var?: string;
   levels: {
     name?: string;
@@ -68,4 +76,13 @@ export type TSources = {
     };
     datasources: Record<string, TDataSource>;
   }[];
+};
+
+export type TZarrV3RootMetadata = {
+  zarr_format: 3;
+  node_type: "group";
+  attributes?: Record<string, unknown>;
+  consolidated_metadata: {
+    metadata: Record<string, zarr.ArrayMetadata | zarr.GroupMetadata>;
+  };
 };
