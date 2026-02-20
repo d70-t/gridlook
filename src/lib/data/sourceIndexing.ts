@@ -9,6 +9,7 @@ import {
 } from "../types/GlobeTypes";
 
 import { lru } from "./lruStore";
+import { ZarrDataManager } from "./ZarrDataManager";
 
 import trim from "@/utils/trim";
 
@@ -114,16 +115,16 @@ function processZarrV3Variables(
   const dimensions = new Set<string>();
   const attributes = group.attrs as TZarrV3RootMetadata;
   const consolidatedMetadata = attributes.consolidated_metadata;
-  const metadata = consolidatedMetadata.metadata;
+  const metadata = consolidatedMetadata?.metadata;
 
-  for (const node of Object.values(metadata)) {
+  for (const node of Object.values(metadata || {})) {
     if (node.node_type === "array" && Array.isArray(node.dimension_names)) {
       for (const dim of node.dimension_names) {
         dimensions.add(dim);
       }
     }
   }
-  for (const [name, node] of Object.entries(metadata)) {
+  for (const [name, node] of Object.entries(metadata || {})) {
     if (node.node_type !== "array") {
       continue;
     }
@@ -143,26 +144,6 @@ function processZarrV3Variables(
     }
   }
   return datasources;
-}
-
-export async function openExperimentalV3Consolidated<
-  Store extends zarr.Readable,
->(store: Store): Promise<zarr.Group<Store>> {
-  const location = zarr.root(store);
-  const rootMetadata: TZarrV3RootMetadata = JSON.parse(
-    new TextDecoder().decode(
-      await store.get(location.resolve("zarr.json").path)
-    )
-  );
-  // eslint-disable-next-line camelcase
-  const { attributes, consolidated_metadata } = rootMetadata;
-  return new zarr.Group(store, location.path, {
-    /* eslint-disable camelcase */
-    zarr_format: 3,
-    node_type: "group",
-    attributes: { ...attributes, consolidated_metadata },
-    /* eslint-enable camelcase */
-  });
 }
 
 function createIndex(
@@ -202,7 +183,7 @@ export async function indexFromZarr(src: string): Promise<TSources> {
       ZARR_FORMAT.V2
     );
   } catch {
-    const group = await openExperimentalV3Consolidated(
+    const group = await ZarrDataManager.openZarrV3Metadata(
       new zarr.FetchStore(src)
     );
     const datasources = processZarrV3Variables(group, src);
@@ -273,12 +254,12 @@ async function enrichMetadataWithZarrV3(
   datasources: Record<string, TDataSource>
 ) {
   for (const [store, vars] of Object.entries(stores)) {
-    const group = await openExperimentalV3Consolidated(
+    const group = await ZarrDataManager.openZarrV3Metadata(
       new zarr.FetchStore(store)
     );
     if (group.attrs) {
       const rootMetadata = group.attrs as TZarrV3RootMetadata;
-      const metadata = rootMetadata.consolidated_metadata.metadata;
+      const metadata = rootMetadata.consolidated_metadata?.metadata;
       if (metadata) {
         for (const varname of vars) {
           const node = metadata[varname];

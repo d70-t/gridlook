@@ -108,6 +108,19 @@ function findLatLonNames(
   return { latitudeName, longitudeName };
 }
 
+async function getZarrV3Attributes(
+  storeName: string,
+  varname: string
+): Promise<zarr.Attributes> {
+  const store = new zarr.FetchStore(trim(storeName) + "/" + trim(varname));
+  const group = await ZarrDataManager.openZarrV3Metadata(store);
+  const v3Attributes = group.attrs;
+  if (v3Attributes.dimension_names) {
+    v3Attributes._ARRAY_DIMENSIONS = v3Attributes.dimension_names;
+  }
+  return v3Attributes;
+}
+
 export async function getLatLonData(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
   datasources: TSources | undefined,
@@ -116,17 +129,14 @@ export async function getLatLonData(
   const { latitudeName, longitudeName } = findLatLonNames(datavar, isRotated);
   const gridsource = datasources!.levels[0].grid;
 
-  let v3Attributes: zarr.Attributes = {};
+  let latV3Attributes: zarr.Attributes = {};
+  let lonV3Attributes: zarr.Attributes = {};
   if (datasources?.zarr_format === ZARR_FORMAT.V3) {
-    const store = new zarr.FetchStore(
-      trim(gridsource.store) + "/" + trim(latitudeName)
+    latV3Attributes = await getZarrV3Attributes(gridsource.store, latitudeName);
+    lonV3Attributes = await getZarrV3Attributes(
+      gridsource.store,
+      longitudeName
     );
-
-    const group = await ZarrDataManager.openZarrV3Metadata(store);
-    v3Attributes = group.attrs;
-    if (v3Attributes.dimension_names) {
-      v3Attributes._ARRAY_DIMENSIONS = v3Attributes.dimension_names;
-    }
   }
 
   const latitudesVar = await ZarrDataManager.getVariableInfo(
@@ -144,9 +154,9 @@ export async function getLatLonData(
     await ZarrDataManager.getVariableDataFromArray(longitudesVar);
 
   return {
-    latitudesAttrs: { ...latitudesVar.attrs, ...v3Attributes },
+    latitudesAttrs: { ...latitudesVar.attrs, ...latV3Attributes },
     latitudes,
-    longitudesAttrs: { ...longitudesVar.attrs, ...v3Attributes },
+    longitudesAttrs: { ...longitudesVar.attrs, ...lonV3Attributes },
     longitudes,
   };
 }
