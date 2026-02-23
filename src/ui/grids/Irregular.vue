@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { storeToRefs } from "pinia";
 import * as THREE from "three";
-import { computed, onBeforeMount, ref, onMounted, watch } from "vue";
+import { computed, onBeforeMount, ref, watch } from "vue";
 import * as zarr from "zarrita";
 
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
@@ -54,7 +54,8 @@ const updatingData = ref(false);
 
 const estimatedSpacing = ref(0);
 
-let points: THREE.Points | undefined = undefined;
+const BATCH_SIZE = 500000;
+let points: THREE.Points[] = [];
 
 const {
   getScene,
@@ -111,7 +112,7 @@ watch(
     () => posterizeLevels.value,
   ],
   () => {
-    updateColormap([points]);
+    updateColormap(points);
   }
 );
 
@@ -129,18 +130,15 @@ watch(
  * This is the fast path - no geometry rebuild needed.
  */
 function updatePointsProjectionUniforms() {
-  if (!points) {
-    return;
-  }
-  const material = points.material as THREE.ShaderMaterial;
-  if (!material.uniforms?.projectionType) {
-    return;
-  }
-
   const helper = projectionHelper.value;
   const center = projectionCenter.value;
 
-  updateProjectionUniforms(material, helper.type, center.lon, center.lat);
+  for (const p of points) {
+    const material = p.material as THREE.ShaderMaterial;
+    if (material.uniforms?.projectionType) {
+      updateProjectionUniforms(material, helper.type, center.lon, center.lat);
+    }
+  }
   redraw();
 }
 
@@ -157,7 +155,7 @@ async function datasourceUpdate() {
   if (props.datasources !== undefined) {
     await Promise.all([getData()]);
     updateLandSeaMask();
-    updateColormap([points]);
+    updateColormap(points);
   }
 }
 
@@ -220,64 +218,189 @@ function estimateAverageSpacing(
   return totalWeight > 0 ? totalDistance / totalWeight : 0.01;
 }
 
+/**
+ * Expand 1D lat/lon arrays to match data length via meshgrid-style expansion.
+ * If lat[nj] and lon[ni], expands to lat[nj*ni], lon[nj*ni] where each lat
+ * value is repeated ni times and lon values cycle nj times.
+ */
+function expandCoordinatesToMeshgrid(
+  lat: Float32Array,
+  lon: Float32Array,
+  dataLength: number
+): { latitudes: Float32Array; longitudes: Float32Array } {
+  const nj = lat.length;
+  const ni = lon.length;
+
+  if (nj * ni !== dataLength) {
+    throw new Error(
+      `Cannot expand coordinates: lat[${nj}] × lon[${ni}] = ${nj * ni} but data has ${dataLength} points`
+    );
+  }
+
+  const latitudes = new Float32Array(dataLength);
+  const longitudes = new Float32Array(dataLength);
+
+  for (let j = 0; j < nj; j++) {
+    for (let i = 0; i < ni; i++) {
+      const idx = j * ni + i;
+      latitudes[idx] = lat[j];
+      longitudes[idx] = lon[i];
+    }
+  }
+
+  return { latitudes, longitudes };
+}
+
+/**
+ * Reconcile coordinate arrays with data array, handling various cases:
+ * 1. All same length: use as-is
+ * 2. 2D coordinates: flatten to 1D
+ * 3. 1D separate coords (meshgrid): expand lat[nj] × lon[ni] to match data[nj*ni]
+ */
+function reconcileCoordinates(
+  latitudesVar: zarr.Chunk<zarr.DataType>,
+  longitudesVar: zarr.Chunk<zarr.DataType>,
+  dataLength: number
+): { latitudes: Float32Array; longitudes: Float32Array } {
+  let latitudes = latitudesVar.data as Float32Array;
+  let longitudes = longitudesVar.data as Float32Array;
+  const latShape = latitudesVar.shape;
+  const lonShape = longitudesVar.shape;
+
+  // Case 1: All arrays already have same length (typical irregular grid)
+  if (latitudes.length === dataLength && longitudes.length === dataLength) {
+    return { latitudes, longitudes };
+  }
+
+  // Case 2: 2D coordinate arrays - just ensure they're flattened and match data
+  // (zarr.Chunk.data should already be flattened)
+  if (latShape.length === 2 && lonShape.length === 2) {
+    const latTotal = latShape[0] * latShape[1];
+    const lonTotal = lonShape[0] * lonShape[1];
+    if (latTotal === dataLength && lonTotal === dataLength) {
+      // Already flattened by zarr, should match
+      return { latitudes, longitudes };
+    }
+  }
+
+  // Case 3: 1D separate coordinates - expand via meshgrid
+  if (latShape.length === 1 && lonShape.length === 1) {
+    const product = latitudes.length * longitudes.length;
+    if (product === dataLength) {
+      return expandCoordinatesToMeshgrid(latitudes, longitudes, dataLength);
+    }
+  }
+
+  // Case 4: Mixed or other shapes - try to adapt if total elements match
+  const latTotal = latitudes.length;
+  const lonTotal = longitudes.length;
+
+  // If flattened coords match data length, use them directly
+  if (latTotal === dataLength && lonTotal === dataLength) {
+    return { latitudes, longitudes };
+  }
+
+  // Last resort: try meshgrid expansion if product matches
+  if (latTotal * lonTotal === dataLength) {
+    return expandCoordinatesToMeshgrid(latitudes, longitudes, dataLength);
+  }
+
+  throw new Error(
+    `Cannot reconcile coordinates with data: lat has ${latTotal} values, ` +
+      `lon has ${lonTotal} values, but data has ${dataLength} points. ` +
+      `Expected either matching lengths or lat×lon=${dataLength}.`
+  );
+}
+
+function cleanupPoints(totalBatches: number) {
+  if (points.length <= totalBatches) {
+    return;
+  }
+  for (const p of points) {
+    p.geometry.dispose();
+    getScene()?.remove(p);
+  }
+  points.length = 0;
+}
+
+function updateBatch(
+  batchIndex: number,
+  positions: Float32Array,
+  latLonValues: Float32Array,
+  data: Float32Array,
+  start: number,
+  end: number
+) {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    new THREE.BufferAttribute(
+      new Float32Array(positions.subarray(start * 3, end * 3)),
+      3
+    )
+  );
+  geometry.setAttribute(
+    "latLon",
+    new THREE.BufferAttribute(
+      new Float32Array(latLonValues.subarray(start * 2, end * 2)),
+      2
+    )
+  );
+  geometry.setAttribute(
+    "data_value",
+    new THREE.BufferAttribute(new Float32Array(data.subarray(start, end)), 1)
+  );
+  geometry.computeBoundingSphere();
+
+  if (points[batchIndex]) {
+    points[batchIndex].geometry.dispose();
+    points[batchIndex].geometry = geometry;
+  } else {
+    const p = new THREE.Points(geometry, colormapMaterial.value);
+    p.frustumCulled = false;
+    points.push(p);
+    getScene()?.add(p);
+  }
+}
+
 function getGrid(
   latitudesVar: zarr.Chunk<zarr.DataType>,
   longitudesVar: zarr.Chunk<zarr.DataType>,
   data: Float32Array
 ) {
-  const latitudes = latitudesVar.data as Float32Array;
-  const longitudes = longitudesVar.data as Float32Array;
+  const N = data.length;
+  const { latitudes, longitudes } = reconcileCoordinates(
+    latitudesVar,
+    longitudesVar,
+    N
+  );
 
-  const N = latitudes.length;
+  const totalBatches = Math.ceil(N / BATCH_SIZE);
+  cleanupPoints(totalBatches);
 
-  if (longitudes.length !== N || data.length !== N) {
-    throw new Error(
-      "Latitudes, longitudes, and data must have the same length"
-    );
-  }
-
-  // Allocate typed arrays for positions, latLon, and values
   const positions = new Float32Array(N * 3);
   const latLonValues = new Float32Array(N * 2);
-
-  // Convert lat/lon to Cartesian positions and store latLon for GPU projection
   const helper = projectionHelper.value;
 
   for (let i = 0; i < N; i++) {
-    const lat = latitudes[i];
-    const lon = longitudes[i];
-    const positionOffset = i * 3;
-    const latLonOffset = i * 2;
-
-    // Store lat/lon for GPU projection and compute initial positions
     helper.projectLatLonToArrays(
-      lat,
-      lon,
+      latitudes[i],
+      longitudes[i],
       positions,
-      positionOffset,
+      i * 3,
       latLonValues,
-      latLonOffset
+      i * 2
     );
   }
 
   estimatedSpacing.value = estimateAverageSpacing(positions);
 
-  points!.geometry.setAttribute(
-    "position",
-    new THREE.BufferAttribute(positions, 3)
-  );
-  // Add latLon attribute for GPU projection
-  points!.geometry.setAttribute(
-    "latLon",
-    new THREE.BufferAttribute(latLonValues, 2)
-  );
-  points!.geometry.setAttribute(
-    "data_value",
-    new THREE.BufferAttribute(data, 1)
-  );
-  points!.geometry.computeBoundingSphere();
-  const material = points!.material as THREE.ShaderMaterial;
-  material.needsUpdate = true;
+  for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+    const start = batchIndex * BATCH_SIZE;
+    const end = Math.min(start + BATCH_SIZE, N);
+    updateBatch(batchIndex, positions, latLonValues, data, start, end);
+  }
+
   // Update projection uniforms after geometry change
   updatePointsProjectionUniforms();
   updateLOD();
@@ -307,11 +430,12 @@ function updateLOD() {
   const minPointSize = Math.max(0.8, 3.0 * zoomFactor * normalizedSpacing);
   const maxPointSize = Math.min(25.0, 80.0 * zoomFactor * normalizedSpacing);
 
-  const material: THREE.ShaderMaterial = points!
-    .material as THREE.ShaderMaterial;
-  material.uniforms.basePointSize.value = basePointSize;
-  material.uniforms.minPointSize.value = minPointSize;
-  material.uniforms.maxPointSize.value = maxPointSize;
+  for (const p of points) {
+    const material = p.material as THREE.ShaderMaterial;
+    material.uniforms.basePointSize.value = basePointSize;
+    material.uniforms.minPointSize.value = minPointSize;
+    material.uniforms.maxPointSize.value = maxPointSize;
+  }
 }
 
 async function getDimensionValues(
@@ -379,10 +503,13 @@ async function fetchAndRenderData(
   );
 
   let { min, max, fillValue, missingValue } = getDataBounds(datavar, rawData);
-  const material = points!.material as THREE.ShaderMaterial;
-  material.uniforms.fillValue.value = fillValue;
-  material.uniforms.missingValue.value = missingValue;
   getGrid(latitudes, longitudes, rawData);
+
+  for (const p of points) {
+    const material = p.material as THREE.ShaderMaterial;
+    material.uniforms.fillValue.value = fillValue;
+    material.uniforms.missingValue.value = missingValue;
+  }
 
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
   updateHistogram(rawData, min, max, missingValue, fillValue);
@@ -424,16 +551,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
   }
 }
 
-onMounted(() => {
-  getScene()?.add(points as THREE.Points);
-});
-
 onBeforeMount(async () => {
-  const geometry = new THREE.BufferGeometry();
-  const material = colormapMaterial.value;
-  points = new THREE.Points(geometry, material);
-  // Disable frustum culling - GPU projection changes actual positions
-  points.frustumCulled = false;
   await datasourceUpdate();
   registerUpdateLOD(updateLOD);
 });
