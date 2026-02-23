@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { storeToRefs } from "pinia";
 import * as THREE from "three";
-import { computed, onBeforeMount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeMount, ref, watch } from "vue";
 import type * as zarr from "zarrita";
 
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
@@ -69,7 +69,8 @@ const updatingData = ref(false);
 const longitudes = ref(new Float64Array());
 const latitudes = ref(new Float64Array());
 
-let mainMesh: THREE.Mesh | undefined = undefined;
+const BATCH_SIZE = 60;
+let meshes: THREE.Mesh[] = [];
 watch(
   () => varnameSelector.value,
   () => {
@@ -108,11 +109,10 @@ watch(
     () => posterizeLevels.value,
   ],
   () => {
-    updateColormap([mainMesh]);
+    updateColormap(meshes);
   }
 );
 
-// GPU projection: update shader uniforms instead of rebuilding geometry
 watch(
   [() => projectionMode.value, () => projectionCenter.value],
   () => {
@@ -121,23 +121,15 @@ watch(
   { deep: true }
 );
 
-/**
- * Update projection uniforms on the mesh material.
- * This is the fast path - no geometry rebuild needed.
- */
 function updateMeshProjectionUniforms() {
-  if (!mainMesh) {
-    return;
-  }
-  const material = mainMesh.material as THREE.ShaderMaterial;
-  if (!material.uniforms?.projectionType) {
-    return;
-  }
-
   const helper = projectionHelper.value;
   const center = projectionCenter.value;
-
-  updateProjectionUniforms(material, helper.type, center.lon, center.lat);
+  for (const mesh of meshes) {
+    const material = mesh.material as THREE.ShaderMaterial;
+    if (material.uniforms?.projectionType) {
+      updateProjectionUniforms(material, helper.type, center.lon, center.lat);
+    }
+  }
   redraw();
 }
 
@@ -147,7 +139,7 @@ async function datasourceUpdate() {
     await getDims();
     await Promise.all([makeGeometry(), getData()]);
     updateLandSeaMask();
-    updateColormap([mainMesh]);
+    updateColormap(meshes);
   }
 }
 
@@ -358,34 +350,96 @@ async function getGaussianGrid() {
 
   const latCount = latitudeValues.length;
   const lonCount = longitudeValues.length;
-  const indices = generateGridIndices(latCount, lonCount, isGlobal);
 
-  return { positionValues, indices, uvs, latLonValues };
+  return {
+    positionValues,
+    uvs,
+    latLonValues,
+    latCount,
+    lonCount,
+    isGlobal,
+  };
 }
 
-async function makeRegularGeometry() {
-  const { positionValues, indices, uvs, latLonValues } =
-    await getGaussianGrid();
+function cleanupMeshes(totalBatches: number) {
+  if (meshes.length <= totalBatches) {
+    return;
+  }
+  for (const mesh of meshes) {
+    mesh.geometry.dispose();
+    getScene()?.remove(mesh);
+  }
+  meshes.length = 0;
+}
+
+function createBatchGeometry(
+  positionValues: number[],
+  uvs: number[],
+  latLonValues: Float32Array,
+  lonCount: number,
+  isGlobal: boolean,
+  latStart: number,
+  latEnd: number
+) {
   const geometry = new THREE.BufferGeometry();
+
+  // Extract vertices for this batch (from latStart to latEnd inclusive)
+  const batchLatCount = latEnd - latStart + 1;
+  const startVertex = latStart * lonCount;
+  const endVertex = (latEnd + 1) * lonCount;
+
+  const batchPositions = positionValues.slice(startVertex * 3, endVertex * 3);
+  const batchUvs = uvs.slice(startVertex * 2, endVertex * 2);
+  const batchLatLon = latLonValues.slice(startVertex * 2, endVertex * 2);
+
   geometry.setAttribute(
     "position",
-    new THREE.Float32BufferAttribute(positionValues, 3)
+    new THREE.Float32BufferAttribute(batchPositions, 3)
   );
-  geometry.setIndex(indices);
-  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
-  // Add lat/lon attribute for GPU projection
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(batchUvs, 2));
   geometry.setAttribute(
     "latLon",
-    new THREE.Float32BufferAttribute(latLonValues, 2)
+    new THREE.Float32BufferAttribute(batchLatLon, 2)
   );
+
+  // Generate indices for this batch
+  const indices = generateGridIndices(batchLatCount, lonCount, isGlobal);
+  geometry.setIndex(indices);
   return geometry;
 }
 
 async function makeGeometry() {
   try {
-    const geometry = await makeRegularGeometry();
-    mainMesh!.geometry.dispose();
-    mainMesh!.geometry = geometry;
+    const { positionValues, uvs, latLonValues, latCount, lonCount, isGlobal } =
+      await getGaussianGrid();
+
+    const totalBatches = Math.ceil((latCount - 1) / BATCH_SIZE);
+    cleanupMeshes(totalBatches);
+
+    for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+      const latStart = batchIndex * BATCH_SIZE;
+      const latEnd = Math.min(latStart + BATCH_SIZE, latCount - 1);
+
+      const geometry = createBatchGeometry(
+        positionValues,
+        uvs,
+        latLonValues,
+        lonCount,
+        isGlobal,
+        latStart,
+        latEnd
+      );
+
+      if (meshes[batchIndex]) {
+        meshes[batchIndex].geometry.dispose();
+        meshes[batchIndex].geometry = geometry;
+      } else {
+        const mesh = new THREE.Mesh(geometry, new THREE.ShaderMaterial());
+        mesh.frustumCulled = false;
+        meshes.push(mesh);
+        getScene()?.add(mesh);
+      }
+    }
     redraw();
   } catch (error) {
     logError(error, "Could not fetch grid");
@@ -488,8 +542,10 @@ async function fetchAndRenderData(
   material.uniforms.fillValue.value = fillValue;
   updateHistogram(rawData, min, max, missingValue, fillValue);
 
-  mainMesh!.material = material;
-  mainMesh!.material.needsUpdate = true;
+  for (const mesh of meshes) {
+    mesh.material = material;
+    mesh.material.needsUpdate = true;
+  }
 
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
 
@@ -535,16 +591,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
   }
 }
 
-onMounted(() => {
-  getScene()?.add(mainMesh as THREE.Mesh);
-});
-
 onBeforeMount(async () => {
-  const geometry = new THREE.BufferGeometry();
-  const material = new THREE.ShaderMaterial();
-  mainMesh = new THREE.Mesh(geometry, material);
-  // Disable frustum culling - GPU projection changes actual positions
-  mainMesh.frustumCulled = false;
   await datasourceUpdate();
 });
 
