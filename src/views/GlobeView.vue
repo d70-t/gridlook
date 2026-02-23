@@ -1,7 +1,6 @@
 <script lang="ts" setup>
 import { storeToRefs } from "pinia";
 import { computed, onMounted, ref, watch, type Ref } from "vue";
-import * as zarr from "zarrita";
 
 import type { TModelInfo, TSources } from "../lib/types/GlobeTypes";
 
@@ -11,7 +10,7 @@ import {
   GRID_TYPES,
   type T_GRID_TYPES,
 } from "@/lib/data/gridTypeDetector";
-import { lru } from "@/lib/data/lruStore";
+import { indexFromIndex, indexFromZarr } from "@/lib/data/sourceIndexing";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager";
 import {
   availableColormaps,
@@ -132,128 +131,6 @@ watch(
     await setGridType();
   }
 );
-
-function isValidVariable(varname: string, variable: zarr.Array<zarr.DataType>) {
-  const EXCLUDED_VAR_PATTERNS = [
-    "bnds",
-    "bounds",
-    "vertices",
-    "latitude",
-    "longitude",
-  ] as const;
-
-  const dims = variable.attrs?._ARRAY_DIMENSIONS;
-  if (!Array.isArray(dims)) {
-    return false;
-  }
-
-  const hasTime = dims.includes("time");
-  const shapeValid = hasTime
-    ? variable.shape.length >= 2
-    : variable.shape.length >= 1;
-
-  const hasExcludedName = EXCLUDED_VAR_PATTERNS.some((pattern) =>
-    varname.includes(pattern)
-  );
-  const isLatLon = varname === "lat" || varname === "lon";
-
-  return shapeValid && !hasExcludedName && !isLatLon;
-}
-
-async function processZarrVariables(
-  store: zarr.Listable<zarr.FetchStore>,
-  root: zarr.Group<zarr.FetchStore>,
-  src: string
-) {
-  const dimensions = new Set<string>();
-
-  const candidates = await Promise.allSettled(
-    store.contents().map(async ({ path, kind }) => {
-      const varname = path.slice(1);
-      if (kind !== "array") {
-        return {};
-      }
-
-      const variable = await zarr.open(root.resolve(path), { kind: "array" });
-
-      // Collect dimensions from _ARRAY_DIMENSIONS attribute
-      if (variable.attrs?._ARRAY_DIMENSIONS) {
-        const arrayDims = variable.attrs._ARRAY_DIMENSIONS as string[];
-        for (const dim of arrayDims) {
-          dimensions.add(dim);
-        }
-      }
-
-      // Collect dimensions from coordinates attribute
-      if (variable.attrs.coordinates) {
-        const coords = variable.attrs.coordinates as string;
-        for (const coord of coords.split(" ")) {
-          dimensions.add(coord);
-        }
-      }
-
-      // Return valid variables
-      if (isValidVariable(varname, variable)) {
-        return {
-          [varname]: {
-            store: src,
-            dataset: "",
-            attrs: { ...variable.attrs },
-          },
-        };
-      }
-
-      return {};
-    })
-  );
-
-  // Filter and merge datasources
-  const datasources = candidates
-    .filter((promise) => promise.status === "fulfilled")
-    .map((promise) => promise.value)
-    .filter((obj) => {
-      // Filter out dimensions and coordinates
-      return (
-        Object.keys(obj).length > 0 && !dimensions.has(Object.keys(obj)[0])
-      );
-    })
-    .reduce((a, b) => ({ ...a, ...b }), {});
-
-  return datasources;
-}
-
-async function indexFromZarr(src: string): Promise<TSources> {
-  const store = await zarr.withConsolidated(lru(new zarr.FetchStore(src)));
-  const root = await zarr.open(store, { kind: "group" });
-  const datasources = await processZarrVariables(store, root, src);
-
-  return {
-    name: root.attrs?.title as string,
-    levels: [
-      {
-        time: {
-          store: src,
-          dataset: "",
-        },
-        grid: {
-          store: src,
-          dataset: "",
-        },
-        datasources,
-      },
-    ],
-  };
-}
-
-async function indexFromIndex(src: string): Promise<TSources> {
-  const res = await fetch(src);
-  if (!res.ok) {
-    throw new Error(`Failed to fetch index from ${src}: ${res.statusText}`);
-  } else if (res.status >= 400) {
-    throw new Error(`Index not found at ${src}`);
-  }
-  return await res.json();
-}
 
 function prepareDefaults(src: string, index: TSources) {
   if (src === props.src) {

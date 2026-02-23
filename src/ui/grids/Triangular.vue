@@ -373,8 +373,13 @@ async function fetchAndRenderData(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
   updateMode: TUpdateMode
 ) {
+  const dimensionNames = await ZarrDataManager.getDimensionNames(
+    props.datasources!,
+    varnameSelector.value
+  );
   const { dimensionRanges, indices } = buildDimensionRangesAndIndices(
     datavar,
+    dimensionNames,
     paramDimIndices.value,
     paramDimMinBounds.value,
     paramDimMaxBounds.value,

@@ -178,20 +178,28 @@ async function fetchTimeData(
   };
 }
 
-async function getTimeDimensionInfo(
-  variable: zarr.Array<zarr.DataType, zarr.FetchStore>
-) {
+async function getTimeDimensionInfo() {
   if (!props.datasources) {
     return;
   }
 
-  const arrayDims = variable.attrs?._ARRAY_DIMENSIONS as string[] | undefined;
+  const arrayDims = await ZarrDataManager.getDimensionNames(
+    props.datasources,
+    varnameSelector.value || ""
+  );
   if (!arrayDims) {
     return;
   }
 
   // Find a time-like dimension
-  const timeDimNames = ["time", "t", "datetime", "date", "valid_time"];
+  const timeDimNames = [
+    "time",
+    "t",
+    "datetime",
+    "date",
+    "valid_time",
+    "init_time",
+  ];
   const timeDimIndex = arrayDims.findIndex((dim) =>
     timeDimNames.includes(dim.toLowerCase())
   );
@@ -284,7 +292,10 @@ async function fetchInfoInfo() {
       null;
 
     // Get dimensions
-    const arrayDims = variable.attrs?._ARRAY_DIMENSIONS as string[] | undefined;
+    const arrayDims = await ZarrDataManager.getDimensionNames(
+      props.datasources,
+      varnameSelector.value
+    );
     if (arrayDims && Array.isArray(arrayDims)) {
       dimensions.value = arrayDims.map((name, idx) => ({
         name,
@@ -297,7 +308,7 @@ async function fetchInfoInfo() {
       }));
     }
     getLatLonSample(variable);
-    getTimeDimensionInfo(variable);
+    getTimeDimensionInfo();
   } catch (err) {
     logError(err);
   }
