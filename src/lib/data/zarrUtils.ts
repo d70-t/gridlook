@@ -60,13 +60,17 @@ export function createMissingOrFillPredicate(
 export function isLongitude(name: string) {
   // FIXME: Need to check for unit later
   // having "rlon" here is a workaround to catch rotated regular grids if the have no CRS-var
-  return name === "lon" || name === "longitude" || name === "rlon";
+  return (
+    name === "lon" || name === "longitude" || name === "rlon" || name === "x"
+  );
 }
 
 export function isLatitude(name: string) {
   // FIXME: Need to check for unit later
   // having "rlat" here is a workaround to catch rotated regular grids if the have no CRS-var
-  return name === "lat" || name === "latitude" || name === "rlat";
+  return (
+    name === "lat" || name === "latitude" || name === "rlat" || name === "y"
+  );
 }
 
 function findLatLonNames(
