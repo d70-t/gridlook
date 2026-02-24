@@ -226,14 +226,14 @@ function detectLongitudeFlip(
   const idx10 = (cellJ + 1) * ni + cellI;
 
   // Calculate vectors along i and j directions
-  const dlon_i = longitudes[idx01] - longitudes[idx00];
-  const dlat_i = latitudes[idx01] - latitudes[idx00];
-  const dlon_j = longitudes[idx10] - longitudes[idx00];
-  const dlat_j = latitudes[idx10] - latitudes[idx00];
+  const dlonI = longitudes[idx01] - longitudes[idx00];
+  const dlatI = latitudes[idx01] - latitudes[idx00];
+  const dlonJ = longitudes[idx10] - longitudes[idx00];
+  const dlatJ = latitudes[idx10] - latitudes[idx00];
 
   // Cross product determines cell winding order:
   // positive = counterclockwise (correct), negative = clockwise (needs flip)
-  const crossProduct = dlon_i * dlat_j - dlat_i * dlon_j;
+  const crossProduct = dlonI * dlatJ - dlatI * dlonJ;
 
   return crossProduct < 0;
 }
