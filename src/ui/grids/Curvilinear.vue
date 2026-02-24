@@ -164,10 +164,13 @@ async function getGrid(
   const longitudesData = longitudes.data as Float64Array;
   const [nj, ni] = latitudes.shape;
 
-  // Detect potential mirroring issues by analyzing longitude progression
+  // Detect cell orientation by analyzing the winding order of grid cells
   const shouldFlipLongitude = detectLongitudeFlip(
     longitudesData,
-    isMissingOrFill
+    latitudesData,
+    isMissingOrFill,
+    nj,
+    ni
   );
 
   buildCurvilinearGeometry(
@@ -182,26 +185,57 @@ async function getGrid(
 
 function detectLongitudeFlip(
   longitudes: Float64Array,
-  isMissingOrFill: (value: number) => boolean
+  latitudes: Float64Array,
+  isMissingOrFill: (value: number) => boolean,
+  nj: number,
+  ni: number
 ): boolean {
-  let previousValidLon: number | undefined;
-  for (let i = 0; i < longitudes.length; i++) {
-    const lon = longitudes[i];
-    if (isMissingOrFill(lon)) {
-      continue;
+  // Find first valid cell (2x2 region with all valid points)
+  let validCellFound = false;
+  let cellJ = -1,
+    cellI = -1;
+
+  for (let j = 0; j < nj - 1 && !validCellFound; j++) {
+    for (let i = 0; i < Math.min(ni - 1, 10); i++) {
+      const idx00 = j * ni + i;
+      const idx01 = j * ni + (i + 1);
+      const idx10 = (j + 1) * ni + i;
+      const idx11 = (j + 1) * ni + (i + 1);
+
+      if (
+        !isMissingOrFill(longitudes[idx00]) &&
+        !isMissingOrFill(longitudes[idx01]) &&
+        !isMissingOrFill(longitudes[idx10]) &&
+        !isMissingOrFill(longitudes[idx11])
+      ) {
+        cellJ = j;
+        cellI = i;
+        validCellFound = true;
+        break;
+      }
     }
-    if (previousValidLon === undefined) {
-      previousValidLon = lon;
-      continue;
-    }
-    if (lon > previousValidLon) {
-      return false;
-    } else if (lon < previousValidLon) {
-      return true;
-    }
-    previousValidLon = lon;
   }
-  return true;
+
+  if (!validCellFound) {
+    return false;
+  }
+
+  // Get the cell's corner indices
+  const idx00 = cellJ * ni + cellI;
+  const idx01 = cellJ * ni + (cellI + 1);
+  const idx10 = (cellJ + 1) * ni + cellI;
+
+  // Calculate vectors along i and j directions
+  const dlon_i = longitudes[idx01] - longitudes[idx00];
+  const dlat_i = latitudes[idx01] - latitudes[idx00];
+  const dlon_j = longitudes[idx10] - longitudes[idx00];
+  const dlat_j = latitudes[idx10] - latitudes[idx00];
+
+  // Cross product determines cell winding order:
+  // positive = counterclockwise (correct), negative = clockwise (needs flip)
+  const crossProduct = dlon_i * dlat_j - dlat_i * dlon_j;
+
+  return crossProduct < 0;
 }
 
 function cleanupMeshes(totalBatches: number) {
