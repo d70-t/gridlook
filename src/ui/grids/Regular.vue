@@ -8,7 +8,12 @@ import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
-import { castDataVarToFloat32, getDataBounds } from "@/lib/data/zarrUtils.ts";
+import {
+  castDataVarToFloat32,
+  getDataBounds,
+  isLatitude,
+  isLongitude,
+} from "@/lib/data/zarrUtils.ts";
 import {
   getColormapScaleOffset,
   makeGpuProjectedTextureMaterial,
@@ -143,9 +148,11 @@ async function datasourceUpdate() {
   }
 }
 
+const isLatOnly = ref(false);
+
 async function getDims() {
   // Assumptions: the last two dimensions of the data array are
-  // latitude and longitude (in this order)
+  // latitude and longitude (in this order), or lat-only for zonally averaged data
   // FIXME: this may not always be true and probably it would be cleaner
   // to use the implemented ZarrUtils.getLatLonData function
 
@@ -159,16 +166,30 @@ async function getDims() {
     varnameSelector.value
   );
 
-  const latName = dimensions[dimensions.length - 2];
-  const lonName = dimensions[dimensions.length - 1];
-  const [latitudesData, longitudesData] = await Promise.all([
-    ZarrDataManager.getVariableData(grid, latName),
-    ZarrDataManager.getVariableData(grid, lonName),
-  ]);
-  const myLongitudes = longitudesData.data as Float64Array;
-  const myLatitudes = latitudesData.data as Float64Array;
-  longitudes.value = new Float64Array(new Set(myLongitudes));
-  latitudes.value = new Float64Array(new Set(myLatitudes));
+  const lastDim = dimensions[dimensions.length - 1];
+  const secondLastDim = dimensions[dimensions.length - 2];
+
+  // Check if this is a lat-only dataset (zonally averaged)
+  const latOnlyCheck = isLatitude(lastDim) && !isLongitude(secondLastDim);
+  isLatOnly.value = latOnlyCheck;
+
+  if (latOnlyCheck) {
+    const latitudesData = await ZarrDataManager.getVariableData(grid, lastDim);
+    latitudes.value = new Float64Array(latitudesData.data as Float64Array);
+    // Create synthetic global longitudes for visualization
+    longitudes.value = Float64Array.from({ length: 360 }, (_, i) => i - 179.5);
+  } else {
+    const latName = secondLastDim;
+    const lonName = lastDim;
+    const [latitudesData, longitudesData] = await Promise.all([
+      ZarrDataManager.getVariableData(grid, latName),
+      ZarrDataManager.getVariableData(grid, lonName),
+    ]);
+    const myLongitudes = longitudesData.data as Float64Array;
+    const myLatitudes = latitudesData.data as Float64Array;
+    longitudes.value = new Float64Array(new Set(myLongitudes));
+    latitudes.value = new Float64Array(new Set(myLatitudes));
+  }
 }
 
 function rotatedToGeographic(
@@ -447,8 +468,18 @@ async function makeGeometry() {
 }
 
 function getRegularData(arr: Float32Array, latCount: number, lonCount: number) {
+  let data = arr;
+  // For lat-only data, tile it across all longitudes
+  if (isLatOnly.value) {
+    data = new Float32Array(latCount * lonCount);
+    for (let lat = 0; lat < latCount; lat++) {
+      for (let lon = 0; lon < lonCount; lon++) {
+        data[lat * lonCount + lon] = arr[lat];
+      }
+    }
+  }
   const texture = new THREE.DataTexture(
-    arr,
+    data,
     lonCount,
     latCount,
     THREE.RedFormat,
@@ -513,6 +544,11 @@ async function fetchAndRenderData(
     props.datasources!,
     varnameSelector.value
   );
+  // For lat-only data, only exclude the last dimension (lat)
+  // For regular lat/lon data, exclude the last two dimensions
+  const excludedDims = isLatOnly.value
+    ? [datavar.shape.length - 1]
+    : [datavar.shape.length - 2, datavar.shape.length - 1];
   const { dimensionRanges, indices } = buildDimensionRangesAndIndices(
     datavar,
     dimensionNames,
@@ -520,7 +556,7 @@ async function fetchAndRenderData(
     paramDimMinBounds.value,
     paramDimMaxBounds.value,
     dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
-    [datavar.shape.length - 2, datavar.shape.length - 1],
+    excludedDims,
     varinfo.value?.dimRanges,
     updateMode === UPDATE_MODE.SLIDER_TOGGLE
   );

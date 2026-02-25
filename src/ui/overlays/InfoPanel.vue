@@ -243,20 +243,26 @@ async function getLatLonSample(
   const last10Lat = Array.from(
     latitudes.data as Float64Array | Float32Array
   ).slice(-10);
-  const first10Lon = Array.from(
-    longitudes.data as Float64Array | Float32Array
-  ).slice(0, 10);
-  const last10Lon = Array.from(
-    longitudes.data as Float64Array | Float32Array
-  ).slice(-10);
   latSlice.value = {
     first10: first10Lat,
     last10: last10Lat,
   };
-  lonSlice.value = {
-    first10: first10Lon,
-    last10: last10Lon,
-  };
+
+  // Only set lonSlice if longitude data actually exists
+  if (longitudes) {
+    const first10Lon = Array.from(
+      longitudes.data as Float64Array | Float32Array
+    ).slice(0, 10);
+    const last10Lon = Array.from(
+      longitudes.data as Float64Array | Float32Array
+    ).slice(-10);
+    lonSlice.value = {
+      first10: first10Lon,
+      last10: last10Lon,
+    };
+  } else {
+    lonSlice.value = null;
+  }
 }
 
 async function fetchInfoInfo() {

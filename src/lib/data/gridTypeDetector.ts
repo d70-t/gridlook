@@ -22,6 +22,8 @@ export type T_GRID_TYPES = (typeof GRID_TYPES)[keyof typeof GRID_TYPES];
 export const GRID_TYPE_DISPLAY_OVERRIDES: Partial<
   Record<T_GRID_TYPES, T_GRID_TYPES>
 > = {
+  [GRID_TYPES.REGULAR]: GRID_TYPES.IRREGULAR,
+  [GRID_TYPES.REGULAR_ROTATED]: GRID_TYPES.IRREGULAR,
   [GRID_TYPES.CURVILINEAR]: GRID_TYPES.IRREGULAR,
   [GRID_TYPES.GAUSSIAN_REDUCED]: GRID_TYPES.IRREGULAR,
 };
@@ -76,19 +78,16 @@ function checkGaussianGrid(latitudes: Float64Array, longitudes: Float64Array) {
   );
 }
 
-function checkIrregularGrid(latitudes: Float64Array, longitudes: Float64Array) {
-  if (latitudes.length === longitudes.length) {
-    return true;
-  }
-}
-
 // Check if grid is regular based on dimension names
+// Also accepts lat-only grids (e.g., zonally averaged data)
 function checkRegularGridFromDimensions(dimensions: string[]): boolean {
-  return (
+  const hasLatLon =
     dimensions.length >= 2 &&
     isLatitude(dimensions[dimensions.length - 2]) &&
-    isLongitude(dimensions[dimensions.length - 1])
-  );
+    isLongitude(dimensions[dimensions.length - 1]);
+  const hasLatOnly =
+    dimensions.length >= 1 && isLatitude(dimensions[dimensions.length - 1]);
+  return hasLatLon || hasLatOnly;
 }
 
 // Attempt to determine grid type from CRS information
@@ -118,6 +117,9 @@ async function determineGridTypeFromData(
   datasources: TSources | undefined
 ): Promise<T_GRID_TYPES | null> {
   const { latitudes, longitudes } = await getLatLonData(datavar, datasources);
+  if (latitudes === null || longitudes === null) {
+    return null; // Cannot determine grid type without lat/lon data
+  }
   const latitudesData = latitudes.data as Float64Array;
   const longitudesData = longitudes.data as Float64Array;
 
@@ -127,10 +129,9 @@ async function determineGridTypeFromData(
   if (checkGaussianGrid(latitudesData, longitudesData)) {
     return GRID_TYPES.GAUSSIAN_REDUCED;
   }
-  if (checkIrregularGrid(latitudesData, longitudesData)) {
-    return GRID_TYPES.IRREGULAR;
-  }
-  return null;
+  // as long as we have lat/lon pairs, we can very likely display something as
+  // an irregular grid
+  return GRID_TYPES.IRREGULAR;
 }
 
 export async function getGridType(

@@ -133,30 +133,47 @@ export async function getLatLonData(
   let lonV3Attributes: zarr.Attributes = {};
   if (datasources?.zarr_format === ZARR_FORMAT.V3) {
     latV3Attributes = await getZarrV3Attributes(gridsource.store, latitudeName);
-    lonV3Attributes = await getZarrV3Attributes(
-      gridsource.store,
-      longitudeName
-    );
+    try {
+      lonV3Attributes = await getZarrV3Attributes(
+        gridsource.store,
+        longitudeName
+      );
+    } catch {
+      // Longitude may not exist for lat-only datasets
+    }
   }
 
   const latitudesVar = await ZarrDataManager.getVariableInfo(
     gridsource,
     latitudeName
   );
-  const longitudesVar = await ZarrDataManager.getVariableInfo(
-    gridsource,
-    longitudeName
-  );
+
+  // Try to get longitude, but handle lat-only datasets gracefully
+  let longitudesVar: zarr.Array<zarr.DataType, zarr.FetchStore> | null = null;
+  try {
+    longitudesVar = await ZarrDataManager.getVariableInfo(
+      gridsource,
+      longitudeName
+    );
+  } catch {
+    // Longitude variable doesn't exist - this is a lat-only dataset
+  }
 
   const latitudes =
     await ZarrDataManager.getVariableDataFromArray(latitudesVar);
-  const longitudes =
-    await ZarrDataManager.getVariableDataFromArray(longitudesVar);
+
+  // For lat-only datasets, return null for longitudes
+  let longitudes: zarr.Chunk<zarr.DataType> | null = null;
+  if (longitudesVar) {
+    longitudes = await ZarrDataManager.getVariableDataFromArray(longitudesVar);
+  }
 
   return {
     latitudesAttrs: { ...latitudesVar.attrs, ...latV3Attributes },
     latitudes,
-    longitudesAttrs: { ...longitudesVar.attrs, ...lonV3Attributes },
+    longitudesAttrs: longitudesVar
+      ? { ...longitudesVar.attrs, ...lonV3Attributes }
+      : null,
     longitudes,
   };
 }
