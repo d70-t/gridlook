@@ -67,7 +67,8 @@ const isGridTypeToggleAllowed = computed(() => {
   if (!props.gridType) {
     return false;
   }
-  return !!GRID_TYPE_DISPLAY_OVERRIDES[props.gridType];
+  const overrides = GRID_TYPE_DISPLAY_OVERRIDES[props.gridType];
+  return overrides !== undefined && overrides.length > 0;
 });
 
 const activeGridType = computed(() => {

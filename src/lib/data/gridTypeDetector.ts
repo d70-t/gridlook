@@ -12,20 +12,28 @@ export const GRID_TYPES = {
   TRIANGULAR: "triangular",
   GAUSSIAN_REDUCED: "gaussian_reduced",
   IRREGULAR: "irregular",
+  IRREGULAR_DELAUNAY: "irregular_delaunay",
   CURVILINEAR: "curvilinear",
   ERROR: "error",
 } as const;
 
 export type T_GRID_TYPES = (typeof GRID_TYPES)[keyof typeof GRID_TYPES];
 
-/* Some grid types can be displayed as others. */
+/* Some grid types can be displayed as others. Maps to array of alternatives. */
 export const GRID_TYPE_DISPLAY_OVERRIDES: Partial<
-  Record<T_GRID_TYPES, T_GRID_TYPES>
+  Record<T_GRID_TYPES, T_GRID_TYPES[]>
 > = {
-  [GRID_TYPES.REGULAR]: GRID_TYPES.IRREGULAR,
-  [GRID_TYPES.REGULAR_ROTATED]: GRID_TYPES.IRREGULAR,
-  [GRID_TYPES.CURVILINEAR]: GRID_TYPES.IRREGULAR,
-  [GRID_TYPES.GAUSSIAN_REDUCED]: GRID_TYPES.IRREGULAR,
+  [GRID_TYPES.REGULAR]: [GRID_TYPES.IRREGULAR],
+  [GRID_TYPES.REGULAR_ROTATED]: [GRID_TYPES.IRREGULAR],
+  [GRID_TYPES.CURVILINEAR]: [
+    GRID_TYPES.IRREGULAR,
+    GRID_TYPES.IRREGULAR_DELAUNAY,
+  ],
+  [GRID_TYPES.GAUSSIAN_REDUCED]: [
+    GRID_TYPES.IRREGULAR,
+    GRID_TYPES.IRREGULAR_DELAUNAY,
+  ],
+  [GRID_TYPES.IRREGULAR]: [GRID_TYPES.IRREGULAR_DELAUNAY],
 };
 
 async function checkTriangularGrid(

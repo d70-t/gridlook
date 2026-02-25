@@ -24,6 +24,7 @@ import GridCurvilinear from "@/ui/grids/Curvilinear.vue";
 import GridGaussianReduced from "@/ui/grids/GaussianReduced.vue";
 import GridHealpix from "@/ui/grids/Healpix.vue";
 import GridIrregular from "@/ui/grids/Irregular.vue";
+import GridIrregularDelaunay from "@/ui/grids/IrregularDelaunay.vue";
 import GridRegular from "@/ui/grids/Regular.vue";
 import GridTriangular from "@/ui/grids/Triangular.vue";
 import AboutView from "@/ui/overlays/AboutModal.vue";
@@ -85,6 +86,7 @@ const currentGlobeComponent = computed(() => {
     [GRID_TYPES.TRIANGULAR]: GridTriangular,
     [GRID_TYPES.GAUSSIAN_REDUCED]: GridGaussianReduced,
     [GRID_TYPES.IRREGULAR]: GridIrregular,
+    [GRID_TYPES.IRREGULAR_DELAUNAY]: GridIrregularDelaunay,
     [GRID_TYPES.CURVILINEAR]: GridCurvilinear,
   };
 
@@ -207,11 +209,20 @@ const toggleGridTypeOverride = () => {
     return;
   }
 
-  const override = GRID_TYPE_DISPLAY_OVERRIDES[detected];
-  if (!override) {
+  const overrides = GRID_TYPE_DISPLAY_OVERRIDES[detected];
+  if (!overrides || overrides.length === 0) {
     return;
   }
-  paramGridType.value = paramGridType.value === override ? undefined : override;
+
+  // Cycle through: detected -> overrides[0] -> overrides[1] -> ... -> detected
+  const currentType = (paramGridType.value || detected) as T_GRID_TYPES;
+  const allOptions: T_GRID_TYPES[] = [detected, ...overrides];
+  const currentIndex = allOptions.indexOf(currentType);
+  const nextIndex = (currentIndex + 1) % allOptions.length;
+  const nextType = allOptions[nextIndex];
+
+  // If cycling back to detected type, clear the param
+  paramGridType.value = nextType === detected ? undefined : nextType;
 };
 
 const toggleInfoPanel = () => {
