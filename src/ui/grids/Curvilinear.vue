@@ -161,7 +161,7 @@ async function getGrid(
   const isMissingOrFill = createMissingOrFillPredicate(datavar);
 
   const latitudesData = latitudes.data as Float64Array;
-  const longitudesData = longitudes.data as Float64Array;
+  const longitudesData = longitudes!.data as Float64Array;
   const [nj, ni] = latitudes.shape;
 
   // Detect cell orientation by analyzing the winding order of grid cells

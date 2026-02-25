@@ -483,7 +483,7 @@ async function fetchAndRenderData(
   const geoDims: number[] = getGeographicDimensionIndices(
     dimensions,
     latitudesAttrs,
-    longitudesAttrs
+    longitudesAttrs!
   );
 
   const { dimensionRanges, indices } = buildDimensionRangesAndIndices(
@@ -503,7 +503,7 @@ async function fetchAndRenderData(
   );
 
   let { min, max, fillValue, missingValue } = getDataBounds(datavar, rawData);
-  getGrid(latitudes, longitudes, rawData);
+  getGrid(latitudes, longitudes!, rawData);
 
   for (const p of points) {
     const material = p.material as THREE.ShaderMaterial;
