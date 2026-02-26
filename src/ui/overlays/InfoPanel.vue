@@ -620,7 +620,7 @@ function formatValue(value: unknown): string {
             <table class="table is-narrow is-fullwidth is-size-7">
               <thead>
                 <tr>
-                  <th>Name</th>
+                  <th>Dimension Name</th>
                   <th>Shape</th>
                 </tr>
               </thead>
@@ -669,7 +669,7 @@ function formatValue(value: unknown): string {
             <table class="table is-narrow is-fullwidth is-size-7">
               <thead>
                 <tr>
-                  <th>Name</th>
+                  <th>Dimension Name</th>
                   <th>Shape</th>
                 </tr>
               </thead>
