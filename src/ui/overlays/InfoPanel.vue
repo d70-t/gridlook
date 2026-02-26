@@ -232,6 +232,7 @@ function collectGeoCoordinateInfo(
   dimensionNames: string[],
   shape: number[]
 ) {
+  coordinateRef.value = [];
   for (let i = 0; i < dimensionNames.length; i++) {
     const dimName = dimensionNames[i];
     const dimSize = shape[i];
