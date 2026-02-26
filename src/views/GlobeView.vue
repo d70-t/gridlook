@@ -6,7 +6,6 @@ import type { TModelInfo, TSources } from "../lib/types/GlobeTypes";
 
 import {
   getGridType,
-  GRID_TYPE_DISPLAY_OVERRIDES,
   GRID_TYPES,
   type T_GRID_TYPES,
 } from "@/lib/data/gridTypeDetector";
