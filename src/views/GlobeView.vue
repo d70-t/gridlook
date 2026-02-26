@@ -203,26 +203,13 @@ const toggleRotate = () => {
   }
 };
 
-const toggleGridTypeOverride = () => {
+const selectGridType = (gridType: T_GRID_TYPES) => {
   const detected = detectedGridType.value;
   if (!detected) {
     return;
   }
-
-  const overrides = GRID_TYPE_DISPLAY_OVERRIDES[detected];
-  if (!overrides || overrides.length === 0) {
-    return;
-  }
-
-  // Cycle through: detected -> overrides[0] -> overrides[1] -> ... -> detected
-  const currentType = (paramGridType.value || detected) as T_GRID_TYPES;
-  const allOptions: T_GRID_TYPES[] = [detected, ...overrides];
-  const currentIndex = allOptions.indexOf(currentType);
-  const nextIndex = (currentIndex + 1) % allOptions.length;
-  const nextType = allOptions[nextIndex];
-
-  // If cycling back to detected type, clear the param
-  paramGridType.value = nextType === detected ? undefined : nextType;
+  // If selecting the detected type, clear the param override
+  paramGridType.value = gridType === detected ? undefined : gridType;
 };
 
 const toggleInfoPanel = () => {
@@ -279,7 +266,7 @@ onMounted(async () => {
         :is-open="infoPanelOpen"
         @close="infoPanelOpen = false"
         @toggle="toggleInfoPanel"
-        @toggle-grid-type="toggleGridTypeOverride"
+        @select-grid-type="selectGridType"
       />
       <AboutView />
     </div>
