@@ -3,7 +3,7 @@ import dayjs from "dayjs";
 import duration from "dayjs/plugin/duration";
 import humanizeDuration from "humanize-duration";
 import { storeToRefs } from "pinia";
-import { ref, watch, computed } from "vue";
+import { ref, watch, computed, type Ref } from "vue";
 import VueJsonPretty from "vue-json-pretty";
 import * as zarr from "zarrita";
 
@@ -48,8 +48,14 @@ const { paramGridType } = storeToRefs(paramStore);
 const groupAttrs = ref<zarr.Attributes | null>(null);
 const variableAttrs = ref<zarr.Attributes | null>(null);
 const dimensions = ref<{ name: string; size: number }[]>([]);
+
 const latSlice = ref<{ first10: number[]; last10: number[] } | null>(null);
+const latDimensions = ref<{ name: string; size: number }[]>([]);
+const latLength = ref<number | null>(null);
 const lonSlice = ref<{ first10: number[]; last10: number[] } | null>(null);
+const lonDimensions = ref<{ name: string; size: number }[]>([]);
+const lonLength = ref<number | null>(null);
+
 const variableUnits = ref<string | null>(null);
 const variableLongName = ref<string | null>(null);
 const variableStandardName = ref<string | null>(null);
@@ -221,7 +227,19 @@ async function getTimeDimensionInfo() {
   }
 }
 
-async function getLatLonSample(
+function collectGeoCoordinateInfo(
+  coordinateRef: Ref<{ name: string; size: number }[]>,
+  dimensionNames: string[],
+  shape: number[]
+) {
+  for (let i = 0; i < dimensionNames.length; i++) {
+    const dimName = dimensionNames[i];
+    const dimSize = shape[i];
+    coordinateRef.value.push({ name: dimName, size: dimSize });
+  }
+}
+
+async function getLatLonInfo(
   variable: zarr.Array<zarr.DataType, zarr.FetchStore>
 ) {
   if (
@@ -232,11 +250,12 @@ async function getLatLonSample(
     return;
   }
 
-  const { latitudes, longitudes } = await getLatLonData(
-    variable,
-    props.datasources,
-    props.gridType === GRID_TYPES.REGULAR_ROTATED
-  );
+  const { latitudes, latitudesAttrs, longitudes, longitudesAttrs } =
+    await getLatLonData(
+      variable,
+      props.datasources,
+      props.gridType === GRID_TYPES.REGULAR_ROTATED
+    );
 
   const first10Lat = Array.from(
     latitudes.data as Float64Array | Float32Array
@@ -248,6 +267,14 @@ async function getLatLonSample(
     first10: first10Lat,
     last10: last10Lat,
   };
+
+  collectGeoCoordinateInfo(
+    latDimensions,
+    latitudesAttrs?._ARRAY_DIMENSIONS as string[],
+    latitudes.shape
+  );
+
+  latLength.value = latitudes.data.length;
 
   // Only set lonSlice if longitude data actually exists
   if (longitudes) {
@@ -261,8 +288,12 @@ async function getLatLonSample(
       first10: first10Lon,
       last10: last10Lon,
     };
-  } else {
-    lonSlice.value = null;
+    collectGeoCoordinateInfo(
+      lonDimensions,
+      longitudesAttrs?._ARRAY_DIMENSIONS as string[],
+      longitudes.shape
+    );
+    lonLength.value = longitudes.data.length;
   }
 }
 
@@ -314,7 +345,7 @@ async function fetchInfoInfo() {
         size,
       }));
     }
-    getLatLonSample(variable);
+    getLatLonInfo(variable);
     getTimeDimensionInfo();
   } catch (err) {
     logError(err);
@@ -578,8 +609,32 @@ function formatValue(value: unknown): string {
 
       <!-- Latitude Values -->
       <section v-if="latSlice" class="info-section">
-        <h4 class="title is-6">Latitude Values</h4>
+        <h4 class="title is-6">
+          Latitude
+          <span class="has-text-grey-light is-size-7 has-text-weight-normal"
+            >({{ latLength }})</span
+          >
+        </h4>
         <div class="">
+          <div v-if="latDimensions && latDimensions.length > 0" class="content">
+            <table class="table is-narrow is-fullwidth is-size-7">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Shape</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="dim in latDimensions" :key="dim.name">
+                  <td>
+                    <code>{{ dim.name }}</code>
+                  </td>
+                  <td>{{ dim.size }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p v-else class="has-text-grey-light">No dimension info available</p>
           <p class="is-size-7 has-text-weight-semibold mb-2">First 10:</p>
           <div class="tags">
             <span
@@ -603,8 +658,32 @@ function formatValue(value: unknown): string {
 
       <!-- Longitude Values -->
       <section v-if="lonSlice" class="info-section">
-        <h4 class="title is-6">Longitude Values</h4>
+        <h4 class="title is-6">
+          Longitude
+          <span class="has-text-grey-light is-size-7 has-text-weight-normal"
+            >({{ lonLength }})</span
+          >
+        </h4>
         <div class="">
+          <div v-if="lonDimensions && lonDimensions.length > 0" class="content">
+            <table class="table is-narrow is-fullwidth is-size-7">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Shape</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="dim in lonDimensions" :key="dim.name">
+                  <td>
+                    <code>{{ dim.name }}</code>
+                  </td>
+                  <td>{{ dim.size }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p v-else class="has-text-grey-light">No dimension info available</p>
           <p class="is-size-7 has-text-weight-semibold mb-2">First 10:</p>
           <div class="tags">
             <span
