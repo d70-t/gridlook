@@ -208,18 +208,20 @@ function reconcileCoordinates(
   const latShape = latitudesVar.shape;
   const lonShape = longitudesVar.shape;
 
+  // Quick check: if arrays already match data length, return as-is
   if (latitudes.length === dataLength && longitudes.length === dataLength) {
     return { latitudes, longitudes };
   }
 
-  if (latShape.length === 2 && lonShape.length === 2) {
-    const latTotal = latShape[0] * latShape[1];
-    const lonTotal = lonShape[0] * lonShape[1];
-    if (latTotal === dataLength && lonTotal === dataLength) {
-      return { latitudes, longitudes };
-    }
+  const latTotal = latShape.reduce((acc, dim) => acc * dim, 1);
+  const lonTotal = lonShape.reduce((acc, dim) => acc * dim, 1);
+
+  // If flattened arrays match data length, return as-is
+  if (latTotal === dataLength && lonTotal === dataLength) {
+    return { latitudes, longitudes };
   }
 
+  // Try meshgrid expansion for 1D coordinates
   if (latShape.length === 1 && lonShape.length === 1) {
     const product = latitudes.length * longitudes.length;
     if (product === dataLength) {
@@ -227,13 +229,7 @@ function reconcileCoordinates(
     }
   }
 
-  const latTotal = latitudes.length;
-  const lonTotal = longitudes.length;
-
-  if (latTotal === dataLength && lonTotal === dataLength) {
-    return { latitudes, longitudes };
-  }
-
+  // Try meshgrid with computed totals
   if (latTotal * lonTotal === dataLength) {
     return expandCoordinatesToMeshgrid(latitudes, longitudes, dataLength);
   }
@@ -420,6 +416,77 @@ function shouldFlipTriangle(
 }
 
 /**
+ * Check if a value is a fill or missing value.
+ */
+function isInvalidValue(
+  value: number,
+  fillValue: number,
+  missingValue: number
+): boolean {
+  return value === fillValue || value === missingValue || !isFinite(value);
+}
+
+/**
+ * Compute triangle average using only valid vertices.
+ * Returns missingValue if all vertices are invalid.
+ */
+function computeTriangleAverage(
+  v0: number,
+  v1: number,
+  v2: number,
+  fillValue: number,
+  missingValue: number
+): number {
+  const valid0 = !isInvalidValue(v0, fillValue, missingValue);
+  const valid1 = !isInvalidValue(v1, fillValue, missingValue);
+  const valid2 = !isInvalidValue(v2, fillValue, missingValue);
+
+  if (!valid0 && !valid1 && !valid2) {
+    return missingValue;
+  }
+
+  let sum = 0;
+  let count = 0;
+  if (valid0) {
+    sum += v0;
+    count++;
+  }
+  if (valid1) {
+    sum += v1;
+    count++;
+  }
+  if (valid2) {
+    sum += v2;
+    count++;
+  }
+  return sum / count;
+}
+
+/**
+ * Extract triangle vertex indices and compute average data value.
+ */
+function getTriangleIndicesAndAverage(
+  triangleOffset: number,
+  triangleIndices: Uint32Array,
+  data: Float32Array,
+  fillValue: number,
+  missingValue: number
+): { i0: number; i1: number; i2: number; avgValue: number } {
+  const triIdx = triangleOffset * 3;
+  const i0 = triangleIndices[triIdx];
+  const i1 = triangleIndices[triIdx + 1];
+  const i2 = triangleIndices[triIdx + 2];
+
+  const v0 = data[i0];
+  const v1 = data[i1];
+  const v2 = data[i2];
+
+  const avgValue = computeTriangleAverage(v0, v1, v2, fillValue, missingValue);
+
+  return { i0, i1, i2, avgValue };
+}
+
+/**
  * Copy a single vertex's data to batch arrays.
  */
 function copyVertexToBatch(
@@ -445,12 +512,17 @@ function processTriangle(
   batchStart: number,
   triangleIndices: Uint32Array,
   src: { pos: Float32Array; ll: Float32Array; data: Float32Array },
-  dst: { pos: Float32Array; ll: Float32Array; data: Float32Array }
+  dst: { pos: Float32Array; ll: Float32Array; data: Float32Array },
+  fillValue: number,
+  missingValue: number
 ) {
-  const triIdx = (batchStart + t) * 3;
-  let i0 = triangleIndices[triIdx];
-  let i1 = triangleIndices[triIdx + 1];
-  let i2 = triangleIndices[triIdx + 2];
+  let { i0, i1, i2, avgValue } = getTriangleIndicesAndAverage(
+    batchStart + t,
+    triangleIndices,
+    src.data,
+    fillValue,
+    missingValue
+  );
 
   const needsFlip = shouldFlipTriangle(
     src.pos[i0 * 3],
@@ -468,8 +540,6 @@ function processTriangle(
   }
 
   const vertBase = t * 3;
-  const avgValue = (src.data[i0] + src.data[i1] + src.data[i2]) / 3;
-
   copyVertexToBatch(i0, vertBase, src, dst, avgValue);
   copyVertexToBatch(i1, vertBase + 1, src, dst, avgValue);
   copyVertexToBatch(i2, vertBase + 2, src, dst, avgValue);
@@ -487,12 +557,22 @@ function populateBatchArrays(
   data: Float32Array,
   batchPositions: Float32Array,
   batchLatLon: Float32Array,
-  batchDataValues: Float32Array
+  batchDataValues: Float32Array,
+  fillValue: number,
+  missingValue: number
 ) {
   const src = { pos: positions, ll: latLonValues, data };
   const dst = { pos: batchPositions, ll: batchLatLon, data: batchDataValues };
   for (let t = 0; t < batchTriangleCount; t++) {
-    processTriangle(t, batchStart, triangleIndices, src, dst);
+    processTriangle(
+      t,
+      batchStart,
+      triangleIndices,
+      src,
+      dst,
+      fillValue,
+      missingValue
+    );
   }
 }
 
@@ -554,7 +634,9 @@ function createBatchedMeshes(
       data,
       batchPositions,
       batchLatLon,
-      batchDataValues
+      batchDataValues,
+      fillValue,
+      missingValue
     );
 
     createMeshBatch(
@@ -614,13 +696,13 @@ function updateMeshDataValues(
     const triCount = vertCount / 3;
 
     for (let t = 0; t < triCount; t++) {
-      const triIdx = (triOffset + t) * 3;
-      const i0 = triangleIndices[triIdx];
-      const i1 = triangleIndices[triIdx + 1];
-      const i2 = triangleIndices[triIdx + 2];
-
-      // Use average value for flat/discrete coloring
-      const avgValue = (data[i0] + data[i1] + data[i2]) / 3;
+      const { avgValue } = getTriangleIndicesAndAverage(
+        triOffset + t,
+        triangleIndices,
+        data,
+        fillValue,
+        missingValue
+      );
 
       const vertBase = t * 3;
       dataAttr.array[vertBase + 0] = avgValue;
