@@ -5,6 +5,7 @@ import DatePicker from "primevue/datepicker";
 import { computed, ref, watch } from "vue";
 
 import { findTimeIndex, decodeTime } from "@/lib/data/timeHandling";
+import Modal from "@/ui/common/Modal.vue";
 
 const props = defineProps<{
   timeValues: ArrayLike<number | bigint> | null;
@@ -146,123 +147,103 @@ function openPicker() {
     </span>
   </button>
 
-  <!-- Modal -->
-
-  <Teleport to="body">
-    <div>
-      <div class="modal" :class="{ 'is-active': isOpen }">
-        <div class="modal-background" @click="onCancel"></div>
-        <div class="modal-card">
-          <header class="modal-card-head">
-            <p class="modal-card-title">Select Time</p>
-            <button
-              class="delete"
-              aria-label="close"
-              type="button"
-              @click="onCancel"
-            ></button>
-          </header>
-          <section class="modal-card-body">
-            <!-- Range info -->
-            <div v-if="minDatetime && maxDatetime" class="mb-2">
-              <p class="has-text-grey">Available range</p>
-              <p>
-                <strong>{{ minDatetime.format("YYYY-MM-DD HH:mm:ss") }}</strong>
-                to
-                <strong>{{ maxDatetime.format("YYYY-MM-DD HH:mm:ss") }}</strong>
-              </p>
-            </div>
-
-            <!-- Input field -->
-            <div class="field mb-2">
-              <label class="label mb-1">Enter datetime</label>
-              <div class="control">
-                <DatePicker
-                  v-model="inputDatetime"
-                  show-time
-                  show-seconds
-                  :min-date="minDatetime?.toDate()"
-                  :max-date="maxDatetime?.toDate()"
-                  date-format="yy-m-d"
-                  hour-format="24"
-                  show-icon
-                  :show-on-focus="false"
-                  fluid
-                  :invalid="!inputDatetime"
-                  @update:model-value="onInputChange"
-                  @blur="onInputChange"
-                >
-                  <template #footer>
-                    <span
-                      v-if="previewIndex !== null"
-                      class="tag is-info is-light"
-                    >
-                      New Index: {{ previewIndex }}
-                    </span>
-                  </template>
-                </DatePicker>
-              </div>
-              <p class="help">Format: YYYY-MM-DD HH:mm:ss</p>
-            </div>
-
-            <!-- Preview section - always visible with fixed height -->
-            <div
-              class="is-flex is-justify-content-space-between is-align-items-center mb-2"
-            >
-              <span class="has-text-grey">Selection Preview</span>
-              <span v-if="errorMessage" class="is-size-7 has-text-danger">
-                <i class="fas fa-exclamation-circle"></i>
-                {{ errorMessage }}
-              </span>
-            </div>
-            <div class="preview-content">
-              <template v-if="previewIndex !== null && previewDatetime">
-                <p class="mb-1">
-                  <span class="has-text-grey">New Index:</span>
-                  <strong class="ml-2">{{ previewIndex }}</strong>
-                  <span class="has-text-grey-light ml-2"
-                    >(of {{ minIndex }}–{{ maxIndex }})</span
-                  >
-                </p>
-                <p class="mb-1">
-                  <span class="has-text-grey">Datetime:</span>
-                  <strong class="ml-2"
-                    >{{ previewDatetime.format("YYYY-MM-DD HH:mm:ss") }}
-                  </strong>
-                </p>
-                <p class="has-text-grey mt-2 pt-2 current-hint">
-                  Old Index: {{ currentIndex }}
-                </p>
-              </template>
-              <template v-else>
-                <p class="has-text-grey-light has-text-centered py-4">
-                  Select a datetime to preview
-                </p>
-              </template>
-            </div>
-          </section>
-          <footer class="modal-card-foot is-justify-content-flex-end">
-            <div class="buttons">
-              <button
-                class="button is-success"
-                :disabled="previewIndex === null"
-                type="button"
-                @click="onConfirm"
-              >
-                <span class="icon">
-                  <i class="fas fa-check"></i>
-                </span>
-                <span>Apply</span>
-              </button>
-              <button class="button" type="button" @click="onCancel">
-                Cancel
-              </button>
-            </div>
-          </footer>
-        </div>
-      </div>
+  <Modal
+    v-model="isOpen"
+    title="Select Time"
+    footer-class="is-justify-content-flex-end"
+  >
+    <!-- Range info -->
+    <div v-if="minDatetime && maxDatetime" class="mb-2">
+      <p class="has-text-grey">Available range</p>
+      <p>
+        <strong>{{ minDatetime.format("YYYY-MM-DD HH:mm:ss") }}</strong>
+        to
+        <strong>{{ maxDatetime.format("YYYY-MM-DD HH:mm:ss") }}</strong>
+      </p>
     </div>
-  </Teleport>
+
+    <!-- Input field -->
+    <div class="field mb-2">
+      <label class="label mb-1">Enter datetime</label>
+      <div class="control">
+        <DatePicker
+          v-model="inputDatetime"
+          show-time
+          show-seconds
+          :min-date="minDatetime?.toDate()"
+          :max-date="maxDatetime?.toDate()"
+          date-format="yy-m-d"
+          hour-format="24"
+          show-icon
+          :show-on-focus="false"
+          fluid
+          :invalid="!inputDatetime"
+          @update:model-value="onInputChange"
+          @blur="onInputChange"
+        >
+          <template #footer>
+            <span v-if="previewIndex !== null" class="tag is-info is-light">
+              New Index: {{ previewIndex }}
+            </span>
+          </template>
+        </DatePicker>
+      </div>
+      <p class="help">Format: YYYY-MM-DD HH:mm:ss</p>
+    </div>
+
+    <!-- Preview section - always visible with fixed height -->
+    <div
+      class="is-flex is-justify-content-space-between is-align-items-center mb-2"
+    >
+      <span class="has-text-grey">Selection Preview</span>
+      <span v-if="errorMessage" class="is-size-7 has-text-danger">
+        <i class="fas fa-exclamation-circle"></i>
+        {{ errorMessage }}
+      </span>
+    </div>
+    <div class="preview-content">
+      <template v-if="previewIndex !== null && previewDatetime">
+        <p class="mb-1">
+          <span class="has-text-grey">New Index:</span>
+          <strong class="ml-2">{{ previewIndex }}</strong>
+          <span class="has-text-grey-light ml-2"
+            >(of {{ minIndex }}–{{ maxIndex }})</span
+          >
+        </p>
+        <p class="mb-1">
+          <span class="has-text-grey">Datetime:</span>
+          <strong class="ml-2"
+            >{{ previewDatetime.format("YYYY-MM-DD HH:mm:ss") }}
+          </strong>
+        </p>
+        <p class="has-text-grey mt-2 pt-2 current-hint">
+          Old Index: {{ currentIndex }}
+        </p>
+      </template>
+      <template v-else>
+        <p class="has-text-grey-light has-text-centered py-4">
+          Select a datetime to preview
+        </p>
+      </template>
+    </div>
+
+    <template #footer>
+      <div class="buttons">
+        <button
+          class="button is-success"
+          :disabled="previewIndex === null"
+          type="button"
+          @click="onConfirm"
+        >
+          <span class="icon">
+            <i class="fas fa-check"></i>
+          </span>
+          <span>Apply</span>
+        </button>
+        <button class="button" type="button" @click="onCancel">Cancel</button>
+      </div>
+    </template>
+  </Modal>
 </template>
 
 <style scoped>
