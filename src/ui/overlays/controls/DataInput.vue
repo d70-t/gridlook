@@ -1,6 +1,8 @@
 <script lang="ts" setup>
 import { nextTick, ref, watch } from "vue";
 
+import Modal from "@/ui/common/Modal.vue";
+
 const props = defineProps<{ currentSource: string }>();
 
 const visible = ref(false);
@@ -42,50 +44,38 @@ function setLocationHash() {
 </script>
 
 <template>
-  <Teleport to="body">
-    <div v-if="visible" class="modal is-active">
-      <div class="modal-background" @click.self="close"></div>
-      <div class="modal-card">
-        <header class="modal-card-head">
-          <p class="modal-card-title">Load dataset</p>
-          <button
-            type="button"
-            class="delete"
-            aria-label="close"
-            @click="close"
-          ></button>
-        </header>
-        <section class="modal-card-body">
-          <form id="load-dataset" @submit.prevent="setLocationHash">
-            <div class="field">
-              <label class="label" for="dataset-url">Dataset URL</label>
-              <div class="control has-icons-left">
-                <input
-                  id="dataset-url"
-                  ref="datasetInput"
-                  v-model="dataPath"
-                  class="input"
-                  type="url"
-                  placeholder="Zarr URI"
-                />
-                <span class="icon is-left">
-                  <i class="fa-solid fa-folder-open"></i>
-                </span>
-              </div>
-            </div>
-          </form>
-        </section>
-        <footer class="modal-card-foot">
-          <div class="buttons">
-            <button type="button" class="button" @click="close">Cancel</button>
-            <button type="submit" form="load-dataset" class="button is-success">
-              Load
-            </button>
-          </div>
-        </footer>
+  <Modal
+    v-model="visible"
+    title="Open dataset"
+    footer-class="is-justify-content-flex-end"
+  >
+    <form id="load-dataset" @submit.prevent="setLocationHash">
+      <div class="field">
+        <label class="label" for="dataset-url">Dataset URL</label>
+        <div class="control has-icons-left">
+          <input
+            id="dataset-url"
+            ref="datasetInput"
+            v-model="dataPath"
+            class="input"
+            type="url"
+            placeholder="Zarr URI"
+          />
+          <span class="icon is-left">
+            <i class="fa-solid fa-folder-open"></i>
+          </span>
+        </div>
       </div>
-    </div>
-  </Teleport>
+    </form>
+    <template #footer>
+      <div class="buttons">
+        <button type="button" class="button" @click="close">Cancel</button>
+        <button type="submit" form="load-dataset" class="button is-success">
+          Load
+        </button>
+      </div>
+    </template>
+  </Modal>
 
   <button
     type="button"

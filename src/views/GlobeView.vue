@@ -6,7 +6,6 @@ import type { TModelInfo, TSources } from "../lib/types/GlobeTypes";
 
 import {
   getGridType,
-  GRID_TYPE_DISPLAY_OVERRIDES,
   GRID_TYPES,
   type T_GRID_TYPES,
 } from "@/lib/data/gridTypeDetector";
@@ -24,6 +23,7 @@ import GridCurvilinear from "@/ui/grids/Curvilinear.vue";
 import GridGaussianReduced from "@/ui/grids/GaussianReduced.vue";
 import GridHealpix from "@/ui/grids/Healpix.vue";
 import GridIrregular from "@/ui/grids/Irregular.vue";
+import GridIrregularDelaunay from "@/ui/grids/IrregularDelaunay.vue";
 import GridRegular from "@/ui/grids/Regular.vue";
 import GridTriangular from "@/ui/grids/Triangular.vue";
 import AboutView from "@/ui/overlays/AboutModal.vue";
@@ -85,6 +85,7 @@ const currentGlobeComponent = computed(() => {
     [GRID_TYPES.TRIANGULAR]: GridTriangular,
     [GRID_TYPES.GAUSSIAN_REDUCED]: GridGaussianReduced,
     [GRID_TYPES.IRREGULAR]: GridIrregular,
+    [GRID_TYPES.IRREGULAR_DELAUNAY]: GridIrregularDelaunay,
     [GRID_TYPES.CURVILINEAR]: GridCurvilinear,
   };
 
@@ -201,17 +202,13 @@ const toggleRotate = () => {
   }
 };
 
-const toggleGridTypeOverride = () => {
+const selectGridType = (gridType: T_GRID_TYPES) => {
   const detected = detectedGridType.value;
   if (!detected) {
     return;
   }
-
-  const override = GRID_TYPE_DISPLAY_OVERRIDES[detected];
-  if (!override) {
-    return;
-  }
-  paramGridType.value = paramGridType.value === override ? undefined : override;
+  // If selecting the detected type, clear the param override
+  paramGridType.value = gridType === detected ? undefined : gridType;
 };
 
 const toggleInfoPanel = () => {
@@ -268,7 +265,7 @@ onMounted(async () => {
         :is-open="infoPanelOpen"
         @close="infoPanelOpen = false"
         @toggle="toggleInfoPanel"
-        @toggle-grid-type="toggleGridTypeOverride"
+        @select-grid-type="selectGridType"
       />
       <AboutView />
     </div>

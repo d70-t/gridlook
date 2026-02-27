@@ -1,12 +1,13 @@
 <script lang="ts" setup>
 import { storeToRefs } from "pinia";
 import * as THREE from "three";
-import { computed, onBeforeMount, ref, onMounted, watch } from "vue";
+import { computed, onBeforeMount, ref, watch } from "vue";
 import * as zarr from "zarrita";
 
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
+import { reconcileCoordinates } from "@/lib/data/irregularGridHelpers.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   castDataVarToFloat32,
@@ -54,7 +55,8 @@ const updatingData = ref(false);
 
 const estimatedSpacing = ref(0);
 
-let points: THREE.Points | undefined = undefined;
+const BATCH_SIZE = 500000;
+let points: THREE.Points[] = [];
 
 const {
   getScene,
@@ -111,7 +113,7 @@ watch(
     () => posterizeLevels.value,
   ],
   () => {
-    updateColormap([points]);
+    updateColormap(points);
   }
 );
 
@@ -129,18 +131,15 @@ watch(
  * This is the fast path - no geometry rebuild needed.
  */
 function updatePointsProjectionUniforms() {
-  if (!points) {
-    return;
-  }
-  const material = points.material as THREE.ShaderMaterial;
-  if (!material.uniforms?.projectionType) {
-    return;
-  }
-
   const helper = projectionHelper.value;
   const center = projectionCenter.value;
 
-  updateProjectionUniforms(material, helper.type, center.lon, center.lat);
+  for (const p of points) {
+    const material = p.material as THREE.ShaderMaterial;
+    if (material.uniforms?.projectionType) {
+      updateProjectionUniforms(material, helper.type, center.lon, center.lat);
+    }
+  }
   redraw();
 }
 
@@ -157,7 +156,7 @@ async function datasourceUpdate() {
   if (props.datasources !== undefined) {
     await Promise.all([getData()]);
     updateLandSeaMask();
-    updateColormap([points]);
+    updateColormap(points);
   }
 }
 
@@ -220,64 +219,95 @@ function estimateAverageSpacing(
   return totalWeight > 0 ? totalDistance / totalWeight : 0.01;
 }
 
+function cleanupPoints(totalBatches: number) {
+  if (points.length <= totalBatches) {
+    return;
+  }
+  for (const p of points) {
+    p.geometry.dispose();
+    getScene()?.remove(p);
+  }
+  points.length = 0;
+}
+
+function updateBatch(
+  batchIndex: number,
+  positions: Float32Array,
+  latLonValues: Float32Array,
+  data: Float32Array,
+  start: number,
+  end: number
+) {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    new THREE.BufferAttribute(
+      new Float32Array(positions.subarray(start * 3, end * 3)),
+      3
+    )
+  );
+  geometry.setAttribute(
+    "latLon",
+    new THREE.BufferAttribute(
+      new Float32Array(latLonValues.subarray(start * 2, end * 2)),
+      2
+    )
+  );
+  geometry.setAttribute(
+    "data_value",
+    new THREE.BufferAttribute(new Float32Array(data.subarray(start, end)), 1)
+  );
+  geometry.computeBoundingSphere();
+
+  if (points[batchIndex]) {
+    points[batchIndex].geometry.dispose();
+    points[batchIndex].geometry = geometry;
+  } else {
+    const p = new THREE.Points(geometry, colormapMaterial.value);
+    p.frustumCulled = false;
+    points.push(p);
+    getScene()?.add(p);
+  }
+}
+
 function getGrid(
   latitudesVar: zarr.Chunk<zarr.DataType>,
   longitudesVar: zarr.Chunk<zarr.DataType>,
   data: Float32Array
 ) {
-  const latitudes = latitudesVar.data as Float32Array;
-  const longitudes = longitudesVar.data as Float32Array;
+  const N = data.length;
+  const { latitudes, longitudes } = reconcileCoordinates(
+    latitudesVar,
+    longitudesVar,
+    N
+  );
 
-  const N = latitudes.length;
+  const totalBatches = Math.ceil(N / BATCH_SIZE);
+  cleanupPoints(totalBatches);
 
-  if (longitudes.length !== N || data.length !== N) {
-    throw new Error(
-      "Latitudes, longitudes, and data must have the same length"
-    );
-  }
-
-  // Allocate typed arrays for positions, latLon, and values
   const positions = new Float32Array(N * 3);
   const latLonValues = new Float32Array(N * 2);
-
-  // Convert lat/lon to Cartesian positions and store latLon for GPU projection
   const helper = projectionHelper.value;
 
   for (let i = 0; i < N; i++) {
-    const lat = latitudes[i];
-    const lon = longitudes[i];
-    const positionOffset = i * 3;
-    const latLonOffset = i * 2;
-
-    // Store lat/lon for GPU projection and compute initial positions
     helper.projectLatLonToArrays(
-      lat,
-      lon,
+      latitudes[i],
+      longitudes[i],
       positions,
-      positionOffset,
+      i * 3,
       latLonValues,
-      latLonOffset
+      i * 2
     );
   }
 
   estimatedSpacing.value = estimateAverageSpacing(positions);
 
-  points!.geometry.setAttribute(
-    "position",
-    new THREE.BufferAttribute(positions, 3)
-  );
-  // Add latLon attribute for GPU projection
-  points!.geometry.setAttribute(
-    "latLon",
-    new THREE.BufferAttribute(latLonValues, 2)
-  );
-  points!.geometry.setAttribute(
-    "data_value",
-    new THREE.BufferAttribute(data, 1)
-  );
-  points!.geometry.computeBoundingSphere();
-  const material = points!.material as THREE.ShaderMaterial;
-  material.needsUpdate = true;
+  for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+    const start = batchIndex * BATCH_SIZE;
+    const end = Math.min(start + BATCH_SIZE, N);
+    updateBatch(batchIndex, positions, latLonValues, data, start, end);
+  }
+
   // Update projection uniforms after geometry change
   updatePointsProjectionUniforms();
   updateLOD();
@@ -307,11 +337,12 @@ function updateLOD() {
   const minPointSize = Math.max(0.8, 3.0 * zoomFactor * normalizedSpacing);
   const maxPointSize = Math.min(25.0, 80.0 * zoomFactor * normalizedSpacing);
 
-  const material: THREE.ShaderMaterial = points!
-    .material as THREE.ShaderMaterial;
-  material.uniforms.basePointSize.value = basePointSize;
-  material.uniforms.minPointSize.value = minPointSize;
-  material.uniforms.maxPointSize.value = maxPointSize;
+  for (const p of points) {
+    const material = p.material as THREE.ShaderMaterial;
+    material.uniforms.basePointSize.value = basePointSize;
+    material.uniforms.minPointSize.value = minPointSize;
+    material.uniforms.maxPointSize.value = maxPointSize;
+  }
 }
 
 async function getDimensionValues(
@@ -359,7 +390,7 @@ async function fetchAndRenderData(
   const geoDims: number[] = getGeographicDimensionIndices(
     dimensions,
     latitudesAttrs,
-    longitudesAttrs
+    longitudesAttrs!
   );
 
   const { dimensionRanges, indices } = buildDimensionRangesAndIndices(
@@ -379,10 +410,13 @@ async function fetchAndRenderData(
   );
 
   let { min, max, fillValue, missingValue } = getDataBounds(datavar, rawData);
-  const material = points!.material as THREE.ShaderMaterial;
-  material.uniforms.fillValue.value = fillValue;
-  material.uniforms.missingValue.value = missingValue;
-  getGrid(latitudes, longitudes, rawData);
+  getGrid(latitudes, longitudes!, rawData);
+
+  for (const p of points) {
+    const material = p.material as THREE.ShaderMaterial;
+    material.uniforms.fillValue.value = fillValue;
+    material.uniforms.missingValue.value = missingValue;
+  }
 
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
   updateHistogram(rawData, min, max, missingValue, fillValue);
@@ -424,16 +458,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
   }
 }
 
-onMounted(() => {
-  getScene()?.add(points as THREE.Points);
-});
-
 onBeforeMount(async () => {
-  const geometry = new THREE.BufferGeometry();
-  const material = colormapMaterial.value;
-  points = new THREE.Points(geometry, material);
-  // Disable frustum culling - GPU projection changes actual positions
-  points.frustumCulled = false;
   await datasourceUpdate();
   registerUpdateLOD(updateLOD);
 });

@@ -408,7 +408,7 @@ async function fetchAndRenderData(
     props.datasources
   );
   const latitudesData = latitudes.data as Float64Array;
-  const longitudesData = longitudes.data as Float64Array;
+  const longitudesData = longitudes!.data as Float64Array;
 
   let { min, max, missingValue, fillValue } = getDataBounds(datavar, rawData);
 

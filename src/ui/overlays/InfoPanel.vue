@@ -3,7 +3,7 @@ import dayjs from "dayjs";
 import duration from "dayjs/plugin/duration";
 import humanizeDuration from "humanize-duration";
 import { storeToRefs } from "pinia";
-import { ref, watch, computed } from "vue";
+import { ref, watch, computed, type Ref } from "vue";
 import VueJsonPretty from "vue-json-pretty";
 import * as zarr from "zarrita";
 
@@ -32,7 +32,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   close: [];
   toggle: [];
-  toggleGridType: [];
+  selectGridType: [gridType: T_GRID_TYPES];
 }>();
 
 dayjs.extend(duration);
@@ -48,8 +48,14 @@ const { paramGridType } = storeToRefs(paramStore);
 const groupAttrs = ref<zarr.Attributes | null>(null);
 const variableAttrs = ref<zarr.Attributes | null>(null);
 const dimensions = ref<{ name: string; size: number }[]>([]);
+
 const latSlice = ref<{ first10: number[]; last10: number[] } | null>(null);
+const latDimensions = ref<{ name: string; size: number }[]>([]);
+const latLength = ref<number | null>(null);
 const lonSlice = ref<{ first10: number[]; last10: number[] } | null>(null);
+const lonDimensions = ref<{ name: string; size: number }[]>([]);
+const lonLength = ref<number | null>(null);
+
 const variableUnits = ref<string | null>(null);
 const variableLongName = ref<string | null>(null);
 const variableStandardName = ref<string | null>(null);
@@ -63,18 +69,22 @@ const timeInfo = ref<{
 } | null>(null);
 const error = ref<string | null>(null);
 
-const isGridTypeToggleAllowed = computed(() => {
-  if (!props.gridType) {
-    return false;
-  }
-  return !!GRID_TYPE_DISPLAY_OVERRIDES[props.gridType];
-});
-
 const activeGridType = computed(() => {
   if (!props.gridType) {
     return undefined;
   }
   return paramGridType.value || props.gridType;
+});
+
+const availableGridTypes = computed(() => {
+  if (!props.gridType) {
+    return [];
+  }
+  const overrides = GRID_TYPE_DISPLAY_OVERRIDES[props.gridType];
+  if (!overrides || overrides.length === 0) {
+    return [props.gridType];
+  }
+  return [props.gridType, ...overrides];
 });
 
 const hasLatLon = computed(
@@ -220,7 +230,20 @@ async function getTimeDimensionInfo() {
   }
 }
 
-async function getLatLonSample(
+function collectGeoCoordinateInfo(
+  coordinateRef: Ref<{ name: string; size: number }[]>,
+  dimensionNames: string[],
+  shape: number[]
+) {
+  coordinateRef.value = [];
+  for (let i = 0; i < dimensionNames.length; i++) {
+    const dimName = dimensionNames[i];
+    const dimSize = shape[i];
+    coordinateRef.value.push({ name: dimName, size: dimSize });
+  }
+}
+
+async function getLatLonInfo(
   variable: zarr.Array<zarr.DataType, zarr.FetchStore>
 ) {
   if (
@@ -231,11 +254,12 @@ async function getLatLonSample(
     return;
   }
 
-  const { latitudes, longitudes } = await getLatLonData(
-    variable,
-    props.datasources,
-    props.gridType === GRID_TYPES.REGULAR_ROTATED
-  );
+  const { latitudes, latitudesAttrs, longitudes, longitudesAttrs } =
+    await getLatLonData(
+      variable,
+      props.datasources,
+      props.gridType === GRID_TYPES.REGULAR_ROTATED
+    );
 
   const first10Lat = Array.from(
     latitudes.data as Float64Array | Float32Array
@@ -243,20 +267,38 @@ async function getLatLonSample(
   const last10Lat = Array.from(
     latitudes.data as Float64Array | Float32Array
   ).slice(-10);
-  const first10Lon = Array.from(
-    longitudes.data as Float64Array | Float32Array
-  ).slice(0, 10);
-  const last10Lon = Array.from(
-    longitudes.data as Float64Array | Float32Array
-  ).slice(-10);
   latSlice.value = {
     first10: first10Lat,
     last10: last10Lat,
   };
-  lonSlice.value = {
-    first10: first10Lon,
-    last10: last10Lon,
-  };
+
+  collectGeoCoordinateInfo(
+    latDimensions,
+    latitudesAttrs?._ARRAY_DIMENSIONS as string[],
+    latitudes.shape
+  );
+
+  latLength.value = latitudes.data.length;
+
+  // Only set lonSlice if longitude data actually exists
+  if (longitudes) {
+    const first10Lon = Array.from(
+      longitudes.data as Float64Array | Float32Array
+    ).slice(0, 10);
+    const last10Lon = Array.from(
+      longitudes.data as Float64Array | Float32Array
+    ).slice(-10);
+    lonSlice.value = {
+      first10: first10Lon,
+      last10: last10Lon,
+    };
+    collectGeoCoordinateInfo(
+      lonDimensions,
+      longitudesAttrs?._ARRAY_DIMENSIONS as string[],
+      longitudes.shape
+    );
+    lonLength.value = longitudes.data.length;
+  }
 }
 
 async function fetchInfoInfo() {
@@ -307,7 +349,7 @@ async function fetchInfoInfo() {
         size,
       }));
     }
-    getLatLonSample(variable);
+    getLatLonInfo(variable);
     getTimeDimensionInfo();
   } catch (err) {
     logError(err);
@@ -369,22 +411,37 @@ function formatValue(value: unknown): string {
 
     <div v-else class="info-panel-content">
       <!-- Grid Type -->
+      <!-- Grid Type -->
       <section class="info-section">
         <h4
           class="title is-6 is-flex is-justify-content-space-between is-align-items-center"
         >
           <span>Grid Type</span>
+          <div v-if="availableGridTypes.length > 1" class="select is-small">
+            <select
+              :value="activeGridType"
+              class="grid-type-select"
+              @change="
+                emit(
+                  'selectGridType',
+                  ($event.target as HTMLSelectElement).value as T_GRID_TYPES
+                )
+              "
+            >
+              <option
+                v-for="typeOption in availableGridTypes"
+                :key="typeOption"
+                :value="typeOption"
+              >
+                {{ typeOption }}
+              </option>
+            </select>
+          </div>
           <button
+            v-else
             type="button"
-            class="button is-small is-light grid-type-toggle"
-            style="color: var(--bulma-code)"
-            :title="
-              isGridTypeToggleAllowed
-                ? 'Click to switch to the alternative rendering method'
-                : undefined
-            "
-            :disabled="!isGridTypeToggleAllowed"
-            @click="emit('toggleGridType')"
+            class="button is-small is-light grid-type-button"
+            disabled
           >
             {{ activeGridType ?? "Unknown" }}
           </button>
@@ -571,8 +628,32 @@ function formatValue(value: unknown): string {
 
       <!-- Latitude Values -->
       <section v-if="latSlice" class="info-section">
-        <h4 class="title is-6">Latitude Values</h4>
+        <h4 class="title is-6">
+          Latitude
+          <span class="has-text-grey-light is-size-7 has-text-weight-normal"
+            >({{ latLength }})</span
+          >
+        </h4>
         <div class="">
+          <div v-if="latDimensions && latDimensions.length > 0" class="content">
+            <table class="table is-narrow is-fullwidth is-size-7">
+              <thead>
+                <tr>
+                  <th>Dimension Name</th>
+                  <th>Shape</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="dim in latDimensions" :key="dim.name">
+                  <td>
+                    <code>{{ dim.name }}</code>
+                  </td>
+                  <td>{{ dim.size }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p v-else class="has-text-grey-light">No dimension info available</p>
           <p class="is-size-7 has-text-weight-semibold mb-2">First 10:</p>
           <div class="tags">
             <span
@@ -596,8 +677,32 @@ function formatValue(value: unknown): string {
 
       <!-- Longitude Values -->
       <section v-if="lonSlice" class="info-section">
-        <h4 class="title is-6">Longitude Values</h4>
+        <h4 class="title is-6">
+          Longitude
+          <span class="has-text-grey-light is-size-7 has-text-weight-normal"
+            >({{ lonLength }})</span
+          >
+        </h4>
         <div class="">
+          <div v-if="lonDimensions && lonDimensions.length > 0" class="content">
+            <table class="table is-narrow is-fullwidth is-size-7">
+              <thead>
+                <tr>
+                  <th>Dimension Name</th>
+                  <th>Shape</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="dim in lonDimensions" :key="dim.name">
+                  <td>
+                    <code>{{ dim.name }}</code>
+                  </td>
+                  <td>{{ dim.size }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p v-else class="has-text-grey-light">No dimension info available</p>
           <p class="is-size-7 has-text-weight-semibold mb-2">First 10:</p>
           <div class="tags">
             <span
@@ -687,6 +792,25 @@ function formatValue(value: unknown): string {
   .title {
     margin-bottom: 0.5rem;
   }
+}
+
+.grid-type-select {
+  background-color: var(--bulma-light);
+  color: var(--bulma-code);
+  font-family: var(--bulma-family-code);
+  border: 1px solid var(--bulma-border);
+  border-radius: 4px;
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--bulma-link);
+  }
+}
+
+.grid-type-button {
+  color: var(--bulma-code);
+  font-family: var(--bulma-family-code);
+  cursor: not-allowed;
 }
 
 .info-pre {
