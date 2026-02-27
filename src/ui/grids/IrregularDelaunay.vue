@@ -8,6 +8,7 @@ import * as zarr from "zarrita";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
+import { reconcileCoordinates } from "@/lib/data/irregularGridHelpers.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   castDataVarToFloat32,
@@ -162,82 +163,6 @@ async function datasourceUpdate() {
     updateLandSeaMask();
     updateColormap(meshes);
   }
-}
-
-/**
- * Expand 1D lat/lon arrays to match data length via meshgrid-style expansion.
- */
-function expandCoordinatesToMeshgrid(
-  lat: Float32Array,
-  lon: Float32Array,
-  dataLength: number
-): { latitudes: Float32Array; longitudes: Float32Array } {
-  const nj = lat.length;
-  const ni = lon.length;
-
-  if (nj * ni !== dataLength) {
-    throw new Error(
-      `Cannot expand coordinates: lat[${nj}] × lon[${ni}] = ${nj * ni} but data has ${dataLength} points`
-    );
-  }
-
-  const latitudes = new Float32Array(dataLength);
-  const longitudes = new Float32Array(dataLength);
-
-  for (let j = 0; j < nj; j++) {
-    for (let i = 0; i < ni; i++) {
-      const idx = j * ni + i;
-      latitudes[idx] = lat[j];
-      longitudes[idx] = lon[i];
-    }
-  }
-
-  return { latitudes, longitudes };
-}
-
-/**
- * Reconcile coordinate arrays with data array.
- */
-function reconcileCoordinates(
-  latitudesVar: zarr.Chunk<zarr.DataType>,
-  longitudesVar: zarr.Chunk<zarr.DataType>,
-  dataLength: number
-): { latitudes: Float32Array; longitudes: Float32Array } {
-  let latitudes = latitudesVar.data as Float32Array;
-  let longitudes = longitudesVar.data as Float32Array;
-  const latShape = latitudesVar.shape;
-  const lonShape = longitudesVar.shape;
-
-  // Quick check: if arrays already match data length, return as-is
-  if (latitudes.length === dataLength && longitudes.length === dataLength) {
-    return { latitudes, longitudes };
-  }
-
-  const latTotal = latShape.reduce((acc, dim) => acc * dim, 1);
-  const lonTotal = lonShape.reduce((acc, dim) => acc * dim, 1);
-
-  // If flattened arrays match data length, return as-is
-  if (latTotal === dataLength && lonTotal === dataLength) {
-    return { latitudes, longitudes };
-  }
-
-  // Try meshgrid expansion for 1D coordinates
-  if (latShape.length === 1 && lonShape.length === 1) {
-    const product = latitudes.length * longitudes.length;
-    if (product === dataLength) {
-      return expandCoordinatesToMeshgrid(latitudes, longitudes, dataLength);
-    }
-  }
-
-  // Try meshgrid with computed totals
-  if (latTotal * lonTotal === dataLength) {
-    return expandCoordinatesToMeshgrid(latitudes, longitudes, dataLength);
-  }
-
-  throw new Error(
-    `Cannot reconcile coordinates with data: lat has ${latTotal} values, ` +
-      `lon has ${lonTotal} values, but data has ${dataLength} points.`
-  );
 }
 
 /**
