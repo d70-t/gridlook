@@ -231,15 +231,19 @@ async function enrichMetadataWithZarrV2(
     const root = await zarr.open(zarrStore, { kind: "group" });
 
     for (const varname of vars) {
-      const variable = await zarr.open(root.resolve(`/${varname}`), {
-        kind: "array",
-      });
-      const arrayDimensions = variable.attrs?._ARRAY_DIMENSIONS;
-      datasources[varname].attrs = {
-        ...datasources[varname].attrs,
-        ...variable.attrs,
-        dimensionNames: arrayDimensions,
-      } as Record<string, unknown>;
+      try {
+        const variable = await zarr.open(root.resolve(`/${varname}`), {
+          kind: "array",
+        });
+        const arrayDimensions = variable.attrs?._ARRAY_DIMENSIONS;
+        datasources[varname].attrs = {
+          ...datasources[varname].attrs,
+          ...variable.attrs,
+          dimensionNames: arrayDimensions,
+        } as Record<string, unknown>;
+      } catch {
+        // ignore
+      }
     }
   }
 }
