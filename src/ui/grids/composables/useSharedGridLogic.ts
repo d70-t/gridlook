@@ -193,8 +193,12 @@ export function useSharedGridLogic() {
 
   const lastHistogramSummary = ref<THistogramSummary | null>(null);
 
-  function getDisplayHistogramBinCount() {
-    return posterizeLevels.value > 0 ? posterizeLevels.value : 50;
+  const DISPLAY_BIN_COUNT = 50;
+
+  function getSelectionBinCount() {
+    return posterizeLevels.value > 1
+      ? posterizeLevels.value
+      : DISPLAY_BIN_COUNT;
   }
 
   function recomputeHistogramFromSummary(
@@ -210,7 +214,7 @@ export function useSharedGridLogic() {
     ) {
       const histogram = rebinHistogramSummary(
         summary,
-        getDisplayHistogramBinCount(),
+        getSelectionBinCount(),
         low,
         high
       );
@@ -266,6 +270,7 @@ export function useSharedGridLogic() {
   ) {
     if (!data || data.length === 0 || !isFinite(min) || !isFinite(max)) {
       store.updateHistogram(undefined);
+      store.updateFullHistogram(undefined);
       lastHistogramSummary.value = null;
       return;
     }
@@ -289,6 +294,17 @@ export function useSharedGridLogic() {
         missingValue
       );
     }
+
+    // Full-range histogram: fixed over [min, max], never changes with bounds
+    const fullHist = rebinHistogramSummary(
+      summary,
+      DISPLAY_BIN_COUNT,
+      min,
+      max
+    );
+    store.updateFullHistogram(fullHist);
+
+    // Selection-range histogram: over current bounds
     recomputeHistogramFromSummary(summary, bounds.value.low, bounds.value.high);
     lastHistogramSummary.value = summary;
   }

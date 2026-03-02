@@ -53,6 +53,23 @@ const highBound = computed({
         <div class="column has-text-right">high</div>
       </div>
 
+      <!-- Auto Bounds -->
+      <div class="columns is-mobile active-row compact-row">
+        <div class="column">
+          <input
+            id="auto_bounds"
+            class="mb-3 mr-1"
+            type="radio"
+            value="auto"
+            :checked="pickedBoundsMode === boundModes.AUTO"
+            @change="$emit('update:pickedBoundsMode', boundModes.AUTO)"
+          />
+          <label for="auto_bounds">auto</label>
+        </div>
+        <div class="column"></div>
+        <div class="column has-text-right"></div>
+      </div>
+
       <!-- Data Bounds -->
       <div
         class="columns is-mobile active-row compact-row"
@@ -156,23 +173,6 @@ const highBound = computed({
             type="number"
           />
         </div>
-      </div>
-
-      <!-- Auto Bounds -->
-      <div class="columns is-mobile active-row compact-row">
-        <div class="column">
-          <input
-            id="auto_bounds"
-            class="mb-3 mr-1"
-            type="radio"
-            value="auto"
-            :checked="pickedBoundsMode === boundModes.AUTO"
-            @change="$emit('update:pickedBoundsMode', boundModes.AUTO)"
-          />
-          <label for="auto_bounds">auto</label>
-        </div>
-        <div class="column"></div>
-        <div class="column has-text-right"></div>
       </div>
     </div>
   </div>

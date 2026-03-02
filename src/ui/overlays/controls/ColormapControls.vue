@@ -13,13 +13,20 @@ const props = defineProps<{
   dataBounds?: TBounds;
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
   "update:autoColormap": [value: boolean];
+  forceUserBounds: [];
 }>();
 
 const store = useGlobeControlStore();
-const { colormap, invertColormap, posterizeLevels, selection, histogram } =
-  storeToRefs(store);
+const {
+  colormap,
+  invertColormap,
+  posterizeLevels,
+  selection,
+  histogram,
+  fullHistogram,
+} = storeToRefs(store);
 
 const previousValue = ref(posterizeLevels.value);
 
@@ -33,45 +40,51 @@ function handlePosterizeLevelsInput(event: Event) {
   const value = Number((event.target as HTMLInputElement).value);
   // Skip value 1 as it doesn't make sense for posterization
   if (value === 1) {
-    // If coming from 2 or higher, go to 0 (off)
-    // If coming from 0, go to 2
     posterizeLevels.value = previousValue.value >= 2 ? 0 : 2;
   } else {
     posterizeLevels.value = value;
   }
 }
+
+// --- Handle drag events from ColorBar ---
+
+function handleBoundsLowUpdate(value: number) {
+  // Pin opposite bound if not yet defined
+  if (store.userBoundsHigh === undefined) {
+    store.updateHighUserBound(selection.value.high);
+  }
+  store.updateLowUserBound(value);
+  emit("forceUserBounds");
+}
+
+function handleBoundsHighUpdate(value: number) {
+  // Pin opposite bound if not yet defined
+  if (store.userBoundsLow === undefined) {
+    store.updateLowUserBound(selection.value.low);
+  }
+  store.updateHighUserBound(value);
+  emit("forceUserBounds");
+}
 </script>
 
 <template>
   <div class="panel-block is-block w-100">
-    <!-- Colormap Select + ColorBar -->
-    <div class="columns is-mobile compact-row">
-      <div class="column">
-        <div class="select is-fullwidth">
-          <select v-model="colormap">
-            <option v-for="cm in modelInfo.colormaps" :key="cm" :value="cm">
-              {{ cm }}
-            </option>
-          </select>
-        </div>
-      </div>
-      <div class="column is-two-thirds">
-        <ColorBar
-          class="hcolormap"
-          :colormap="colormap"
-          :invert-colormap="invertColormap"
-          :posterize-levels="posterizeLevels"
-          :bounds-low="selection.low"
-          :bounds-high="selection.high"
-          :data-bounds-low="props.dataBounds?.low"
-          :data-bounds-high="props.dataBounds?.high"
-          :histogram="histogram"
-        />
-      </div>
-    </div>
+    <ColorBar
+      :colormap="colormap"
+      :invert-colormap="invertColormap"
+      :posterize-levels="posterizeLevels"
+      :bounds-low="selection.low"
+      :bounds-high="selection.high"
+      :data-bounds-low="props.dataBounds?.low"
+      :data-bounds-high="props.dataBounds?.high"
+      :full-histogram="fullHistogram"
+      :histogram="histogram"
+      @update:bounds-low="handleBoundsLowUpdate"
+      @update:bounds-high="handleBoundsHighUpdate"
+    />
 
     <!-- Posterize control -->
-    <div class="columns is-mobile is-vcentered compact-row">
+    <div class="columns is-mobile is-vcentered compact-row mt-2 mb-4">
       <div class="column is-one-third">
         <label for="posterize_levels" class="label is-small">Posterize</label>
       </div>
@@ -94,25 +107,42 @@ function handlePosterizeLevelsInput(event: Event) {
       </div>
     </div>
 
-    <!-- Colormap checkboxes -->
-    <div class="columns is-mobile compact-row">
-      <div class="column py-2">
-        <input id="invert_colormap" v-model="invertColormap" type="checkbox" />
-        <label for="invert_colormap">invert</label>
+    <!-- Row: Colormap selector + options -->
+    <div class="columns is-mobile is-vcentered compact-row">
+      <div class="column">
+        <div class="select is-fullwidth">
+          <select v-model="colormap">
+            <option v-for="cm in modelInfo.colormaps" :key="cm" :value="cm">
+              {{ cm }}
+            </option>
+          </select>
+        </div>
       </div>
-      <div class="column has-text-right py-2">
-        <input
-          id="auto_colormap"
-          :checked="autoColormap"
-          type="checkbox"
-          @change="
-            $emit(
-              'update:autoColormap',
-              ($event.target as HTMLInputElement).checked
-            )
-          "
-        />
-        <label for="auto_colormap">auto</label>
+      <div class="column is-narrow">
+        <label class="checkbox">
+          <input
+            id="invert_colormap"
+            v-model="invertColormap"
+            type="checkbox"
+          />
+          invert
+        </label>
+      </div>
+      <div class="column is-narrow">
+        <label class="checkbox">
+          <input
+            id="auto_colormap"
+            :checked="autoColormap"
+            type="checkbox"
+            @change="
+              emit(
+                'update:autoColormap',
+                ($event.target as HTMLInputElement).checked
+              )
+            "
+          />
+          auto
+        </label>
       </div>
     </div>
   </div>
@@ -120,13 +150,6 @@ function handlePosterizeLevelsInput(event: Event) {
 
 <style lang="scss" scoped>
 @use "bulma/sass/utilities" as bulmaUt;
-
-.hcolormap {
-  height: 2.5em;
-  width: 100%;
-  overflow: hidden;
-  border-radius: bulmaUt.$radius;
-}
 
 .posterize-tag {
   min-width: 3em;
@@ -136,9 +159,5 @@ function handlePosterizeLevelsInput(event: Event) {
 .slider-column {
   display: flex;
   align-items: center;
-}
-
-.slider {
-  margin: 0;
 }
 </style>

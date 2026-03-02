@@ -158,6 +158,62 @@ export function makeColormapLutMaterial(
   return material;
 }
 
+// Fragment shader for colorbar with selection-range compression.
+// Outside [selLow, selHigh] the bar is dimmed; inside, the full
+// colormap is compressed into the selection window.
+const compressedLutFragmentShader = `
+${colormapShaders}
+
+${isNaNGLSL}
+
+${posterizeGLSL}
+
+varying float v_value;
+uniform float addOffset;
+uniform float scaleFactor;
+uniform int colormap;
+uniform float posterizeLevels;
+uniform float selLow;
+uniform float selHigh;
+
+void main() {
+    if (v_value < selLow || v_value > selHigh) {
+        // Sample the colormap at its minimum or maximum edge color
+        float t_edge = v_value < selLow ? 0.0 : 1.0;
+        float normalized_value = clamp(addOffset + scaleFactor * t_edge, 0.0, 1.0);
+        normalized_value = posterize(normalized_value, posterizeLevels);
+        ${applyColormapShaders}
+        gl_FragColor.a = 1.0;
+        return;
+    }
+    float range = max(selHigh - selLow, 0.0001);
+    float t = (v_value - selLow) / range;
+    float normalized_value = clamp(addOffset + scaleFactor * t, 0.0, 1.0);
+    normalized_value = posterize(normalized_value, posterizeLevels);
+    ${applyColormapShaders}
+    gl_FragColor.a = 1.0;
+}`;
+
+export function makeCompressedColormapLutMaterial(
+  colormap: TColorMap = "turbo",
+  addOffset: 0 | 1,
+  scaleFactor: 1 | -1
+) {
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      addOffset: { value: addOffset },
+      scaleFactor: { value: scaleFactor },
+      colormap: { value: availableColormaps[colormap] },
+      posterizeLevels: { value: 0.0 },
+      selLow: { value: 0.0 },
+      selHigh: { value: 1.0 },
+    },
+    vertexShader: screenQuadValueVertexShader,
+    fragmentShader: compressedLutFragmentShader,
+  });
+  return material;
+}
+
 export function getColormapScaleOffset(
   low: number,
   high: number,
