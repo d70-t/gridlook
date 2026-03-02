@@ -17,11 +17,7 @@ import {
   nextTick,
 } from "vue";
 
-import {
-  formatValue,
-  computeBinTooltip,
-  type BinTooltip,
-} from "./colorbarUtils";
+import { computeBinTooltip, type BinTooltip } from "./colorbarUtils";
 
 // ---------------------------------------------------------------------------
 // Props & emits
@@ -170,6 +166,7 @@ function setChartAnnotations() {
   ).annotation.annotations = buildAnnotations();
 }
 
+// eslint-disable-next-line max-lines-per-function
 function buildAnnotations(): Record<string, object> {
   const annotations: Record<string, object> = {};
 
