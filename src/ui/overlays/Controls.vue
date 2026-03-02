@@ -294,7 +294,7 @@ onMounted(() => {
           :auto-colormap="autoColormap"
           :data-bounds="dataBounds"
           @update:auto-colormap="autoColormap = $event"
-          @forceUserBounds="pickedBoundsMode = BOUND_MODES.USER"
+          @force-user-bounds="pickedBoundsMode = BOUND_MODES.USER"
         />
         <ProjectionControls />
         <MaskControls />
