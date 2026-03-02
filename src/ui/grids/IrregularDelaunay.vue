@@ -16,6 +16,10 @@ import {
   getLatLonData,
 } from "@/lib/data/zarrUtils.ts";
 import {
+  PROJECTION_TYPES,
+  ProjectionHelper,
+} from "@/lib/projection/projectionUtils.ts";
+import {
   makeGpuProjectedMeshMaterial,
   updateProjectionUniforms,
 } from "@/lib/shaders/gridShaders.ts";
@@ -511,9 +515,15 @@ function projectCoordinates(
   latLonValues: Float32Array
 ) {
   const helper = projectionHelper.value;
+  const sphereHelper = helper.isFlat
+    ? new ProjectionHelper(PROJECTION_TYPES.NEARSIDE_PERSPECTIVE, {
+        lat: 0,
+        lon: 0,
+      })
+    : helper;
   const N = latitudes.length;
   for (let i = 0; i < N; i++) {
-    helper.projectLatLonToArrays(
+    sphereHelper.projectLatLonToArrays(
       latitudes[i],
       longitudes[i],
       positions,
