@@ -158,9 +158,6 @@ export function makeColormapLutMaterial(
   return material;
 }
 
-// Fragment shader for colorbar with selection-range compression.
-// Outside [selLow, selHigh] the bar is dimmed; inside, the full
-// colormap is compressed into the selection window.
 const compressedLutFragmentShader = `
 ${colormapShaders}
 

@@ -36,17 +36,27 @@ export function computeBinTooltip(
   const total = bins.reduce((s, v) => s + v, 0);
   const pct = total > 0 ? ((bins[binIndex] / total) * 100).toFixed(2) : "0.00";
 
+  let range: string;
   let beyond: string | undefined;
-  if (binIndex === 0 && binIndex === numBins - 1) {
+  if (numBins === 1) {
+    // Single bin: all values are clamped into this bin.
+    range = "all values";
     beyond = "includes all values";
   } else if (binIndex === 0) {
-    beyond = "includes all values below";
+    // First bin: includes all values below the lower range bound.
+    range = `x < ${formatValue(binHigh)}`;
+    beyond = `includes all values below ${formatValue(rangeLow)}`;
   } else if (binIndex === numBins - 1) {
-    beyond = "includes all values above";
+    // Last bin: includes all values above the upper range bound.
+    range = `${formatValue(binLow)} ≤ x`;
+    beyond = `includes all values above ${formatValue(rangeHigh)}`;
+  } else {
+    // Interior bins: standard half-open interval.
+    range = `${formatValue(binLow)} ≤ x < ${formatValue(binHigh)}`;
   }
 
   return {
-    range: `${formatValue(binLow)} ≤ x < ${formatValue(binHigh)}`,
+    range,
     frequency: `${pct}%`,
     beyond,
   };

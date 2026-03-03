@@ -250,12 +250,30 @@ function buildChartData(): { x: number; y: number }[] {
   }));
 }
 
+const noDataPlugin = {
+  id: "noData",
+  afterDraw(c: Chart) {
+    if (c.data.datasets[0]?.data.every((item) => item === 0)) {
+      const { ctx, width, height } = c;
+      c.clear();
+      ctx.save();
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "var(--bulma-grey)";
+      ctx.fillText("No data to display", width / 2, height / 2);
+      ctx.restore();
+    }
+  },
+};
+
 function createChart() {
   if (!canvasRef.value) {
     return;
   }
+
   chart = new Chart<"line", { x: number; y: number }[]>(canvasRef.value, {
     type: "line",
+    plugins: [noDataPlugin],
     data: {
       datasets: [
         {
@@ -294,6 +312,8 @@ function createChart() {
       },
     },
   });
+  setChartAnnotations();
+  chart.update("none");
 }
 
 function updateChart() {
@@ -402,6 +422,8 @@ function onPointerDown(event: PointerEvent) {
   const el = event.currentTarget as HTMLElement;
 
   clearHover();
+  setChartAnnotations();
+  chart?.update("none");
   if (fraction < lo) {
     emit(
       "handleDragStart",
