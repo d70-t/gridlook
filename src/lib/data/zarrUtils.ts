@@ -21,6 +21,19 @@ export function getMissingValue(
 export function getFillValue(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>
 ) {
+  const attributes = datavar.attrs;
+  if (Object.hasOwn(attributes, "fillValue")) {
+    return Number(attributes.fillValue);
+  }
+  if (Object.hasOwn(attributes, "fill_value")) {
+    return Number(attributes.fill_value);
+  }
+  if (Object.hasOwn(attributes, "_FillValue")) {
+    return Number(attributes._FillValue);
+  }
+  if (Object.hasOwn(attributes, "_fillvalue")) {
+    return Number(attributes._fillvalue);
+  }
   const symbols = Object.getOwnPropertySymbols(datavar);
   const contextSymbol = symbols.find(
     (sym) => sym.toString() === "Symbol(zarrita.context)"
