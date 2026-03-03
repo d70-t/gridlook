@@ -28,9 +28,7 @@ defineEmits<{
 
 // Bounds management types
 const BOUND_MODES = {
-  AUTO: "auto",
   DATA: "data",
-  DEFAULT: "default",
   USER: "user",
 } as const;
 
@@ -51,8 +49,11 @@ const {
 } = storeToRefs(store);
 
 // Bounds logic state
-const pickedBoundsMode = ref<TBoundModes>(BOUND_MODES.AUTO);
+const pickedBoundsMode = ref<TBoundModes>(BOUND_MODES.DATA);
 const defaultBounds = ref<TBounds>({});
+// True until the varnameSelector watcher fires for the first time.
+// Used to preserve URL-provided bounds on first load.
+const isInitialVarLoad = ref(true);
 
 // Colormap logic state
 const autoColormap = ref<boolean>(true);
@@ -77,46 +78,30 @@ const dataBounds = computed(() => {
   return varinfo.value?.bounds ?? {};
 });
 
-const activeBoundsMode = computed(() => {
-  if (pickedBoundsMode.value === BOUND_MODES.AUTO) {
-    if (
-      userBoundsLow.value !== undefined &&
-      userBoundsHigh.value !== undefined &&
-      // if the input-fields are empty, they are interpreted as "" instead of a number
-      (userBoundsHigh.value as unknown as string) !== "" &&
-      (userBoundsLow.value as unknown as string) !== ""
-    ) {
-      return BOUND_MODES.USER;
-    } else if (
-      defaultBounds.value.low !== undefined &&
-      defaultBounds.value.high !== undefined
-    ) {
-      return BOUND_MODES.DEFAULT;
-    } else {
-      return BOUND_MODES.DATA;
-    }
-  } else {
-    return pickedBoundsMode.value;
-  }
-});
-
 const currentBounds = computed(() => {
-  if (activeBoundsMode.value === BOUND_MODES.DATA) {
+  if (pickedBoundsMode.value === BOUND_MODES.DATA) {
     return dataBounds.value;
-  } else if (activeBoundsMode.value === BOUND_MODES.USER) {
+  } else if (pickedBoundsMode.value === BOUND_MODES.USER) {
+    const lo = userBoundsLow.value as number;
+    const hi = userBoundsHigh.value as number;
+    // Always deliver a normalised (non-inverted) range downstream so that
+    // nothing breaks when the user types high < low.  The BoundsControls
+    // component shows a visual indicator when the values are swapped.
     return {
-      low: userBoundsLow.value,
-      high: userBoundsHigh.value,
+      low: lo <= hi ? lo : hi,
+      high: lo <= hi ? hi : lo,
     };
-  } else if (activeBoundsMode.value === BOUND_MODES.DEFAULT) {
-    return defaultBounds.value;
   }
   return undefined;
 });
 
 const setDefaultBounds = () => {
   const defaultConfig = props.modelInfo?.vars[varnameSelector.value];
-  defaultBounds.value = defaultConfig?.default_range ?? {};
+  if (defaultConfig?.default_range) {
+    userBoundsLow.value = defaultConfig.default_range.low;
+    userBoundsHigh.value = defaultConfig.default_range.high;
+    return;
+  }
 };
 
 const setDefaultColormap = () => {
@@ -137,11 +122,28 @@ const isHidden = computed(() => {
 watch(
   () => varnameSelector.value,
   () => {
-    // Clear user-entered bounds whenever the variable changes so stale
-    // numbers from a previous variable do not silently carry over.
-    store.resetUserBounds();
-    pickedBoundsMode.value = BOUND_MODES.AUTO;
-    setDefaultBounds();
+    // On the very first variable load, URL-provided bounds (already written to
+    // the store by HashGlobeView) must not be overwritten by the variable's
+    // default_range config.  On subsequent variable changes we always want to
+    // reset to the new variable's defaults.
+    const preserveUrlBounds =
+      isInitialVarLoad.value &&
+      userBoundsLow.value !== undefined &&
+      userBoundsHigh.value !== undefined;
+    isInitialVarLoad.value = false;
+
+    if (!preserveUrlBounds) {
+      store.resetUserBounds();
+      setDefaultBounds();
+    }
+    if (
+      userBoundsHigh.value === undefined ||
+      userBoundsLow.value === undefined
+    ) {
+      pickedBoundsMode.value = BOUND_MODES.DATA;
+    } else {
+      pickedBoundsMode.value = BOUND_MODES.USER;
+    }
     setDefaultColormap();
     store.updateBounds(currentBounds.value as TBounds);
   }
@@ -286,7 +288,6 @@ onMounted(() => {
         <DimensionControl />
         <BoundsControls
           :picked-bounds-mode="pickedBoundsMode"
-          :active-bounds-mode="activeBoundsMode"
           :data-bounds="dataBounds"
           :default-bounds="defaultBounds"
           :current-bounds="currentBounds"

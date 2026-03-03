@@ -96,7 +96,7 @@ function beginDrag(
   event.preventDefault();
 }
 
-/** Initiate a pan gesture.
+/** Initiate a pan gesture from an external element (e.g. a canvas).
  *  @param event        — the originating PointerEvent
  *  @param captureEl    — element to call setPointerCapture on; defaults to the
  *                        event's currentTarget (i.e. the selection band).
@@ -185,8 +185,18 @@ function onTrackPointerDown(event: PointerEvent) {
     emit("update:high", Math.max(value, capLow));
     dragging.value = "high";
   } else {
-    // Inside the selection — nothing to do; band handles pan.
-    return;
+    // Inside the selection — move the closest handle to the clicked position.
+    const distToLow = Math.abs(frac - lowFraction.value);
+    const distToHigh = Math.abs(frac - highFraction.value);
+    if (distToLow <= distToHigh) {
+      const capHigh = isFinite(props.high) ? props.high : props.max;
+      emit("update:low", Math.min(value, capHigh));
+      dragging.value = "low";
+    } else {
+      const capLow = isFinite(props.low) ? props.low : props.min;
+      emit("update:high", Math.max(value, capLow));
+      dragging.value = "high";
+    }
   }
 
   trackRef.value.setPointerCapture(event.pointerId);
@@ -217,9 +227,8 @@ defineExpose({
     <!-- Highlighted band between the two handles -->
     <div
       class="selection-band"
-      :class="{ 'is-pannable': isPannable }"
       :style="bandStyle"
-      @pointerdown="(e) => beginPan(e)"
+      @pointerdown="onTrackPointerDown"
       @pointermove="onMove"
       @pointerup="onEnd"
       @pointercancel="onEnd"
@@ -284,7 +293,8 @@ defineExpose({
   top: 0;
   height: 100%;
   background: transparent;
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: pointer;
 }
 
 /* Visual 4 px color strip — same position as the track ::before */
@@ -298,15 +308,6 @@ defineExpose({
   background: var(--bulma-link);
   border-radius: var(--bulma-radius);
   pointer-events: none;
-}
-
-.selection-band.is-pannable {
-  pointer-events: auto;
-  cursor: grab;
-}
-
-.selection-band.is-pannable:active {
-  cursor: grabbing;
 }
 
 .handle {

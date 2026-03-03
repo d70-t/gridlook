@@ -7,7 +7,6 @@ import { useGlobeControlStore } from "@/store/store";
 
 defineProps<{
   pickedBoundsMode: string;
-  activeBoundsMode: string;
   dataBounds: TBounds;
   defaultBounds: TBounds;
   currentBounds:
@@ -41,6 +40,18 @@ const highBound = computed({
     store.updateHighUserBound(value);
   },
 });
+
+// True when the user has typed a low value that is greater than the high value.
+// The rendered globe will auto-swap them, but we show a clear indicator so the
+// user understands what is happening.
+const isInverted = computed(
+  () =>
+    userBoundsLow.value !== undefined &&
+    userBoundsHigh.value !== undefined &&
+    (userBoundsLow.value as unknown as string) !== "" &&
+    (userBoundsHigh.value as unknown as string) !== "" &&
+    (userBoundsLow.value as number) > (userBoundsHigh.value as number)
+);
 </script>
 
 <template>
@@ -48,32 +59,15 @@ const highBound = computed({
     <div class="w-100">
       <!-- Header -->
       <div class="columns has-text-weight-bold is-mobile compact-row">
-        <div class="column">range</div>
-        <div class="column">low</div>
-        <div class="column has-text-right">high</div>
-      </div>
-
-      <!-- Auto Bounds -->
-      <div class="columns is-mobile active-row compact-row">
-        <div class="column">
-          <input
-            id="auto_bounds"
-            class="mb-3 mr-1"
-            type="radio"
-            value="auto"
-            :checked="pickedBoundsMode === boundModes.AUTO"
-            @change="$emit('update:pickedBoundsMode', boundModes.AUTO)"
-          />
-          <label for="auto_bounds">auto</label>
-        </div>
-        <div class="column"></div>
-        <div class="column has-text-right"></div>
+        <div class="column">Range</div>
+        <div class="column">Low</div>
+        <div class="column has-text-right">High</div>
       </div>
 
       <!-- Data Bounds -->
       <div
         class="columns is-mobile active-row compact-row"
-        :class="{ active: activeBoundsMode === boundModes.DATA }"
+        :class="{ active: pickedBoundsMode === boundModes.DATA }"
       >
         <div class="column">
           <input
@@ -84,7 +78,7 @@ const highBound = computed({
             :checked="pickedBoundsMode === boundModes.DATA"
             @change="$emit('update:pickedBoundsMode', boundModes.DATA)"
           />
-          <label for="data_bounds">data</label>
+          <label for="data_bounds">Data</label>
         </div>
         <div class="column">{{ Number(dataBounds.low).toPrecision(4) }}</div>
         <div class="column has-text-right">
@@ -92,59 +86,10 @@ const highBound = computed({
         </div>
       </div>
 
-      <!-- Default Bounds -->
-      <div
-        v-if="
-          defaultBounds.low !== undefined && defaultBounds.high !== undefined
-        "
-        class="columns is-mobile active-row compact-row"
-        :class="{ active: activeBoundsMode === boundModes.DEFAULT }"
-      >
-        <div class="column">
-          <input
-            id="default_bounds"
-            class="mr-1"
-            type="radio"
-            value="default"
-            :checked="pickedBoundsMode === boundModes.DEFAULT"
-            @change="$emit('update:pickedBoundsMode', boundModes.DEFAULT)"
-          />
-          <label
-            for="default_bounds"
-            :class="{
-              'has-text-grey-light':
-                defaultBounds.low === undefined &&
-                defaultBounds.high === undefined,
-            }"
-            >default</label
-          >
-        </div>
-        <div
-          class="column"
-          :class="{
-            'has-text-grey-light':
-              defaultBounds.low === undefined &&
-              defaultBounds.high === undefined,
-          }"
-        >
-          {{ Number(defaultBounds.low).toPrecision(4) }}
-        </div>
-        <div
-          class="column has-text-right"
-          :class="{
-            'has-text-grey-light':
-              defaultBounds.low === undefined &&
-              defaultBounds.high === undefined,
-          }"
-        >
-          {{ Number(defaultBounds.high).toPrecision(4) }}
-        </div>
-      </div>
-
       <!-- User Bounds -->
       <div
         class="columns is-mobile active-row compact-row"
-        :class="{ active: activeBoundsMode === boundModes.USER }"
+        :class="{ active: pickedBoundsMode === boundModes.USER }"
       >
         <div class="column">
           <input
@@ -155,13 +100,14 @@ const highBound = computed({
             :checked="pickedBoundsMode === boundModes.USER"
             @change="$emit('update:pickedBoundsMode', boundModes.USER)"
           />
-          <label for="user_bounds">user</label>
+          <label for="user_bounds">Custom</label>
         </div>
         <div class="column">
           <input
             v-model.number="lowBound"
             size="10"
             class="input"
+            :class="[{ 'is-warning': isInverted }]"
             type="number"
           />
         </div>
@@ -170,6 +116,7 @@ const highBound = computed({
             v-model.number="highBound"
             size="10"
             class="input"
+            :class="[{ 'is-warning': isInverted }]"
             type="number"
           />
         </div>
