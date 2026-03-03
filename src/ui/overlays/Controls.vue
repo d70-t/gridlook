@@ -137,6 +137,10 @@ const isHidden = computed(() => {
 watch(
   () => varnameSelector.value,
   () => {
+    // Clear user-entered bounds whenever the variable changes so stale
+    // numbers from a previous variable do not silently carry over.
+    store.resetUserBounds();
+    pickedBoundsMode.value = BOUND_MODES.AUTO;
     setDefaultBounds();
     setDefaultColormap();
     store.updateBounds(currentBounds.value as TBounds);

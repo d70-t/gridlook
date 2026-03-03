@@ -94,6 +94,10 @@ export const useGlobeControlStore = defineStore("globeControl", {
       }
       this.userBoundsHigh = high;
     },
+    resetUserBounds() {
+      this.userBoundsLow = undefined;
+      this.userBoundsHigh = undefined;
+    },
     updateBounds(bounds: TBounds) {
       this.selection = bounds;
     },
