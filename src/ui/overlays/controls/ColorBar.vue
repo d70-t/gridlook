@@ -153,13 +153,19 @@ const midLabelsArray = computed(() => {
   const high = props.boundsHigh!;
   const numSteps = props.posterizeLevels - 1;
 
-  // Skip labels that would appear closer than MIN_PX_PER_LABEL pixels apart
+  // Skip labels that would appear closer than MIN_PX_PER_LABEL pixels apart.
+  // Use Math.abs for the width so an inverted range (boundsLow > boundsHigh)
+  // never produces a negative selWidthPx — which would make pxPerStep negative,
+  // causing Math.ceil(MIN_PX_PER_LABEL / pxPerStep) to return 0 or a negative
+  // number and the for-loop below to run forever.
   const MIN_PX_PER_LABEL = 30;
   const w = widgetWidth.value;
-  const selWidthPx = (selHighFraction.value - selLowFraction.value) * w;
+  const selWidthPx = Math.abs(selHighFraction.value - selLowFraction.value) * w;
   const pxPerStep = selWidthPx / numSteps;
-  const stride =
-    pxPerStep < MIN_PX_PER_LABEL ? Math.ceil(MIN_PX_PER_LABEL / pxPerStep) : 1;
+  const stride = Math.max(
+    1,
+    pxPerStep < MIN_PX_PER_LABEL ? Math.ceil(MIN_PX_PER_LABEL / pxPerStep) : 1
+  );
 
   // Compute the actual pixel extents of the two edge labels so we can keep
   // mid-labels from colliding with them regardless of their anchor mode.
