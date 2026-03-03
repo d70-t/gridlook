@@ -24,21 +24,26 @@ const panStartHigh = ref(0);
 
 const range = computed(() => props.max - props.min);
 
+/** True only when the slider has a real, usable numeric range. */
+function hasValidRange(): boolean {
+  return range.value > 0 && isFinite(range.value);
+}
+
 const lowFraction = computed(() =>
-  range.value > 0
+  hasValidRange()
     ? Math.max(0, Math.min(1, (props.low - props.min) / range.value))
     : 0
 );
 
 const highFraction = computed(() =>
-  range.value > 0
+  hasValidRange()
     ? Math.max(0, Math.min(1, (props.high - props.min) / range.value))
     : 1
 );
 
 const isPannable = computed(
   () =>
-    range.value > 0 && (lowFraction.value > 0.001 || highFraction.value < 0.999)
+    hasValidRange() && (lowFraction.value > 0.001 || highFraction.value < 0.999)
 );
 
 const lowHandleStyle = computed(() => ({
@@ -57,7 +62,7 @@ function trackWidth(): number {
 }
 
 function startDrag(which: "low" | "high", event: PointerEvent) {
-  if (range.value <= 0) {
+  if (!hasValidRange()) {
     return;
   }
 
@@ -81,7 +86,7 @@ function beginDrag(
   event: PointerEvent,
   captureEl?: HTMLElement
 ): void {
-  if (range.value <= 0) {
+  if (!hasValidRange()) {
     return;
   }
   dragging.value = which;
@@ -98,7 +103,7 @@ function beginDrag(
  *                        Pass the canvas element when triggering from outside.
  */
 function beginPan(event: PointerEvent, captureEl?: HTMLElement) {
-  if (!isPannable.value || range.value <= 0) {
+  if (!isPannable.value || !hasValidRange()) {
     return;
   }
   dragging.value = "pan";
@@ -114,7 +119,7 @@ function beginPan(event: PointerEvent, captureEl?: HTMLElement) {
 
 /** Handle a pointermove event – works both for internal and externally-captured pointers. */
 function onMove(event: PointerEvent) {
-  if (!dragging.value || range.value <= 0) {
+  if (!dragging.value || !hasValidRange()) {
     return;
   }
 
@@ -141,9 +146,11 @@ function onMove(event: PointerEvent) {
   const value = props.min + frac * range.value;
 
   if (dragging.value === "low") {
-    emit("update:low", Math.min(value, props.high));
+    const capHigh = isFinite(props.high) ? props.high : props.max;
+    emit("update:low", Math.min(value, capHigh));
   } else {
-    emit("update:high", Math.max(value, props.low));
+    const capLow = isFinite(props.low) ? props.low : props.min;
+    emit("update:high", Math.max(value, capLow));
   }
 }
 
@@ -159,7 +166,7 @@ function onEnd() {
  * element itself — clicks on child elements (band, handles) are ignored.
  */
 function onTrackPointerDown(event: PointerEvent) {
-  if (!trackRef.value || range.value <= 0) {
+  if (!trackRef.value || !hasValidRange()) {
     return;
   }
   const rect = trackRef.value.getBoundingClientRect();
@@ -170,10 +177,12 @@ function onTrackPointerDown(event: PointerEvent) {
   const value = props.min + frac * range.value;
 
   if (frac < lowFraction.value) {
-    emit("update:low", Math.min(value, props.high));
+    const capHigh = isFinite(props.high) ? props.high : props.max;
+    emit("update:low", Math.min(value, capHigh));
     dragging.value = "low";
   } else if (frac > highFraction.value) {
-    emit("update:high", Math.max(value, props.low));
+    const capLow = isFinite(props.low) ? props.low : props.min;
+    emit("update:high", Math.max(value, capLow));
     dragging.value = "high";
   } else {
     // Inside the selection — nothing to do; band handles pan.
