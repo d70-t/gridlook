@@ -5,7 +5,7 @@ import { computed } from "vue";
 import type { TBounds } from "@/lib/types/GlobeTypes.js";
 import { useGlobeControlStore } from "@/store/store";
 
-defineProps<{
+const props = defineProps<{
   pickedBoundsMode: string;
   dataBounds: TBounds;
   defaultBounds: TBounds;
@@ -39,6 +39,15 @@ const highBound = computed({
   set(value: number | string | undefined) {
     store.updateHighUserBound(value);
   },
+});
+
+// Step size for the custom bounds inputs, derived from the data range so that
+// fine-grained data (e.g. 0.00001–0.1) gets an appropriate increment.
+const inputStep = computed(() => {
+  const range = Math.abs(Number(props.dataBounds.high) - Number(props.dataBounds.low));
+  if (range === 0) return "any";
+  const magnitude = Math.floor(Math.log10(range));
+  return Math.pow(10, magnitude - 2);
 });
 
 // True when the user has typed a low value that is greater than the high value.
@@ -109,6 +118,7 @@ const isInverted = computed(
             class="input"
             :class="[{ 'is-warning': isInverted }]"
             type="number"
+            :step="inputStep"
           />
         </div>
         <div class="column has-text-right">
@@ -118,6 +128,7 @@ const isInverted = computed(
             class="input"
             :class="[{ 'is-warning': isInverted }]"
             type="number"
+            :step="inputStep"
           />
         </div>
       </div>
