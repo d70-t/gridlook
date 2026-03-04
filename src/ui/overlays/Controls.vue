@@ -82,8 +82,18 @@ const currentBounds = computed(() => {
   if (pickedBoundsMode.value === BOUND_MODES.DATA) {
     return dataBounds.value;
   } else if (pickedBoundsMode.value === BOUND_MODES.USER) {
-    const lo = userBoundsLow.value as number;
-    const hi = userBoundsHigh.value as number;
+    const lowEmpty =
+      userBoundsLow.value === undefined ||
+      (userBoundsLow.value as unknown as string) === "";
+    const highEmpty =
+      userBoundsHigh.value === undefined ||
+      (userBoundsHigh.value as unknown as string) === "";
+    const lo = (
+      lowEmpty ? dataBounds.value.low : userBoundsLow.value
+    ) as number;
+    const hi = (
+      highEmpty ? dataBounds.value.high : userBoundsHigh.value
+    ) as number;
     // Always deliver a normalised (non-inverted) range downstream so that
     // nothing breaks when the user types high < low.  The BoundsControls
     // component shows a visual indicator when the values are swapped.
@@ -163,6 +173,24 @@ watch(
     setDefaultColormap();
   }
 );
+
+function onPickedBoundsModeChange(newMode: TBoundModes) {
+  if (newMode === BOUND_MODES.USER) {
+    const lowEmpty =
+      userBoundsLow.value === undefined ||
+      (userBoundsLow.value as unknown as string) === "";
+    const highEmpty =
+      userBoundsHigh.value === undefined ||
+      (userBoundsHigh.value as unknown as string) === "";
+    if (lowEmpty) {
+      userBoundsLow.value = dataBounds.value.low as number;
+    }
+    if (highEmpty) {
+      userBoundsHigh.value = dataBounds.value.high as number;
+    }
+  }
+  pickedBoundsMode.value = newMode;
+}
 
 function toggleMenu() {
   menuCollapsed.value = !menuCollapsed.value;
@@ -292,7 +320,9 @@ onMounted(() => {
           :default-bounds="defaultBounds"
           :current-bounds="currentBounds"
           :bound-modes="BOUND_MODES"
-          @update:picked-bounds-mode="pickedBoundsMode = $event as TBoundModes"
+          @update:picked-bounds-mode="
+            onPickedBoundsModeChange($event as TBoundModes)
+          "
         />
         <ColormapControls
           :model-info="modelInfo"
