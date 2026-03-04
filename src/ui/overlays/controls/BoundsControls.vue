@@ -44,8 +44,12 @@ const highBound = computed({
 // Step size for the custom bounds inputs, derived from the data range so that
 // fine-grained data (e.g. 0.00001–0.1) gets an appropriate increment.
 const inputStep = computed(() => {
-  const range = Math.abs(Number(props.dataBounds.high) - Number(props.dataBounds.low));
-  if (range === 0) return "any";
+  const range = Math.abs(
+    Number(props.dataBounds.high) - Number(props.dataBounds.low)
+  );
+  if (range === 0) {
+    return "any";
+  }
   const magnitude = Math.floor(Math.log10(range));
   return Math.pow(10, magnitude - 2);
 });
