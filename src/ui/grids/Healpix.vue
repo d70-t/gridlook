@@ -34,6 +34,9 @@ const props = defineProps<{
   datasources?: TSources;
 }>();
 
+// By convention, HEALPIX uses -1.6375e+30 to mark invalid or unseen pixels.
+const HEALPIX_UNSEEN = -1.6375e30;
+
 const store = useGlobeControlStore();
 const { logError } = useLog();
 const {
@@ -89,12 +92,13 @@ watch(
 
 watch(
   () => dimSlidersValues.value,
-  () => {
+  async () => {
     if (isInitializingVariable.value) {
       isInitializingVariable.value = false;
       return;
     }
-    getData(UPDATE_MODE.SLIDER_TOGGLE);
+    await getData(UPDATE_MODE.SLIDER_TOGGLE);
+    updateColormap(mainMeshes);
   },
   { deep: true }
 );
@@ -297,22 +301,14 @@ async function fillLimitedAreaHealpixChunkData(
   }
 }
 
-async function getHealpixData(
+async function fillHealpixChunkData(
   datavar: zarr.Array<zarr.DataType>,
-  cellCoord: number[] | undefined, // Optional - undefined for global data
-  ipix: number,
-  numChunks: number,
-  nside: number,
-  dimensionIndices: (number | zarr.Slice | null)[]
+  cellCoord: number[] | undefined,
+  localDimensionIndices: (number | zarr.Slice | null)[],
+  pixelStart: number,
+  pixelEnd: number,
+  dataSlice: Float32Array
 ) {
-  const localDimensionIndices = dimensionIndices.slice();
-  const { chunksize, pixelStart, pixelEnd } = getHealpixChunkRange(
-    ipix,
-    numChunks,
-    nside
-  );
-  const dataSlice = new Float32Array(chunksize);
-
   if (cellCoord === undefined) {
     await fillGlobalHealpixChunkData(
       datavar,
@@ -331,8 +327,40 @@ async function getHealpixData(
       dataSlice
     );
   }
+}
+
+async function getHealpixData(
+  datavar: zarr.Array<zarr.DataType>,
+  cellCoord: number[] | undefined, // Optional - undefined for global data
+  ipix: number,
+  numChunks: number,
+  nside: number,
+  dimensionIndices: (number | zarr.Slice | null)[]
+) {
+  const localDimensionIndices = dimensionIndices.slice();
+  const { chunksize, pixelStart, pixelEnd } = getHealpixChunkRange(
+    ipix,
+    numChunks,
+    nside
+  );
+  const dataSlice = new Float32Array(chunksize);
+
+  await fillHealpixChunkData(
+    datavar,
+    cellCoord,
+    localDimensionIndices,
+    pixelStart,
+    pixelEnd,
+    dataSlice
+  );
 
   let { min, max, missingValue, fillValue } = getDataBounds(datavar, dataSlice);
+  if (isNaN(missingValue)) {
+    missingValue = HEALPIX_UNSEEN;
+  } else if (isNaN(fillValue)) {
+    fillValue = HEALPIX_UNSEEN;
+  }
+
   // Filter out missing and fill values before building histogram
   return {
     texture: data2texture(dataSlice, {}),

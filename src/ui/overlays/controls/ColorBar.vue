@@ -1,14 +1,27 @@
 <script setup lang="ts">
-import { useEventListener } from "@vueuse/core";
 import * as THREE from "three";
-import { ref, computed, onMounted, watch, onBeforeUnmount } from "vue";
-import type { Ref } from "vue";
+import {
+  ref,
+  computed,
+  onMounted,
+  watch,
+  onBeforeUnmount,
+  nextTick,
+} from "vue";
+
+import {
+  formatValue,
+  computeBinTooltip,
+  type BinTooltip,
+} from "./colorbarUtils";
 
 import {
   availableColormaps,
   type TColorMap,
 } from "@/lib/shaders/colormapShaders";
-import { makeColormapLutMaterial } from "@/lib/shaders/gridShaders";
+import { makeCompressedColormapLutMaterial } from "@/lib/shaders/gridShaders";
+import RangeSlider from "@/ui/common/RangeSlider.vue";
+import DistributionPlot from "@/ui/overlays/controls/DistributionPlot.vue";
 
 const props = withDefaults(
   defineProps<{
@@ -19,6 +32,7 @@ const props = withDefaults(
     boundsHigh?: number;
     dataBoundsLow?: number;
     dataBoundsHigh?: number;
+    fullHistogram?: number[];
     histogram?: number[];
   }>(),
   {
@@ -29,137 +43,318 @@ const props = withDefaults(
     boundsHigh: undefined,
     dataBoundsLow: undefined,
     dataBoundsHigh: undefined,
+    fullHistogram: undefined,
     histogram: undefined,
   }
 );
 
-const box: Ref<HTMLDivElement | undefined> = ref(undefined);
-const canvas: Ref<HTMLCanvasElement | undefined> = ref(undefined);
-const histogramCanvas: Ref<HTMLCanvasElement | undefined> = ref(undefined);
+const emit = defineEmits<{
+  "update:boundsLow": [value: number];
+  "update:boundsHigh": [value: number];
+}>();
 
-const hoveredBin = ref<number | null>(null);
-const tooltipPosition = computed(() => {
-  if (
-    hoveredBin.value === null ||
-    !props.histogram ||
-    props.histogram.length === 0 ||
-    !box.value
-  ) {
-    return { left: "50%", top: "8px" };
-  }
-  const rect = box.value.getBoundingClientRect();
-  const left =
-    rect.left +
-    ((hoveredBin.value + 0.5) / props.histogram.length) * rect.width;
-  const top = rect.top - 6;
-  return { left: `${left}px`, top: `${top}px` };
-});
+const GRADIENT_HEIGHT = 44;
 
-let width: number | undefined;
-let height: number | undefined;
-let frameId: number = 0;
+const widgetRef = ref<HTMLDivElement>();
+const gradientCanvasRef = ref<HTMLCanvasElement>();
+const selHistCanvasRef = ref<HTMLCanvasElement>();
+const sliderRef = ref<InstanceType<typeof RangeSlider>>();
 
-let lutMesh: THREE.Mesh | undefined;
-let resizeObserver: ResizeObserver | undefined;
+const widgetWidth = ref(0);
+const hoveredSelBin = ref<number | null>(null);
+
+const tooltipRef = ref<HTMLElement | null>(null);
+const tooltipX = ref(0);
+const tooltipY = ref(0);
+const tooltipData = ref<BinTooltip | null>(null);
+
+// Three.js state
 let scene: THREE.Scene | undefined;
 let renderer: THREE.WebGLRenderer | undefined;
 let camera: THREE.PerspectiveCamera | undefined;
+let lutMesh: THREE.Mesh | undefined;
+let resizeObserver: ResizeObserver | undefined;
+let frameId = 0;
 
-const addOffset = computed(() => {
-  if (props.invertColormap) {
-    return 1.0;
-  } else {
-    return 0.0;
+const dataRange = computed(() => {
+  if (props.dataBoundsLow === undefined || props.dataBoundsHigh === undefined) {
+    return 0;
   }
+  return props.dataBoundsHigh - props.dataBoundsLow;
 });
 
-const scaleFactor = computed(() => {
-  if (props.invertColormap) {
-    return -1.0;
-  } else {
-    return 1.0;
+const selLowFraction = computed(() => {
+  if (
+    dataRange.value <= 0 ||
+    props.boundsLow === undefined ||
+    props.dataBoundsLow === undefined
+  ) {
+    return 0;
   }
-});
-
-const lutMaterial = computed(() => {
-  return makeColormapLutMaterial(
-    props.colormap,
-    addOffset.value,
-    scaleFactor.value
+  return Math.max(
+    0,
+    Math.min(1, (props.boundsLow - props.dataBoundsLow) / dataRange.value)
   );
 });
 
-const lowLabel = computed(() => {
-  if (props.boundsLow === undefined || props.boundsHigh === undefined) {
-    return "low";
+const selHighFraction = computed(() => {
+  if (
+    dataRange.value <= 0 ||
+    props.boundsHigh === undefined ||
+    props.dataBoundsLow === undefined
+  ) {
+    return 1;
   }
-  // Always show actual data bounds - don't swap on invert
-  return formatValue(props.boundsLow);
+  return Math.max(
+    0,
+    Math.min(1, (props.boundsHigh - props.dataBoundsLow) / dataRange.value)
+  );
 });
 
-const highLabel = computed(() => {
-  if (props.boundsLow === undefined || props.boundsHigh === undefined) {
-    return "high";
-  }
-  // Always show actual data bounds - don't swap on invert
-  return formatValue(props.boundsHigh);
-});
+const addOffset = computed(() => (props.invertColormap ? 1.0 : 0.0));
+const scaleFactor = computed(() => (props.invertColormap ? -1.0 : 1.0));
 
-const showMidLabels = computed(() => {
+// True when the user has a sub-range selection (not covering the full data extent)
+const isPannable = computed(() => {
   return (
-    props.posterizeLevels >= 4 &&
-    props.posterizeLevels <= 10 &&
     props.boundsLow !== undefined &&
-    props.boundsHigh !== undefined
+    props.boundsHigh !== undefined &&
+    dataRange.value > 0 &&
+    (selLowFraction.value > 0.001 || selHighFraction.value < 0.999)
   );
 });
+
+// Half-width budget for edge labels (see lowLabelStyle / midLabelsArray).
+const LABEL_HALF_WIDTH_PX = 45;
+
+// ---------------------------------------------------------------------------
+// Labels
+// ---------------------------------------------------------------------------
+
+const lowLabel = computed(() =>
+  props.boundsLow !== undefined ? formatValue(props.boundsLow) : ""
+);
+
+const highLabel = computed(() =>
+  props.boundsHigh !== undefined ? formatValue(props.boundsHigh) : ""
+);
 
 const midLabelsArray = computed(() => {
-  if (!showMidLabels.value) {
+  if (
+    props.posterizeLevels < 4 ||
+    props.boundsLow === undefined ||
+    props.boundsHigh === undefined ||
+    props.dataBoundsLow === undefined ||
+    props.dataBoundsHigh === undefined
+  ) {
     return [];
   }
-  const labels = [];
   const low = props.boundsLow!;
   const high = props.boundsHigh!;
   const numSteps = props.posterizeLevels - 1;
 
-  for (let i = 1; i < props.posterizeLevels - 1; i++) {
-    const fraction = i / numSteps;
-    const value = low + fraction * (high - low);
-    labels.push(formatValue(value));
-  }
+  // Skip labels that would appear closer than MIN_PX_PER_LABEL pixels apart.
+  // Use Math.abs for the width so an inverted range (boundsLow > boundsHigh)
+  // never produces a negative selWidthPx — which would make pxPerStep negative,
+  // causing Math.ceil(MIN_PX_PER_LABEL / pxPerStep) to return 0 or a negative
+  // number and the for-loop below to run forever.
+  const MIN_PX_PER_LABEL = 30;
+  const w = widgetWidth.value;
+  const selWidthPx = Math.abs(selHighFraction.value - selLowFraction.value) * w;
+  const pxPerStep = selWidthPx / numSteps;
+  const stride = Math.max(
+    1,
+    pxPerStep < MIN_PX_PER_LABEL ? Math.ceil(MIN_PX_PER_LABEL / pxPerStep) : 1
+  );
 
+  // Compute the actual pixel extents of the two edge labels so we can keep
+  // mid-labels from colliding with them regardless of their anchor mode.
+  const lowPx = selLowFraction.value * w;
+  const highPx = selHighFraction.value * w;
+  // Low label: left-anchored when near left edge (extends rightward), else centered
+  const lowLabelRight =
+    lowPx < LABEL_HALF_WIDTH_PX
+      ? lowPx + LABEL_HALF_WIDTH_PX * 2
+      : lowPx + LABEL_HALF_WIDTH_PX;
+  // High label: right-anchored when near right edge (extends leftward), else centered
+  const highLabelLeft =
+    w - highPx < LABEL_HALF_WIDTH_PX
+      ? highPx - LABEL_HALF_WIDTH_PX * 2
+      : highPx - LABEL_HALF_WIDTH_PX;
+
+  const labels: { text: string; fraction: number }[] = [];
+  for (let i = stride; i < props.posterizeLevels - 1; i += stride) {
+    const frac = i / numSteps;
+    const value = low + frac * (high - low);
+    const dataFrac = (value - props.dataBoundsLow!) / dataRange.value;
+    const midPx = dataFrac * w;
+    // Mid label is centered; its left/right edges are midPx ± LABEL_HALF_WIDTH_PX
+    if (
+      midPx - LABEL_HALF_WIDTH_PX < lowLabelRight ||
+      midPx + LABEL_HALF_WIDTH_PX > highLabelLeft
+    ) {
+      continue;
+    }
+    labels.push({ text: formatValue(value), fraction: dataFrac });
+  }
   return labels;
 });
 
-function formatValue(value: number): string {
-  // Format with appropriate precision
-  const absValue = Math.abs(value);
-  if (absValue === 0) {
-    return "0";
-  } else if (absValue >= 1000 || absValue < 0.01) {
-    return value.toExponential(1);
-  } else if (absValue >= 100) {
-    return value.toFixed(0);
-  } else if (absValue >= 10) {
-    return value.toFixed(1);
+// ---------------------------------------------------------------------------
+// Styles (positioned elements)
+// ---------------------------------------------------------------------------
+
+const lowLabelStyle = computed(() => {
+  const leftPx = selLowFraction.value * widgetWidth.value;
+  return {
+    left: `${selLowFraction.value * 100}%`,
+    transform:
+      leftPx < LABEL_HALF_WIDTH_PX ? "translateX(0)" : "translateX(-50%)",
+  };
+});
+
+const highLabelStyle = computed(() => {
+  const rightPx = (1 - selHighFraction.value) * widgetWidth.value;
+  return {
+    left: `${selHighFraction.value * 100}%`,
+    transform:
+      rightPx < LABEL_HALF_WIDTH_PX ? "translateX(-100%)" : "translateX(-50%)",
+  };
+});
+
+const tooltipStyle = computed(() => ({
+  left: `${tooltipX.value}px`,
+  top: `${tooltipY.value}px`,
+}));
+
+// After tooltip content changes, nudge X/Y so it stays within the viewport.
+watch(tooltipData, async (newVal) => {
+  if (!newVal) {
+    return;
+  }
+  await nextTick();
+  const el = tooltipRef.value;
+  if (!el) {
+    return;
+  }
+  const r = el.getBoundingClientRect();
+  if (r.right > window.innerWidth - 4) {
+    tooltipX.value -= r.right - (window.innerWidth - 4);
+  }
+  if (r.left < 4) {
+    tooltipX.value += 4 - r.left;
+  }
+  if (r.top < 4) {
+    // Flip below the target point
+    tooltipY.value += r.height + 8;
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Canvas pan delegation (pointer events forwarded to RangeSlider)
+// ---------------------------------------------------------------------------
+
+function onDistributionPanStart(event: PointerEvent, element: HTMLElement) {
+  hoveredSelBin.value = null;
+  tooltipData.value = null;
+  sliderRef.value?.beginPan(event, element);
+}
+
+function onDistributionHandleDragStart(
+  event: PointerEvent,
+  element: HTMLElement,
+  which: "low" | "high",
+  value: number
+) {
+  if (which === "low") {
+    emit("update:boundsLow", value);
   } else {
-    return value.toFixed(2);
+    emit("update:boundsHigh", value);
+  }
+  sliderRef.value?.beginDrag(which, event, element);
+}
+
+function onGradientPointerDown(event: PointerEvent) {
+  if (
+    props.dataBoundsLow === undefined ||
+    props.dataBoundsHigh === undefined ||
+    props.boundsLow === undefined ||
+    props.boundsHigh === undefined ||
+    dataRange.value <= 0
+  ) {
+    return;
+  }
+
+  const canvas = event.currentTarget as HTMLElement;
+  const rect = canvas.getBoundingClientRect();
+  const fraction = (event.clientX - rect.left) / rect.width;
+  const lo = selLowFraction.value;
+  const hi = selHighFraction.value;
+  const value = props.dataBoundsLow + fraction * dataRange.value;
+
+  if (fraction < lo) {
+    hoveredSelBin.value = null;
+    tooltipData.value = null;
+    emit(
+      "update:boundsLow",
+      Math.max(props.dataBoundsLow, Math.min(props.boundsHigh, value))
+    );
+    sliderRef.value?.beginDrag("low", event, canvas);
+  } else if (fraction > hi) {
+    hoveredSelBin.value = null;
+    tooltipData.value = null;
+    emit(
+      "update:boundsHigh",
+      Math.min(props.dataBoundsHigh, Math.max(props.boundsLow, value))
+    );
+    sliderRef.value?.beginDrag("high", event, canvas);
+  } else if (isPannable.value) {
+    hoveredSelBin.value = null;
+    tooltipData.value = null;
+    sliderRef.value?.beginPan(event, canvas);
   }
 }
 
-function drawHistogram() {
-  if (!histogramCanvas.value || width === undefined || height === undefined) {
+// ---------------------------------------------------------------------------
+// Canvas 2D helpers (DPI-aware)
+// ---------------------------------------------------------------------------
+
+function setupCanvas(
+  canvas: HTMLCanvasElement | undefined,
+  w: number,
+  h: number
+): CanvasRenderingContext2D | null {
+  if (!canvas || w <= 0 || h <= 0) {
+    return null;
+  }
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  return ctx;
+}
+
+// ---------------------------------------------------------------------------
+// Draw: selection-range histogram
+// ---------------------------------------------------------------------------
+
+function drawSelectionHistogram() {
+  const w = widgetWidth.value;
+  if (w <= 0) {
     return;
   }
-  const context = histogramCanvas.value.getContext("2d");
-  if (!context) {
+  const ctx = setupCanvas(selHistCanvasRef.value, w, GRADIENT_HEIGHT);
+  if (!ctx) {
     return;
   }
+  const h = GRADIENT_HEIGHT;
+  ctx.clearRect(0, 0, w, h);
 
   const bins = props.histogram;
-  context.clearRect(0, 0, width, height);
-  if (!bins || bins.length === 0) {
+  if (!bins?.length) {
     return;
   }
 
@@ -167,172 +362,232 @@ function drawHistogram() {
   if (maxCount <= 0) {
     return;
   }
+  const pixelStart = selLowFraction.value * w;
+  const pixelEnd = selHighFraction.value * w;
+  const selWidth = pixelEnd - pixelStart;
+  if (selWidth <= 0) {
+    return;
+  }
 
-  const barWidth = width / bins.length;
-  const gap = Math.min(1, barWidth * 0.2);
+  const barWidth = selWidth / bins.length;
+  const maxBarHeight = h * 0.88;
+  const gap = Math.min(1, barWidth * 0.12);
   const drawWidth = Math.max(0.5, barWidth - gap);
-  const maxBarHeight = height * 0.85;
 
   for (let i = 0; i < bins.length; i++) {
     const barHeight = (bins[i] / maxCount) * maxBarHeight;
     if (barHeight <= 0) {
       continue;
     }
-    const x = i * barWidth + gap / 2;
-    const y = height - barHeight;
-
-    // Highlight hovered bin
-    if (hoveredBin.value === i && props.posterizeLevels > 0) {
-      context.fillStyle = "rgba(255, 255, 255, 0.85)";
-    } else {
-      context.fillStyle = "rgba(255, 255, 255, 0.45)";
-    }
-    context.fillRect(x, y, drawWidth, barHeight);
+    ctx.fillStyle =
+      hoveredSelBin.value === i
+        ? "rgba(255, 255, 255, 0.75)"
+        : "rgba(255, 255, 255, 0.42)";
+    ctx.fillRect(
+      pixelStart + i * barWidth + gap / 2,
+      h - barHeight,
+      drawWidth,
+      barHeight
+    );
   }
 }
 
-function handleHistogramMouseMove(event: MouseEvent) {
+// ---------------------------------------------------------------------------
+// Three.js gradient
+// ---------------------------------------------------------------------------
+
+function initThreeJs() {
+  const lutGeometry = new THREE.PlaneGeometry(2, 2);
+  lutGeometry.setAttribute(
+    "data_value",
+    new THREE.BufferAttribute(Float32Array.from([0, 1, 0, 1]), 1)
+  );
+  const material = makeCompressedColormapLutMaterial(
+    props.colormap,
+    addOffset.value as 0 | 1,
+    scaleFactor.value as 1 | -1
+  );
+  lutMesh = new THREE.Mesh(lutGeometry, material);
+
+  scene = new THREE.Scene();
+  renderer = new THREE.WebGLRenderer({
+    canvas: gradientCanvasRef.value as HTMLCanvasElement,
+  });
+
+  scene.add(lutMesh);
+
+  camera = new THREE.PerspectiveCamera(7.5, 1, 0.1, 1000);
+  scene.add(camera);
+}
+
+function updateGradientUniforms() {
+  if (!lutMesh) {
+    return;
+  }
+  const mat = lutMesh.material as THREE.ShaderMaterial;
+  mat.uniforms.colormap.value = availableColormaps[props.colormap];
+  mat.uniforms.addOffset.value = addOffset.value;
+  mat.uniforms.scaleFactor.value = scaleFactor.value;
+  mat.uniforms.posterizeLevels.value = props.posterizeLevels;
+  mat.uniforms.selLow.value = selLowFraction.value;
+  mat.uniforms.selHigh.value = selHighFraction.value;
+  if (renderer && scene && camera) {
+    renderer.render(scene, camera);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Redraw everything
+// ---------------------------------------------------------------------------
+
+function scheduleRedraw() {
+  cancelAnimationFrame(frameId);
+  frameId = requestAnimationFrame(redrawAll);
+}
+
+function redrawAll() {
+  updateGradientUniforms();
+  drawSelectionHistogram();
+}
+
+// ---------------------------------------------------------------------------
+// Resize handling
+// ---------------------------------------------------------------------------
+
+function onResize() {
+  if (!widgetRef.value) {
+    return;
+  }
+  const rect = widgetRef.value.getBoundingClientRect();
+  const newWidth = Math.round(rect.width);
+  if (newWidth <= 0 || newWidth === widgetWidth.value) {
+    return;
+  }
+  widgetWidth.value = newWidth;
+
+  if (renderer && camera) {
+    const dpr = window.devicePixelRatio || 1;
+    renderer.setSize(
+      Math.round(newWidth * dpr),
+      Math.round(GRADIENT_HEIGHT * dpr),
+      false /* do not touch inline CSS – our stylesheet handles display size */
+    );
+    camera.aspect = newWidth / GRADIENT_HEIGHT;
+    camera.updateProjectionMatrix();
+  }
+
+  scheduleRedraw();
+}
+
+// ---------------------------------------------------------------------------
+// Tooltip logic
+// ---------------------------------------------------------------------------
+
+function onSelHistHover(event: MouseEvent) {
   if (
-    !histogramCanvas.value ||
+    !selHistCanvasRef.value ||
     !props.histogram ||
-    props.posterizeLevels === 0
+    props.histogram.length === 0 ||
+    props.boundsLow === undefined ||
+    props.boundsHigh === undefined
   ) {
+    hoveredSelBin.value = null;
+    tooltipData.value = null;
     return;
   }
 
-  const rect = histogramCanvas.value.getBoundingClientRect();
+  const rect = selHistCanvasRef.value.getBoundingClientRect();
   const x = event.clientX - rect.left;
   const numBins = props.histogram.length;
-  const barWidth = rect.width / numBins;
-  const binIndex = Math.floor(x / barWidth);
+  const pixelStart = selLowFraction.value * rect.width;
+  const pixelEnd = selHighFraction.value * rect.width;
+  const selWidth = pixelEnd - pixelStart;
 
-  if (binIndex >= 0 && binIndex < numBins) {
-    hoveredBin.value = binIndex;
-    drawHistogram();
+  if (selWidth <= 0 || x < pixelStart || x > pixelEnd) {
+    hoveredSelBin.value = null;
+    tooltipData.value = null;
+    return;
   }
+
+  const binIndex = Math.floor(((x - pixelStart) / selWidth) * numBins);
+  if (binIndex < 0 || binIndex >= numBins) {
+    hoveredSelBin.value = null;
+    tooltipData.value = null;
+    return;
+  }
+
+  if (hoveredSelBin.value !== binIndex) {
+    hoveredSelBin.value = binIndex;
+    drawSelectionHistogram();
+  }
+
+  const binCenterX =
+    rect.left + pixelStart + ((binIndex + 0.5) / numBins) * selWidth;
+  tooltipX.value = binCenterX;
+  tooltipY.value = rect.top - 4;
+  tooltipData.value = computeBinTooltip(
+    binIndex,
+    props.histogram,
+    props.boundsLow,
+    props.boundsHigh
+  );
 }
 
-function handleHistogramMouseLeave() {
-  hoveredBin.value = null;
-  drawHistogram();
+function onSelHistLeave() {
+  if (hoveredSelBin.value !== null) {
+    hoveredSelBin.value = null;
+    drawSelectionHistogram();
+  }
+  tooltipData.value = null;
 }
 
-const tooltipContent = computed(() => {
-  if (
-    hoveredBin.value === null ||
-    props.posterizeLevels === 0 ||
-    props.boundsLow === undefined ||
-    props.boundsHigh === undefined ||
-    !props.histogram
-  ) {
-    return null;
-  }
-
-  const numBins = props.posterizeLevels;
-  const range = props.boundsHigh - props.boundsLow;
-  const binSize = range / numBins;
-  const binLow = props.boundsLow + hoveredBin.value * binSize;
-  const binHigh = props.boundsLow + (hoveredBin.value + 1) * binSize;
-
-  // Calculate relative frequency
-  const binCount = props.histogram[hoveredBin.value];
-  const totalCount = props.histogram.reduce((sum, count) => sum + count, 0);
-  const percentage =
-    totalCount > 0 ? ((binCount / totalCount) * 100).toFixed(2) : "0.00";
-
-  // Show clear value range with inequality notation
-  // Last bin includes upper bound (≤), others exclude it (<)
-  const isFirstBin = hoveredBin.value === 0;
-  const isLastBin = hoveredBin.value === numBins - 1;
-  const upperOperator = isLastBin ? "≤" : "<";
-
-  // Check if data extends beyond user-selected bounds (clamping)
-  const hasLowerClamping =
-    isFirstBin &&
-    props.dataBoundsLow !== undefined &&
-    props.dataBoundsLow < props.boundsLow;
-  const hasUpperClamping =
-    isLastBin &&
-    props.dataBoundsHigh !== undefined &&
-    props.dataBoundsHigh > props.boundsHigh;
-
-  let rangeText = `${formatValue(binLow)} ≤ value ${upperOperator} ${formatValue(binHigh)}`;
-  let clampingNote: string | null = null;
-
-  if (hasLowerClamping) {
-    clampingNote = `Includes all values below ${formatValue(props.boundsLow)}`;
-  } else if (hasUpperClamping) {
-    clampingNote = `Includes all values above ${formatValue(props.boundsHigh)}`;
-  }
-
-  return {
-    range: rangeText,
-    percentage: `${percentage}%`,
-    clamping: clampingNote,
-  };
-});
+// ---------------------------------------------------------------------------
+// Watchers
+// ---------------------------------------------------------------------------
 
 watch(
-  () => props.colormap,
-  () => {
-    updateColormap();
-  }
+  [
+    () => props.colormap,
+    () => props.invertColormap,
+    () => props.posterizeLevels,
+  ],
+  updateGradientUniforms
 );
 
 watch(
-  () => props.invertColormap,
-  () => {
-    updateColormap();
-  }
+  [
+    () => props.boundsLow,
+    () => props.boundsHigh,
+    () => props.dataBoundsLow,
+    () => props.dataBoundsHigh,
+  ],
+  scheduleRedraw
 );
 
-watch(
-  () => props.posterizeLevels,
-  () => {
-    updateColormap();
-  }
-);
+watch(() => props.histogram, drawSelectionHistogram);
 
-watch(
-  () => props.histogram,
-  () => {
-    drawHistogram();
-  },
-  { deep: true }
-);
+// ---------------------------------------------------------------------------
+// Lifecycle
+// ---------------------------------------------------------------------------
 
 onMounted(() => {
-  init();
-  resizeObserver = new ResizeObserver(onCanvasResize);
-  resizeObserver.observe(box.value as Element);
-  onCanvasResize();
-
-  // Apply initial colormap settings (including posterizeLevels from URL params)
-  // Defer this to the next animation frame to ensure init() has completed its setup.
-  requestAnimationFrame(() => {
-    updateColormap();
-  });
-  // Add hover listeners for histogram
-  if (histogramCanvas.value) {
-    useEventListener(
-      histogramCanvas.value,
-      "mousemove",
-      handleHistogramMouseMove
-    );
-    useEventListener(
-      histogramCanvas.value,
-      "mouseleave",
-      handleHistogramMouseLeave
-    );
+  initThreeJs();
+  resizeObserver = new ResizeObserver(onResize);
+  if (widgetRef.value) {
+    resizeObserver.observe(widgetRef.value);
   }
+  onResize();
+  requestAnimationFrame(redrawAll);
 });
 
 onBeforeUnmount(() => {
-  if (box.value) {
-    resizeObserver?.unobserve(box.value as Element);
+  cancelAnimationFrame(frameId);
+  if (widgetRef.value) {
+    resizeObserver?.unobserve(widgetRef.value);
   }
   resizeObserver?.disconnect();
   lutMesh?.geometry.dispose();
+  (lutMesh?.material as THREE.ShaderMaterial)?.dispose();
   scene?.clear();
   camera?.clear();
   renderer?.dispose();
@@ -341,193 +596,170 @@ onBeforeUnmount(() => {
   renderer = undefined;
   lutMesh = undefined;
 });
-
-function init() {
-  const lutGeometry = new THREE.PlaneGeometry(2, 2);
-  lutGeometry.setAttribute(
-    "data_value",
-    new THREE.BufferAttribute(Float32Array.from([0, 1, 0, 1]), 1)
-  );
-  lutMesh = new THREE.Mesh(lutGeometry, lutMaterial.value);
-  // from: https://stackoverflow.com/a/65732553
-  scene = new THREE.Scene();
-  renderer = new THREE.WebGLRenderer({
-    canvas: canvas.value as HTMLCanvasElement,
-  });
-  scene.add(lutMesh);
-
-  camera = new THREE.PerspectiveCamera(
-    7.5,
-    window.innerWidth / window.innerHeight,
-    0.1,
-    1000
-  );
-  scene.add(camera!);
-}
-
-function render() {
-  if (width !== undefined && height !== undefined) {
-    renderer?.setSize(width, height);
-  }
-  renderer?.render(scene!, camera!);
-  drawHistogram();
-  if (box.value) {
-    resizeObserver?.observe(box.value as Element);
-  }
-}
-
-function redraw() {
-  cancelAnimationFrame(frameId);
-  frameId = requestAnimationFrame(render);
-}
-
-function onCanvasResize(/*entries*/) {
-  if (!box.value) {
-    return;
-  }
-  const rect = box.value.getBoundingClientRect();
-  const boxWidth = Math.round(rect.width);
-  const boxHeight = Math.round(rect.height);
-  if (boxWidth !== width || boxHeight !== height) {
-    resizeObserver?.unobserve(box.value);
-    const aspect = boxWidth / boxHeight;
-    camera!.aspect = aspect;
-    camera?.updateProjectionMatrix();
-    width = boxWidth;
-    height = boxHeight;
-    // Resize histogram canvas
-    if (histogramCanvas.value) {
-      histogramCanvas.value.width = boxWidth;
-      histogramCanvas.value.height = boxHeight;
-    }
-    redraw();
-  }
-}
-
-function updateColormap() {
-  let shaderMaterial = lutMesh?.material as THREE.ShaderMaterial;
-  shaderMaterial.uniforms.colormap.value = availableColormaps[props.colormap];
-  shaderMaterial.uniforms.addOffset.value = addOffset.value;
-  shaderMaterial.uniforms.scaleFactor.value = scaleFactor.value;
-  if (shaderMaterial.uniforms.posterizeLevels) {
-    shaderMaterial.uniforms.posterizeLevels.value = props.posterizeLevels;
-  }
-  redraw();
-}
 </script>
 
 <template>
-  <div ref="box" class="colorbar-container">
-    <canvas ref="canvas"></canvas>
-    <canvas
-      ref="histogramCanvas"
-      class="histogram-overlay"
-      :style="{ cursor: posterizeLevels > 0 ? 'pointer' : 'default' }"
-    >
-    </canvas>
-    <div
-      v-if="tooltipContent"
-      class="histogram-tooltip box"
-      :style="tooltipPosition"
-    >
-      <p><strong>Range:</strong> {{ tooltipContent.range }}</p>
-      <p><strong>Frequency:</strong> {{ tooltipContent.percentage }}</p>
-      <p v-if="tooltipContent.clamping" class="has-text-warning-dark">
-        <em>{{ tooltipContent.clamping }}</em>
-      </p>
+  <div ref="widgetRef" class="colorbar-widget">
+    <!-- Full-range distribution plot + tick labels -->
+    <DistributionPlot
+      :full-histogram="props.fullHistogram"
+      :data-bounds-low="props.dataBoundsLow"
+      :data-bounds-high="props.dataBoundsHigh"
+      :bounds-low="props.boundsLow"
+      :bounds-high="props.boundsHigh"
+      :is-pannable="isPannable"
+      @pan-start="onDistributionPanStart"
+      @handle-drag-start="onDistributionHandleDragStart"
+      @pointer-move="(e) => sliderRef?.onMove(e)"
+      @pointer-end="() => sliderRef?.onEnd()"
+    />
+
+    <!-- Range slider (two-handled) -->
+    <RangeSlider
+      ref="sliderRef"
+      :low="props.boundsLow ?? props.dataBoundsLow ?? 0"
+      :high="props.boundsHigh ?? props.dataBoundsHigh ?? 1"
+      :min="props.dataBoundsLow ?? 0"
+      :max="props.dataBoundsHigh ?? 1"
+      @update:low="(v) => emit('update:boundsLow', v)"
+      @update:high="(v) => emit('update:boundsHigh', v)"
+    />
+
+    <!-- Gradient + selection histogram -->
+    <div class="gradient-section">
+      <canvas ref="gradientCanvasRef"></canvas>
+      <canvas
+        ref="selHistCanvasRef"
+        class="sel-hist-overlay"
+        :class="{ 'is-pannable': isPannable }"
+        @mousemove="onSelHistHover"
+        @mouseleave="onSelHistLeave"
+        @pointerdown="onGradientPointerDown"
+        @pointermove="(e) => sliderRef?.onMove(e)"
+        @pointerup="() => sliderRef?.onEnd()"
+        @pointercancel="() => sliderRef?.onEnd()"
+        @lostpointercapture="() => sliderRef?.onEnd()"
+      ></canvas>
     </div>
-    <div class="colorbar-labels">
-      <span class="colorbar-label-low">{{ lowLabel }}</span>
-      <span v-if="showMidLabels" class="colorbar-label-mid">
-        <span v-for="(label, idx) in midLabelsArray" :key="idx">{{
-          label
-        }}</span>
-      </span>
-      <span class="colorbar-label-high">{{ highLabel }}</span>
+
+    <!-- Value labels -->
+    <div class="label-section">
+      <span class="value-label" :style="lowLabelStyle">{{ lowLabel }}</span>
+      <span
+        v-for="(mid, idx) in midLabelsArray"
+        :key="idx"
+        class="value-label mid-label"
+        :style="{ left: mid.fraction * 100 + '%' }"
+        >{{ mid.text }}</span
+      >
+      <span class="value-label" :style="highLabelStyle">{{ highLabel }}</span>
+    </div>
+
+    <!-- Tooltip -->
+    <div
+      v-if="tooltipData"
+      ref="tooltipRef"
+      class="colorbar-tooltip box"
+      :style="tooltipStyle"
+    >
+      <div class="tt-row">
+        <span class="tt-label">Range</span> {{ tooltipData.range }}
+      </div>
+      <div class="tt-row has-text-weight-semibold">
+        <span class="tt-label">Frequency</span> {{ tooltipData.frequency }}
+      </div>
+      <div v-if="tooltipData.beyond" class="tt-row tt-beyond mt-1 is-italic">
+        ⚠ {{ tooltipData.beyond }}
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.colorbar-container {
+.colorbar-widget {
   position: relative;
   width: 100%;
+  user-select: none;
+}
+
+.gradient-section {
+  position: relative;
+  height: 44px;
+  width: 100%;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.gradient-section canvas {
+  display: block;
+  width: 100%;
   height: 100%;
 }
 
-.histogram-overlay {
+.sel-hist-overlay {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
-  pointer-events: auto;
   z-index: 1;
+  pointer-events: auto;
+  cursor: crosshair;
 }
 
-.colorbar-labels {
+.sel-hist-overlay.is-pannable {
+  cursor: grab;
+}
+
+.sel-hist-overlay.is-pannable:active {
+  cursor: grabbing;
+}
+
+.label-section {
+  position: relative;
+  height: 17px;
+  width: 100%;
+  margin-top: 2px;
+}
+
+.value-label {
   position: absolute;
   top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0 0.25rem;
-  pointer-events: none;
-  font-size: 0.65rem;
+  transform: translateX(-50%);
+  font-size: 12px;
   font-weight: 600;
-  color: white;
-  text-shadow:
-    -1px -1px 0 #000,
-    1px -1px 0 #000,
-    -1px 1px 0 #000,
-    1px 1px 0 #000;
-  z-index: 2;
+  white-space: nowrap;
+  pointer-events: none;
+  line-height: 1;
+  color: var(--bulma-grey-dark);
 }
 
-.colorbar-label-low,
-.colorbar-label-high {
-  z-index: 1;
+.mid-label {
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--bulma-grey);
 }
 
-.colorbar-label-mid {
-  display: flex;
-  gap: 0.5rem;
-  flex: 1;
-  justify-content: space-evenly;
-  padding: 0 0.5rem;
-}
-
-.histogram-tooltip {
+.colorbar-tooltip {
   position: fixed;
-  padding: 0.5rem 0.75rem;
-  font-size: 0.75rem;
   pointer-events: none;
   z-index: 1000;
-  white-space: nowrap;
+  /* override Bulma box's default 1.25rem padding */
+  padding: 5px 10px;
+  font-size: 13px;
   transform: translate(-50%, -100%);
-
-  /* Ensure readable text in both light and dark mode */
-  background-color: #fff;
-  color: #363636;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  white-space: nowrap;
+  line-height: 1.5;
 }
 
-@media (prefers-color-scheme: dark) {
-  .histogram-tooltip {
-    background-color: #363636;
-    color: #f5f5f5;
-  }
+.tt-beyond {
+  font-size: 10px;
+  opacity: 0.7;
 }
 
-.histogram-tooltip p {
-  margin: 0;
-  line-height: 1.4;
-}
-
-.histogram-tooltip p + p {
-  margin-top: 0.2rem;
+.tt-label {
+  opacity: 0.6;
+  font-weight: 400;
+  margin-right: 2px;
 }
 </style>

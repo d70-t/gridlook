@@ -84,12 +84,13 @@ watch(
 
 watch(
   () => dimSlidersValues.value,
-  () => {
+  async () => {
     if (isInitializingVariable.value) {
       isInitializingVariable.value = false;
       return;
     }
-    getData(UPDATE_MODE.SLIDER_TOGGLE);
+    await getData(UPDATE_MODE.SLIDER_TOGGLE);
+    updateColormap(points);
   },
   { deep: true }
 );

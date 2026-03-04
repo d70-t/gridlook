@@ -70,3 +70,85 @@ div.globe_canvas {
     padding-bottom: 0.1rem;
   }
 }
+
+/* ─── Range slider – Bulma-aligned cross-browser style ───────────────────── */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 1.25rem; /* total hit-area height */
+  background: transparent;
+  cursor: pointer;
+  margin: 0;
+  vertical-align: middle;
+}
+
+/* Track – WebKit */
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 0.3rem;
+  background: var(--bulma-border);
+  border-radius: var(--bulma-radius);
+}
+
+/* Track – Firefox */
+input[type="range"]::-moz-range-track {
+  height: 0.3rem;
+  background: var(--bulma-border);
+  border-radius: var(--bulma-radius);
+}
+
+/* Filled part left of thumb – Firefox only */
+input[type="range"]::-moz-range-progress {
+  height: 0.3rem;
+  background: var(--bulma-link);
+  border-radius: var(--bulma-radius);
+}
+
+/* Thumb – WebKit */
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  background: var(--bulma-link);
+  border: 2px solid var(--bulma-scheme-main);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  /* Center thumb on track: (track_height - thumb_height) / 2 */
+  margin-top: calc((0.3rem - 1rem) / 2);
+  transition: filter 0.15s ease;
+}
+
+input[type="range"]:hover::-webkit-slider-thumb {
+  filter: brightness(0.82);
+}
+
+input[type="range"]:active::-webkit-slider-thumb {
+  filter: brightness(0.72);
+}
+
+/* Thumb – Firefox */
+input[type="range"]::-moz-range-thumb {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  background: var(--bulma-link);
+  border: 2px solid var(--bulma-scheme-main);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: filter 0.15s ease;
+}
+
+input[type="range"]:hover::-moz-range-thumb {
+  filter: brightness(0.82);
+}
+
+input[type="range"]:active::-moz-range-thumb {
+  filter: brightness(0.72);
+}
+
+/* Focus ring */
+input[type="range"]:focus-visible {
+  outline: 2px solid var(--bulma-focus-shadow-color);
+  outline-offset: 2px;
+  border-radius: var(--bulma-radius);
+}

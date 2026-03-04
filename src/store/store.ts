@@ -32,7 +32,8 @@ export const useGlobeControlStore = defineStore("globeControl", {
       loading: false,
       varinfo: undefined as TVarInfo | undefined, // info about a dataset coming directly from the data
       selection: { low: 0, high: 0 } as TBounds, // all the knobs and buttons in GlobeControl which do not require a reload
-      histogram: undefined as number[] | undefined, // histogram bins for colorbar visualization
+      histogram: undefined as number[] | undefined, // selection-range histogram bins
+      fullHistogram: undefined as number[] | undefined, // fixed histogram over full data range
       colormap: "turbo" as TColorMap,
       invertColormap: true,
       posterizeLevels: 0 as number,
@@ -93,11 +94,18 @@ export const useGlobeControlStore = defineStore("globeControl", {
       }
       this.userBoundsHigh = high;
     },
+    resetUserBounds() {
+      this.userBoundsLow = undefined;
+      this.userBoundsHigh = undefined;
+    },
     updateBounds(bounds: TBounds) {
       this.selection = bounds;
     },
     updateHistogram(histogram: number[] | undefined) {
       this.histogram = histogram;
+    },
+    updateFullHistogram(histogram: number[] | undefined) {
+      this.fullHistogram = histogram;
     },
     setControlPanelVisible(visible: boolean) {
       this.controlPanelVisible = visible;
