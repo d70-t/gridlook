@@ -202,7 +202,7 @@ export function getDataBounds(
   const fillValue = getFillValue(datavar);
   for (let i = 0; i < data.length; i++) {
     const v = data[i];
-    if (v === missingValue || v === fillValue) {
+    if (v === missingValue || v === fillValue || !Number.isFinite(v)) {
       continue;
     }
     if (v < min) {
