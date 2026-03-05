@@ -65,18 +65,13 @@ function checkCurvilinear(
   latitudesVar: zarr.Chunk<zarr.DataType>,
   longitudesVar: zarr.Chunk<zarr.DataType>
 ) {
-  const latitudes = latitudesVar.data as Float64Array;
-  const longitudes = longitudesVar.data as Float64Array;
+  // const latitudes = latitudesVar.data as Float64Array;
+  // const longitudes = longitudesVar.data as Float64Array;
 
-  const uniqueLatsNum = new Set(latitudes).size;
-  const uniqueLonsNum = new Set(longitudes).size;
+  // const uniqueLatsNum = new Set(latitudes).size;
+  // const uniqueLonsNum = new Set(longitudes).size;
 
-  return (
-    latitudesVar.shape.length === 2 &&
-    longitudesVar.shape.length === 2 &&
-    uniqueLatsNum !== latitudes.length &&
-    uniqueLonsNum !== longitudes.length
-  );
+  return latitudesVar.shape.length === 2 && longitudesVar.shape.length === 2;
 }
 
 function checkGaussianGrid(latitudes: Float64Array, longitudes: Float64Array) {
