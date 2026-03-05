@@ -995,15 +995,17 @@ function formatValue(value: unknown): string {
           >
         </h4>
         <div class="tags">
-          <span
+          <button
             v-for="v in availableVariables"
             :key="v.name"
             class="tag is-family-monospace is-clickable"
             :class="v.name === varnameSelector ? 'is-info' : 'is-light'"
             :title="'Select ' + v.name"
+            type="button"
             @click="selectVariable(v.name)"
-            >{{ v.name }}</span
           >
+            {{ v.name }}
+          </button>
         </div>
         <div v-if="hiddenVariables.length > 0" class="mt-2">
           <p class="is-size-7 has-text-grey mb-1">
