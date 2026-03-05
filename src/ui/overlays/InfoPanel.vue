@@ -16,6 +16,7 @@ import {
   type T_GRID_TYPES,
 } from "@/lib/data/gridTypeDetector";
 import { decodeTime } from "@/lib/data/timeHandling";
+import queryVariable, { type TNercVariable } from "@/lib/data/variableQuery";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager";
 import { getLatLonData } from "@/lib/data/zarrUtils";
 import type { TSources } from "@/lib/types/GlobeTypes";
@@ -52,13 +53,20 @@ const dimensions = ref<{ name: string; size: number }[]>([]);
 const latSlice = ref<{ first10: number[]; last10: number[] } | null>(null);
 const latDimensions = ref<{ name: string; size: number }[]>([]);
 const latLength = ref<number | null>(null);
+const latMin = ref<number | null>(null);
+const latMax = ref<number | null>(null);
 const lonSlice = ref<{ first10: number[]; last10: number[] } | null>(null);
 const lonDimensions = ref<{ name: string; size: number }[]>([]);
 const lonLength = ref<number | null>(null);
+const lonMin = ref<number | null>(null);
+const lonMax = ref<number | null>(null);
 
 const variableUnits = ref<string | null>(null);
 const variableLongName = ref<string | null>(null);
 const variableStandardName = ref<string | null>(null);
+const nercInfo = ref<TNercVariable | null>(null);
+const variableDtype = ref<string | null>(null);
+const variableChunks = ref<readonly (number | null)[] | null>(null);
 const timeInfo = ref<{
   units: string;
   calendar: string;
@@ -135,6 +143,68 @@ const datasetCreators = computed(
     (groupAttrs.value?.authors as string) ||
     "-"
 );
+
+const allVariables = computed(() => {
+  if (!props.datasources) {
+    return [];
+  }
+  return Object.entries(props.datasources.levels[0].datasources).map(
+    ([name, source]) => ({ name, hidden: source.hidden ?? false })
+  );
+});
+
+const availableVariables = computed(() =>
+  allVariables.value.filter((v) => !v.hidden)
+);
+
+const hiddenVariables = computed(() =>
+  allVariables.value.filter((v) => v.hidden)
+);
+
+function selectVariable(varName: string) {
+  varnameSelector.value = varName;
+}
+
+const zarrFormat = computed(() => {
+  if (!props.datasources) {
+    return null;
+  }
+  return props.datasources.zarr_format;
+});
+
+function getDtypeBytes(dtype: string): number {
+  if (dtype.includes("64")) {
+    return 8;
+  }
+  if (dtype.includes("32")) {
+    return 4;
+  }
+  if (dtype.includes("16")) {
+    return 2;
+  }
+  if (dtype.includes("8")) {
+    return 1;
+  }
+  return 4;
+}
+
+const estimatedSizeMB = computed(() => {
+  if (!dimensions.value.length || !variableDtype.value) {
+    return null;
+  }
+  const totalElements = dimensions.value.reduce((acc, d) => acc * d.size, 1);
+  const bytes = totalElements * getDtypeBytes(String(variableDtype.value));
+  if (bytes >= 1024 * 1024 * 1024 * 1024) {
+    return (bytes / (1024 * 1024 * 1024 * 1024)).toFixed(2) + " TB";
+  }
+  if (bytes >= 1024 * 1024 * 1024) {
+    return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " GB";
+  }
+  if (bytes >= 1024 * 1024) {
+    return (bytes / (1024 * 1024)).toFixed(2) + " MB";
+  }
+  return (bytes / 1024).toFixed(2) + " KB";
+});
 
 /**
  * Converts a bigint or number to a number, handling BigInt64Array values.
@@ -243,6 +313,35 @@ function collectGeoCoordinateInfo(
   }
 }
 
+function processLonData(
+  longitudes: zarr.Chunk<zarr.DataType>,
+  longitudesAttrs: zarr.Attributes | null
+) {
+  const lonData = longitudes.data as Float64Array | Float32Array;
+  lonSlice.value = {
+    first10: Array.from(lonData).slice(0, 10),
+    last10: Array.from(lonData).slice(-10),
+  };
+  let loMin = Infinity,
+    loMax = -Infinity;
+  for (const v of lonData) {
+    if (v < loMin) {
+      loMin = v;
+    }
+    if (v > loMax) {
+      loMax = v;
+    }
+  }
+  lonMin.value = loMin;
+  lonMax.value = loMax;
+  collectGeoCoordinateInfo(
+    lonDimensions,
+    longitudesAttrs?._ARRAY_DIMENSIONS as string[],
+    longitudes.shape
+  );
+  lonLength.value = lonData.length;
+}
+
 async function getLatLonInfo(
   variable: zarr.Array<zarr.DataType, zarr.FetchStore>
 ) {
@@ -250,58 +349,84 @@ async function getLatLonInfo(
     props.gridType === GRID_TYPES.TRIANGULAR ||
     props.gridType === GRID_TYPES.HEALPIX
   ) {
-    // No lat/lon for triangular grids
     return;
   }
 
-  const { latitudes, latitudesAttrs, longitudes, longitudesAttrs } =
-    await getLatLonData(
-      variable,
-      props.datasources,
-      props.gridType === GRID_TYPES.REGULAR_ROTATED
-    );
+  try {
+    const { latitudes, latitudesAttrs, longitudes, longitudesAttrs } =
+      await getLatLonData(
+        variable,
+        props.datasources,
+        props.gridType === GRID_TYPES.REGULAR_ROTATED
+      );
 
-  const first10Lat = Array.from(
-    latitudes.data as Float64Array | Float32Array
-  ).slice(0, 10);
-  const last10Lat = Array.from(
-    latitudes.data as Float64Array | Float32Array
-  ).slice(-10);
-  latSlice.value = {
-    first10: first10Lat,
-    last10: last10Lat,
-  };
-
-  collectGeoCoordinateInfo(
-    latDimensions,
-    latitudesAttrs?._ARRAY_DIMENSIONS as string[],
-    latitudes.shape
-  );
-
-  latLength.value = latitudes.data.length;
-
-  // Only set lonSlice if longitude data actually exists
-  if (longitudes) {
-    const first10Lon = Array.from(
-      longitudes.data as Float64Array | Float32Array
-    ).slice(0, 10);
-    const last10Lon = Array.from(
-      longitudes.data as Float64Array | Float32Array
-    ).slice(-10);
-    lonSlice.value = {
-      first10: first10Lon,
-      last10: last10Lon,
+    const latData = latitudes.data as Float64Array | Float32Array;
+    latSlice.value = {
+      first10: Array.from(latData).slice(0, 10),
+      last10: Array.from(latData).slice(-10),
     };
+    let lMin = Infinity,
+      lMax = -Infinity;
+    for (const v of latData) {
+      if (v < lMin) {
+        lMin = v;
+      }
+      if (v > lMax) {
+        lMax = v;
+      }
+    }
+    latMin.value = lMin;
+    latMax.value = lMax;
     collectGeoCoordinateInfo(
-      lonDimensions,
-      longitudesAttrs?._ARRAY_DIMENSIONS as string[],
-      longitudes.shape
+      latDimensions,
+      latitudesAttrs?._ARRAY_DIMENSIONS as string[],
+      latitudes.shape
     );
-    lonLength.value = longitudes.data.length;
+    latLength.value = latData.length;
+
+    if (longitudes) {
+      processLonData(longitudes, longitudesAttrs);
+    }
+  } catch (err) {
+    logError(err);
   }
 }
 
-async function fetchInfoInfo() {
+async function loadVariableDetails(
+  variable: zarr.Array<zarr.DataType, zarr.FetchStore>
+) {
+  variableAttrs.value = variable.attrs;
+  variableUnits.value = (variable.attrs?.units as string) || null;
+  variableStandardName.value =
+    (variable.attrs?.standard_name as string) || null;
+  if (variableStandardName.value) {
+    nercInfo.value = await queryVariable(variableStandardName.value);
+  }
+  variableLongName.value =
+    (variable.attrs?.long_name as string) ||
+    (variable.attrs?.name as string) ||
+    null;
+  variableDtype.value = String(variable.dtype);
+  variableChunks.value = variable.chunks;
+
+  const arrayDims = await ZarrDataManager.getDimensionNames(
+    props.datasources!,
+    varnameSelector.value || ""
+  );
+  if (arrayDims && Array.isArray(arrayDims)) {
+    dimensions.value = arrayDims.map((name, idx) => ({
+      name,
+      size: variable.shape[idx],
+    }));
+  } else {
+    dimensions.value = variable.shape.map((size, idx) => ({
+      name: `dim_${idx}`,
+      size,
+    }));
+  }
+}
+
+async function fetchInfo() {
   if (
     !props.datasources ||
     !varnameSelector.value ||
@@ -310,47 +435,32 @@ async function fetchInfoInfo() {
     return;
   }
   error.value = null;
+  variableDtype.value = null;
+  variableChunks.value = null;
+  nercInfo.value = null;
+  latSlice.value = null;
+  latDimensions.value = [];
+  latLength.value = null;
+  latMin.value = null;
+  latMax.value = null;
+  lonSlice.value = null;
+  lonDimensions.value = [];
+  lonLength.value = null;
+  lonMin.value = null;
+  lonMax.value = null;
 
   try {
     const varSource =
       props.datasources.levels[0].datasources[varnameSelector.value];
-
     const group = await ZarrDataManager.getDatasetGroup(varSource);
     groupAttrs.value = group.attrs;
-
     const variable = await ZarrDataManager.getVariableInfo(
       varSource,
       varnameSelector.value
     );
-    variableAttrs.value = variable.attrs;
-
-    // Get variable units and long name
-    variableUnits.value = (variable.attrs?.units as string) || null;
-    variableStandardName.value =
-      (variable.attrs?.standard_name as string) || null;
-    variableLongName.value =
-      (variable.attrs?.long_name as string) ||
-      (variable.attrs?.name as string) ||
-      null;
-
-    // Get dimensions
-    const arrayDims = await ZarrDataManager.getDimensionNames(
-      props.datasources,
-      varnameSelector.value
-    );
-    if (arrayDims && Array.isArray(arrayDims)) {
-      dimensions.value = arrayDims.map((name, idx) => ({
-        name,
-        size: variable.shape[idx],
-      }));
-    } else {
-      dimensions.value = variable.shape.map((size, idx) => ({
-        name: `dim_${idx}`,
-        size,
-      }));
-    }
-    getLatLonInfo(variable);
-    getTimeDimensionInfo();
+    await loadVariableDetails(variable);
+    await getLatLonInfo(variable);
+    await getTimeDimensionInfo();
   } catch (err) {
     logError(err);
   }
@@ -360,7 +470,7 @@ watch(
   () => [props.datasources, varnameSelector.value, props.isOpen],
   () => {
     if (props.isOpen) {
-      fetchInfoInfo();
+      fetchInfo();
     }
   },
   { immediate: true }
@@ -411,12 +521,18 @@ function formatValue(value: unknown): string {
 
     <div v-else class="info-panel-content">
       <!-- Grid Type -->
-      <!-- Grid Type -->
       <section class="info-section">
         <h4
           class="title is-6 is-flex is-justify-content-space-between is-align-items-center"
         >
-          <span>Grid Type</span>
+          <span class="is-flex is-align-items-center gap-2">
+            Grid Type
+            <span
+              v-if="zarrFormat"
+              class="tag is-light is-small ml-2 is-family-monospace"
+              >zarr v{{ zarrFormat }}</span
+            >
+          </span>
           <div v-if="availableGridTypes.length > 1" class="select is-small">
             <select
               :value="activeGridType"
@@ -446,6 +562,156 @@ function formatValue(value: unknown): string {
             {{ activeGridType ?? "Unknown" }}
           </button>
         </h4>
+      </section>
+
+      <!-- Variable Info -->
+      <section class="info-section">
+        <h4
+          class="title is-6 is-flex is-justify-content-space-between is-align-items-center"
+        >
+          <span>Current Variable</span>
+          <code>{{ varnameSelector }}</code>
+        </h4>
+        <div class="content">
+          <table class="table is-narrow is-fullwidth is-size-7">
+            <tbody>
+              <tr>
+                <td><strong>Long name</strong></td>
+                <td>
+                  <span v-if="variableLongName">{{ variableLongName }}</span>
+                  <span v-else class="has-text-grey-light">-</span>
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Standard name</strong></td>
+                <td>
+                  <div
+                    class="is-flex is-align-items-baseline"
+                    style="gap: 0.25rem"
+                  >
+                    <span
+                      v-if="variableStandardName"
+                      style="word-break: break-all; min-width: 0"
+                    >
+                      <a
+                        v-if="nercInfo"
+                        :href="nercInfo.variable.Url.value"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <code>{{ variableStandardName }}</code>
+                      </a>
+                      <code v-else>{{ variableStandardName }}</code>
+                    </span>
+                    <span v-else class="has-text-grey-light">-</span>
+                    <span
+                      v-if="nercInfo"
+                      class="tag is-success is-light is-size-7 is-flex-shrink-0"
+                      title="Recognised CF standard name"
+                      >CF</span
+                    >
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Units</strong></td>
+                <td>
+                  <code v-if="variableUnits">{{ variableUnits }}</code>
+                  <span v-else class="has-text-grey-light">-</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- NERC vocabulary info -->
+        <details v-if="nercInfo" class="is-size-7 mt-2">
+          <summary class="has-text-grey coord-details-summary">
+            CF standard name info (NERC)
+            <span
+              v-if="nercInfo.variable.Deprecated.value === 'true'"
+              class="tag is-danger is-light is-size-7 ml-1"
+              >DEPRECATED</span
+            >
+          </summary>
+          <div class="mt-2">
+            <div v-if="nercInfo.variable.Definition?.value" class="mb-2">
+              <CollapsibleText :text="nercInfo.variable.Definition.value" />
+            </div>
+            <table
+              v-if="
+                nercInfo.replacedBy.length ||
+                nercInfo.replaces.length ||
+                nercInfo.alternatives.length
+              "
+              class="table is-narrow is-fullwidth is-size-7"
+            >
+              <tbody>
+                <tr v-if="nercInfo.replacedBy.length">
+                  <td><strong>Replaced by</strong></td>
+                  <td>
+                    <span
+                      v-for="v in nercInfo.replacedBy"
+                      :key="v.Url.value"
+                      class="mr-2"
+                    >
+                      <a
+                        :href="v.Url.value"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        >{{ v.PrefLabel.value }}</a
+                      >
+                    </span>
+                  </td>
+                </tr>
+                <tr v-if="nercInfo.replaces.length">
+                  <td><strong>Replaces</strong></td>
+                  <td>
+                    <span
+                      v-for="v in nercInfo.replaces"
+                      :key="v.Url.value"
+                      class="mr-2"
+                    >
+                      <a
+                        :href="v.Url.value"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        >{{ v.PrefLabel.value }}</a
+                      >
+                    </span>
+                  </td>
+                </tr>
+                <tr v-if="nercInfo.alternatives.length">
+                  <td><strong>Alternatives</strong></td>
+                  <td>
+                    <span
+                      v-for="v in nercInfo.alternatives"
+                      :key="v.Url.value"
+                      class="mr-2"
+                    >
+                      <a
+                        :href="v.Url.value"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        >{{ v.PrefLabel.value }}</a
+                      >
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="is-size-7 is-italic has-text-grey-light">
+              Variable information provided by The NERC Vocabulary Server (NVS),
+              National Oceanography Centre – BODC,
+              <a
+                href="https://vocab.nerc.ac.uk"
+                target="_blank"
+                rel="noopener noreferrer"
+                >vocab.nerc.ac.uk</a
+              >
+            </p>
+          </div>
+        </details>
       </section>
 
       <!-- Dataset Metadata -->
@@ -492,40 +758,32 @@ function formatValue(value: unknown): string {
           </table>
         </div>
       </section>
-
-      <!-- Variable Info -->
-      <section class="info-section">
-        <h4
-          class="title is-6 is-flex is-justify-content-space-between is-align-items-center"
-        >
-          <span>Current Variable</span>
-          <code>{{ varnameSelector }}</code>
-        </h4>
+      <!-- Data Type & Storage -->
+      <section v-if="variableDtype" class="info-section">
+        <h4 class="title is-6">Data Type &amp; Storage</h4>
         <div class="content">
           <table class="table is-narrow is-fullwidth is-size-7">
             <tbody>
               <tr>
-                <td><strong>Long name</strong></td>
+                <td><strong>Data type</strong></td>
                 <td>
-                  <span v-if="variableLongName">{{ variableLongName }}</span>
-                  <span v-else class="has-text-grey-light">-</span>
+                  <code>{{ variableDtype }}</code>
                 </td>
               </tr>
-              <tr>
-                <td><strong>Standard name</strong></td>
+              <tr v-if="variableChunks && variableChunks.length > 0">
+                <td><strong>Chunk shape</strong></td>
                 <td>
-                  <code v-if="variableStandardName">{{
-                    variableStandardName
-                  }}</code>
-                  <span v-else class="has-text-grey-light">-</span>
+                  <code>{{ variableChunks.join(" × ") }}</code>
                 </td>
               </tr>
-              <tr>
-                <td><strong>Units</strong></td>
+              <tr v-if="estimatedSizeMB">
                 <td>
-                  <code v-if="variableUnits">{{ variableUnits }}</code>
-                  <span v-else class="has-text-grey-light">-</span>
+                  <strong>Estimated size</strong>
+                  <span class="ml-1 has-text-grey is-size-7"
+                    >(uncompressed)</span
+                  >
                 </td>
+                <td>{{ estimatedSizeMB }}</td>
               </tr>
             </tbody>
           </table>
@@ -548,7 +806,7 @@ function formatValue(value: unknown): string {
                 <td>
                   <code>{{ dim.name }}</code>
                 </td>
-                <td>{{ dim.size }}</td>
+                <td>{{ dim.size.toLocaleString() }}</td>
               </tr>
             </tbody>
           </table>
@@ -576,7 +834,7 @@ function formatValue(value: unknown): string {
               </tr>
               <tr>
                 <td><strong>Timesteps</strong></td>
-                <td>{{ timeInfo.numTimesteps }}</td>
+                <td>{{ timeInfo.numTimesteps.toLocaleString() }}</td>
               </tr>
               <tr v-if="timeInfo.timestep">
                 <td>
@@ -602,16 +860,169 @@ function formatValue(value: unknown): string {
         </div>
       </section>
 
-      <!-- Group Attributes -->
-      <section class="info-section">
-        <h4 class="title is-6">Group Attributes</h4>
-        <div
-          v-if="groupAttrs && Object.keys(groupAttrs).length > 0"
-          class="info-pre"
-        >
-          <VueJsonPretty :data="groupAttrs" />
+      <!-- Spatial Coverage -->
+      <section v-if="hasLatLon" class="info-section">
+        <h4 class="title is-6">Spatial Coverage</h4>
+
+        <!-- Latitude -->
+        <div v-if="latSlice" class="mb-4">
+          <p class="is-size-7 has-text-weight-semibold mb-2">
+            Latitude
+            <span class="has-text-grey-light has-text-weight-normal"
+              >({{ latLength?.toLocaleString() }} values)</span
+            >
+          </p>
+          <div class="mb-2">
+            <code> min {{ formatValue(latMin ?? 0) }} </code>
+            →
+            <code> max {{ formatValue(latMax ?? 0) }} </code>
+          </div>
+          <div v-if="latDimensions && latDimensions.length > 0" class="content">
+            <table class="table is-narrow is-fullwidth is-size-7">
+              <thead>
+                <tr>
+                  <th>Dimension</th>
+                  <th>Shape</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="dim in latDimensions" :key="dim.name">
+                  <td>
+                    <code>{{ dim.name }}</code>
+                  </td>
+                  <td>{{ dim.size.toLocaleString() }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <details class="is-size-7">
+            <summary class="has-text-grey coord-details-summary">
+              Raw sample values
+            </summary>
+            <p class="has-text-weight-semibold mt-2 mb-1">First 10:</p>
+            <div class="tags">
+              <span
+                v-for="(val, i) in latSlice.first10"
+                :key="'lat-f-' + i"
+                class="tag is-info is-light is-family-monospace"
+                >{{ formatValue(val) }}</span
+              >
+            </div>
+            <p class="has-text-weight-semibold mt-2 mb-1">Last 10:</p>
+            <div class="tags">
+              <span
+                v-for="(val, i) in latSlice.last10"
+                :key="'lat-l-' + i"
+                class="tag is-info is-light is-family-monospace"
+                >{{ formatValue(val) }}</span
+              >
+            </div>
+          </details>
         </div>
-        <p v-else class="has-text-grey-light">No group attributes</p>
+
+        <!-- Longitude -->
+        <div v-if="lonSlice">
+          <p class="is-size-7 has-text-weight-semibold mb-2">
+            Longitude
+            <span class="has-text-grey-light has-text-weight-normal"
+              >({{ lonLength?.toLocaleString() }} values)</span
+            >
+          </p>
+          <div class="mb-2">
+            <code> min {{ formatValue(lonMin ?? 0) }} </code>
+            →
+            <code> max {{ formatValue(lonMax ?? 0) }} </code>
+          </div>
+          <div v-if="lonDimensions && lonDimensions.length > 0" class="content">
+            <table class="table is-narrow is-fullwidth is-size-7">
+              <thead>
+                <tr>
+                  <th>Dimension</th>
+                  <th>Shape</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="dim in lonDimensions" :key="dim.name">
+                  <td>
+                    <code>{{ dim.name }}</code>
+                  </td>
+                  <td>{{ dim.size.toLocaleString() }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <details class="is-size-7">
+            <summary class="has-text-grey coord-details-summary">
+              Raw sample values
+            </summary>
+            <p class="has-text-weight-semibold mt-2 mb-1">First 10:</p>
+            <div class="tags">
+              <span
+                v-for="(val, i) in lonSlice.first10"
+                :key="'lon-f-' + i"
+                class="tag is-warning is-light is-family-monospace"
+                >{{ formatValue(val) }}</span
+              >
+            </div>
+            <p class="has-text-weight-semibold mt-2 mb-1">Last 10:</p>
+            <div class="tags">
+              <span
+                v-for="(val, i) in lonSlice.last10"
+                :key="'lon-l-' + i"
+                class="tag is-warning is-light is-family-monospace"
+                >{{ formatValue(val) }}</span
+              >
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <!-- No Lat/Lon Notice -->
+      <div v-if="!hasLatLon" class="info-section">
+        <div class="notification is-info is-light is-size-7">
+          <strong>Note:</strong> No lat/lon coordinates found for this grid
+          type.
+        </div>
+      </div>
+
+      <!-- Available Variables -->
+      <section v-if="allVariables.length > 0" class="info-section">
+        <h4 class="title is-6">
+          Available Variables
+          <span
+            class="has-text-grey-light is-size-7 has-text-weight-normal ml-1"
+            >({{ availableVariables.length }})</span
+          >
+        </h4>
+        <div class="tags">
+          <span
+            v-for="v in availableVariables"
+            :key="v.name"
+            class="tag is-family-monospace is-clickable"
+            :class="v.name === varnameSelector ? 'is-info' : 'is-light'"
+            :title="'Select ' + v.name"
+            @click="selectVariable(v.name)"
+            >{{ v.name }}</span
+          >
+        </div>
+        <div v-if="hiddenVariables.length > 0" class="mt-2">
+          <p class="is-size-7 has-text-grey mb-1">
+            Dimensions &amp; coordinates
+            <span class="has-text-grey-light"
+              >({{ hiddenVariables.length }})</span
+            >
+          </p>
+          <div class="tags">
+            <span
+              v-for="v in hiddenVariables"
+              :key="v.name"
+              class="tag is-family-monospace is-light has-text-grey-light"
+              title="This is a dimension or coordinate variable and cannot be selected"
+              style="cursor: not-allowed; opacity: 0.6"
+              >{{ v.name }}</span
+            >
+          </div>
+        </div>
       </section>
 
       <!-- Variable Attributes -->
@@ -626,111 +1037,17 @@ function formatValue(value: unknown): string {
         <p v-else class="has-text-grey-light">No variable attributes</p>
       </section>
 
-      <!-- Latitude Values -->
-      <section v-if="latSlice" class="info-section">
-        <h4 class="title is-6">
-          Latitude
-          <span class="has-text-grey-light is-size-7 has-text-weight-normal"
-            >({{ latLength }})</span
-          >
-        </h4>
-        <div class="">
-          <div v-if="latDimensions && latDimensions.length > 0" class="content">
-            <table class="table is-narrow is-fullwidth is-size-7">
-              <thead>
-                <tr>
-                  <th>Dimension Name</th>
-                  <th>Shape</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="dim in latDimensions" :key="dim.name">
-                  <td>
-                    <code>{{ dim.name }}</code>
-                  </td>
-                  <td>{{ dim.size }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <p v-else class="has-text-grey-light">No dimension info available</p>
-          <p class="is-size-7 has-text-weight-semibold mb-2">First 10:</p>
-          <div class="tags">
-            <span
-              v-for="(val, i) in latSlice.first10"
-              :key="'lat-f-' + i"
-              class="tag is-info is-light is-family-monospace"
-              >{{ formatValue(val) }}</span
-            >
-          </div>
-          <p class="is-size-7 has-text-weight-semibold mb-2 mt-3">Last 10:</p>
-          <div class="tags">
-            <span
-              v-for="(val, i) in latSlice.last10"
-              :key="'lat-l-' + i"
-              class="tag is-info is-light is-family-monospace"
-              >{{ formatValue(val) }}</span
-            >
-          </div>
+      <!-- Group Attributes -->
+      <section class="info-section">
+        <h4 class="title is-6">Group Attributes</h4>
+        <div
+          v-if="groupAttrs && Object.keys(groupAttrs).length > 0"
+          class="info-pre"
+        >
+          <VueJsonPretty :data="groupAttrs" />
         </div>
+        <p v-else class="has-text-grey-light">No group attributes</p>
       </section>
-
-      <!-- Longitude Values -->
-      <section v-if="lonSlice" class="info-section">
-        <h4 class="title is-6">
-          Longitude
-          <span class="has-text-grey-light is-size-7 has-text-weight-normal"
-            >({{ lonLength }})</span
-          >
-        </h4>
-        <div class="">
-          <div v-if="lonDimensions && lonDimensions.length > 0" class="content">
-            <table class="table is-narrow is-fullwidth is-size-7">
-              <thead>
-                <tr>
-                  <th>Dimension Name</th>
-                  <th>Shape</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="dim in lonDimensions" :key="dim.name">
-                  <td>
-                    <code>{{ dim.name }}</code>
-                  </td>
-                  <td>{{ dim.size }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <p v-else class="has-text-grey-light">No dimension info available</p>
-          <p class="is-size-7 has-text-weight-semibold mb-2">First 10:</p>
-          <div class="tags">
-            <span
-              v-for="(val, i) in lonSlice.first10"
-              :key="'lon-f-' + i"
-              class="tag is-info is-light is-family-monospace"
-              >{{ formatValue(val) }}</span
-            >
-          </div>
-          <p class="is-size-7 has-text-weight-semibold mb-2 mt-3">Last 10:</p>
-          <div class="tags">
-            <span
-              v-for="(val, i) in lonSlice.last10"
-              :key="'lon-l-' + i"
-              class="tag is-info is-light is-family-monospace"
-              >{{ formatValue(val) }}</span
-            >
-          </div>
-        </div>
-      </section>
-
-      <!-- No Lat/Lon Notice -->
-      <div v-if="!hasLatLon" class="info-section">
-        <div class="notification is-info is-light is-size-7">
-          <strong>Note:</strong> No lat/lon coordinates found for this grid
-          type.
-        </div>
-      </div>
     </div>
   </div>
 </template>

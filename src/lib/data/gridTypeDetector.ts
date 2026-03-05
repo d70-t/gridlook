@@ -1,7 +1,7 @@
 import * as zarr from "zarrita";
 
 import { ZarrDataManager } from "./ZarrDataManager";
-import { getLatLonData, isLatitude, isLongitude } from "./zarrUtils";
+import { getLatLonData, isLatitudeName, isLongitudeName } from "./zarrUtils";
 
 import type { TSources } from "@/lib/types/GlobeTypes";
 
@@ -89,10 +89,10 @@ function checkGaussianGrid(latitudes: Float64Array, longitudes: Float64Array) {
 function checkRegularGridFromDimensions(dimensions: string[]): boolean {
   const hasLatLon =
     dimensions.length >= 2 &&
-    isLatitude(dimensions[dimensions.length - 2]) &&
-    isLongitude(dimensions[dimensions.length - 1]);
+    isLatitudeName(dimensions[dimensions.length - 2]) &&
+    isLongitudeName(dimensions[dimensions.length - 1]);
   const hasLatOnly =
-    dimensions.length >= 1 && isLatitude(dimensions[dimensions.length - 1]);
+    dimensions.length >= 1 && isLatitudeName(dimensions[dimensions.length - 1]);
   return hasLatLon || hasLatOnly;
 }
 

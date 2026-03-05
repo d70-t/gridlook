@@ -137,10 +137,12 @@ function prepareDefaults(src: string, index: TSources) {
   if (src === props.src) {
     datasources.value = index;
   }
+  const validVars = Object.keys(modelInfo.value!.vars).filter((varname) => {
+    const varinfo = modelInfo.value!.vars[varname];
+    return !varinfo.hidden;
+  });
   varnameSelector.value =
-    paramVarname.value ??
-    modelInfo.value!.defaultVar ??
-    Object.keys(modelInfo.value!.vars)[0];
+    paramVarname.value ?? modelInfo.value!.defaultVar ?? validVars[0];
 
   if (
     datasources.value &&
