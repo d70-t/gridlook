@@ -43,7 +43,9 @@ export class ZarrDataManager {
     const storePath = this.normalizeStorePath(datasource.store);
     if (!this.fetchStore || this.fetchStorePath !== storePath) {
       this.fetchStorePath = storePath;
-      this.fetchStore = zarr.root(lru(new zarr.FetchStore(storePath)));
+      this.fetchStore = zarr.root(
+        lru(new zarr.FetchStore(storePath, { useSuffixRequest: true }))
+      );
     }
     const root = this.fetchStore!;
     const datasetPath = this.normalizeDatasetPath(datasource.dataset);
