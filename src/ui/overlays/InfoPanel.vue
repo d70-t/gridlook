@@ -319,8 +319,8 @@ function processLonData(
 ) {
   const lonData = longitudes.data as Float64Array | Float32Array;
   lonSlice.value = {
-    first10: Array.from(lonData).slice(0, 10),
-    last10: Array.from(lonData).slice(-10),
+    first10: Array.from(lonData.subarray(0, Math.min(10, lonData.length))),
+    last10: Array.from(lonData.subarray(Math.max(0, lonData.length - 10))),
   };
   let loMin = Infinity,
     loMax = -Infinity;
@@ -362,8 +362,8 @@ async function getLatLonInfo(
 
     const latData = latitudes.data as Float64Array | Float32Array;
     latSlice.value = {
-      first10: Array.from(latData).slice(0, 10),
-      last10: Array.from(latData).slice(-10),
+      first10: Array.from(latData.subarray(0, Math.min(10, latData.length))),
+      last10: Array.from(latData.subarray(Math.max(0, latData.length - 10))),
     };
     let lMin = Infinity,
       lMax = -Infinity;
