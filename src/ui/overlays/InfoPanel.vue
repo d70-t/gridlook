@@ -194,6 +194,9 @@ const estimatedSizeMB = computed(() => {
   }
   const totalElements = dimensions.value.reduce((acc, d) => acc * d.size, 1);
   const bytes = totalElements * getDtypeBytes(String(variableDtype.value));
+  if (!Number.isFinite(bytes)) {
+    return null;
+  }
   if (bytes >= 1024 * 1024 * 1024 * 1024) {
     return (bytes / (1024 * 1024 * 1024 * 1024)).toFixed(2) + " TB";
   }
@@ -586,7 +589,7 @@ function formatValue(value: unknown): string {
                 <td><strong>Standard name</strong></td>
                 <td>
                   <div
-                    class="is-flex is-align-items-baseline"
+                    class="is-flex is-align-items-baseline is-justify-content-space-between"
                     style="gap: 0.25rem"
                   >
                     <span
