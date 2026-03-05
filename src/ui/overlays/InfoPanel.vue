@@ -1156,4 +1156,8 @@ function formatValue(value: unknown): string {
     transform: scale(1.05);
   }
 }
+
+details {
+  cursor: pointer;
+}
 </style>
