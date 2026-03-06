@@ -317,7 +317,10 @@ function getGrid(
 function updateLOD() {
   const avgSpacing = estimatedSpacing.value;
   const globeRadius = 1;
-  const camera = getCamera()!;
+  const camera = getCamera();
+  if (!camera) {
+    return;
+  }
   const cameraDistance = camera.position.length();
   const viewportHeight = window.innerHeight;
 

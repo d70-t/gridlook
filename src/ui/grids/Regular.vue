@@ -11,8 +11,8 @@ import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   castDataVarToFloat32,
   getDataBounds,
-  isLatitude,
-  isLongitude,
+  isLatitudeName,
+  isLongitudeName,
 } from "@/lib/data/zarrUtils.ts";
 import {
   getColormapScaleOffset,
@@ -161,7 +161,6 @@ async function getDims() {
   // rotated or not, which lead to failure in getLatLonData.
   // On the other hand, I didn't find any case where latitudes and longitudes were not
   // the two last dimensions of the data variable.
-  const grid = props.datasources!.levels[0].grid;
   const dimensions = await ZarrDataManager.getDimensionNames(
     props.datasources!,
     varnameSelector.value
@@ -171,9 +170,11 @@ async function getDims() {
   const secondLastDim = dimensions[dimensions.length - 2];
 
   // Check if this is a lat-only dataset (zonally averaged)
-  const latOnlyCheck = isLatitude(lastDim) && !isLongitude(secondLastDim);
+  const latOnlyCheck =
+    isLatitudeName(lastDim) && !isLongitudeName(secondLastDim);
   isLatOnly.value = latOnlyCheck;
 
+  const grid = props.datasources!.levels[0].grid;
   if (latOnlyCheck) {
     const latitudesData = await ZarrDataManager.getVariableData(grid, lastDim);
     latitudes.value = new Float64Array(latitudesData.data as Float64Array);

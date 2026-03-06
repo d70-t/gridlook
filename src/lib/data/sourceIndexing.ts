@@ -41,30 +41,29 @@ function isValidVariable(
   return shapeValid && !hasExcludedName && !isLatLon;
 }
 
-async function processZarrV2Variables(
+async function collectZarrV2Variables(
   store: zarr.Listable<zarr.FetchStore>,
   root: zarr.Group<zarr.FetchStore>,
   src: string
-): Promise<Record<string, TDataSource>> {
+): Promise<{
+  candidates: PromiseSettledResult<Record<string, TDataSource>>[];
+  dimensions: Set<string>;
+}> {
   const dimensions = new Set<string>();
-
   const candidates = await Promise.allSettled(
     store.contents().map(async ({ path, kind }) => {
-      const varname = path.slice(1);
       if (kind !== "array") {
         return {};
       }
-
       const variable = await zarr.open(root.resolve(path), { kind: "array" });
       const arrayDimensions = variable.attrs?._ARRAY_DIMENSIONS;
-      // Collect dimensions from _ARRAY_DIMENSIONS attribute
+
       if (Array.isArray(arrayDimensions)) {
         for (const dim of arrayDimensions) {
           dimensions.add(dim);
         }
       }
 
-      // Collect dimensions from coordinates attribute
       if (variable.attrs.coordinates) {
         const coords = variable.attrs.coordinates as string;
         for (const coord of coords.split(" ")) {
@@ -72,32 +71,49 @@ async function processZarrV2Variables(
         }
       }
 
-      // Return valid variables
-      if (
-        isValidVariable(varname, variable.shape, arrayDimensions as string[])
-      ) {
-        return {
-          [varname]: {
-            store: src,
-            dataset: "",
-            attrs: { ...variable.attrs, dimensionNames: arrayDimensions },
-          },
-        };
-      }
-
-      return {};
+      const varname = path.slice(1);
+      return {
+        [varname]: {
+          store: src,
+          dataset: "",
+          hidden: !isValidVariable(
+            varname,
+            variable.shape,
+            arrayDimensions as string[]
+          ),
+          attrs: { ...variable.attrs, dimensionNames: arrayDimensions },
+        },
+      };
     })
+  );
+
+  return { candidates, dimensions };
+}
+
+async function processZarrV2Variables(
+  store: zarr.Listable<zarr.FetchStore>,
+  root: zarr.Group<zarr.FetchStore>,
+  src: string
+): Promise<Record<string, TDataSource>> {
+  const { candidates, dimensions } = await collectZarrV2Variables(
+    store,
+    root,
+    src
   );
 
   // Filter and merge datasources
   const datasources = candidates
     .filter((promise) => promise.status === "fulfilled")
     .map((promise) => promise.value)
-    .filter((obj) => {
-      // Filter out dimensions and coordinates
-      return (
-        Object.keys(obj).length > 0 && !dimensions.has(Object.keys(obj)[0])
-      );
+    .filter((obj) => Object.keys(obj).length > 0)
+    .map((obj) => {
+      // Filter out variables that are actually dimensions or coordinates
+      const varname = Object.keys(obj)[0];
+      if (dimensions.has(varname)) {
+        const hiddenObject = { [varname]: { ...obj[varname], hidden: true } };
+        return hiddenObject;
+      }
+      return obj;
     })
     .reduce((a, b) => ({ ...a, ...b }), {});
 
@@ -110,7 +126,12 @@ function processZarrV3Variables(
 ) {
   const datasources: Record<
     string,
-    { store: string; dataset: string; attrs: Record<string, unknown> }
+    {
+      store: string;
+      dataset: string;
+      hidden: boolean;
+      attrs: Record<string, unknown>;
+    }
   > = {};
   const dimensions = new Set<string>();
   const attributes = group.attrs as TZarrV3RootMetadata;
@@ -129,19 +150,17 @@ function processZarrV3Variables(
       continue;
     }
     const arrayNode = node as zarr.ArrayMetadata;
-    if (
-      isValidVariable(name, arrayNode.shape, arrayNode.dimension_names) &&
-      !dimensions.has(name)
-    ) {
-      datasources[name] = {
-        store: src,
-        dataset: "",
-        attrs: {
-          ...node.attributes,
-          dimensionNames: node.dimension_names,
-        } as Record<string, unknown>,
-      };
-    }
+    datasources[name] = {
+      store: src,
+      dataset: "",
+      hidden:
+        !isValidVariable(name, arrayNode.shape, arrayNode.dimension_names) ||
+        dimensions.has(name),
+      attrs: {
+        ...node.attributes,
+        dimensionNames: node.dimension_names,
+      } as Record<string, unknown>,
+    };
   }
   return datasources;
 }

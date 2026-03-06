@@ -15,7 +15,11 @@ const store = useGlobeControlStore();
 const { loading, varinfo } = storeToRefs(store);
 
 const variableOptions = computed(() => {
-  return Object.keys(props.modelInfo.vars);
+  const visibleVars = Object.keys(props.modelInfo.vars).filter((varname) => {
+    const varinfo = props.modelInfo.vars[varname];
+    return !varinfo.hidden;
+  });
+  return visibleVars;
 });
 
 const currentVarUnits = computed(() => {

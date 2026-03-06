@@ -1,7 +1,7 @@
 import * as zarr from "zarrita";
 
 import { ZarrDataManager } from "./ZarrDataManager";
-import { getLatLonData, isLatitude, isLongitude } from "./zarrUtils";
+import { getLatLonData, isLatitudeName, isLongitudeName } from "./zarrUtils";
 
 import type { TSources } from "@/lib/types/GlobeTypes";
 
@@ -65,18 +65,13 @@ function checkCurvilinear(
   latitudesVar: zarr.Chunk<zarr.DataType>,
   longitudesVar: zarr.Chunk<zarr.DataType>
 ) {
-  const latitudes = latitudesVar.data as Float64Array;
-  const longitudes = longitudesVar.data as Float64Array;
+  // const latitudes = latitudesVar.data as Float64Array;
+  // const longitudes = longitudesVar.data as Float64Array;
 
-  const uniqueLatsNum = new Set(latitudes).size;
-  const uniqueLonsNum = new Set(longitudes).size;
+  // const uniqueLatsNum = new Set(latitudes).size;
+  // const uniqueLonsNum = new Set(longitudes).size;
 
-  return (
-    latitudesVar.shape.length === 2 &&
-    longitudesVar.shape.length === 2 &&
-    uniqueLatsNum !== latitudes.length &&
-    uniqueLonsNum !== longitudes.length
-  );
+  return latitudesVar.shape.length === 2 && longitudesVar.shape.length === 2;
 }
 
 function checkGaussianGrid(latitudes: Float64Array, longitudes: Float64Array) {
@@ -94,10 +89,10 @@ function checkGaussianGrid(latitudes: Float64Array, longitudes: Float64Array) {
 function checkRegularGridFromDimensions(dimensions: string[]): boolean {
   const hasLatLon =
     dimensions.length >= 2 &&
-    isLatitude(dimensions[dimensions.length - 2]) &&
-    isLongitude(dimensions[dimensions.length - 1]);
+    isLatitudeName(dimensions[dimensions.length - 2]) &&
+    isLongitudeName(dimensions[dimensions.length - 1]);
   const hasLatOnly =
-    dimensions.length >= 1 && isLatitude(dimensions[dimensions.length - 1]);
+    dimensions.length >= 1 && isLatitudeName(dimensions[dimensions.length - 1]);
   return hasLatLon || hasLatOnly;
 }
 
