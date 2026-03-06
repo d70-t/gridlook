@@ -18,7 +18,11 @@ import {
 import { decodeTime } from "@/lib/data/timeHandling";
 import queryVariable, { type TNercVariable } from "@/lib/data/variableQuery";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager";
-import { getLatLonData, getMissingValue, getFillValue } from "@/lib/data/zarrUtils";
+import {
+  getLatLonData,
+  getMissingValue,
+  getFillValue,
+} from "@/lib/data/zarrUtils";
 import type { TSources } from "@/lib/types/GlobeTypes";
 import { useUrlParameterStore } from "@/store/paramStore";
 import { useGlobeControlStore } from "@/store/store";
@@ -789,11 +793,15 @@ function formatValue(value: unknown): string {
               </tr>
               <tr v-if="variableMissingValue !== null">
                 <td><strong>Missing value</strong></td>
-                <td><code>{{ variableMissingValue }}</code></td>
+                <td>
+                  <code>{{ variableMissingValue }}</code>
+                </td>
               </tr>
               <tr v-if="variableFillValue !== null">
                 <td><strong>Fill value</strong></td>
-                <td><code>{{ variableFillValue }}</code></td>
+                <td>
+                  <code>{{ variableFillValue }}</code>
+                </td>
               </tr>
               <tr v-if="estimatedSizeMB">
                 <td>
