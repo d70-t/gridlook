@@ -18,7 +18,7 @@ import {
 import { decodeTime } from "@/lib/data/timeHandling";
 import queryVariable, { type TNercVariable } from "@/lib/data/variableQuery";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager";
-import { getLatLonData } from "@/lib/data/zarrUtils";
+import { getLatLonData, getMissingValue, getFillValue } from "@/lib/data/zarrUtils";
 import type { TSources } from "@/lib/types/GlobeTypes";
 import { useUrlParameterStore } from "@/store/paramStore";
 import { useGlobeControlStore } from "@/store/store";
@@ -67,6 +67,8 @@ const variableStandardName = ref<string | null>(null);
 const nercInfo = ref<TNercVariable | null>(null);
 const variableDtype = ref<string | null>(null);
 const variableChunks = ref<readonly (number | null)[] | null>(null);
+const variableMissingValue = ref<number | null>(null);
+const variableFillValue = ref<number | null>(null);
 const timeInfo = ref<{
   units: string;
   calendar: string;
@@ -411,6 +413,10 @@ async function loadVariableDetails(
     null;
   variableDtype.value = String(variable.dtype);
   variableChunks.value = variable.chunks;
+  const missingVal = getMissingValue(variable);
+  variableMissingValue.value = Number.isNaN(missingVal) ? null : missingVal;
+  const fillVal = getFillValue(variable);
+  variableFillValue.value = Number.isNaN(fillVal) ? null : fillVal;
 
   const arrayDims = await ZarrDataManager.getDimensionNames(
     props.datasources!,
@@ -440,6 +446,8 @@ async function fetchInfo() {
   error.value = null;
   variableDtype.value = null;
   variableChunks.value = null;
+  variableMissingValue.value = null;
+  variableFillValue.value = null;
   nercInfo.value = null;
   latSlice.value = null;
   latDimensions.value = [];
@@ -778,6 +786,14 @@ function formatValue(value: unknown): string {
                 <td>
                   <code>{{ variableChunks.join(" × ") }}</code>
                 </td>
+              </tr>
+              <tr v-if="variableMissingValue !== null">
+                <td><strong>Missing value</strong></td>
+                <td><code>{{ variableMissingValue }}</code></td>
+              </tr>
+              <tr v-if="variableFillValue !== null">
+                <td><strong>Fill value</strong></td>
+                <td><code>{{ variableFillValue }}</code></td>
               </tr>
               <tr v-if="estimatedSizeMB">
                 <td>
