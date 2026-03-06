@@ -351,8 +351,6 @@ export function getDataBounds(
   const missingValue = getMissingValue(datavar);
   const fillValue = getFillValue(datavar);
 
-  console.log("missingValue", missingValue);
-  console.log("fillValue", fillValue);
   for (let i = 0; i < data.length; i++) {
     const v = data[i];
     if (v === missingValue || v === fillValue || !Number.isFinite(v)) {
@@ -372,8 +370,6 @@ export function getDataBounds(
   if (max === Number.NEGATIVE_INFINITY) {
     max = NaN;
   }
-  console.log("min", min);
-  console.log("max", max);
   return {
     min: min,
     max: max,
