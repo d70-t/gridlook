@@ -10,29 +10,41 @@ export function getMissingValue(
 ) {
   const attributes = datavar.attrs;
   if (Object.hasOwn(attributes, "missingValue")) {
-    return Number(attributes.missingValue);
+    return new Float32Array([Number(attributes.missingValue)])[0];
   }
   if (Object.hasOwn(attributes, "missing_value")) {
-    return Number(attributes.missing_value);
+    return new Float32Array([Number(attributes.missing_value)])[0];
   }
   return NaN;
 }
 
+/**
+ * Retrieves the fill value from a Zarr array, normalizing across different
+ * naming conventions ("fillValue", "fill_value", "_FillValue", "_fillvalue")
+ * that various tools and conventions (Zarr v2, CF conventions, xarray, etc.)
+ * may use to store it in the metadata attributes.
+ *
+ * If no fill value is found in the attributes, we fall back to the internal
+ * Zarr context object (not publicly documented) which always holds the
+ * canonical fill_value. The result is cast through Float32Array to reproduce
+ * the float32 rounding artifact (e.g. -1e30 → -1.0000000150474662e+30),
+ * ensuring the value matches what is actually stored in the binary data.
+ */
 export function getFillValue(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>
 ) {
   const attributes = datavar.attrs;
   if (Object.hasOwn(attributes, "fillValue")) {
-    return Number(attributes.fillValue);
+    return new Float32Array([Number(attributes.fillValue)])[0];
   }
   if (Object.hasOwn(attributes, "fill_value")) {
-    return Number(attributes.fill_value);
+    return new Float32Array([Number(attributes.fill_value)])[0];
   }
   if (Object.hasOwn(attributes, "_FillValue")) {
-    return Number(attributes._FillValue);
+    return new Float32Array([Number(attributes._FillValue)])[0];
   }
   if (Object.hasOwn(attributes, "_fillvalue")) {
-    return Number(attributes._fillvalue);
+    return new Float32Array([Number(attributes._fillvalue)])[0];
   }
   const symbols = Object.getOwnPropertySymbols(datavar);
   const contextSymbol = symbols.find(
@@ -44,7 +56,7 @@ export function getFillValue(
   // FIXME
   // @ts-expect-error This context symbol is not publicly exposed in the documentation
   const obj = datavar[contextSymbol];
-  return Number(obj.fill_value);
+  return new Float32Array([Number(obj.fill_value)])[0];
 }
 
 /**
@@ -339,6 +351,8 @@ export function getDataBounds(
   const missingValue = getMissingValue(datavar);
   const fillValue = getFillValue(datavar);
 
+  console.log("missingValue", missingValue);
+  console.log("fillValue", fillValue);
   for (let i = 0; i < data.length; i++) {
     const v = data[i];
     if (v === missingValue || v === fillValue || !Number.isFinite(v)) {
@@ -358,6 +372,8 @@ export function getDataBounds(
   if (max === Number.NEGATIVE_INFINITY) {
     max = NaN;
   }
+  console.log("min", min);
+  console.log("max", max);
   return {
     min: min,
     max: max,
