@@ -402,6 +402,7 @@ export function castDataVarToFloat32(
     rawData instanceof Float64Array ||
     rawData instanceof Int32Array ||
     rawData instanceof Int16Array ||
+    rawData instanceof Int8Array ||
     rawData instanceof Uint16Array ||
     rawData instanceof Uint8Array
   ) {
