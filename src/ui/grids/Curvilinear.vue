@@ -381,6 +381,42 @@ function projectCellVertices(
   return currentOffset;
 }
 
+// Skip cells whose coordinate corners contain NaN/Infinity – projecting
+// such values (especially on the globe) produces NaN positions that
+// break THREE.js's computeBoundingSphere. The pre-allocated zeros in
+// positionValues / latLonValues are valid fallbacks, and setting the
+// data value to NaN causes the fragment shader to discard the fragment.
+function fillCellPositionAndData(
+  latPoints: number[],
+  lonPoints: number[],
+  data: Float32Array,
+  idx00: number,
+  positionValues: Float32Array,
+  dataValues: Float32Array,
+  latLonValues: Float32Array,
+  positionOffset: number,
+  cellIndex: number
+): number {
+  const hasInvalidCoords =
+    latPoints.some((v) => !Number.isFinite(v)) ||
+    lonPoints.some((v) => !Number.isFinite(v));
+  if (hasInvalidCoords) {
+    positionOffset += 12; // 4 vertices × 3 coords, already zeroed
+    dataValues.fill(NaN, cellIndex * 4, cellIndex * 4 + 4);
+  } else {
+    positionOffset = projectCellVertices(
+      latPoints,
+      lonPoints,
+      positionValues,
+      latLonValues,
+      positionOffset,
+      cellIndex
+    );
+    dataValues.fill(data[idx00], cellIndex * 4, cellIndex * 4 + 4);
+  }
+  return positionOffset;
+}
+
 function buildBatchGeometryData(
   latitudes: Float64Array,
   longitudes: Float64Array,
@@ -393,56 +429,38 @@ function buildBatchGeometryData(
   const { positionValues, dataValues, latLonValues, indices } =
     initializeArrays(jEnd, jStart, ni);
 
-  let positionOffset = 0; // Offset into positions array (increments by 12 per cell)
-  let idxOffset = 0; // Offset into indices array (increments by 6 per cell)
-  let cellIndex = 0; // Current cell number (used for vertex indexing)
+  let positionOffset = 0;
+  let idxOffset = 0;
+  let cellIndex = 0;
 
-  // Main loop: iterate through grid cells in this batch
-  // j goes from jStart to jEnd-1 (we need j+1 to exist for each cell)
-  // i goes from 0 to ni-1 (full width, with wraparound for last column)
   for (let j = jStart; j < jEnd; j++) {
     for (let i = 0; i < ni; i++) {
-      // Convert 2D grid coordinates (j,i) to 1D array indices
-      // The 2D arrays are flattened in row-major order: index = j * ni + i
-      // Calculate indices for the 4 corners of this grid cell:
-      // Handle longitude ordering based on flip flag
       const { idx00, idx01, idx10, idx11 } = getCellCornerIndices(
         j,
         i,
         ni,
         flipLongitude
       );
-
       const { latPoints, lonPoints } = extractCellCorners(
         { idx00, idx01, idx10, idx11 },
         latitudes,
         longitudes
       );
-
-      positionOffset = projectCellVertices(
+      positionOffset = fillCellPositionAndData(
         latPoints,
         lonPoints,
+        data,
+        idx00,
         positionValues,
+        dataValues,
         latLonValues,
         positionOffset,
         cellIndex
       );
-
-      // Assign data value to all 4 vertices of this cell
-      // We use the data value from the bottom-left corner (idx00)
-      dataValues.fill(data[idx00], cellIndex * 4, cellIndex * 4 + 4);
-
-      // Create triangle indices to form a quad from our 4 vertices
-      // Each quad is split into 2 triangles:
-      // Triangle 1: vertices 0, 1, 2 (bottom-left, bottom-right, top-right)
-      // Triangle 2: vertices 0, 2, 3 (bottom-left, top-right, top-left)
-      // This creates counter-clockwise winding for proper rendering
-      const v = cellIndex * 4; // Base vertex index for this cell
+      const v = cellIndex * 4;
       indices.set([v, v + 1, v + 2, v, v + 2, v + 3], idxOffset);
-
-      // Move to next position in arrays for the next cell
-      idxOffset += 6; // 2 triangles × 3 indices = 6 indices
-      cellIndex++; // Increment cell counter
+      idxOffset += 6;
+      cellIndex++;
     }
   }
 
