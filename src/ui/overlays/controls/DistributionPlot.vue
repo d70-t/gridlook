@@ -551,8 +551,10 @@ onBeforeUnmount(() => {
   position: absolute;
   top: 0;
   transform: translateX(-50%);
-  font-size: 11px;
-  color: var(--bulma-grey);
+  font-size: 0.72rem;
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-variant-numeric: tabular-nums;
+  color: var(--bulma-text, #363636);
   white-space: nowrap;
   pointer-events: none;
   line-height: 1;

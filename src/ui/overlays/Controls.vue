@@ -305,31 +305,43 @@ onMounted(() => {
   <Transition name="slide">
     <nav v-if="modelInfo && !isHidden" id="main_controls" class="gl_controls">
       <div class="full-panel">
-        <VariableSelector v-model="varnameSelector" :model-info="modelInfo" />
-        <DimensionControl />
-        <BoundsControls
-          :picked-bounds-mode="pickedBoundsMode"
-          :data-bounds="dataBounds"
-          :default-bounds="defaultBounds"
-          :current-bounds="currentBounds"
-          :bound-modes="BOUND_MODES"
-          @update:picked-bounds-mode="
-            onPickedBoundsModeChange($event as TBoundModes)
-          "
-        />
-        <ColormapControls
-          :model-info="modelInfo"
-          :auto-colormap="autoColormap"
-          :data-bounds="dataBounds"
-          @update:auto-colormap="autoColormap = $event"
-          @force-user-bounds="pickedBoundsMode = BOUND_MODES.USER"
-        />
-        <ProjectionControls />
-        <MaskControls />
-        <ActionControls
-          @on-snapshot="() => $emit('onSnapshot')"
-          @on-rotate="() => $emit('onRotate')"
-        />
+        <div class="box m-2 p-2">
+          <div class="section-title">Variable</div>
+          <VariableSelector v-model="varnameSelector" :model-info="modelInfo" />
+          <div class="section-title">Dimensions</div>
+          <DimensionControl />
+        </div>
+        <div class="box m-2 p-2">
+          <div class="section-title">Bounds & Colormap</div>
+          <BoundsControls
+            :picked-bounds-mode="pickedBoundsMode"
+            :data-bounds="dataBounds"
+            :default-bounds="defaultBounds"
+            :current-bounds="currentBounds"
+            :bound-modes="BOUND_MODES"
+            @update:picked-bounds-mode="
+              onPickedBoundsModeChange($event as TBoundModes)
+            "
+          />
+          <ColormapControls
+            :model-info="modelInfo"
+            :auto-colormap="autoColormap"
+            :data-bounds="dataBounds"
+            @update:auto-colormap="autoColormap = $event"
+            @force-user-bounds="pickedBoundsMode = BOUND_MODES.USER"
+          />
+          <div class="section-title">Projections</div>
+          <ProjectionControls />
+          <div class="section-title">Masks</div>
+          <MaskControls />
+        </div>
+        <div class="box m-2 p-2">
+          <div class="section-title">Actions</div>
+          <ActionControls
+            @on-snapshot="() => $emit('onSnapshot')"
+            @on-rotate="() => $emit('onRotate')"
+          />
+        </div>
       </div>
     </nav>
   </Transition>
@@ -348,6 +360,16 @@ onMounted(() => {
 
 .panel-toggle {
   order: 2;
+}
+
+.section-title {
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  font-size: 0.75rem !important;
+  padding-right: 0.5rem !important;
+  padding-left: 0.5rem !important;
+  padding-top: 0.5rem !important;
+  color: #69748c !important;
 }
 
 .header-container {
@@ -420,6 +442,12 @@ onMounted(() => {
   .header-container {
     background: var(--bulma-scheme-main);
   }
+  .gl_controls {
+    background-color: var(--bulma-scheme-main) !important;
+    .box {
+      color: rgb(235, 236, 240) !important;
+    }
+  }
 }
 
 .gl_controls {
@@ -429,10 +457,9 @@ onMounted(() => {
   overflow-y: auto;
   flex-shrink: 0;
   z-index: 10;
+  background-color: #ddd;
+  color: black;
 
-  .full-panel {
-    background: var(--bulma-scheme-main);
-  }
   .panel-block {
     padding: 0.75em 0.8em;
   }
