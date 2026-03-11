@@ -9,7 +9,7 @@ const { landSeaMaskChoice, landSeaMaskUseTexture } = storeToRefs(store);
 
 <template>
   <div class="panel-block">
-    <div class="w-100 pt-2">
+    <div class="">
       <div class="columns compact-row is-flex is-align-items-center">
         <div class="column">
           <div class="control has-icons-left">

@@ -68,7 +68,7 @@ function handleBoundsHighUpdate(value: number) {
 </script>
 
 <template>
-  <div class="panel-block is-block w-100">
+  <div class="column">
     <ColorBar
       :colormap="colormap"
       :invert-colormap="invertColormap"
@@ -84,7 +84,7 @@ function handleBoundsHighUpdate(value: number) {
     />
 
     <!-- Posterize control -->
-    <div class="columns is-mobile is-vcentered compact-row mt-2 mb-4">
+    <div class="columns is-mobile is-vcentered compact-row mt-2 mb-4 px-1">
       <div class="column is-one-third">
         <label for="posterize_levels" class="label is-small">Posterize</label>
       </div>
@@ -108,7 +108,7 @@ function handleBoundsHighUpdate(value: number) {
     </div>
 
     <!-- Row: Colormap selector + options -->
-    <div class="columns is-mobile is-vcentered compact-row">
+    <div class="columns is-mobile is-vcentered compact-row px-1">
       <div class="column">
         <div class="select is-fullwidth">
           <select v-model="colormap">

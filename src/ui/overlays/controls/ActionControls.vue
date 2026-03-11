@@ -15,9 +15,9 @@ const { projectionMode } = storeToRefs(useGlobeControlStore());
 </script>
 
 <template>
-  <div class="panel-block">
+  <div class="column">
     <div
-      class="w-100 is-flex is-justify-content-space-between is-flex-wrap-wrap action-buttons"
+      class="is-flex is-justify-content-space-between is-flex-wrap-wrap action-buttons"
     >
       <button class="button" type="button" @click="() => $emit('onSnapshot')">
         <span class="icon"><i class="fa-solid fa-image"></i></span>
@@ -44,8 +44,4 @@ const { projectionMode } = storeToRefs(useGlobeControlStore());
   </div>
 </template>
 
-<style lang="scss" scoped>
-.action-buttons {
-  gap: 0.5rem;
-}
-</style>
+<style lang="scss" scoped></style>

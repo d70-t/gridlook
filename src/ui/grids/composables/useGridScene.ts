@@ -421,8 +421,9 @@ export function useGridScene(options: UseGridSceneOptions) {
     let newLon = dragStartCenterLon + deltaX * lonSensitivity;
     let newLat = dragStartCenterLat - deltaY * latSensitivity;
 
-    newLat = Math.max(-90, Math.min(90, newLat));
-    newLon = projectionHelper.value.normalizeLongitude(newLon);
+    newLat = Math.round(Math.max(-90, Math.min(90, newLat)) * 100) / 100;
+    newLon =
+      Math.round(projectionHelper.value.normalizeLongitude(newLon) * 100) / 100;
 
     projectionCenter.value = { lat: newLat, lon: newLon };
   }

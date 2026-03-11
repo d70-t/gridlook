@@ -89,7 +89,7 @@ function capitalize(str: string): string {
 <template>
   <div
     v-if="varinfo && hasValidDimensions"
-    class="panel-block is-flex-direction-column"
+    class="column is-flex-direction-column"
     style="gap: 1.5em"
   >
     <template v-for="(range, index) in varinfo!.dimRanges" :key="index">

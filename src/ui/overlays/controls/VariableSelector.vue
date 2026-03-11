@@ -32,7 +32,7 @@ const currentVarLongname = computed(() => {
 </script>
 
 <template>
-  <div class="panel-block">
+  <div class="column">
     <div class="control">
       <div class="select is-fullwidth mb-2" :class="{ 'is-loading': loading }">
         <select v-model="model" class="form-control">
