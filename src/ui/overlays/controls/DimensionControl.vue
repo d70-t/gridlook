@@ -87,6 +87,9 @@ function capitalize(str: string): string {
 </script>
 
 <template>
+  <div v-if="varinfo && hasValidDimensions" class="section-title">
+    Dimensions
+  </div>
   <div
     v-if="varinfo && hasValidDimensions"
     class="column is-flex-direction-column"
@@ -96,67 +99,66 @@ function capitalize(str: string): string {
       <div
         v-if="range && (range.maxBound > 0 || range.name === 'time')"
         class="control"
+        :class="{ 'mb-4': index + 1 < varinfo.dimInfo.length }"
       >
         <!-- Generic dimension sliders -->
-        <div class="">
-          <div
-            v-if="range"
-            class="mb-2 w-100 is-flex is-justify-content-space-between"
-          >
-            <div class="is-flex is-align-items-center" style="gap: 0.5rem">
-              {{ capitalize(range.name) }}:
-              <DatetimePicker
-                v-if="range.name === 'time'"
-                :time-values="varinfo.dimInfo[index]?.values ?? []"
-                :time-attrs="varinfo.dimInfo[index]?.attrs ?? {}"
-                :current-index="localSliders[index] ?? 0"
-                :min-index="range?.minBound ?? 0"
-                :max-index="range?.maxBound ?? 0"
-                @update:index="onDatetimeIndexUpdate"
-              />
-            </div>
-            <div class="is-flex">
-              <input
-                v-model.number="localSliders[index]"
-                class="input"
-                type="number"
-                :min="range.minBound"
-                :max="range.maxBound"
-                style="width: 8em"
-              />
-              <div class="my-2 ml-2">/ {{ range.maxBound }}</div>
-            </div>
+        <div
+          v-if="range"
+          class="mb-2 w-100 is-flex is-justify-content-space-between"
+        >
+          <div class="is-flex is-align-items-center" style="gap: 0.5rem">
+            {{ capitalize(range.name) }}:
+            <DatetimePicker
+              v-if="range.name === 'time'"
+              :time-values="varinfo.dimInfo[index]?.values ?? []"
+              :time-attrs="varinfo.dimInfo[index]?.attrs ?? {}"
+              :current-index="localSliders[index] ?? 0"
+              :min-index="range?.minBound ?? 0"
+              :max-index="range?.maxBound ?? 0"
+              @update:index="onDatetimeIndexUpdate"
+            />
           </div>
+          <div class="is-flex">
+            <input
+              v-model.number="localSliders[index]"
+              class="input"
+              type="number"
+              :min="range.minBound"
+              :max="range.maxBound"
+              style="width: 8em"
+            />
+            <div class="my-2 ml-2">/ {{ range.maxBound }}</div>
+          </div>
+        </div>
 
-          <input
-            v-model.number="localSliders[index]"
-            class="w-100"
-            type="range"
-            :min="range.minBound"
-            :max="range.maxBound"
-          />
+        <input
+          v-model.number="localSliders[index]"
+          class="w-100"
+          type="range"
+          :min="range.minBound"
+          :max="range.maxBound"
+        />
 
-          <div class="w-100 is-flex is-justify-content-space-between">
-            <div>Current value</div>
-            <div class="has-text-right">
-              <span v-if="varinfo.dimRanges[index]?.name === 'time'">
-                {{
-                  (varinfo.dimInfo[index]?.current as Dayjs)?.format?.() ?? "-"
-                }}
-              </span>
-              <span v-else>{{ varinfo.dimInfo[index]?.current ?? "-" }}</span>
-              <br />
-            </div>
+        <div class="w-100 is-flex is-justify-content-space-between">
+          <div>Current value</div>
+          <div class="has-text-right">
+            <span v-if="varinfo.dimRanges[index]?.name === 'time'">
+              {{
+                (varinfo.dimInfo[index]?.current as Dayjs)?.format?.() ?? "-"
+              }}
+            </span>
+            <span v-else>{{ varinfo.dimInfo[index]?.current ?? "-" }}</span>
+            <br />
           </div>
-          <div
-            v-if="
-              varinfo.dimInfo[index]?.longName || varinfo.dimInfo[index]?.units
-            "
-            class="has-text-right"
-          >
-            {{ varinfo.dimInfo[index]?.longName ?? "-" }} /
-            {{ varinfo.dimInfo[index]?.units ?? "-" }}
-          </div>
+        </div>
+        <div
+          v-if="
+            varinfo.dimInfo[index]?.longName || varinfo.dimInfo[index]?.units
+          "
+          class="has-text-right"
+        >
+          {{ varinfo.dimInfo[index]?.longName ?? "-" }} /
+          {{ varinfo.dimInfo[index]?.units ?? "-" }}
         </div>
       </div>
     </template>

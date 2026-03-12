@@ -308,7 +308,6 @@ onMounted(() => {
         <div class="box m-2 p-2">
           <div class="section-title">Variable</div>
           <VariableSelector v-model="varnameSelector" :model-info="modelInfo" />
-          <div class="section-title">Dimensions</div>
           <DimensionControl />
         </div>
         <div class="box m-2 p-2">
@@ -330,7 +329,7 @@ onMounted(() => {
             @update:auto-colormap="autoColormap = $event"
             @force-user-bounds="pickedBoundsMode = BOUND_MODES.USER"
           />
-          <div class="section-title">Projections</div>
+          <div class="section-title mt-2">Projections</div>
           <ProjectionControls />
           <div class="section-title">Masks</div>
           <MaskControls />

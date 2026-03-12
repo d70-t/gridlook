@@ -3,6 +3,7 @@ import { storeToRefs } from "pinia";
 import { ref, watch } from "vue";
 
 import ColorBar from "./ColorBar.vue";
+import { roundToDataPrecision } from "./colorbarUtils";
 
 import type { TBounds, TModelInfo } from "@/lib/types/GlobeTypes.js";
 import { useGlobeControlStore } from "@/store/store";
@@ -53,7 +54,9 @@ function handleBoundsLowUpdate(value: number) {
   if (store.userBoundsHigh === undefined) {
     store.updateHighUserBound(selection.value.high);
   }
-  store.updateLowUserBound(value);
+  store.updateLowUserBound(
+    roundToDataPrecision(value, props.dataBounds?.low, props.dataBounds?.high)
+  );
   emit("forceUserBounds");
 }
 
@@ -62,7 +65,9 @@ function handleBoundsHighUpdate(value: number) {
   if (store.userBoundsLow === undefined) {
     store.updateLowUserBound(selection.value.low);
   }
-  store.updateHighUserBound(value);
+  store.updateHighUserBound(
+    roundToDataPrecision(value, props.dataBounds?.low, props.dataBounds?.high)
+  );
   emit("forceUserBounds");
 }
 </script>
