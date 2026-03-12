@@ -10,9 +10,13 @@ export function dataRangeStep(
   low: number | undefined,
   high: number | undefined
 ): number | "any" {
-  if (low === undefined || high === undefined) return "any";
+  if (low === undefined || high === undefined) {
+    return "any";
+  }
   const range = Math.abs(Number(high) - Number(low));
-  if (range === 0) return "any";
+  if (range === 0) {
+    return "any";
+  }
   return Math.pow(10, Math.floor(Math.log10(range)) - 2);
 }
 
@@ -22,9 +26,13 @@ export function roundToDataPrecision(
   low: number | undefined,
   high: number | undefined
 ): number {
-  if (low === undefined || high === undefined) return value;
+  if (low === undefined || high === undefined) {
+    return value;
+  }
   const range = Math.abs(Number(high) - Number(low));
-  if (range === 0) return value;
+  if (range === 0) {
+    return value;
+  }
   const decimals = Math.max(0, 2 - Math.floor(Math.log10(range)));
   return parseFloat(value.toFixed(decimals));
 }
