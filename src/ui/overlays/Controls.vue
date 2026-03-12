@@ -284,7 +284,7 @@ onMounted(() => {
           {{ modelInfo.title }}
         </span>
       </div>
-      <div v-else>No data available</div>
+      <div v-else class="title-bar">No data available</div>
       <DataInput :current-source="currentSource" />
       <button
         type="button"

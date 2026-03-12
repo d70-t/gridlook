@@ -1,10 +1,12 @@
 <script lang="ts" setup>
 import { storeToRefs } from "pinia";
+import Select from "primevue/select";
 import { ref, watch } from "vue";
 
 import ColorBar from "./ColorBar.vue";
 import { roundToDataPrecision } from "./colorbarUtils";
 
+import type { TColorMap } from "@/lib/shaders/colormapShaders";
 import type { TBounds, TModelInfo } from "@/lib/types/GlobeTypes.js";
 import { useGlobeControlStore } from "@/store/store";
 
@@ -70,6 +72,14 @@ function handleBoundsHighUpdate(value: number) {
   );
   emit("forceUserBounds");
 }
+
+// ---------------------------------------------------------------------------
+// Colormap gradient swatches - pre-generated static WebP files
+// ---------------------------------------------------------------------------
+
+function swatchSrc(cm: TColorMap): string {
+  return `/static/colormaps/${cm}.webp`;
+}
 </script>
 
 <template>
@@ -115,13 +125,32 @@ function handleBoundsHighUpdate(value: number) {
     <!-- Row: Colormap selector + options -->
     <div class="columns is-mobile is-vcentered compact-row px-1">
       <div class="column">
-        <div class="select is-fullwidth">
-          <select v-model="colormap">
-            <option v-for="cm in modelInfo.colormaps" :key="cm" :value="cm">
-              {{ cm }}
-            </option>
-          </select>
-        </div>
+        <Select
+          v-model="colormap"
+          :options="modelInfo.colormaps"
+          class="colormap-select"
+        >
+          <template #value="{ value }">
+            <div class="cm-option">
+              <img
+                :src="swatchSrc(value as TColorMap)"
+                class="cm-swatch"
+                alt=""
+              />
+              <span class="cm-name">{{ value }}</span>
+            </div>
+          </template>
+          <template #option="{ option }">
+            <div class="cm-option">
+              <img
+                :src="swatchSrc(option as TColorMap)"
+                class="cm-swatch"
+                alt=""
+              />
+              <span class="cm-name">{{ option }}</span>
+            </div>
+          </template>
+        </Select>
       </div>
       <div class="column is-narrow">
         <label class="checkbox">
@@ -164,5 +193,68 @@ function handleBoundsHighUpdate(value: number) {
 .slider-column {
   display: flex;
   align-items: center;
+}
+
+.colormap-select {
+  width: 100%;
+  font-size: 1rem;
+  font-family: inherit;
+}
+
+:deep(.p-select) {
+  width: 100%;
+  height: 2.5em;
+  border: 1px solid var(--bulma-border, #dbdbdb);
+  border-radius: 4px;
+  background-color: var(--bulma-scheme-main, #fff);
+  padding: 0 0.625em;
+  font-size: 1rem;
+  color: var(--bulma-text, #363636);
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+
+  &:hover {
+    border-color: var(--bulma-border-hover, #b5b5b5) !important;
+  }
+
+  &.p-focus {
+    border-color: rgb(66, 88, 255) !important;
+    box-shadow: rgba(66, 88, 255, 0.25) 0px 0px 0px 3px !important;
+  }
+}
+
+:deep(.p-select-label) {
+  padding: 0;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  height: 100%;
+  overflow: hidden;
+}
+
+:deep(.p-select-dropdown) {
+  width: 1.75em;
+  color: var(--bulma-link);
+}
+
+.cm-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  min-width: 0;
+}
+
+.cm-swatch {
+  flex-shrink: 0;
+  width: 80px;
+  height: 22px;
+  border-radius: 2px;
+  display: block;
+}
+
+.cm-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>
