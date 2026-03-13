@@ -551,7 +551,7 @@ function formatValue(value: unknown): string {
             Grid Type
             <span
               v-if="zarrFormat"
-              class="tag is-light is-small ml-2 is-family-monospace"
+              class="tag is-light is-info is-small ml-2 is-family-monospace"
               >zarr v{{ zarrFormat }}</span
             >
           </span>
@@ -1033,7 +1033,7 @@ function formatValue(value: unknown): string {
             v-for="v in availableVariables"
             :key="v.name"
             class="tag is-family-monospace is-clickable"
-            :class="v.name === varnameSelector ? 'is-info' : 'is-light'"
+            :class="v.name === varnameSelector ? 'is-info' : 'is-light is-info'"
             :title="
               'Select ' + v.name + (v.longName ? ' (' + v.longName + ')' : '')
             "

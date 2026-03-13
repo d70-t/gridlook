@@ -368,7 +368,7 @@ onMounted(() => {
   padding-right: 0.5rem !important;
   padding-left: 0.5rem !important;
   padding-top: 0.5rem !important;
-  color: #69748c !important;
+  color: var(--bulma-grey) !important;
 }
 
 .header-container {
