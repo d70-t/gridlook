@@ -214,5 +214,6 @@ function formatNum(val: number | undefined) {
   color: inherit;
   outline: none;
   -moz-appearance: textfield;
+  appearance: textfield;
 }
 </style>

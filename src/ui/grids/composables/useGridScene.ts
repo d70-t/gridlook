@@ -340,13 +340,9 @@ export function useGridScene(options: UseGridSceneOptions) {
     const right = top * aspect;
     const left = -right;
 
-    const shiftAmount = (right - left) * currentOffset;
-    const shiftedLeft = left - shiftAmount;
-    const shiftedRight = right - shiftAmount;
-
     camera.projectionMatrix.makePerspective(
-      shiftedLeft,
-      shiftedRight,
+      left,
+      right,
       top,
       bottom,
       near,
