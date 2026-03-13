@@ -179,10 +179,14 @@ export function useGridScene(options: UseGridSceneOptions) {
     controls: OrbitControls
   ) {
     const bounds = getProjectedBounds();
-    const targetDistance =
-      Math.max(bounds.height, bounds.width) /
-      2 /
-      Math.tan(((cam.fov ?? 45) * Math.PI) / 360);
+
+    // Compute the tightest distance that keeps the full projection visible,
+    // accounting for the camera aspect ratio.
+    const vHalfFov = THREE.MathUtils.degToRad((cam.fov ?? 45) / 2);
+    const hHalfFov = Math.atan(Math.tan(vHalfFov) * cam.aspect);
+    const zForHeight = bounds.height / 2 / Math.tan(vHalfFov);
+    const zForWidth = bounds.width / 2 / Math.tan(hHalfFov);
+    const targetDistance = Math.max(zForHeight, zForWidth);
 
     cam.up.set(0, 1, 0);
     cam.quaternion.identity();
@@ -211,6 +215,13 @@ export function useGridScene(options: UseGridSceneOptions) {
     cam: THREE.PerspectiveCamera,
     controls: OrbitControls
   ) {
+    // Compute the tightest distance at which the globe (radius 1) still fits
+    // fully within the viewport on both axes, with a small 5 % margin.
+    const vHalfFov = THREE.MathUtils.degToRad((cam.fov ?? 7.5) / 2);
+    const hHalfFov = Math.atan(Math.tan(vHalfFov) * cam.aspect);
+    const minHalfFov = Math.min(vHalfFov, hHalfFov);
+    const targetDistance = 1.05 / Math.sin(minHalfFov);
+
     cam.up.set(0, 0, 1);
     controls.enablePan = false;
     controls.enableRotate = true;
@@ -223,7 +234,7 @@ export function useGridScene(options: UseGridSceneOptions) {
     };
     controls.minDistance = 1.1;
     controls.maxDistance = 1000;
-    cam.position.set(30, 0, 0);
+    cam.position.set(targetDistance, 0, 0);
     controls.target.set(0, 0, 0);
   }
 
