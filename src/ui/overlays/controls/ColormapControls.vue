@@ -80,6 +80,34 @@ function handleBoundsHighUpdate(value: number) {
 function swatchSrc(cm: TColorMap): string {
   return `/static/colormaps/${cm}.webp`;
 }
+
+// ---------------------------------------------------------------------------
+// Hover-preview: temporarily apply a colormap while browsing the dropdown
+// ---------------------------------------------------------------------------
+
+const originalColormap = ref<TColorMap | null>(null);
+const selectionMade = ref(false);
+
+function handleDropdownShow() {
+  originalColormap.value = colormap.value;
+  selectionMade.value = false;
+}
+
+function handleDropdownHide() {
+  if (!selectionMade.value && originalColormap.value !== null) {
+    colormap.value = originalColormap.value;
+  }
+  originalColormap.value = null;
+  selectionMade.value = false;
+}
+
+function handleDropdownChange() {
+  selectionMade.value = true;
+}
+
+function handleOptionHover(option: TColorMap) {
+  colormap.value = option;
+}
 </script>
 
 <template>
@@ -129,6 +157,9 @@ function swatchSrc(cm: TColorMap): string {
           v-model="colormap"
           :options="modelInfo.colormaps"
           class="colormap-select"
+          @show="handleDropdownShow"
+          @hide="handleDropdownHide"
+          @change="handleDropdownChange"
         >
           <template #value="{ value }">
             <div class="cm-option">
@@ -141,7 +172,10 @@ function swatchSrc(cm: TColorMap): string {
             </div>
           </template>
           <template #option="{ option }">
-            <div class="cm-option">
+            <div
+              class="cm-option"
+              @mouseenter="handleOptionHover(option as TColorMap)"
+            >
               <img
                 :src="swatchSrc(option as TColorMap)"
                 class="cm-swatch"
