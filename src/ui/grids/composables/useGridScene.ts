@@ -18,6 +18,7 @@ import type {
   ProjectionHelper,
   TProjectionCenter,
 } from "@/lib/projection/projectionUtils.ts";
+import { useGlobeControlStore } from "@/store/store.ts";
 import {
   CONTROL_PANEL_WIDTH,
   MOBILE_BREAKPOINT,
@@ -40,6 +41,8 @@ export function useGridScene(options: UseGridSceneOptions) {
     cameraState,
     onReady,
   } = options;
+
+  const store = useGlobeControlStore();
 
   const canvas: Ref<HTMLCanvasElement | undefined> = ref();
   const box: Ref<HTMLDivElement | undefined> = ref();
@@ -96,7 +99,7 @@ export function useGridScene(options: UseGridSceneOptions) {
   }
 
   function redraw() {
-    if (getOrbitControls()?.autoRotate) {
+    if (store.isRotating) {
       return;
     }
     render();
@@ -277,8 +280,10 @@ export function useGridScene(options: UseGridSceneOptions) {
 
     if (projectionHelper.value.isFlat) {
       configureFlatProjectionCamera(cam, controls);
+      controls.autoRotate = false;
     } else {
       configureGlobeProjectionCamera(cam, controls);
+      controls.autoRotate = store.isRotating;
     }
 
     applyCameraTarget(cam, controls);
@@ -286,6 +291,10 @@ export function useGridScene(options: UseGridSceneOptions) {
 
     updateCameraForPanel();
     redraw();
+
+    if (store.isRotating) {
+      animationLoop();
+    }
   }
 
   function initEssentials() {
@@ -452,16 +461,24 @@ export function useGridScene(options: UseGridSceneOptions) {
   }
 
   function toggleRotate() {
-    if (projectionHelper.value.isFlat) {
-      getOrbitControls()!.autoRotate = false;
-      return;
+    store.toggleRotating();
+    if (!projectionHelper.value.isFlat) {
+      getOrbitControls()!.autoRotate = store.isRotating;
     }
-    getOrbitControls()!.autoRotate = !getOrbitControls()!.autoRotate;
     animationLoop();
   }
 
   function animationLoop() {
     cancelAnimationFrame(frameId.value);
+
+    // Rotate 2D projection center longitude
+    if (store.isRotating && projectionHelper.value.isFlat) {
+      const center = projectionCenter.value ?? { lat: 0, lon: 0 };
+      const newLon = projectionHelper.value.normalizeLongitude(
+        center.lon + 0.3
+      );
+      projectionCenter.value = { lat: center.lat, lon: newLon };
+    }
 
     // Update rotation speed based on camera distance
     if (!projectionHelper.value.isFlat && orbitControls && camera) {
@@ -471,7 +488,7 @@ export function useGridScene(options: UseGridSceneOptions) {
     }
 
     const controlsUpdated = render();
-    if (!mouseDown && !getOrbitControls()?.autoRotate && !controlsUpdated) {
+    if (!mouseDown && !store.isRotating && !controlsUpdated) {
       const cam = getCamera();
       if (cam) {
         cameraState.debouncedEncodeCameraToURL(cam);

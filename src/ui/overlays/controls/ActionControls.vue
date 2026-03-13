@@ -11,7 +11,7 @@ defineEmits<{
   onRotate: [];
 }>();
 
-const { projectionMode } = storeToRefs(useGlobeControlStore());
+const { projectionMode, isRotating } = storeToRefs(useGlobeControlStore());
 </script>
 
 <template>
@@ -25,11 +25,11 @@ const { projectionMode } = storeToRefs(useGlobeControlStore());
       </button>
       <button
         class="button"
+        :class="{ 'is-info': isRotating }"
         type="button"
-        :disabled="projectionMode !== PROJECTION_TYPES.NEARSIDE_PERSPECTIVE"
         :title="
           projectionMode !== PROJECTION_TYPES.NEARSIDE_PERSPECTIVE
-            ? 'Rotate is only available for nearside perspective projection'
+            ? 'Rotate the projection around longitude'
             : 'Rotate the globe'
         "
         @click="() => $emit('onRotate')"

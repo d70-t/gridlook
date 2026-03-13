@@ -45,9 +45,13 @@ export const useGlobeControlStore = defineStore("globeControl", {
       controlPanelVisible: true,
       projectionMode: PROJECTION_TYPES.NEARSIDE_PERSPECTIVE as TProjectionType,
       projectionCenter: { lat: 0, lon: 0 } as TProjectionCenter,
+      isRotating: false,
     };
   },
   actions: {
+    toggleRotating() {
+      this.isRotating = !this.isRotating;
+    },
     toggleCoastLines() {
       this.showCoastLines = !this.showCoastLines;
     },
