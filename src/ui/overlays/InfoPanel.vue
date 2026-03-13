@@ -155,7 +155,14 @@ const allVariables = computed(() => {
     return [];
   }
   return Object.entries(props.datasources.levels[0].datasources).map(
-    ([name, source]) => ({ name, hidden: source.hidden ?? false })
+    ([name, source]) => ({
+      name,
+      longName:
+        source.attrs?.standard_name ??
+        source.attrs?.long_name ??
+        source.attrs?.name,
+      hidden: source.hidden ?? false,
+    })
   );
 });
 
@@ -1027,7 +1034,9 @@ function formatValue(value: unknown): string {
             :key="v.name"
             class="tag is-family-monospace is-clickable"
             :class="v.name === varnameSelector ? 'is-info' : 'is-light'"
-            :title="'Select ' + v.name"
+            :title="
+              'Select ' + v.name + (v.longName ? ' (' + v.longName + ')' : '')
+            "
             type="button"
             @click="selectVariable(v.name)"
           >
