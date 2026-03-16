@@ -69,6 +69,7 @@ const tooltipY = ref(0);
 const tooltipData = ref<BinTooltip | null>(null);
 
 let chart: Chart | undefined;
+let resizeObserver: ResizeObserver | undefined;
 
 const dataRange = computed(() =>
   props.dataBoundsLow !== undefined && props.dataBoundsHigh !== undefined
@@ -299,6 +300,7 @@ function createChart() {
       ],
     },
     options: {
+      animation: false,
       responsive: true,
       maintainAspectRatio: false,
       scales: {
@@ -464,8 +466,24 @@ watch(
 // Lifecycle
 // ---------------------------------------------------------------------------
 
-onMounted(createChart);
+onMounted(() => {
+  createChart();
+  const container = canvasRef.value?.parentElement;
+  if (container) {
+    resizeObserver = new ResizeObserver(() => {
+      if (!chart) {
+        return;
+      }
+      chart.resize();
+      setChartAnnotations();
+      chart.update("none");
+    });
+    resizeObserver.observe(container);
+  }
+});
 onBeforeUnmount(() => {
+  resizeObserver?.disconnect();
+  resizeObserver = undefined;
   chart?.destroy();
   chart = undefined;
 });
