@@ -7,7 +7,10 @@ import { createApp } from "vue";
 
 import App from "./App.vue";
 import router from "./router";
+import { vWordBreak } from "./utils/wordbreak";
 const app = createApp(App);
+app.directive("word-break", vWordBreak);
+
 const pinia = createPinia();
 
 const MyPreset = definePreset(Aura, {

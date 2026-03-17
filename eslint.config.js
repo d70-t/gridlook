@@ -186,7 +186,7 @@ export default [
             { from: "store", allow: ["lib", "utils"] },
             { from: "lib", allow: ["assets", "utils"] },
             { from: "views", allow: ["lib", "store", "ui", "utils"] },
-            { from: "src", allow: ["lib", "src", "router", "views"] },
+            { from: "src", allow: ["lib", "src", "router", "views", "utils"] },
             { from: "router", allow: ["views"] },
             { from: "utils", disallow: ["*"] },
           ],

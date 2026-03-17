@@ -302,48 +302,53 @@ onMounted(() => {
     </div>
   </div>
 
-  <Transition name="slide">
-    <nav v-if="modelInfo && !isHidden" id="main_controls" class="gl_controls">
-      <div class="full-panel">
-        <div class="box m-2 p-2">
-          <div class="section-title">Variable</div>
-          <VariableSelector v-model="varnameSelector" :model-info="modelInfo" />
-          <DimensionControl />
+  <template v-if="modelInfo">
+    <Transition name="slide">
+      <nav v-show="!isHidden" id="main_controls" class="gl_controls">
+        <div class="full-panel">
+          <div class="box m-2 p-2">
+            <div class="section-title">Variable</div>
+            <VariableSelector
+              v-model="varnameSelector"
+              :model-info="modelInfo"
+            />
+            <DimensionControl />
+          </div>
+          <div class="box m-2 p-2">
+            <div class="section-title">Bounds & Colormap</div>
+            <BoundsControls
+              :picked-bounds-mode="pickedBoundsMode"
+              :data-bounds="dataBounds"
+              :default-bounds="defaultBounds"
+              :current-bounds="currentBounds"
+              :bound-modes="BOUND_MODES"
+              @update:picked-bounds-mode="
+                onPickedBoundsModeChange($event as TBoundModes)
+              "
+            />
+            <ColormapControls
+              :model-info="modelInfo"
+              :auto-colormap="autoColormap"
+              :data-bounds="dataBounds"
+              @update:auto-colormap="autoColormap = $event"
+              @force-user-bounds="pickedBoundsMode = BOUND_MODES.USER"
+            />
+            <div class="section-title mt-2">Projections</div>
+            <ProjectionControls />
+            <div class="section-title">Masks</div>
+            <MaskControls />
+          </div>
+          <div class="box m-2 p-2">
+            <div class="section-title">Actions</div>
+            <ActionControls
+              @on-snapshot="(opts) => $emit('onSnapshot', opts)"
+              @on-rotate="() => $emit('onRotate')"
+            />
+          </div>
         </div>
-        <div class="box m-2 p-2">
-          <div class="section-title">Bounds & Colormap</div>
-          <BoundsControls
-            :picked-bounds-mode="pickedBoundsMode"
-            :data-bounds="dataBounds"
-            :default-bounds="defaultBounds"
-            :current-bounds="currentBounds"
-            :bound-modes="BOUND_MODES"
-            @update:picked-bounds-mode="
-              onPickedBoundsModeChange($event as TBoundModes)
-            "
-          />
-          <ColormapControls
-            :model-info="modelInfo"
-            :auto-colormap="autoColormap"
-            :data-bounds="dataBounds"
-            @update:auto-colormap="autoColormap = $event"
-            @force-user-bounds="pickedBoundsMode = BOUND_MODES.USER"
-          />
-          <div class="section-title mt-2">Projections</div>
-          <ProjectionControls />
-          <div class="section-title">Masks</div>
-          <MaskControls />
-        </div>
-        <div class="box m-2 p-2">
-          <div class="section-title">Actions</div>
-          <ActionControls
-            @on-snapshot="() => $emit('onSnapshot')"
-            @on-rotate="() => $emit('onRotate')"
-          />
-        </div>
-      </div>
-    </nav>
-  </Transition>
+      </nav>
+    </Transition>
+  </template>
 </template>
 
 <style lang="scss">
@@ -450,6 +455,7 @@ onMounted(() => {
 }
 
 .gl_controls {
+  scrollbar-width: thin;
   margin-top: 56px;
   width: 24rem;
   min-width: 0;
