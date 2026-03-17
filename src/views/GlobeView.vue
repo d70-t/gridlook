@@ -3,7 +3,6 @@ import { storeToRefs } from "pinia";
 import { computed, onMounted, ref, watch, type Ref } from "vue";
 
 import type { TModelInfo, TSources } from "../lib/types/GlobeTypes";
-import type { TSnapshotOptions } from "../lib/types/GlobeTypes";
 
 import {
   getGridType,

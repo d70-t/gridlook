@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
 
     container:
-      image: node:20
+      image: node:24
 
     steps:
       - name: Checkout repository
