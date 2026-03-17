@@ -12,6 +12,7 @@ import {
 } from "vue";
 
 import type { GridCameraState } from "./useGridCameraState.ts";
+import { useGridSnapshot } from "./useGridSnapshot.ts";
 
 import { handleKeyDown } from "@/lib/camera/OrbitControlsAddOn.ts";
 import type {
@@ -88,6 +89,10 @@ export function useGridScene(options: UseGridSceneOptions) {
 
   function getResizeObserver() {
     return resizeObserver;
+  }
+
+  function getBaseSurface() {
+    return baseSurface;
   }
 
   function registerUpdateLOD(func: () => void) {
@@ -680,18 +685,14 @@ export function useGridScene(options: UseGridSceneOptions) {
     }
   );
 
-  function makeSnapshot() {
-    render();
-    canvas.value?.toBlob((blob) => {
-      const link = document.createElement("a");
-      link.download = "gridlook.png";
-
-      link.href = URL.createObjectURL(blob!);
-      link.click();
-
-      URL.revokeObjectURL(link.href);
-    }, "image/png");
-  }
+  const { makeSnapshot } = useGridSnapshot({
+    canvas,
+    getRenderer,
+    getScene,
+    getCamera,
+    getBaseSurface,
+    render,
+  });
 
   return {
     canvas,

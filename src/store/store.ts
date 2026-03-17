@@ -43,6 +43,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
       dimSlidersDisplay: [] as (number | null)[],
       isInitializingVariable: false,
       controlPanelVisible: true,
+      datasetTitle: "" as string,
       projectionMode: PROJECTION_TYPES.NEARSIDE_PERSPECTIVE as TProjectionType,
       projectionCenter: { lat: 0, lon: 0 } as TProjectionCenter,
       isRotating: false,

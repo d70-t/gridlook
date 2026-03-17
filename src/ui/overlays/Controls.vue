@@ -14,7 +14,11 @@ import VariableSelector from "./controls/VariableSelector.vue";
 
 // Import control components
 import { clamp, type TProjectionType } from "@/lib/projection/projectionUtils";
-import type { TBounds, TModelInfo } from "@/lib/types/GlobeTypes";
+import type {
+  TBounds,
+  TModelInfo,
+  TSnapshotOptions,
+} from "@/lib/types/GlobeTypes";
 import { useUrlParameterStore } from "@/store/paramStore";
 import { useGlobeControlStore } from "@/store/store";
 import { MOBILE_BREAKPOINT } from "@/ui/common/viewConstants";
@@ -22,7 +26,7 @@ import { MOBILE_BREAKPOINT } from "@/ui/common/viewConstants";
 const props = defineProps<{ modelInfo?: TModelInfo; currentSource: string }>();
 
 defineEmits<{
-  onSnapshot: [];
+  onSnapshot: [options: TSnapshotOptions];
   onRotate: [];
 }>();
 

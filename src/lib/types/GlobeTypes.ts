@@ -79,6 +79,20 @@ export type TSources = {
   }[];
 };
 
+export type TSnapshotBackground = "black" | "white" | "transparent";
+
+export type TSnapshotOptions = {
+  background: TSnapshotBackground;
+  showDatasetInfo: boolean;
+  showColormap: boolean;
+};
+
+export const DEFAULT_SNAPSHOT_OPTIONS: TSnapshotOptions = {
+  background: "black",
+  showDatasetInfo: true,
+  showColormap: true,
+};
+
 export type TZarrV3RootMetadata = {
   zarr_format: 3;
   node_type: "group";

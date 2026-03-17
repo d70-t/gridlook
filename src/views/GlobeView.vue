@@ -3,6 +3,7 @@ import { storeToRefs } from "pinia";
 import { computed, onMounted, ref, watch, type Ref } from "vue";
 
 import type { TModelInfo, TSources } from "../lib/types/GlobeTypes";
+import type { TSnapshotOptions } from "../lib/types/GlobeTypes";
 
 import {
   getGridType,
@@ -136,6 +137,8 @@ watch(
 function prepareDefaults(src: string, index: TSources) {
   if (src === props.src) {
     datasources.value = index;
+    // Store dataset title for snapshot overlay
+    store.datasetTitle = index.name ?? "";
   }
   const validVars = Object.keys(modelInfo.value!.vars).filter((varname) => {
     const varinfo = modelInfo.value!.vars[varname];
@@ -192,9 +195,9 @@ const updateSrc = async () => {
   }
 };
 
-const makeSnapshot = () => {
+const makeSnapshot = (options: TSnapshotOptions) => {
   if (globe.value) {
-    globe.value.makeSnapshot();
+    globe.value.makeSnapshot(options);
   }
 };
 
