@@ -463,6 +463,7 @@ onMounted(() => {
   margin-top: 56px;
   width: 24rem;
   min-width: 0;
+  height: calc(100vh - 56px);
   overflow-y: auto;
   flex-shrink: 0;
   z-index: 10;
