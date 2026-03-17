@@ -319,7 +319,7 @@ onMounted(() => {
             <DimensionControl />
           </div>
           <div class="box m-2 p-2">
-            <div class="section-title">Bounds & Colormap</div>
+            <div class="section-title">Colormap</div>
             <BoundsControls
               :picked-bounds-mode="pickedBoundsMode"
               :data-bounds="dataBounds"
