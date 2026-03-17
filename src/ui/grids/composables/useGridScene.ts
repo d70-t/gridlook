@@ -480,7 +480,7 @@ export function useGridScene(options: UseGridSceneOptions) {
     if (store.isRotating && projectionHelper.value.isFlat) {
       const center = projectionCenter.value ?? { lat: 0, lon: 0 };
       const newLon = projectionHelper.value.normalizeLongitude(
-        center.lon + 0.3
+        center.lon - 0.3
       );
       projectionCenter.value = { lat: center.lat, lon: newLon };
     }

@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import { useEventListener } from "@vueuse/core";
 import { storeToRefs } from "pinia";
 import { computed, onMounted, ref, watch, type Ref } from "vue";
 
@@ -48,6 +49,7 @@ const { varnameSelector, loading, colormap, invertColormap } =
 const { paramVarname, paramGridType } = storeToRefs(urlParameterStore);
 
 const globe: Ref<typeof GridTriangular | null> = ref(null);
+const distractionFree = ref(false);
 const globeKey = ref(0);
 const globeControlKey = ref(0);
 const isInitialized = ref(false);
@@ -230,18 +232,37 @@ onMounted(async () => {
   isInitialized.value = true;
   await setGridType();
 });
+
+useEventListener(window, "keydown", (e: KeyboardEvent) => {
+  const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+  if (tag === "input" || tag === "textarea" || tag === "select") {
+    return;
+  }
+  if (e.key === "r") {
+    toggleRotate();
+  } else if (e.key === "d") {
+    distractionFree.value = !distractionFree.value;
+    if (distractionFree.value) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    } else if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+  }
+});
 </script>
 
 <template>
   <main>
     <Toast />
-    <GlobeControls
-      :key="globeControlKey"
-      :model-info="modelInfo"
-      :current-source="props.src"
-      @on-snapshot="makeSnapshot"
-      @on-rotate="toggleRotate"
-    />
+    <div v-show="!distractionFree">
+      <GlobeControls
+        :key="globeControlKey"
+        :model-info="modelInfo"
+        :current-source="props.src"
+        @on-snapshot="makeSnapshot"
+        @on-rotate="toggleRotate"
+      />
+    </div>
 
     <div v-if="loading" class="top-right-loader loader" />
     <section
@@ -266,7 +287,7 @@ onMounted(async () => {
       :datasources="datasources"
       :is-rotated="detectedGridType === GRID_TYPES.REGULAR_ROTATED"
     />
-    <div class="buttons about-corner-link">
+    <div v-show="!distractionFree" class="buttons about-corner-link">
       <InfoPanel
         :datasources="datasources"
         :grid-type="detectedGridType"

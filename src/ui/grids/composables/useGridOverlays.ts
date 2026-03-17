@@ -15,6 +15,7 @@ import type { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 type UseGridOverlaysOptions = {
   projectionHelper: ComputedRef<ProjectionHelper>;
   showCoastLines: Ref<boolean>;
+  showGraticules: Ref<boolean>;
   landSeaMaskChoice: Ref<TLandSeaMaskMode | undefined>;
   landSeaMaskUseTexture: Ref<boolean>;
   getScene: () => THREE.Scene | undefined;
@@ -26,6 +27,7 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
   const {
     projectionHelper,
     showCoastLines,
+    showGraticules,
     landSeaMaskChoice,
     landSeaMaskUseTexture,
     getScene,
@@ -33,8 +35,10 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
   } = options;
 
   let coast: THREE.LineSegments | undefined = undefined;
+  let graticules: THREE.LineSegments | undefined = undefined;
   let landSeaMask: THREE.Object3D | undefined = undefined;
   let coastlineData: FeatureCollection | undefined;
+  let graticulesData: FeatureCollection | undefined;
 
   async function getCoastlines() {
     if (!coastlineData) {
@@ -73,6 +77,47 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
       }
     } else {
       scene.add(await getCoastlines());
+    }
+    redraw();
+  }
+
+  async function getGraticulesLayer() {
+    if (!graticulesData) {
+      graticulesData = await ResourceCache.loadGeoJSON(
+        "static/ne_50m_graticules_30.geojson"
+      );
+    }
+    if (!graticules) {
+      const material = new THREE.LineBasicMaterial({
+        color: "#888888",
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+        polygonOffsetUnits: -1,
+      });
+      graticules = new THREE.LineSegments(new THREE.BufferGeometry(), material);
+      graticules.name = "graticules";
+      graticules.renderOrder = 1;
+    }
+    const geometry = geojson2geometry(graticulesData, projectionHelper.value, {
+      radius: projectionHelper.value.isFlat ? 1 : 1.002,
+      zOffset: projectionHelper.value.isFlat ? 0.01 : 0,
+    });
+    graticules.geometry.dispose();
+    graticules.geometry = geometry;
+    return graticules;
+  }
+
+  async function updateGraticules() {
+    const scene = getScene();
+    if (!scene) {
+      return;
+    }
+    if (showGraticules.value === false) {
+      if (graticules) {
+        scene.remove(graticules);
+      }
+    } else {
+      scene.add(await getGraticulesLayer());
     }
     redraw();
   }
@@ -120,6 +165,7 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
 
   return {
     updateCoastlines,
+    updateGraticules,
     updateLandSeaMask,
     updateLandSeaMaskProjectionUniforms,
   };
