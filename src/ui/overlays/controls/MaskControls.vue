@@ -64,6 +64,15 @@ const { landSeaMaskChoice, landSeaMaskUseTexture } = storeToRefs(store);
           />
           <label for="enable_coastlines">Coastlines</label>
         </div>
+        <div class="column">
+          <input
+            id="enable_graticules"
+            type="checkbox"
+            :checked="store.showGraticules"
+            @change="store.toggleGraticules"
+          />
+          <label for="enable_graticules">Graticules</label>
+        </div>
       </div>
     </div>
   </div>
