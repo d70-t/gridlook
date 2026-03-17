@@ -1,3 +1,5 @@
+import { drawText as canvasTxtDrawText } from "canvas-txt";
+import type { Dayjs } from "dayjs";
 import * as THREE from "three";
 import type { Ref } from "vue";
 
@@ -5,10 +7,10 @@ import type { TColorMap } from "@/lib/shaders/colormapShaders.ts";
 import { makeCompressedColormapLutMaterial } from "@/lib/shaders/gridShaders.ts";
 import {
   DEFAULT_SNAPSHOT_OPTIONS,
+  type TSnapshotBackground,
   type TSnapshotOptions,
 } from "@/lib/types/GlobeTypes.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
-
 type UseGridSnapshotOptions = {
   canvas: Ref<HTMLCanvasElement | undefined>;
   getRenderer: () => THREE.WebGLRenderer | undefined;
@@ -108,7 +110,7 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
     ctx: CanvasRenderingContext2D,
     w: number,
     h: number,
-    background: "black" | "white" | "transparent"
+    background: TSnapshotBackground
   ) {
     const renderer = getRenderer();
     const scene = getScene();
@@ -156,14 +158,17 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
   }
 
   /** Collect dimension value strings for the info overlay. */
-  function buildSnapshotInfoLines(showDatasetInfo: boolean): string[] {
+  function buildSnapshotInfoLines(showDatasetInfo: boolean): {
+    datasetTitle: string | null;
+    lines: string[];
+  } {
     if (!showDatasetInfo) {
-      return [];
+      return { datasetTitle: null, lines: [] };
     }
     const lines: string[] = [];
-    if (store.datasetTitle) {
-      lines.push(`Dataset: ${store.datasetTitle}`);
-    }
+    const datasetTitle = store.datasetTitle
+      ? `Dataset: ${store.datasetTitle}`
+      : null;
     const varname =
       store.varinfo?.attrs?.long_name ??
       store.varinfo?.attrs?.standard_name ??
@@ -174,12 +179,10 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
       units = "";
     }
 
-    console.log(units);
-
     lines.push(`Variable: ${varname}` + (units ? ` (${units})` : ""));
     const vi = store.varinfo;
     if (!vi) {
-      return lines;
+      return { datasetTitle, lines };
     }
     for (let i = 0; i < vi.dimRanges.length; i++) {
       const range = vi.dimRanges[i];
@@ -187,22 +190,20 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
       if (!range || !dimInfo || !("current" in dimInfo)) {
         continue;
       }
-      if (!range.maxBound && range.name !== "time") {
+      if (!range.maxBound) {
         continue;
       }
       const val = dimInfo.current;
       const isObj = val && typeof val === "object";
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const hasFormat = isObj && typeof (val as any).format === "function";
+      const hasFormat = isObj && typeof (val as Dayjs).format === "function";
       const valStr = hasFormat
-        ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (val as any).format("YYYY-MM-DD HH:mm")
+        ? (val as Dayjs).format("YYYY-MM-DD HH:mm")
         : String(val);
       const units =
         "units" in dimInfo && dimInfo.units ? ` ${dimInfo.units}` : "";
       lines.push(`${range.name}: ${valStr}${units}`);
     }
-    return lines;
+    return { datasetTitle, lines };
   }
 
   /** Draw colormap gradient bar + value labels onto the composite canvas. */
@@ -240,12 +241,14 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
   }
 
   /** Draw overlays (colormap bar + info text) onto the composite canvas, then trigger download. */
+  /* eslint-disable-next-line max-lines-per-function */
   function drawOverlaysAndDownload(
     composite: HTMLCanvasElement,
     ctx: CanvasRenderingContext2D,
     w: number,
     h: number,
     showColormap: boolean,
+    datasetTitle: string | null,
     infoLines: string[],
     margin: number,
     cmBarH: number,
@@ -267,6 +270,20 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
       );
       currentY += cmBarH + cmLabelH;
     }
+    if (datasetTitle !== null) {
+      const maxWidth = w - 2 * margin;
+      const { height: titleHeight } = canvasTxtDrawText(ctx, datasetTitle, {
+        x: margin,
+        y: currentY,
+        width: maxWidth,
+        height: infoLineH * 10,
+        fontSize,
+        align: "left",
+        vAlign: "top",
+        lineHeight: infoLineH,
+      });
+      currentY += titleHeight + Math.round(infoLineH * 0.2);
+    }
     if (infoLines.length > 0) {
       ctx.fillStyle = textColor;
       ctx.font = `${fontSize}px sans-serif`;
@@ -286,6 +303,22 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
     }, "image/png");
   }
 
+  function fillBackground(
+    ctx: CanvasRenderingContext2D,
+    w: number,
+    h: number,
+    backgroundColor: TSnapshotBackground
+  ) {
+    if (backgroundColor === "white") {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, w, h);
+    } else if (backgroundColor === "black") {
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(0, 0, w, h);
+    }
+  }
+
+  /* eslint-disable-next-line max-lines-per-function */
   function makeSnapshot(options: TSnapshotOptions = DEFAULT_SNAPSHOT_OPTIONS) {
     const glCanvas = canvas.value;
     if (!glCanvas || !getRenderer() || !getScene() || !getCamera()) {
@@ -302,26 +335,36 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
     const INFO_LINE_HEIGHT = Math.round(fontSize * 1.5);
     const textColor = background === "white" ? "#000000" : "#ffffff";
 
-    const infoLines = buildSnapshotInfoLines(showDatasetInfo);
+    const { datasetTitle, lines: infoLines } =
+      buildSnapshotInfoLines(showDatasetInfo);
+
+    // Estimate wrapped title height to size the composite canvas correctly.
+    const maxTextWidth = w - 2 * MARGIN;
+    let titleLines = 1;
+    if (datasetTitle) {
+      const measCanvas = document.createElement("canvas");
+      const measCtx = measCanvas.getContext("2d")!;
+      measCtx.font = `${fontSize}px sans-serif`;
+      const titleWidth = measCtx.measureText(datasetTitle).width;
+      titleLines = Math.max(1, Math.ceil(titleWidth / maxTextWidth));
+    }
+    const titleHeight = datasetTitle
+      ? titleLines * INFO_LINE_HEIGHT + Math.round(INFO_LINE_HEIGHT * 0.2)
+      : 0;
+
     const extraHeight =
       (showColormap ? CM_BAR_HEIGHT + CM_LABEL_HEIGHT + MARGIN : 0) +
-      (infoLines.length > 0
-        ? infoLines.length * INFO_LINE_HEIGHT + MARGIN
-        : 0) +
-      (showColormap || infoLines.length > 0 ? MARGIN : 0);
+      (datasetTitle !== null || infoLines.length > 0 ? MARGIN : 0) +
+      (datasetTitle !== null ? titleHeight : 0) +
+      (infoLines.length > 0 ? infoLines.length * INFO_LINE_HEIGHT : 0) +
+      (datasetTitle !== null || infoLines.length > 0 ? MARGIN : 0);
 
     const composite = document.createElement("canvas");
     composite.width = w;
     composite.height = h + extraHeight;
     const ctx = composite.getContext("2d")!;
 
-    if (background === "white") {
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, w, h + extraHeight);
-    } else if (background === "black") {
-      ctx.fillStyle = "#000000";
-      ctx.fillRect(0, 0, w, h + extraHeight);
-    }
+    fillBackground(ctx, w, h + extraHeight, background);
     renderGlobeToCtx(ctx, w, h, background);
     drawOverlaysAndDownload(
       composite,
@@ -329,6 +372,7 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
       w,
       h,
       showColormap,
+      datasetTitle,
       infoLines,
       MARGIN,
       CM_BAR_HEIGHT,
