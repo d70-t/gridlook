@@ -55,7 +55,7 @@ function resetProjectionCenter() {
 </script>
 
 <template>
-  <div class="column is-flex-direction-column gap-2">
+  <div class="column">
     <div class="select is-fullwidth mb-2">
       <select v-model="projectionMode">
         <option :value="PROJECTION_TYPES.NEARSIDE_PERSPECTIVE">

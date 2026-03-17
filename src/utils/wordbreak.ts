@@ -1,8 +1,16 @@
 export const vWordBreak = {
   mounted(el: HTMLElement) {
-    el.innerHTML = el.textContent.replace(/([_\-\s]+)/g, "$1<wbr>");
+    const text = el.textContent ?? "";
+    if (!text) {
+      return;
+    }
+    el.innerHTML = text.replace(/([_\-\s]+)/g, "$1<wbr>");
   },
   updated(el: HTMLElement) {
-    el.innerHTML = el.textContent.replace(/([_\-\s]+)/g, "$1<wbr>");
+    const text = el.textContent ?? "";
+    if (!text) {
+      return;
+    }
+    el.innerHTML = text.replace(/([_\-\s]+)/g, "$1<wbr>");
   },
 };

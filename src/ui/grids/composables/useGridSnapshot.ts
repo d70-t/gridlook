@@ -11,6 +11,7 @@ import {
   type TSnapshotOptions,
 } from "@/lib/types/GlobeTypes.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
+import { useLog } from "@/utils/logging";
 type UseGridSnapshotOptions = {
   canvas: Ref<HTMLCanvasElement | undefined>;
   getRenderer: () => THREE.WebGLRenderer | undefined;
@@ -24,8 +25,8 @@ type UseGridSnapshotOptions = {
 export function useGridSnapshot(deps: UseGridSnapshotOptions) {
   const { canvas, getRenderer, getScene, getCamera, getBaseSurface, render } =
     deps;
+  const { logError } = useLog();
   const store = useGlobeControlStore();
-
   /** Render a horizontal colormap gradient to an off-screen canvas. */
   function renderColormapGradient(
     colormapName: TColorMap,
@@ -295,6 +296,10 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
       }
     }
     composite.toBlob((blob) => {
+      if (!blob) {
+        logError("Failed to create snapshot blob");
+        return;
+      }
       const link = document.createElement("a");
       link.download = "gridlook.png";
       link.href = URL.createObjectURL(blob!);
