@@ -14,7 +14,11 @@ import VariableSelector from "./controls/VariableSelector.vue";
 
 // Import control components
 import { clamp, type TProjectionType } from "@/lib/projection/projectionUtils";
-import type { TBounds, TModelInfo } from "@/lib/types/GlobeTypes";
+import type {
+  TBounds,
+  TModelInfo,
+  TSnapshotOptions,
+} from "@/lib/types/GlobeTypes";
 import { useUrlParameterStore } from "@/store/paramStore";
 import { useGlobeControlStore } from "@/store/store";
 import { MOBILE_BREAKPOINT } from "@/ui/common/viewConstants";
@@ -22,7 +26,7 @@ import { MOBILE_BREAKPOINT } from "@/ui/common/viewConstants";
 const props = defineProps<{ modelInfo?: TModelInfo; currentSource: string }>();
 
 defineEmits<{
-  onSnapshot: [];
+  onSnapshot: [options: TSnapshotOptions];
   onRotate: [];
 }>();
 
@@ -270,18 +274,9 @@ onMounted(() => {
 </script>
 
 <template>
-  <nav
-    id="main_controls"
-    class="panel gl_controls"
-    :class="{ 'mobile-visible': !isHidden }"
-  >
-    <div class="panel-heading">
-      <DataInput :current-source="currentSource" />
-      <div
-        v-if="modelInfo"
-        class="mobile-title text-wrap is-flex is-align-items-center"
-        style="display: flex; align-items: center"
-      >
+  <div class="header-container">
+    <div class="header-content">
+      <div v-if="modelInfo" class="title-bar mobile-title">
         <button
           type="button"
           class="button is-primary is-hidden-tablet p-3 mr-3"
@@ -289,15 +284,15 @@ onMounted(() => {
         >
           <i class="fa-solid fa-bars"></i>
         </button>
-
         <span class="ellipsis" :title="modelInfo.title">
           {{ modelInfo.title }}
         </span>
       </div>
-      <div v-else class="mobile-title">No data available</div>
+      <div v-else class="title-bar">No data available</div>
+      <DataInput :current-source="currentSource" />
       <button
         type="button"
-        class="panel-toggle is-hidden-mobile"
+        class="is-hidden-mobile panel-toggle"
         @click="toggleMenu"
       >
         <i
@@ -309,56 +304,172 @@ onMounted(() => {
         ></i>
       </button>
     </div>
+  </div>
 
+  <template v-if="modelInfo">
     <Transition name="slide">
-      <div v-if="modelInfo && !isHidden" class="controls-scroll full-panel">
-        <VariableSelector v-model="varnameSelector" :model-info="modelInfo" />
-        <DimensionControl />
-        <BoundsControls
-          :picked-bounds-mode="pickedBoundsMode"
-          :data-bounds="dataBounds"
-          :default-bounds="defaultBounds"
-          :current-bounds="currentBounds"
-          :bound-modes="BOUND_MODES"
-          @update:picked-bounds-mode="
-            onPickedBoundsModeChange($event as TBoundModes)
-          "
-        />
-        <ColormapControls
-          :model-info="modelInfo"
-          :auto-colormap="autoColormap"
-          :data-bounds="dataBounds"
-          @update:auto-colormap="autoColormap = $event"
-          @force-user-bounds="pickedBoundsMode = BOUND_MODES.USER"
-        />
-        <ProjectionControls />
-        <MaskControls />
-        <ActionControls
-          @on-snapshot="() => $emit('onSnapshot')"
-          @on-rotate="() => $emit('onRotate')"
-        />
-      </div>
+      <nav v-show="!isHidden" id="main_controls" class="gl_controls">
+        <div class="full-panel">
+          <div class="box m-2 p-2">
+            <div class="section-title">Variable</div>
+            <VariableSelector
+              v-model="varnameSelector"
+              :model-info="modelInfo"
+            />
+            <DimensionControl />
+          </div>
+          <div class="box m-2 p-2">
+            <div class="section-title">Colormap</div>
+            <BoundsControls
+              :picked-bounds-mode="pickedBoundsMode"
+              :data-bounds="dataBounds"
+              :default-bounds="defaultBounds"
+              :current-bounds="currentBounds"
+              :bound-modes="BOUND_MODES"
+              @update:picked-bounds-mode="
+                onPickedBoundsModeChange($event as TBoundModes)
+              "
+            />
+            <ColormapControls
+              :model-info="modelInfo"
+              :auto-colormap="autoColormap"
+              :data-bounds="dataBounds"
+              @update:auto-colormap="autoColormap = $event"
+              @force-user-bounds="pickedBoundsMode = BOUND_MODES.USER"
+            />
+            <div class="section-title mt-2">Projections</div>
+            <ProjectionControls />
+            <div class="section-title">Masks</div>
+            <MaskControls />
+          </div>
+          <div class="box m-2 p-2">
+            <div class="section-title">Actions</div>
+            <ActionControls
+              @on-snapshot="(opts) => $emit('onSnapshot', opts)"
+              @on-rotate="() => $emit('onRotate')"
+            />
+          </div>
+        </div>
+      </nav>
     </Transition>
-  </nav>
+  </template>
 </template>
 
 <style lang="scss">
 @use "bulma/sass/utilities" as bulmaUt;
 
-.gl_controls {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 24rem;
-  max-height: 100vh; // Full screen height limit
-  overflow-y: auto;
-  overflow-x: hidden;
-  border-radius: 0 0 bulmaUt.$radius bulmaUt.$radius !important;
-  z-index: 9;
+.header-content .data-input-trigger {
+  order: 0;
+}
 
-  .full-panel {
+.title-bar {
+  order: 1;
+}
+
+.panel-toggle {
+  order: 2;
+}
+
+.section-title {
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  font-size: 0.75rem !important;
+  padding-right: 0.5rem !important;
+  padding-left: 0.5rem !important;
+  padding-top: 0.5rem !important;
+  color: var(--bulma-grey) !important;
+}
+
+.header-container {
+  flex-wrap: nowrap;
+  overflow: visible;
+  border-radius: 0;
+  font-size: 1.1rem;
+  position: fixed;
+
+  width: 24rem;
+  z-index: 10;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  background-color: var(--bulma-body-color);
+  color: white;
+  font-weight: bold;
+  padding: 0 16px;
+  @media only screen and (max-width: bulmaUt.$tablet) {
+    width: 100%;
+  }
+}
+
+.header-content {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.header-content > button {
+  flex-shrink: 0;
+}
+
+.mobile-title {
+  display: flex;
+  align-items: center;
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.mobile-title > button {
+  flex-shrink: 0;
+}
+
+.ellipsis {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+@media only screen and (max-width: bulmaUt.$tablet) {
+  .header-content .mobile-title {
+    flex: 1;
+    min-width: 0;
+    overflow: auto;
+  }
+
+  .header-content .data-input-trigger {
+    order: 2;
+    margin-left: auto;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .header-container {
     background: var(--bulma-scheme-main);
   }
+  .gl_controls {
+    background-color: var(--bulma-scheme-main) !important;
+    .box {
+      color: rgb(235, 236, 240) !important;
+    }
+  }
+}
+
+.gl_controls {
+  scrollbar-width: thin;
+  margin-top: 56px;
+  width: 24rem;
+  min-width: 0;
+  height: calc(100vh - 56px);
+  overflow-y: auto;
+  flex-shrink: 0;
+  z-index: 10;
+  background-color: #ddd;
+  color: black;
+
   .panel-block {
     padding: 0.75em 0.8em;
   }
@@ -371,96 +482,37 @@ onMounted(() => {
     margin-right: 3px;
   }
 
-  .panel-heading {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    flex-wrap: nowrap;
-    overflow: visible;
-    padding-left: 16px;
-    padding-right: 16px;
-    padding-top: 12px;
-    padding-bottom: 12px;
-    border-radius: 0;
-    font-size: 1.1rem;
-  }
-
-  .panel-heading .mobile-title {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .panel-heading .data-input-trigger {
-    order: 0;
-  }
-
-  .panel-heading .mobile-title {
-    order: 1;
-  }
-
-  .panel-heading .panel-toggle {
-    order: 2;
-  }
-
-  .ellipsis {
-    overflow: hidden;
-    word-break: break-word;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    display: block;
-    width: 100%;
-  }
-
   @media only screen and (max-width: bulmaUt.$tablet) {
     width: 100%;
-    height: auto;
-    right: 0;
+    position: fixed;
+    height: 95%;
     border-radius: 0 !important;
-
-    &.panel {
-      border-radius: 0 !important;
-    }
-
-    .panel-heading .mobile-title {
-      flex: 1;
-      min-width: 0;
-    }
-
-    .panel-heading .data-input-trigger {
-      order: 2;
-      margin-left: auto;
-    }
 
     &.mobile-visible {
       max-height: 100vh;
     }
   }
 
-  @media (prefers-color-scheme: dark) {
-    .panel-heading {
-      background: var(--bulma-scheme-main);
-    }
+  &.slide-enter-active,
+  &.slide-leave-active {
+    transition: width 0.3s ease-out;
   }
 
-  .slide-enter-active,
-  .slide-leave-active {
-    transition: all 0.3s ease-out;
-  }
-
-  .slide-enter-from,
-  .slide-leave-to {
-    transform: translateX(-400px);
+  &.slide-enter-from,
+  &.slide-leave-to {
+    width: 0;
   }
 
   @media only screen and (max-width: bulmaUt.$tablet) {
-    .slide-enter-active,
-    .slide-leave-active {
-      transition: all 0.3s ease-out;
+    &.slide-enter-active,
+    &.slide-leave-active {
+      transition: height 0.3s ease-in;
     }
 
-    .slide-enter-from,
-    .slide-leave-to {
-      transform: translateY(-400px);
+    &.slide-enter-from,
+    &.slide-leave-to {
+      width: 100%;
+      height: 0;
     }
   }
 }

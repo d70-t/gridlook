@@ -55,7 +55,7 @@ function resetProjectionCenter() {
 </script>
 
 <template>
-  <div class="panel-block is-flex is-flex-direction-column gap-2">
+  <div class="column">
     <div class="select is-fullwidth mb-2">
       <select v-model="projectionMode">
         <option :value="PROJECTION_TYPES.NEARSIDE_PERSPECTIVE">
@@ -86,7 +86,7 @@ function resetProjectionCenter() {
             <p class="control is-expanded">
               <input
                 v-model.number="centerLon"
-                class="input"
+                class="input projection-input"
                 type="number"
                 min="-180"
                 max="180"
@@ -104,7 +104,7 @@ function resetProjectionCenter() {
             <p class="control is-expanded">
               <input
                 v-model.number="centerLat"
-                class="input"
+                class="input projection-input"
                 type="number"
                 min="-90"
                 max="90"
@@ -119,9 +119,12 @@ function resetProjectionCenter() {
             class="button is-light"
             type="button"
             :disabled="!isFlat"
+            title="Reset projection center"
             @click="resetProjectionCenter"
           >
-            Reset
+            <span class="icon">
+              <i class="fa-solid fa-arrow-rotate-left"></i>
+            </span>
           </button>
         </div>
       </div>
@@ -130,6 +133,10 @@ function resetProjectionCenter() {
 </template>
 
 <style scoped>
+.projection-input {
+  text-align: right;
+  -moz-appearance: textfield;
+}
 .projection-center .button.is-static {
   min-width: 3rem;
 }

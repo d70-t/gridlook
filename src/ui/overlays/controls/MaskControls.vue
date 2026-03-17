@@ -9,7 +9,7 @@ const { landSeaMaskChoice, landSeaMaskUseTexture } = storeToRefs(store);
 
 <template>
   <div class="panel-block">
-    <div class="w-100 pt-2">
+    <div class="">
       <div class="columns compact-row is-flex is-align-items-center">
         <div class="column">
           <div class="control has-icons-left">
@@ -63,6 +63,15 @@ const { landSeaMaskChoice, landSeaMaskUseTexture } = storeToRefs(store);
             @change="store.toggleCoastLines"
           />
           <label for="enable_coastlines">Coastlines</label>
+        </div>
+        <div class="column">
+          <input
+            id="enable_graticules"
+            type="checkbox"
+            :checked="store.showGraticules"
+            @change="store.toggleGraticules"
+          />
+          <label for="enable_graticules">Graticules</label>
         </div>
       </div>
     </div>

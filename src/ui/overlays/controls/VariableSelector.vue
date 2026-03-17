@@ -27,12 +27,16 @@ const currentVarUnits = computed(() => {
 });
 
 const currentVarLongname = computed(() => {
-  return varinfo.value?.attrs?.long_name ?? "-";
+  return varinfo.value?.attrs?.long_name;
+});
+
+const currentVarStandardName = computed(() => {
+  return varinfo.value?.attrs?.standard_name;
 });
 </script>
 
 <template>
-  <div class="panel-block">
+  <div class="column">
     <div class="control">
       <div class="select is-fullwidth mb-2" :class="{ 'is-loading': loading }">
         <select v-model="model" class="form-control">
@@ -42,14 +46,26 @@ const currentVarLongname = computed(() => {
             :value="varname"
           >
             {{ varname }}
-            <span v-if="modelInfo.vars[varname]?.attrs?.standard_name">
-              - {{ modelInfo.vars[varname].attrs.standard_name }}
+            <span
+              v-if="
+                modelInfo.vars[varname]?.attrs?.long_name ||
+                modelInfo.vars[varname]?.attrs?.standard_name
+              "
+            >
+              -
+              {{
+                modelInfo.vars[varname].attrs.long_name ??
+                modelInfo.vars[varname].attrs.standard_name
+              }}
             </span>
           </option>
         </select>
       </div>
       <div class="has-text-right">
-        {{ currentVarLongname }} / {{ currentVarUnits }}
+        <span v-word-break>
+          {{ currentVarLongname || currentVarStandardName || "-" }}
+        </span>
+        / {{ currentVarUnits }}
       </div>
     </div>
   </div>

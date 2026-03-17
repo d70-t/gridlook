@@ -1,8 +1,13 @@
 <script lang="ts" setup>
+import { useEventListener } from "@vueuse/core";
 import { storeToRefs } from "pinia";
 import { computed, onMounted, ref, watch, type Ref } from "vue";
 
-import type { TModelInfo, TSources } from "../lib/types/GlobeTypes";
+import type {
+  TModelInfo,
+  TSnapshotOptions,
+  TSources,
+} from "../lib/types/GlobeTypes";
 
 import {
   getGridType,
@@ -44,6 +49,7 @@ const { varnameSelector, loading, colormap, invertColormap } =
 const { paramVarname, paramGridType } = storeToRefs(urlParameterStore);
 
 const globe: Ref<typeof GridTriangular | null> = ref(null);
+const distractionFree = ref(false);
 const globeKey = ref(0);
 const globeControlKey = ref(0);
 const isInitialized = ref(false);
@@ -136,6 +142,8 @@ watch(
 function prepareDefaults(src: string, index: TSources) {
   if (src === props.src) {
     datasources.value = index;
+    // Store dataset title for snapshot overlay
+    store.datasetTitle = index.name ?? "";
   }
   const validVars = Object.keys(modelInfo.value!.vars).filter((varname) => {
     const varinfo = modelInfo.value!.vars[varname];
@@ -192,9 +200,9 @@ const updateSrc = async () => {
   }
 };
 
-const makeSnapshot = () => {
+const makeSnapshot = (options: TSnapshotOptions) => {
   if (globe.value) {
-    globe.value.makeSnapshot();
+    globe.value.makeSnapshot(options);
   }
 };
 
@@ -224,18 +232,37 @@ onMounted(async () => {
   isInitialized.value = true;
   await setGridType();
 });
+
+useEventListener(window, "keydown", (e: KeyboardEvent) => {
+  const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+  if (tag === "input" || tag === "textarea" || tag === "select") {
+    return;
+  }
+  if (e.key === "r") {
+    toggleRotate();
+  } else if (e.key === "d") {
+    distractionFree.value = !distractionFree.value;
+    if (distractionFree.value) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    } else if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+  }
+});
 </script>
 
 <template>
   <main>
     <Toast />
-    <GlobeControls
-      :key="globeControlKey"
-      :model-info="modelInfo"
-      :current-source="props.src"
-      @on-snapshot="makeSnapshot"
-      @on-rotate="toggleRotate"
-    />
+    <div v-show="!distractionFree">
+      <GlobeControls
+        :key="globeControlKey"
+        :model-info="modelInfo"
+        :current-source="props.src"
+        @on-snapshot="makeSnapshot"
+        @on-rotate="toggleRotate"
+      />
+    </div>
 
     <div v-if="loading" class="top-right-loader loader" />
     <section
@@ -260,7 +287,7 @@ onMounted(async () => {
       :datasources="datasources"
       :is-rotated="detectedGridType === GRID_TYPES.REGULAR_ROTATED"
     />
-    <div class="buttons about-corner-link">
+    <div v-show="!distractionFree" class="buttons about-corner-link">
       <InfoPanel
         :datasources="datasources"
         :grid-type="detectedGridType"
@@ -275,8 +302,14 @@ onMounted(async () => {
 </template>
 
 <style lang="scss">
+@use "bulma/sass/utilities" as bulmaUt;
+
 main {
   overflow: hidden;
+  display: flex;
+  @media only screen and (max-width: bulmaUt.$tablet) {
+    flex-direction: column;
+  }
 }
 
 div.top-right-loader {

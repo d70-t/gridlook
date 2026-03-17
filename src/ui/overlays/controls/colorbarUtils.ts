@@ -1,5 +1,42 @@
 // Shared formatting and tooltip utilities for ColorBar and DistributionPlot.
 
+/**
+ * Returns the step size for a data range: two orders of magnitude below the
+ * range itself. Used by BoundsControls (input step) and ColormapControls
+ * (rounding dragged values) to keep numbers readable.
+ * Returns "any" when the range is zero (unknown / degenerate).
+ */
+export function dataRangeStep(
+  low: number | undefined,
+  high: number | undefined
+): number | "any" {
+  if (low === undefined || high === undefined) {
+    return "any";
+  }
+  const range = Math.abs(Number(high) - Number(low));
+  if (range === 0) {
+    return "any";
+  }
+  return Math.pow(10, Math.floor(Math.log10(range)) - 2);
+}
+
+/** Round a value to the step implied by the data range. */
+export function roundToDataPrecision(
+  value: number,
+  low: number | undefined,
+  high: number | undefined
+): number {
+  if (low === undefined || high === undefined) {
+    return value;
+  }
+  const range = Math.abs(Number(high) - Number(low));
+  if (range === 0) {
+    return value;
+  }
+  const decimals = Math.max(0, 2 - Math.floor(Math.log10(range)));
+  return parseFloat(value.toFixed(decimals));
+}
+
 export function formatValue(value: number): string {
   const abs = Math.abs(value);
   if (abs === 0) {

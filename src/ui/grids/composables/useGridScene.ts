@@ -12,12 +12,14 @@ import {
 } from "vue";
 
 import type { GridCameraState } from "./useGridCameraState.ts";
+import { useGridSnapshot } from "./useGridSnapshot.ts";
 
 import { handleKeyDown } from "@/lib/camera/OrbitControlsAddOn.ts";
 import type {
   ProjectionHelper,
   TProjectionCenter,
 } from "@/lib/projection/projectionUtils.ts";
+import { useGlobeControlStore } from "@/store/store.ts";
 import {
   CONTROL_PANEL_WIDTH,
   MOBILE_BREAKPOINT,
@@ -40,6 +42,8 @@ export function useGridScene(options: UseGridSceneOptions) {
     cameraState,
     onReady,
   } = options;
+
+  const store = useGlobeControlStore();
 
   const canvas: Ref<HTMLCanvasElement | undefined> = ref();
   const box: Ref<HTMLDivElement | undefined> = ref();
@@ -87,6 +91,10 @@ export function useGridScene(options: UseGridSceneOptions) {
     return resizeObserver;
   }
 
+  function getBaseSurface() {
+    return baseSurface;
+  }
+
   function registerUpdateLOD(func: () => void) {
     updateLOD = func;
   }
@@ -96,7 +104,7 @@ export function useGridScene(options: UseGridSceneOptions) {
   }
 
   function redraw() {
-    if (getOrbitControls()?.autoRotate) {
+    if (store.isRotating) {
       return;
     }
     render();
@@ -179,10 +187,14 @@ export function useGridScene(options: UseGridSceneOptions) {
     controls: OrbitControls
   ) {
     const bounds = getProjectedBounds();
-    const targetDistance =
-      Math.max(bounds.height, bounds.width) /
-      2 /
-      Math.tan(((cam.fov ?? 45) * Math.PI) / 360);
+
+    // Compute the tightest distance that keeps the full projection visible,
+    // accounting for the camera aspect ratio.
+    const vHalfFov = THREE.MathUtils.degToRad((cam.fov ?? 45) / 2);
+    const hHalfFov = Math.atan(Math.tan(vHalfFov) * cam.aspect);
+    const zForHeight = bounds.height / 2 / Math.tan(vHalfFov);
+    const zForWidth = bounds.width / 2 / Math.tan(hHalfFov);
+    const targetDistance = Math.max(zForHeight, zForWidth);
 
     cam.up.set(0, 1, 0);
     cam.quaternion.identity();
@@ -211,6 +223,13 @@ export function useGridScene(options: UseGridSceneOptions) {
     cam: THREE.PerspectiveCamera,
     controls: OrbitControls
   ) {
+    // Compute the tightest distance at which the globe (radius 1) still fits
+    // fully within the viewport on both axes, with a small 5 % margin.
+    const vHalfFov = THREE.MathUtils.degToRad((cam.fov ?? 7.5) / 2);
+    const hHalfFov = Math.atan(Math.tan(vHalfFov) * cam.aspect);
+    const minHalfFov = Math.min(vHalfFov, hHalfFov);
+    const targetDistance = 1.05 / Math.sin(minHalfFov);
+
     cam.up.set(0, 0, 1);
     controls.enablePan = false;
     controls.enableRotate = true;
@@ -223,7 +242,7 @@ export function useGridScene(options: UseGridSceneOptions) {
     };
     controls.minDistance = 1.1;
     controls.maxDistance = 1000;
-    cam.position.set(30, 0, 0);
+    cam.position.set(targetDistance, 0, 0);
     controls.target.set(0, 0, 0);
   }
 
@@ -266,8 +285,10 @@ export function useGridScene(options: UseGridSceneOptions) {
 
     if (projectionHelper.value.isFlat) {
       configureFlatProjectionCamera(cam, controls);
+      controls.autoRotate = false;
     } else {
       configureGlobeProjectionCamera(cam, controls);
+      controls.autoRotate = store.isRotating;
     }
 
     applyCameraTarget(cam, controls);
@@ -275,6 +296,10 @@ export function useGridScene(options: UseGridSceneOptions) {
 
     updateCameraForPanel();
     redraw();
+
+    if (store.isRotating) {
+      animationLoop();
+    }
   }
 
   function initEssentials() {
@@ -340,13 +365,9 @@ export function useGridScene(options: UseGridSceneOptions) {
     const right = top * aspect;
     const left = -right;
 
-    const shiftAmount = (right - left) * currentOffset;
-    const shiftedLeft = left - shiftAmount;
-    const shiftedRight = right - shiftAmount;
-
     camera.projectionMatrix.makePerspective(
-      shiftedLeft,
-      shiftedRight,
+      left,
+      right,
       top,
       bottom,
       near,
@@ -421,8 +442,9 @@ export function useGridScene(options: UseGridSceneOptions) {
     let newLon = dragStartCenterLon + deltaX * lonSensitivity;
     let newLat = dragStartCenterLat - deltaY * latSensitivity;
 
-    newLat = Math.max(-90, Math.min(90, newLat));
-    newLon = projectionHelper.value.normalizeLongitude(newLon);
+    newLat = Math.round(Math.max(-90, Math.min(90, newLat)) * 100) / 100;
+    newLon =
+      Math.round(projectionHelper.value.normalizeLongitude(newLon) * 100) / 100;
 
     projectionCenter.value = { lat: newLat, lon: newLon };
   }
@@ -444,16 +466,24 @@ export function useGridScene(options: UseGridSceneOptions) {
   }
 
   function toggleRotate() {
-    if (projectionHelper.value.isFlat) {
-      getOrbitControls()!.autoRotate = false;
-      return;
+    store.toggleRotating();
+    if (!projectionHelper.value.isFlat) {
+      getOrbitControls()!.autoRotate = store.isRotating;
     }
-    getOrbitControls()!.autoRotate = !getOrbitControls()!.autoRotate;
     animationLoop();
   }
 
   function animationLoop() {
     cancelAnimationFrame(frameId.value);
+
+    // Rotate 2D projection center longitude
+    if (store.isRotating && projectionHelper.value.isFlat) {
+      const center = projectionCenter.value ?? { lat: 0, lon: 0 };
+      const newLon = projectionHelper.value.normalizeLongitude(
+        center.lon - 0.3
+      );
+      projectionCenter.value = { lat: center.lat, lon: newLon };
+    }
 
     // Update rotation speed based on camera distance
     if (!projectionHelper.value.isFlat && orbitControls && camera) {
@@ -463,7 +493,7 @@ export function useGridScene(options: UseGridSceneOptions) {
     }
 
     const controlsUpdated = render();
-    if (!mouseDown && !getOrbitControls()?.autoRotate && !controlsUpdated) {
+    if (!mouseDown && !store.isRotating && !controlsUpdated) {
       const cam = getCamera();
       if (cam) {
         cameraState.debouncedEncodeCameraToURL(cam);
@@ -655,18 +685,14 @@ export function useGridScene(options: UseGridSceneOptions) {
     }
   );
 
-  function makeSnapshot() {
-    render();
-    canvas.value?.toBlob((blob) => {
-      const link = document.createElement("a");
-      link.download = "gridlook.png";
-
-      link.href = URL.createObjectURL(blob!);
-      link.click();
-
-      URL.revokeObjectURL(link.href);
-    }, "image/png");
-  }
+  const { makeSnapshot } = useGridSnapshot({
+    canvas,
+    getRenderer,
+    getScene,
+    getCamera,
+    getBaseSurface,
+    render,
+  });
 
   return {
     canvas,

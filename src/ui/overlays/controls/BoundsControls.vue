@@ -65,108 +65,155 @@ const isInverted = computed(
     (userBoundsHigh.value as unknown as string) !== "" &&
     (userBoundsLow.value as number) > (userBoundsHigh.value as number)
 );
+
+function formatNum(val: number | undefined) {
+  const n = Number(val);
+  if (isNaN(n)) {
+    return "—";
+  }
+  return n.toPrecision(4);
+}
 </script>
 
 <template>
-  <div class="panel-block w-100 no-bottom-border">
-    <div class="w-100">
-      <!-- Header -->
-      <div class="columns has-text-weight-bold is-mobile compact-row">
-        <div class="column">Range</div>
-        <div class="column">Low</div>
-        <div class="column has-text-right">High</div>
-      </div>
+  <div class="bounds-table">
+    <!-- Header -->
+    <div class="bounds-row bounds-header">
+      <div class="bounds-cell bounds-cell--label"></div>
+      <div class="bounds-cell bounds-cell--num">Low</div>
+      <div class="bounds-cell bounds-cell--num">High</div>
+    </div>
 
-      <!-- Data Bounds -->
-      <div
-        class="columns is-mobile active-row compact-row"
-        :class="{ active: pickedBoundsMode === boundModes.DATA }"
-      >
-        <div class="column">
-          <input
-            id="data_bounds"
-            class="mr-1"
-            type="radio"
-            value="data"
-            :checked="pickedBoundsMode === boundModes.DATA"
-            @change="$emit('update:pickedBoundsMode', boundModes.DATA)"
-          />
-          <label for="data_bounds">Data</label>
-        </div>
-        <div class="column">{{ Number(dataBounds.low).toPrecision(4) }}</div>
-        <div class="column has-text-right">
-          {{ Number(dataBounds.high).toPrecision(4) }}
-        </div>
+    <!-- Data Bounds -->
+    <div
+      class="bounds-row"
+      :class="{ 'is-active': pickedBoundsMode === boundModes.DATA }"
+    >
+      <div class="bounds-cell bounds-cell--label">
+        <input
+          id="data_bounds"
+          class="bounds-radio"
+          type="radio"
+          value="data"
+          :checked="pickedBoundsMode === boundModes.DATA"
+          @change="$emit('update:pickedBoundsMode', boundModes.DATA)"
+        />
+        <label for="data_bounds">Data</label>
       </div>
+      <div class="bounds-cell bounds-cell--num">
+        {{ formatNum(dataBounds.low) }}
+      </div>
+      <div class="bounds-cell bounds-cell--num">
+        {{ formatNum(dataBounds.high) }}
+      </div>
+    </div>
 
-      <!-- User Bounds -->
-      <div
-        class="columns is-mobile active-row compact-row"
-        :class="{ active: pickedBoundsMode === boundModes.USER }"
-      >
-        <div class="column">
-          <input
-            id="user_bounds"
-            class="mr-1"
-            type="radio"
-            value="user"
-            :checked="pickedBoundsMode === boundModes.USER"
-            @change="$emit('update:pickedBoundsMode', boundModes.USER)"
-          />
-          <label for="user_bounds">Custom</label>
-        </div>
-        <div class="column">
-          <input
-            v-model.number="lowBound"
-            size="10"
-            class="input"
-            :class="[{ 'is-warning': isInverted }]"
-            type="number"
-            :step="inputStep"
-          />
-        </div>
-        <div class="column has-text-right">
-          <input
-            v-model.number="highBound"
-            size="10"
-            class="input"
-            :class="[{ 'is-warning': isInverted }]"
-            type="number"
-            :step="inputStep"
-          />
-        </div>
+    <!-- User Bounds -->
+    <div
+      class="bounds-row"
+      :class="{ 'is-active': pickedBoundsMode === boundModes.USER }"
+    >
+      <div class="bounds-cell bounds-cell--label">
+        <input
+          id="user_bounds"
+          class="bounds-radio"
+          type="radio"
+          value="user"
+          :checked="pickedBoundsMode === boundModes.USER"
+          @change="$emit('update:pickedBoundsMode', boundModes.USER)"
+        />
+        <label for="user_bounds">Custom</label>
+      </div>
+      <div class="bounds-cell bounds-cell--num">
+        <input
+          v-model.number="lowBound"
+          class="bounds-input input"
+          :class="{ 'is-warning': isInverted }"
+          type="number"
+          :step="inputStep"
+        />
+      </div>
+      <div class="bounds-cell bounds-cell--num">
+        <input
+          v-model.number="highBound"
+          class="bounds-input input"
+          :class="{ 'is-warning': isInverted }"
+          type="number"
+          :step="inputStep"
+        />
       </div>
     </div>
   </div>
 </template>
 
 <style lang="scss" scoped>
-@use "bulma/sass/utilities" as bulmaUt;
+@use "bulma/sass/elements/table" as t;
 
-.compact-row {
-  padding-top: 0.1rem;
-  padding-bottom: 0.1rem;
-  margin-bottom: 0.1rem;
-  // margin-left: 0;
-  // transparent border in order to prevent layout shift when active
-  border-left: 3px solid transparent;
-
-  & > .column {
-    padding-top: 0.1rem;
-    padding-bottom: 0.1rem;
-  }
+.bounds-table {
+  width: 100%;
+  font-size: 0.72rem; /* ~11px — dense table sizing */
 }
 
-.active-row.active {
-  background-color: lightgreen;
-  border-left: #2e7d32 3px solid;
-  @media (prefers-color-scheme: dark) {
-    border-left: lightgreen solid;
-    background-color: #2e7d32;
-  }
+.bounds-row {
+  display: flex;
+  align-items: center;
+  padding: 3px 0;
+  border: t.$table-cell-border-width t.$table-cell-border-style
+    t.$table-cell-border-color;
+  transition: background 0.1s;
+}
+.bounds-row:last-child {
+  border-bottom: none;
+}
+.bounds-row.is-active {
+  background: hsl(var(--bulma-info-h, 229deg), 53%, 53%, 0.07);
+}
+.bounds-row.is-active label {
+  font-weight: 600;
 }
 
-.no-bottom-border {
-  border-bottom: none !important;
+.bounds-cell {
+  padding: 4px 6px;
+}
+.bounds-cell--label {
+  flex: 1.2;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--bulma-text, #363636);
+  white-space: nowrap;
+  font-size: 12px;
+}
+.bounds-cell--num {
+  flex: 1;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, "SF Mono", monospace;
+  color: var(--bulma-text, #363636);
+}
+
+.bounds-header {
+  border-bottom: 2px solid var(--bulma-border, #dbdbdb);
+  padding-bottom: 3px;
+}
+.bounds-header .bounds-cell--num {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-family: inherit;
+}
+
+.bounds-input {
+  width: 100%;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 0.72rem;
+  padding: 2px 4px;
+  line-height: 1.4;
+  color: inherit;
+  outline: none;
+  -moz-appearance: textfield;
+  appearance: textfield;
 }
 </style>

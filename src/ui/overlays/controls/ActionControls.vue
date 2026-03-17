@@ -2,34 +2,33 @@
 import { storeToRefs } from "pinia";
 
 import ShareButton from "./ShareButton.vue";
+import SnapshotButton from "./SnapshotButton.vue";
 
 import { PROJECTION_TYPES } from "@/lib/projection/projectionUtils";
+import type { TSnapshotOptions } from "@/lib/types/GlobeTypes";
 import { useGlobeControlStore } from "@/store/store";
 
 defineEmits<{
-  onSnapshot: [];
+  onSnapshot: [options: TSnapshotOptions];
   onRotate: [];
 }>();
 
-const { projectionMode } = storeToRefs(useGlobeControlStore());
+const { projectionMode, isRotating } = storeToRefs(useGlobeControlStore());
 </script>
 
 <template>
-  <div class="panel-block">
+  <div class="column">
     <div
-      class="w-100 is-flex is-justify-content-space-between is-flex-wrap-wrap action-buttons"
+      class="is-flex is-justify-content-space-between is-flex-wrap-wrap action-buttons"
     >
-      <button class="button" type="button" @click="() => $emit('onSnapshot')">
-        <span class="icon"><i class="fa-solid fa-image"></i></span>
-        <span> Snapshot</span>
-      </button>
+      <SnapshotButton @on-snapshot="(opts) => $emit('onSnapshot', opts)" />
       <button
         class="button"
+        :class="{ 'is-info': isRotating }"
         type="button"
-        :disabled="projectionMode !== PROJECTION_TYPES.NEARSIDE_PERSPECTIVE"
         :title="
           projectionMode !== PROJECTION_TYPES.NEARSIDE_PERSPECTIVE
-            ? 'Rotate is only available for nearside perspective projection'
+            ? 'Rotate the projection around longitude'
             : 'Rotate the globe'
         "
         @click="() => $emit('onRotate')"
@@ -44,8 +43,4 @@ const { projectionMode } = storeToRefs(useGlobeControlStore());
   </div>
 </template>
 
-<style lang="scss" scoped>
-.action-buttons {
-  gap: 0.5rem;
-}
-</style>
+<style lang="scss" scoped></style>

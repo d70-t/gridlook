@@ -413,6 +413,11 @@ function initThreeJs() {
   renderer = new THREE.WebGLRenderer({
     canvas: gradientCanvasRef.value as HTMLCanvasElement,
   });
+  renderer.setPixelRatio(window.devicePixelRatio || 1);
+  // Set a safe initial size so the canvas never sits at the HTML
+  // default (300×150).  onResize() will correct it once the widget
+  // has a real CSS width; until then any early render is harmless.
+  renderer.setSize(1, GRADIENT_HEIGHT, false);
 
   scene.add(lutMesh);
 
@@ -466,10 +471,9 @@ function onResize() {
   widgetWidth.value = newWidth;
 
   if (renderer && camera) {
-    const dpr = window.devicePixelRatio || 1;
     renderer.setSize(
-      Math.round(newWidth * dpr),
-      Math.round(GRADIENT_HEIGHT * dpr),
+      newWidth,
+      GRADIENT_HEIGHT,
       false /* do not touch inline CSS – our stylesheet handles display size */
     );
     camera.aspect = newWidth / GRADIENT_HEIGHT;
@@ -577,7 +581,6 @@ onMounted(() => {
     resizeObserver.observe(widgetRef.value);
   }
   onResize();
-  requestAnimationFrame(redrawAll);
 });
 
 onBeforeUnmount(() => {
@@ -726,17 +729,16 @@ onBeforeUnmount(() => {
   position: absolute;
   top: 0;
   transform: translateX(-50%);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 0.72rem;
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-variant-numeric: tabular-nums;
+  color: var(--bulma-text, #363636);
   white-space: nowrap;
   pointer-events: none;
   line-height: 1;
-  color: var(--bulma-grey-dark);
 }
 
 .mid-label {
-  font-weight: 400;
-  font-size: 11px;
   color: var(--bulma-grey);
 }
 

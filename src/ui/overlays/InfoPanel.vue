@@ -147,6 +147,7 @@ const datasetCreators = computed(
   () =>
     (groupAttrs.value?.creators as string) ||
     (groupAttrs.value?.authors as string) ||
+    (groupAttrs.value?.creator_name as string) ||
     "-"
 );
 
@@ -155,7 +156,11 @@ const allVariables = computed(() => {
     return [];
   }
   return Object.entries(props.datasources.levels[0].datasources).map(
-    ([name, source]) => ({ name, hidden: source.hidden ?? false })
+    ([name, source]) => ({
+      name,
+      longName: source.attrs?.long_name ?? source.attrs?.standard_name,
+      hidden: source.hidden ?? false,
+    })
   );
 });
 
@@ -411,10 +416,7 @@ async function loadVariableDetails(
   if (variableStandardName.value) {
     nercInfo.value = await queryVariable(variableStandardName.value);
   }
-  variableLongName.value =
-    (variable.attrs?.long_name as string) ||
-    (variable.attrs?.name as string) ||
-    null;
+  variableLongName.value = (variable.attrs?.long_name as string) || null;
   variableDtype.value = String(variable.dtype);
   variableChunks.value = variable.chunks;
   const missingVal = getMissingValue(variable);
@@ -540,14 +542,7 @@ function formatValue(value: unknown): string {
         <h4
           class="title is-6 is-flex is-justify-content-space-between is-align-items-center"
         >
-          <span class="is-flex is-align-items-center gap-2">
-            Grid Type
-            <span
-              v-if="zarrFormat"
-              class="tag is-light is-small ml-2 is-family-monospace"
-              >zarr v{{ zarrFormat }}</span
-            >
-          </span>
+          <span class="is-flex is-align-items-center gap-2"> Grid Type </span>
           <div v-if="availableGridTypes.length > 1" class="select is-small">
             <select
               :value="activeGridType"
@@ -779,6 +774,11 @@ function formatValue(value: unknown): string {
         <div class="content">
           <table class="table is-narrow is-fullwidth is-size-7">
             <tbody>
+              <tr v-if="zarrFormat">
+                <td><strong>Zarr format version</strong></td>
+                <td>{{ zarrFormat }}</td>
+              </tr>
+
               <tr>
                 <td><strong>Data type</strong></td>
                 <td>
@@ -1026,8 +1026,10 @@ function formatValue(value: unknown): string {
             v-for="v in availableVariables"
             :key="v.name"
             class="tag is-family-monospace is-clickable"
-            :class="v.name === varnameSelector ? 'is-info' : 'is-light'"
-            :title="'Select ' + v.name"
+            :class="v.name === varnameSelector ? 'is-info' : 'is-light is-info'"
+            :title="
+              'Select ' + v.name + (v.longName ? ' (' + v.longName + ')' : '')
+            "
             type="button"
             @click="selectVariable(v.name)"
           >

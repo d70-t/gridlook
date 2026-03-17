@@ -31,6 +31,7 @@ export function useSharedGridLogic() {
   const store = useGlobeControlStore();
   const {
     showCoastLines,
+    showGraticules,
     landSeaMaskChoice,
     landSeaMaskUseTexture,
     selection,
@@ -51,6 +52,7 @@ export function useSharedGridLogic() {
 
   const cameraState = useGridCameraState();
   let updateCoastlines: () => Promise<void> = async () => {};
+  let updateGraticules: () => Promise<void> = async () => {};
 
   const {
     canvas,
@@ -71,16 +73,19 @@ export function useSharedGridLogic() {
     cameraState,
     onReady: () => {
       updateCoastlines();
+      updateGraticules();
     },
   });
 
   const {
     updateCoastlines: updateCoastlinesInternal,
+    updateGraticules: updateGraticulesInternal,
     updateLandSeaMask,
     updateLandSeaMaskProjectionUniforms,
   } = useGridOverlays({
     projectionHelper,
     showCoastLines,
+    showGraticules,
     landSeaMaskChoice,
     landSeaMaskUseTexture,
     getScene,
@@ -88,6 +93,7 @@ export function useSharedGridLogic() {
   });
 
   updateCoastlines = updateCoastlinesInternal;
+  updateGraticules = updateGraticulesInternal;
 
   const { resetDataVars, getDataVar, getTimeInfo, getDimensionInfo } =
     useGridDataAccess();
@@ -100,6 +106,13 @@ export function useSharedGridLogic() {
     () => showCoastLines.value,
     () => {
       updateCoastlines();
+    }
+  );
+
+  watch(
+    () => showGraticules.value,
+    () => {
+      updateGraticules();
     }
   );
 
@@ -124,11 +137,13 @@ export function useSharedGridLogic() {
       if (modeChanged) {
         updateBaseSurface();
         updateCoastlines();
+        updateGraticules();
         updateLandSeaMask();
         configureCameraForProjection();
       } else if (centerChanged) {
         updateBaseSurface();
         updateCoastlines();
+        updateGraticules();
         updateLandSeaMaskProjectionUniforms();
         redraw();
       }

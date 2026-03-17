@@ -23,6 +23,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
   state: () => {
     return {
       showCoastLines: true,
+      showGraticules: false,
       // simplified UI choice (Off|Sea|Land|Globe) — used by controls
       landSeaMaskChoice: LAND_SEA_MASK_MODES.OFF as TLandSeaMaskMode,
       // when true, use the textured versions; when false, use the greyscale/solid versions
@@ -43,13 +44,21 @@ export const useGlobeControlStore = defineStore("globeControl", {
       dimSlidersDisplay: [] as (number | null)[],
       isInitializingVariable: false,
       controlPanelVisible: true,
+      datasetTitle: "" as string,
       projectionMode: PROJECTION_TYPES.NEARSIDE_PERSPECTIVE as TProjectionType,
       projectionCenter: { lat: 0, lon: 0 } as TProjectionCenter,
+      isRotating: false,
     };
   },
   actions: {
+    toggleRotating() {
+      this.isRotating = !this.isRotating;
+    },
     toggleCoastLines() {
       this.showCoastLines = !this.showCoastLines;
+    },
+    toggleGraticules() {
+      this.showGraticules = !this.showGraticules;
     },
     startLoading() {
       this.loading = true;
