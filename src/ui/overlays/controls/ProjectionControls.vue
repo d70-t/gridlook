@@ -73,6 +73,9 @@ function resetProjectionCenter() {
         <option :value="PROJECTION_TYPES.AZIMUTHAL_EQUIDISTANT">
           Azimuthal Equidistant
         </option>
+        <option :value="PROJECTION_TYPES.AZIMUTHAL_HYBRID">
+          Azimuthal Hybrid
+        </option>
       </select>
     </div>
     <div class="w-100 projection-center" :class="{ 'is-disabled': !isFlat }">
@@ -136,6 +139,7 @@ function resetProjectionCenter() {
 .projection-input {
   text-align: right;
   -moz-appearance: textfield;
+  appearance: textfield;
 }
 .projection-center .button.is-static {
   min-width: 3rem;

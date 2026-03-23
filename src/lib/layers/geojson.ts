@@ -52,7 +52,7 @@ function addLinestring(
   let previousProjectedX: number | undefined = undefined;
 
   for (const [lon, lat] of coords) {
-    const normalizedLon = helper.normalizeLongitude(lon);
+    const normalizedLon = ProjectionHelper.normalizeLongitude(lon);
     const [x, y, z] = helper.project(lat, normalizedLon, radius);
 
     if (helper.isFlat && previousProjectedX !== undefined) {

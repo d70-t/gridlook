@@ -7,7 +7,7 @@ import {
 } from "../projection/projectionShaders";
 import {
   PROJECTION_TYPES,
-  type TProjectionType,
+  type ProjectionHelper,
 } from "../projection/projectionUtils";
 
 import {
@@ -260,7 +260,14 @@ varying vec2 vUv;
 
 void main() {
   vUv = uv;
-  vec3 projected = projectLatLon(latLon.x, latLon.y, projectionType, centerLon, centerLat, projectionRadius);
+  vec3 projected = projectLatLon(
+    latLon.x,
+    latLon.y,
+    projectionType,
+    centerLon,
+    centerLat,
+    projectionRadius
+  );
   gl_Position = projectionMatrix * modelViewMatrix * vec4(projected, 1.0);
 }
 `;
@@ -285,7 +292,14 @@ varying float v_value;
 
 void main() {
   v_value = data_value;
-  vec3 projected = projectLatLon(latLon.x, latLon.y, projectionType, centerLon, centerLat, projectionRadius);
+  vec3 projected = projectLatLon(
+    latLon.x,
+    latLon.y,
+    projectionType,
+    centerLon,
+    centerLat,
+    projectionRadius
+  );
   gl_Position = projectionMatrix * modelViewMatrix * vec4(projected, 1.0);
   if (pointSize > 0.0) {
     gl_PointSize = pointSize;
@@ -314,7 +328,14 @@ varying float v_value;
 
 void main() {
   v_value = data_value;
-  vec3 projected = projectLatLon(latLon.x, latLon.y, projectionType, centerLon, centerLat, projectionRadius);
+  vec3 projected = projectLatLon(
+    latLon.x,
+    latLon.y,
+    projectionType,
+    centerLon,
+    centerLat,
+    projectionRadius
+  );
   vec4 mvPosition = modelViewMatrix * vec4(projected, 1.0);
   gl_Position = projectionMatrix * mvPosition;
 
@@ -433,20 +454,18 @@ export function makeGpuProjectedPointMaterial(
  */
 export function updateProjectionUniforms(
   material: THREE.ShaderMaterial,
-  projectionType: TProjectionType,
-  centerLon: number,
-  centerLat: number,
+  projectionHelper: Pick<ProjectionHelper, "type" | "center">,
   radius: number = 1.0
 ) {
-  const projectionTypeId = getProjectionTypeFromMode(projectionType);
+  const projectionTypeId = getProjectionTypeFromMode(projectionHelper.type);
   if (material.uniforms.projectionType) {
     material.uniforms.projectionType.value = projectionTypeId;
   }
   if (material.uniforms.centerLon) {
-    material.uniforms.centerLon.value = centerLon;
+    material.uniforms.centerLon.value = projectionHelper.center.lon;
   }
   if (material.uniforms.centerLat) {
-    material.uniforms.centerLat.value = centerLat;
+    material.uniforms.centerLat.value = projectionHelper.center.lat;
   }
   if (material.uniforms.projectionRadius) {
     material.uniforms.projectionRadius.value = radius;

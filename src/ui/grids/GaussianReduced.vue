@@ -60,6 +60,7 @@ const {
   redraw,
   makeSnapshot,
   toggleRotate,
+  applyCameraPreset,
   getDataVar,
   fetchDimensionDetails,
   updateLandSeaMask,
@@ -112,15 +113,9 @@ watch([() => projectionMode.value, () => projectionCenter.value], () => {
 
 function updateMeshProjectionUniforms() {
   const helper = projectionHelper.value;
-  const center = projectionCenter.value;
 
   for (const mesh of meshes) {
-    updateProjectionUniforms(
-      mesh.material as THREE.ShaderMaterial,
-      helper.type,
-      center.lon,
-      center.lat
-    );
+    updateProjectionUniforms(mesh.material as THREE.ShaderMaterial, helper);
   }
   redraw();
 }
@@ -471,7 +466,11 @@ onBeforeMount(async () => {
   await datasourceUpdate();
 });
 
-defineExpose({ makeSnapshot, toggleRotate });
+defineExpose({
+  makeSnapshot,
+  toggleRotate,
+  applyCameraPreset,
+});
 </script>
 
 <template>

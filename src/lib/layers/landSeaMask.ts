@@ -13,6 +13,7 @@ import {
   MERCATOR_LAT_LIMIT,
   PROJECTION_TYPES,
   ProjectionHelper,
+  isAzimuthalProjectionType,
 } from "@/lib/projection/projectionUtils";
 
 export const LAND_SEA_MASK_MODES = {
@@ -271,7 +272,14 @@ varying vec2 vUv;
 
 void main() {
   vUv = uv;
-  vec3 projected = projectLatLon(latLon.x, latLon.y, projectionType, centerLon, centerLat, projectionRadius);
+  vec3 projected = projectLatLon(
+    latLon.x,
+    latLon.y,
+    projectionType,
+    centerLon,
+    centerLat,
+    projectionRadius
+  );
   gl_Position = projectionMatrix * modelViewMatrix * vec4(projected, 1.0);
 }
 `;
@@ -412,39 +420,36 @@ class GpuProjectedMaskRenderer {
         mode
       );
       mesh.geometry = newGeometry;
-      if (material.uniforms?.projectionType) {
-        material.uniforms.projectionType.value = getProjectionTypeFromMode(
-          projectionHelper.type
-        );
-      }
-      if (material.uniforms?.centerLon) {
-        material.uniforms.centerLon.value = projectionHelper.center.lon;
-      }
-      if (material.uniforms?.centerLat) {
-        material.uniforms.centerLat.value = projectionHelper.center.lat;
-      }
+      this.applyProjectionUniforms(material, projectionHelper);
       // Signal Three.js that the geometry has changed
       mesh.geometry.computeBoundingSphere();
       mesh.geometry.computeBoundingBox();
       oldGeometry.dispose();
     } else {
-      if (!material.uniforms) {
-        return;
-      }
-      // For globe, just update uniforms
-      const projType = getProjectionTypeFromMode(projectionHelper.type);
-      const center = projectionHelper.center;
-
-      if (material.uniforms.projectionType) {
-        material.uniforms.projectionType.value = projType;
-      }
-      if (material.uniforms.centerLon) {
-        material.uniforms.centerLon.value = center.lon;
-      }
-      if (material.uniforms.centerLat) {
-        material.uniforms.centerLat.value = center.lat;
-      }
+      this.applyProjectionUniforms(material, projectionHelper);
       material.needsUpdate = true;
+    }
+  }
+
+  private static applyProjectionUniforms(
+    material: THREE.ShaderMaterial,
+    projectionHelper: ProjectionHelper
+  ) {
+    if (!material.uniforms) {
+      return;
+    }
+
+    const projType = getProjectionTypeFromMode(projectionHelper.type);
+    const center = projectionHelper.center;
+
+    if (material.uniforms.projectionType) {
+      material.uniforms.projectionType.value = projType;
+    }
+    if (material.uniforms.centerLon) {
+      material.uniforms.centerLon.value = center.lon;
+    }
+    if (material.uniforms.centerLat) {
+      material.uniforms.centerLat.value = center.lat;
     }
   }
 
@@ -485,8 +490,7 @@ class GpuProjectedMaskRenderer {
     const uvs: number[] = [];
     const angularDistances: number[] = []; // Track angular distance from center for azimuthal clipping
     const isMercator = projectionHelper.type === PROJECTION_TYPES.MERCATOR;
-    const isAzimuthal =
-      projectionHelper.type === PROJECTION_TYPES.AZIMUTHAL_EQUIDISTANT;
+    const isAzimuthal = isAzimuthalProjectionType(projectionHelper.type);
 
     const centerLat = projectionHelper.center.lat;
     const centerLon = projectionHelper.center.lon;

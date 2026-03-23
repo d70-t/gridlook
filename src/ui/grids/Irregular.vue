@@ -63,6 +63,7 @@ const {
   getCamera,
   makeSnapshot,
   toggleRotate,
+  applyCameraPreset,
   getDataVar,
   fetchDimensionDetails,
   registerUpdateLOD,
@@ -133,12 +134,11 @@ watch(
  */
 function updatePointsProjectionUniforms() {
   const helper = projectionHelper.value;
-  const center = projectionCenter.value;
 
   for (const p of points) {
     const material = p.material as THREE.ShaderMaterial;
     if (material.uniforms?.projectionType) {
-      updateProjectionUniforms(material, helper.type, center.lon, center.lat);
+      updateProjectionUniforms(material, helper);
     }
   }
   redraw();
@@ -467,7 +467,11 @@ onBeforeMount(async () => {
   registerUpdateLOD(updateLOD);
 });
 
-defineExpose({ makeSnapshot, toggleRotate });
+defineExpose({
+  makeSnapshot,
+  toggleRotate,
+  applyCameraPreset,
+});
 </script>
 
 <template>

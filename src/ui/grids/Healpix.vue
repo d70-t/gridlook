@@ -61,6 +61,7 @@ const {
   redraw,
   makeSnapshot,
   toggleRotate,
+  applyCameraPreset,
   resetDataVars,
   getDataVar,
   fetchDimensionDetails,
@@ -141,12 +142,11 @@ watch(
  */
 function updateMeshProjectionUniforms() {
   const helper = projectionHelper.value;
-  const center = projectionCenter.value;
 
   for (const mesh of mainMeshes) {
     const material = mesh.material as THREE.ShaderMaterial;
     if (material.uniforms?.projectionType) {
-      updateProjectionUniforms(material, helper.type, center.lon, center.lat);
+      updateProjectionUniforms(material, helper);
     }
   }
   redraw();
@@ -716,8 +716,7 @@ onBeforeMount(async () => {
     );
     // Set initial projection uniforms
     const helper = projectionHelper.value;
-    const center = projectionCenter.value;
-    updateProjectionUniforms(material, helper.type, center.lon, center.lat);
+    updateProjectionUniforms(material, helper);
 
     const { geometry } = makeHealpixGeometry(
       1,
@@ -732,7 +731,11 @@ onBeforeMount(async () => {
   await datasourceUpdate();
 });
 
-defineExpose({ makeSnapshot, toggleRotate });
+defineExpose({
+  makeSnapshot,
+  toggleRotate,
+  applyCameraPreset,
+});
 </script>
 
 <template>
