@@ -83,6 +83,7 @@ export function useSharedGridLogic() {
     updateGraticules: updateGraticulesInternal,
     updateLandSeaMask,
     updateLandSeaMaskProjectionUniforms,
+    updateOverlayProjectionUniforms,
   } = useGridOverlays({
     projectionHelper,
     showCoastLines,
@@ -137,16 +138,12 @@ export function useSharedGridLogic() {
 
       if (modeChanged) {
         updateBaseSurface();
-        updateCoastlines();
-        updateGraticules();
+        void updateOverlayProjectionUniforms(true);
         updateLandSeaMask();
         configureCameraForProjection();
       } else if (centerChanged) {
-        updateBaseSurface();
-        updateCoastlines();
-        updateGraticules();
+        void updateOverlayProjectionUniforms();
         updateLandSeaMaskProjectionUniforms();
-        redraw();
       }
     },
     { deep: true, flush: "sync" }

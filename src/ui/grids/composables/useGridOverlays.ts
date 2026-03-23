@@ -2,7 +2,11 @@ import type { FeatureCollection } from "geojson";
 import * as THREE from "three";
 import type { ComputedRef, Ref } from "vue";
 
-import { geojson2geometry } from "@/lib/layers/geojson.ts";
+import { geojson2gpuLineSegmentsGeometry } from "@/lib/layers/geojson.ts";
+import {
+  makeGpuProjectedLineMaterial,
+  updateGpuProjectedLineMaterial,
+} from "@/lib/layers/gpuProjectedLines.ts";
 import {
   getLandSeaMask,
   LAND_SEA_MASK_MODES,
@@ -20,6 +24,12 @@ type UseGridOverlaysOptions = {
   landSeaMaskUseTexture: Ref<boolean>;
   getScene: () => THREE.Scene | undefined;
   redraw: () => void;
+};
+
+type TOverlayLineStyle = {
+  color: string;
+  radius: number;
+  zOffset: number;
 };
 
 /* eslint-disable-next-line max-lines-per-function */
@@ -40,29 +50,62 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
   let coastlineData: FeatureCollection | undefined;
   let graticulesData: FeatureCollection | undefined;
 
+  const coastStyle: TOverlayLineStyle = {
+    color: "#ffffff",
+    radius: 1.002,
+    zOffset: 0.01,
+  };
+  const graticuleStyle: TOverlayLineStyle = {
+    color: "#888888",
+    radius: 1.002,
+    zOffset: 0.01,
+  };
+
+  function getLineProjectionOptions(style: TOverlayLineStyle) {
+    return {
+      radius: projectionHelper.value.isFlat ? 1 : style.radius,
+      zOffset: projectionHelper.value.isFlat ? style.zOffset : 0,
+    };
+  }
+
+  function updateLineProjection(
+    line: THREE.LineSegments | undefined,
+    style: TOverlayLineStyle
+  ) {
+    if (!line) {
+      return;
+    }
+
+    updateGpuProjectedLineMaterial(
+      line.material as THREE.ShaderMaterial,
+      projectionHelper.value,
+      getLineProjectionOptions(style)
+    );
+  }
+
   async function getCoastlines() {
     if (!coastlineData) {
       coastlineData = await ResourceCache.loadGeoJSON(
         "static/ne_50m_coastline.geojson"
       );
     }
+
     if (!coast) {
-      const material = new THREE.LineBasicMaterial({
-        color: "#ffffff",
-        polygonOffset: true,
-        polygonOffsetFactor: -1,
-        polygonOffsetUnits: -1,
+      const geometry = geojson2gpuLineSegmentsGeometry(
+        coastlineData,
+        projectionHelper.value,
+        getLineProjectionOptions(coastStyle)
+      );
+      const material = makeGpuProjectedLineMaterial({
+        color: coastStyle.color,
+        ...getLineProjectionOptions(coastStyle),
       });
-      coast = new THREE.LineSegments(new THREE.BufferGeometry(), material);
+      coast = new THREE.LineSegments(geometry, material);
       coast.name = "coastlines";
       coast.renderOrder = 1;
+      coast.frustumCulled = false;
     }
-    const geometry = geojson2geometry(coastlineData, projectionHelper.value, {
-      radius: projectionHelper.value.isFlat ? 1 : 1.002,
-      zOffset: projectionHelper.value.isFlat ? 0.01 : 0,
-    });
-    coast.geometry.dispose();
-    coast.geometry = geometry;
+    updateLineProjection(coast, coastStyle);
     return coast;
   }
 
@@ -87,23 +130,23 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
         "static/ne_50m_graticules_30.geojson"
       );
     }
+
     if (!graticules) {
-      const material = new THREE.LineBasicMaterial({
-        color: "#888888",
-        polygonOffset: true,
-        polygonOffsetFactor: -1,
-        polygonOffsetUnits: -1,
+      const geometry = geojson2gpuLineSegmentsGeometry(
+        graticulesData,
+        projectionHelper.value,
+        getLineProjectionOptions(graticuleStyle)
+      );
+      const material = makeGpuProjectedLineMaterial({
+        color: graticuleStyle.color,
+        ...getLineProjectionOptions(graticuleStyle),
       });
-      graticules = new THREE.LineSegments(new THREE.BufferGeometry(), material);
+      graticules = new THREE.LineSegments(geometry, material);
       graticules.name = "graticules";
       graticules.renderOrder = 1;
+      graticules.frustumCulled = false;
     }
-    const geometry = geojson2geometry(graticulesData, projectionHelper.value, {
-      radius: projectionHelper.value.isFlat ? 1 : 1.002,
-      zOffset: projectionHelper.value.isFlat ? 0.01 : 0,
-    });
-    graticules.geometry.dispose();
-    graticules.geometry = geometry;
+    updateLineProjection(graticules, graticuleStyle);
     return graticules;
   }
 
@@ -163,10 +206,21 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
     redraw();
   }
 
+  async function updateOverlayProjectionUniforms(forceRebuild = false) {
+    if (forceRebuild) {
+      await Promise.all([updateCoastlines(), updateGraticules()]);
+      return;
+    }
+    updateLineProjection(coast, coastStyle);
+    updateLineProjection(graticules, graticuleStyle);
+    redraw();
+  }
+
   return {
     updateCoastlines,
     updateGraticules,
     updateLandSeaMask,
     updateLandSeaMaskProjectionUniforms,
+    updateOverlayProjectionUniforms,
   };
 }
