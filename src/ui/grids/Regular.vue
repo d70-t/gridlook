@@ -57,6 +57,7 @@ const {
   redraw,
   makeSnapshot,
   toggleRotate,
+  applyCameraPreset,
   resetDataVars,
   getDataVar,
   fetchDimensionDetails,
@@ -129,11 +130,10 @@ watch(
 
 function updateMeshProjectionUniforms() {
   const helper = projectionHelper.value;
-  const center = projectionCenter.value;
   for (const mesh of meshes) {
     const material = mesh.material as THREE.ShaderMaterial;
     if (material.uniforms?.projectionType) {
-      updateProjectionUniforms(material, helper.type, center.lon, center.lat);
+      updateProjectionUniforms(material, helper);
     }
   }
   redraw();
@@ -571,8 +571,7 @@ async function fetchAndRenderData(
 
   // Set initial projection uniforms
   const helper = projectionHelper.value;
-  const center = projectionCenter.value;
-  updateProjectionUniforms(material, helper.type, center.lon, center.lat);
+  updateProjectionUniforms(material, helper);
 
   const { min, max, missingValue, fillValue } = getDataBounds(datavar, rawData);
   // Set missing/fill values as uniforms for the shader
@@ -633,7 +632,11 @@ onBeforeMount(async () => {
   await datasourceUpdate();
 });
 
-defineExpose({ makeSnapshot, toggleRotate });
+defineExpose({
+  makeSnapshot,
+  toggleRotate,
+  applyCameraPreset,
+});
 </script>
 
 <template>

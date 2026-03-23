@@ -11,13 +11,13 @@ import {
   type Ref,
 } from "vue";
 
-import type { GridCameraState } from "./useGridCameraState.ts";
+import type { GridCameraState, TCameraState } from "./useGridCameraState.ts";
 import { useGridSnapshot } from "./useGridSnapshot.ts";
 
 import { handleKeyDown } from "@/lib/camera/OrbitControlsAddOn.ts";
-import type {
+import {
   ProjectionHelper,
-  TProjectionCenter,
+  type TProjectionCenter,
 } from "@/lib/projection/projectionUtils.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 import {
@@ -302,6 +302,24 @@ export function useGridScene(options: UseGridSceneOptions) {
     }
   }
 
+  function applyCameraPreset(data: TCameraState) {
+    const cam = getCamera();
+    const controls = getOrbitControls();
+    if (!cam || !controls) {
+      return;
+    }
+
+    cameraState.applyCameraState(cam, data);
+    if (projectionHelper.value.isFlat) {
+      controls.target.set(cam.position.x, cam.position.y, 0);
+    } else {
+      controls.target.set(0, 0, 0);
+    }
+    controls.update();
+    cameraState.encodeCameraToURL(cam);
+    redraw();
+  }
+
   function initEssentials() {
     scene = new THREE.Scene();
     const center = new THREE.Vector3();
@@ -444,7 +462,7 @@ export function useGridScene(options: UseGridSceneOptions) {
 
     newLat = Math.round(Math.max(-90, Math.min(90, newLat)) * 100) / 100;
     newLon =
-      Math.round(projectionHelper.value.normalizeLongitude(newLon) * 100) / 100;
+      Math.round(ProjectionHelper.normalizeLongitude(newLon) * 100) / 100;
 
     projectionCenter.value = { lat: newLat, lon: newLon };
   }
@@ -479,9 +497,7 @@ export function useGridScene(options: UseGridSceneOptions) {
     // Rotate 2D projection center longitude
     if (store.isRotating && projectionHelper.value.isFlat) {
       const center = projectionCenter.value ?? { lat: 0, lon: 0 };
-      const newLon = projectionHelper.value.normalizeLongitude(
-        center.lon - 0.3
-      );
+      const newLon = ProjectionHelper.normalizeLongitude(center.lon - 0.3);
       projectionCenter.value = { lat: center.lat, lon: newLon };
     }
 
@@ -631,17 +647,17 @@ export function useGridScene(options: UseGridSceneOptions) {
     );
   }
 
+  const projectionArrowKeys = [
+    "ArrowRight",
+    "ArrowLeft",
+    "ArrowUp",
+    "ArrowDown",
+  ];
+
   // Setup keyboard navigation listeners
   function setupKeyboardListeners() {
     useEventListener(box.value, "keydown", (e: KeyboardEvent) => {
-      const navigationKeys = [
-        "ArrowRight",
-        "ArrowLeft",
-        "ArrowUp",
-        "ArrowDown",
-        "+",
-        "-",
-      ];
+      const navigationKeys = [...projectionArrowKeys, "+", "-"];
 
       if (navigationKeys.includes(e.key)) {
         mouseDown = true;
@@ -703,6 +719,7 @@ export function useGridScene(options: UseGridSceneOptions) {
     redraw,
     toggleRotate,
     makeSnapshot,
+    applyCameraPreset,
     registerUpdateLOD,
     updateBaseSurface,
     configureCameraForProjection,

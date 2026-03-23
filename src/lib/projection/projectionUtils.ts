@@ -6,6 +6,8 @@ import {
 } from "d3-geo-projection";
 import { MathUtils } from "three";
 
+import { createAzimuthalHybridRaw } from "./azimuthalHybrid";
+
 export const PROJECTION_TYPES = {
   NEARSIDE_PERSPECTIVE: "nearside_perspective",
   MERCATOR: "mercator",
@@ -14,6 +16,7 @@ export const PROJECTION_TYPES = {
   CYLINDRICAL_EQUAL_AREA: "cylindrical_equal_area",
   EQUIRECTANGULAR: "equirectangular",
   AZIMUTHAL_EQUIDISTANT: "azimuthal_equidistant",
+  AZIMUTHAL_HYBRID: "azimuthal_hybrid",
 } as const;
 
 export type TProjectionType =
@@ -22,10 +25,6 @@ export type TProjectionType =
 export type TProjectionCenter = {
   lat: number;
   lon: number;
-};
-
-export type TProjectionOptions = {
-  center?: TProjectionCenter;
 };
 
 export const MERCATOR_LAT_LIMIT = 85;
@@ -39,6 +38,13 @@ export function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(Number.isFinite(value) ? value : 0, min), max);
 }
 
+export function isAzimuthalProjectionType(type: TProjectionType) {
+  return (
+    type === PROJECTION_TYPES.AZIMUTHAL_EQUIDISTANT ||
+    type === PROJECTION_TYPES.AZIMUTHAL_HYBRID
+  );
+}
+
 export class ProjectionHelper {
   readonly type: TProjectionType;
   readonly isFlat: boolean;
@@ -50,13 +56,7 @@ export class ProjectionHelper {
     | ReturnType<typeof geoMollweide>
     | null = null;
 
-  constructor(
-    type: TProjectionType,
-    center: TProjectionCenter,
-    _options?: TProjectionOptions
-  ) {
-    void _options;
-
+  constructor(type: TProjectionType, center: TProjectionCenter) {
     this.type = type;
     this.center = center;
     this.isFlat = type !== PROJECTION_TYPES.NEARSIDE_PERSPECTIVE;
@@ -68,6 +68,19 @@ export class ProjectionHelper {
     // We still keep a d3 projection for CPU-side geometry work:
     // flat mask clipping, bounds, and initial vertex positions before shaders run.
     this.d3Projection = this.createD3ProjectionInstance();
+  }
+
+  private createAzimuthalProjectionInstance(): d3.GeoProjection | null {
+    switch (this.type) {
+      case PROJECTION_TYPES.AZIMUTHAL_EQUIDISTANT:
+        return d3.geoAzimuthalEquidistant().clipAngle(AZIMUTHAL_CLIP_ANGLE);
+      case PROJECTION_TYPES.AZIMUTHAL_HYBRID:
+        return d3
+          .geoProjection(createAzimuthalHybridRaw())
+          .clipAngle(AZIMUTHAL_CLIP_ANGLE);
+      default:
+        return null;
+    }
   }
 
   createD3ProjectionInstance(): d3.GeoProjection | null {
@@ -90,23 +103,20 @@ export class ProjectionHelper {
         d3Projection = d3.geoEquirectangular();
         break;
       case PROJECTION_TYPES.AZIMUTHAL_EQUIDISTANT:
-        // The azimuthal equidistant projection needs to be clipped to avoid
-        // extreme distortion near the edges.
-        d3Projection = d3
-          .geoAzimuthalEquidistant()
-          .clipAngle(AZIMUTHAL_CLIP_ANGLE);
+      case PROJECTION_TYPES.AZIMUTHAL_HYBRID:
+        d3Projection = this.createAzimuthalProjectionInstance();
         break;
       default:
         d3Projection = null;
     }
     const centerLat = Math.max(-90, Math.min(90, this.center.lat));
-    const centerLon = this.normalizeLongitude(this.center.lon);
+    const centerLon = ProjectionHelper.normalizeLongitude(this.center.lon);
 
     d3Projection?.translate([0, 0]).scale(1).rotate([-centerLon, -centerLat]);
     return d3Projection;
   }
 
-  normalizeLongitude(lon: number): number {
+  static normalizeLongitude(lon: number): number {
     return (((lon % 360) + 540) % 360) - 180;
   }
 
@@ -142,7 +152,7 @@ export class ProjectionHelper {
     latLonOffset: number,
     radius = 1.0
   ): void {
-    const normalizedLon = this.normalizeLongitude(lon);
+    const normalizedLon = ProjectionHelper.normalizeLongitude(lon);
     latLonOut[latLonOffset] = lat;
     latLonOut[latLonOffset + 1] = normalizedLon;
     const [x, y, z] = this.project(lat, normalizedLon, radius);
@@ -176,7 +186,7 @@ export class ProjectionHelper {
       Math.min(MERCATOR_LAT_LIMIT, lat)
     );
     const projected = this.d3Projection?.([
-      this.normalizeLongitude(lon),
+      ProjectionHelper.normalizeLongitude(lon),
       safeLat,
     ]);
     if (!projected) {
@@ -194,7 +204,10 @@ export class ProjectionHelper {
     // CPU projection is still needed where geometry is built on the CPU
     // (e.g., flat masks and initial mesh positions). GPU projection only
     // applies when using shader materials with latLon attributes.
-    const projected = this.d3Projection?.([this.normalizeLongitude(lon), lat]);
+    const projected = this.d3Projection?.([
+      ProjectionHelper.normalizeLongitude(lon),
+      lat,
+    ]);
     if (!projected) {
       return [0, 0, 0];
     }

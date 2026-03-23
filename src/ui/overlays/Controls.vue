@@ -13,7 +13,11 @@ import ProjectionControls from "./controls/ProjectionControls.vue";
 import VariableSelector from "./controls/VariableSelector.vue";
 
 // Import control components
-import { clamp, type TProjectionType } from "@/lib/projection/projectionUtils";
+import {
+  clamp,
+  PROJECTION_TYPES,
+  type TProjectionType,
+} from "@/lib/projection/projectionUtils";
 import type {
   TBounds,
   TModelInfo,
@@ -228,7 +232,10 @@ if (paramMaskMode.value) {
 }
 
 if (paramProjection.value) {
-  store.projectionMode = paramProjection.value as TProjectionType;
+  const projection = paramProjection.value as TProjectionType;
+  if (Object.values(PROJECTION_TYPES).includes(projection)) {
+    store.projectionMode = projection;
+  }
 }
 
 if (paramProjectionCenterLat.value || paramProjectionCenterLon.value) {

@@ -16,6 +16,7 @@ export const PROJECTION_TYPE_BY_MODE = {
   [PROJECTION_TYPES.MOLLWEIDE]: 4,
   [PROJECTION_TYPES.CYLINDRICAL_EQUAL_AREA]: 5,
   [PROJECTION_TYPES.AZIMUTHAL_EQUIDISTANT]: 6,
+  [PROJECTION_TYPES.AZIMUTHAL_HYBRID]: 7,
 } as const;
 
 export type TProjectionTypeId =
@@ -38,6 +39,14 @@ export const projectionShaderFunctions = `
   #define PROJ_MOLLWEIDE 4
   #define PROJ_CYLINDRICAL_EQUAL_AREA 5
   #define PROJ_AZIMUTHAL_EQUIDISTANT 6
+  #define PROJ_AZIMUTHAL_HYBRID 7
+  #define AZIMUTHAL_RIM_BLEND_START 0.42
+  #define AZIMUTHAL_RIM_BLEND_END 0.98
+  #define AZIMUTHAL_FAR_BLEND_START 0.68
+  #define AZIMUTHAL_FAR_BLEND_END 0.98
+  #define AZIMUTHAL_HYBRID_BLEND 0.43
+  #define AZIMUTHAL_HYBRID_RIM_BLEND -0.08
+  #define AZIMUTHAL_HYBRID_FAR_BLEND -0.14
 
   // Robinson projection lookup table (X and Y coefficients)
   // Matches d3-geo-projection's K array exactly
@@ -92,6 +101,25 @@ export const projectionShaderFunctions = `
     float newLon = atan(y, x);
 
     return vec2(newLat * RAD_TO_DEG, newLon * RAD_TO_DEG);
+  }
+
+  float getAzimuthalEffectiveBlend(
+    float blend,
+    float rimBlend,
+    float farBlend,
+    float c
+  ) {
+    float rimWeight = smoothstep(
+      AZIMUTHAL_RIM_BLEND_START,
+      AZIMUTHAL_RIM_BLEND_END,
+      c / PI
+    );
+    float farWeight = smoothstep(
+      AZIMUTHAL_FAR_BLEND_START,
+      AZIMUTHAL_FAR_BLEND_END,
+      c / PI
+    );
+    return clamp(blend + rimBlend * rimWeight + farBlend * farWeight, 0.0, 1.0);
   }
 
   // Globe projection (3D sphere)
@@ -194,6 +222,54 @@ export const projectionShaderFunctions = `
     return vec3(x, y, 0.0);
   }
 
+  // Azimuthal blend between equal-area (0.0) and equidistant (1.0)
+  // This keeps the same azimuthal direction and interpolates the radial distance.
+  vec3 projectAzimuthalHybrid(
+    float lat,
+    float lon,
+    float centerLon,
+    float centerLat
+  ) {
+    vec2 rotated = rotateCoords(lat, lon, centerLon, centerLat);
+    float latRad = rotated.x * DEG_TO_RAD;
+    float lonRad = rotated.y * DEG_TO_RAD;
+
+    float cosLat = cos(latRad);
+    float sinLat = sin(latRad);
+    float cosLon = cos(lonRad);
+    float sinLon = sin(lonRad);
+    float cosC = clamp(cosLat * cosLon, -1.0, 1.0);
+    float c = acos(cosC);
+
+    if (c > 3.02) {
+      float nan = sqrt(-1.0);
+      return vec3(nan, nan, nan);
+    }
+
+    if (c < 0.0001) {
+      return vec3(0.0, 0.0, 0.0);
+    }
+
+    float sinC = sin(c);
+    if (abs(sinC) < 0.0001) {
+      float nan = sqrt(-1.0);
+      return vec3(nan, nan, nan);
+    }
+
+    float rhoEqualArea = sqrt(max(0.0, 2.0 - 2.0 * cosC));
+    float rhoEquidistant = c;
+    float effectiveBlend = getAzimuthalEffectiveBlend(
+      AZIMUTHAL_HYBRID_BLEND,
+      AZIMUTHAL_HYBRID_RIM_BLEND,
+      AZIMUTHAL_HYBRID_FAR_BLEND,
+      c
+    );
+    float rho = mix(rhoEqualArea, rhoEquidistant, effectiveBlend);
+    float k = rho / sinC;
+
+    return vec3(k * cosLat * sinLon, k * sinLat, 0.0);
+  }
+
   // Azimuthal Equidistant projection
   // Distances from center point are preserved
   vec3 projectAzimuthalEquidistant(float lat, float lon, float centerLon, float centerLat) {
@@ -228,8 +304,17 @@ export const projectionShaderFunctions = `
   }
 
   // Main projection function that dispatches to the appropriate projection
-  vec3 projectLatLon(float lat, float lon, int projectionType, float centerLon, float centerLat, float radius) {
-    if (projectionType == PROJ_AZIMUTHAL_EQUIDISTANT) {
+  vec3 projectLatLon(
+    float lat,
+    float lon,
+    int projectionType,
+    float centerLon,
+    float centerLat,
+    float radius
+  ) {
+    if (projectionType == PROJ_AZIMUTHAL_HYBRID) {
+      return projectAzimuthalHybrid(lat, lon, centerLon, centerLat) * radius;
+    } else if (projectionType == PROJ_AZIMUTHAL_EQUIDISTANT) {
       return projectAzimuthalEquidistant(lat, lon, centerLon, centerLat) * radius;
     } else if (projectionType == PROJ_EQUIRECTANGULAR) {
       return projectEquirectangular(lat, lon, centerLon, centerLat) * radius;

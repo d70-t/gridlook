@@ -16,6 +16,7 @@ import {
 } from "@/lib/data/gridTypeDetector";
 import { indexFromIndex, indexFromZarr } from "@/lib/data/sourceIndexing";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager";
+import { PROJECTION_TYPES } from "@/lib/projection/projectionUtils";
 import {
   availableColormaps,
   type TColorMap,
@@ -24,6 +25,7 @@ import { useUrlParameterStore } from "@/store/paramStore";
 import { useGlobeControlStore } from "@/store/store";
 import { useUrlSync } from "@/store/useUrlSync";
 import Toast from "@/ui/common/Toast.vue";
+import type { TCameraState } from "@/ui/grids/composables/useGridCameraState";
 import GridCurvilinear from "@/ui/grids/Curvilinear.vue";
 import GridGaussianReduced from "@/ui/grids/GaussianReduced.vue";
 import GridHealpix from "@/ui/grids/Healpix.vue";
@@ -48,8 +50,25 @@ const { varnameSelector, loading, colormap, invertColormap } =
 
 const { paramVarname, paramGridType } = storeToRefs(urlParameterStore);
 
-const globe: Ref<typeof GridTriangular | null> = ref(null);
+type TGlobeHandle = {
+  makeSnapshot: (options: TSnapshotOptions) => void;
+  toggleRotate: () => void;
+  applyCameraPreset: (state: TCameraState) => void;
+};
+
+const HYPERGLOBE_CAMERA_PRESET: TCameraState = {
+  position: [0, 0, 33],
+  quaternion: [0, 0, 0, 1],
+  fov: 7.5,
+  aspect: 1.89,
+  near: 0.1,
+  far: 1000,
+};
+
+const globe: Ref<TGlobeHandle | null> = ref(null);
 const distractionFree = ref(false);
+const hyperglobeModeActive = ref(false);
+const panelVisibleBeforeDistractionFree = ref(true);
 const globeKey = ref(0);
 const globeControlKey = ref(0);
 const isInitialized = ref(false);
@@ -225,6 +244,49 @@ const toggleInfoPanel = () => {
   infoPanelOpen.value = !infoPanelOpen.value;
 };
 
+const enterDistractionFree = () => {
+  panelVisibleBeforeDistractionFree.value = store.controlPanelVisible;
+  distractionFree.value = true;
+  store.setControlPanelVisible(false);
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(() => {});
+  }
+};
+
+const exitDistractionFree = (forceShowPanel = false) => {
+  distractionFree.value = false;
+  store.setControlPanelVisible(
+    forceShowPanel ? true : panelVisibleBeforeDistractionFree.value
+  );
+  if (document.fullscreenElement) {
+    document.exitFullscreen().catch(() => {});
+  }
+};
+
+const toggleDistractionFree = () => {
+  hyperglobeModeActive.value = false;
+  if (distractionFree.value) {
+    exitDistractionFree();
+  } else {
+    enterDistractionFree();
+  }
+};
+
+const applyHyperglobePreset = () => {
+  if (hyperglobeModeActive.value) {
+    hyperglobeModeActive.value = false;
+    exitDistractionFree(true);
+    return;
+  }
+
+  hyperglobeModeActive.value = true;
+  store.projectionMode = PROJECTION_TYPES.AZIMUTHAL_HYBRID;
+  store.projectionCenter = { lat: -90, lon: -90 };
+
+  enterDistractionFree();
+  globe.value?.applyCameraPreset(HYPERGLOBE_CAMERA_PRESET);
+};
+
 onMounted(async () => {
   // stop loading is handled in the grid components after data load
   store.startLoading();
@@ -238,15 +300,13 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
   if (tag === "input" || tag === "textarea" || tag === "select") {
     return;
   }
-  if (e.key === "r") {
+  const key = e.key.toLowerCase();
+  if (key === "r") {
     toggleRotate();
-  } else if (e.key === "d") {
-    distractionFree.value = !distractionFree.value;
-    if (distractionFree.value) {
-      document.documentElement.requestFullscreen().catch(() => {});
-    } else if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {});
-    }
+  } else if (key === "d") {
+    toggleDistractionFree();
+  } else if (key === "g") {
+    applyHyperglobePreset();
   }
 });
 </script>
