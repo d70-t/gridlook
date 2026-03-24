@@ -329,7 +329,10 @@ export function useGridScene(options: UseGridSceneOptions) {
       0.1,
       1000
     );
-    renderer = new THREE.WebGLRenderer({ canvas: canvas.value });
+    renderer = new THREE.WebGLRenderer({
+      canvas: canvas.value,
+      powerPreference: "high-performance",
+    });
 
     camera.up = new THREE.Vector3(0, 0, 1);
     camera.position.x = 30;
@@ -519,58 +522,39 @@ export function useGridScene(options: UseGridSceneOptions) {
     frameId.value = requestAnimationFrame(animationLoop);
   }
 
+  function onInteractionStart() {
+    mouseDown = true;
+    animationLoop();
+  }
+
+  function onInteractionEnd() {
+    mouseDown = false;
+    redraw();
+  }
+
   function setupInteractionListeners() {
-    // Wheel events
     useEventListener(
       canvas.value,
       "wheel",
       () => {
-        mouseDown = true;
-        animationLoop();
-        mouseDown = false;
+        onInteractionStart();
+        onInteractionEnd();
       },
       { passive: true }
     );
 
-    // Mouse events for general interaction
-    useEventListener(
-      canvas.value,
-      "mouseup",
-      () => {
-        mouseDown = false;
-      },
-      { passive: true }
-    );
-
-    useEventListener(
-      canvas.value,
-      "mousedown",
-      () => {
-        mouseDown = true;
-        animationLoop();
-      },
-      { passive: true }
-    );
-
-    // Touch events
-    useEventListener(
-      canvas.value,
-      "touchstart",
-      () => {
-        mouseDown = true;
-        animationLoop();
-      },
-      { passive: true }
-    );
-
-    useEventListener(
-      canvas.value,
-      "touchend",
-      () => {
-        mouseDown = false;
-      },
-      { passive: true }
-    );
+    useEventListener(canvas.value, "mouseup", onInteractionEnd, {
+      passive: true,
+    });
+    useEventListener(canvas.value, "mousedown", onInteractionStart, {
+      passive: true,
+    });
+    useEventListener(canvas.value, "touchstart", onInteractionStart, {
+      passive: true,
+    });
+    useEventListener(canvas.value, "touchend", onInteractionEnd, {
+      passive: true,
+    });
   }
 
   // Setup right-click drag listeners for projection center adjustment
@@ -660,10 +644,9 @@ export function useGridScene(options: UseGridSceneOptions) {
       const navigationKeys = [...projectionArrowKeys, "+", "-"];
 
       if (navigationKeys.includes(e.key)) {
-        mouseDown = true;
+        onInteractionStart();
         handleKeyDown(e, getOrbitControls()!, projectionHelper.value.isFlat);
-        animationLoop();
-        mouseDown = false;
+        onInteractionEnd();
       }
     });
   }

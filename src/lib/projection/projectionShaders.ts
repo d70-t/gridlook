@@ -6,7 +6,11 @@
  * rather than rebuilding geometry on the CPU.
  */
 
-import { PROJECTION_TYPES, type TProjectionType } from "./projectionUtils";
+import {
+  AZIMUTHAL_CLIP_ANGLE,
+  PROJECTION_TYPES,
+  type TProjectionType,
+} from "./projectionUtils";
 
 export const PROJECTION_TYPE_BY_MODE = {
   [PROJECTION_TYPES.NEARSIDE_PERSPECTIVE]: 0,
@@ -31,6 +35,7 @@ export const projectionShaderFunctions = `
   #define DEG_TO_RAD 0.017453292519943295
   #define RAD_TO_DEG 57.29577951308232
   #define MERCATOR_LAT_LIMIT 85.0
+  #define AZIMUTHAL_CLIP_ANGLE_RAD ${(AZIMUTHAL_CLIP_ANGLE * Math.PI) / 180.0}
 
   #define PROJ_GLOBE 0
   #define PROJ_EQUIRECTANGULAR 1
@@ -241,7 +246,7 @@ export const projectionShaderFunctions = `
     float cosC = clamp(cosLat * cosLon, -1.0, 1.0);
     float c = acos(cosC);
 
-    if (c > 3.02) {
+    if (c > AZIMUTHAL_CLIP_ANGLE_RAD) {
       float nan = sqrt(-1.0);
       return vec3(nan, nan, nan);
     }
@@ -281,9 +286,9 @@ export const projectionShaderFunctions = `
     float cosC = cos(latRad) * cos(lonRad);
     float c = acos(clamp(cosC, -1.0, 1.0));
 
-    // Clip points beyond ~173 degrees (3.02 radians) to avoid antipodal singularity
+    // Clip points beyond the configured clip angle to avoid antipodal singularity
     // Return NaN to cause GPU to discard the geometry entirely
-    if (c > 3.02) {
+    if (c > AZIMUTHAL_CLIP_ANGLE_RAD) {
       float nan = sqrt(-1.0);  // Generate NaN
       return vec3(nan, nan, nan);
     }
