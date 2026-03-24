@@ -6,11 +6,13 @@ import {
   onBeforeUnmount,
   onMounted,
   ref,
+  shallowRef,
   watch,
   type ComputedRef,
   type Ref,
 } from "vue";
 
+import type { THoverGeoPoint } from "./gridHoverUtils.ts";
 import type { GridCameraState, TCameraState } from "./useGridCameraState.ts";
 import { useGridSnapshot } from "./useGridSnapshot.ts";
 
@@ -59,6 +61,9 @@ export function useGridScene(options: UseGridSceneOptions) {
   let updateLOD: (() => void) | undefined = undefined;
   let baseSurface: THREE.Mesh | undefined = undefined;
   let mouseDown = false;
+  const raycaster = new THREE.Raycaster();
+  const hoveredGeoPoint = shallowRef<THoverGeoPoint | null>(null);
+  let lastPointerPosition: { clientX: number; clientY: number } | null = null;
 
   let projectionDragActive = false;
   let dragStartX = 0;
@@ -117,6 +122,83 @@ export function useGridScene(options: UseGridSceneOptions) {
     const controlsUpdated = getOrbitControls()?.update() ?? false;
     getRenderer()?.render(getScene()!, getCamera()!);
     return controlsUpdated;
+  }
+
+  function invertFlatProjection(intersection: THREE.Intersection) {
+    const projection = projectionHelper.value.getD3Projection();
+    const inverted = projection?.invert?.([
+      intersection.point.x,
+      -intersection.point.y,
+    ]);
+    if (
+      !inverted ||
+      !Number.isFinite(inverted[0]) ||
+      !Number.isFinite(inverted[1])
+    ) {
+      return null;
+    }
+
+    const [lon, lat] = inverted;
+    const [projectedX, projectedY] = projectionHelper.value.project(lat, lon);
+    if (
+      !Number.isFinite(projectedX) ||
+      !Number.isFinite(projectedY) ||
+      Math.abs(projectedX - intersection.point.x) > 1e-3 ||
+      Math.abs(projectedY - intersection.point.y) > 1e-3
+    ) {
+      return null;
+    }
+
+    return { lat, lon: ProjectionHelper.normalizeLongitude(lon) };
+  }
+
+  function getHoveredGeoPoint(clientX: number, clientY: number) {
+    if (!canvas.value || !camera || !baseSurface) {
+      return null;
+    }
+
+    const rect = canvas.value.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      return null;
+    }
+
+    const pointer = new THREE.Vector2(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1
+    );
+    raycaster.setFromCamera(pointer, camera);
+
+    const [intersection] = raycaster.intersectObject(baseSurface, false);
+    if (!intersection) {
+      return null;
+    }
+
+    if (!projectionHelper.value.isFlat) {
+      const { lat, lon } = ProjectionHelper.cartesianToLatLon(
+        intersection.point.x,
+        intersection.point.y,
+        intersection.point.z
+      );
+      return { lat, lon, screenX: clientX, screenY: clientY };
+    }
+
+    const geo = invertFlatProjection(intersection);
+    if (!geo) {
+      return null;
+    }
+    return { ...geo, screenX: clientX, screenY: clientY };
+  }
+
+  function refreshHover() {
+    if (!lastPointerPosition) {
+      hoveredGeoPoint.value = null;
+      return;
+    }
+
+    hoveredGeoPoint.value = getHoveredGeoPoint(
+      lastPointerPosition.clientX,
+      lastPointerPosition.clientY
+    );
   }
 
   function getProjectedBounds() {
@@ -512,6 +594,9 @@ export function useGridScene(options: UseGridSceneOptions) {
     }
 
     const controlsUpdated = render();
+    if (lastPointerPosition) {
+      refreshHover();
+    }
     if (!mouseDown && !store.isRotating && !controlsUpdated) {
       const cam = getCamera();
       if (cam) {
@@ -532,7 +617,34 @@ export function useGridScene(options: UseGridSceneOptions) {
     redraw();
   }
 
+  function setupHoverListeners() {
+    useEventListener(
+      canvas.value,
+      "mousemove",
+      (event: MouseEvent) => {
+        lastPointerPosition = {
+          clientX: event.clientX,
+          clientY: event.clientY,
+        };
+        refreshHover();
+      },
+      { passive: true }
+    );
+
+    useEventListener(
+      canvas.value,
+      "mouseleave",
+      () => {
+        lastPointerPosition = null;
+        hoveredGeoPoint.value = null;
+      },
+      { passive: true }
+    );
+  }
+
   function setupInteractionListeners() {
+    setupHoverListeners();
+
     useEventListener(
       canvas.value,
       "wheel",
@@ -681,7 +793,16 @@ export function useGridScene(options: UseGridSceneOptions) {
     () => controlPanelVisible.value,
     () => {
       updateCameraForPanel();
+      refreshHover();
     }
+  );
+
+  watch(
+    [() => projectionHelper.value.type, () => projectionCenter.value],
+    () => {
+      refreshHover();
+    },
+    { deep: true }
   );
 
   const { makeSnapshot } = useGridSnapshot({
@@ -706,5 +827,6 @@ export function useGridScene(options: UseGridSceneOptions) {
     registerUpdateLOD,
     updateBaseSurface,
     configureCameraForProjection,
+    hoveredGeoPoint,
   };
 }

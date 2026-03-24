@@ -72,10 +72,10 @@ export function createMissingOrFillPredicate(
     if (Number.isNaN(value)) {
       return true;
     }
-    if (!Number.isNaN(missingValue) && value === missingValue) {
+    if (value === missingValue) {
       return true;
     }
-    if (!Number.isNaN(fillValue) && value === fillValue) {
+    if (value === fillValue) {
       return true;
     }
     return false;

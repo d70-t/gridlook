@@ -4,6 +4,10 @@ import * as THREE from "three";
 import { computed, onBeforeMount, ref, watch } from "vue";
 import type * as zarr from "zarrita";
 
+import {
+  createGeoSampleIndex,
+  useGridHoverLookup,
+} from "./composables/gridHoverUtils.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
@@ -14,6 +18,7 @@ import {
   isLatitudeName,
   isLongitudeName,
 } from "@/lib/data/zarrUtils.ts";
+import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import {
   getColormapScaleOffset,
   makeGpuProjectedTextureMaterial,
@@ -67,10 +72,14 @@ const {
   projectionHelper,
   canvas,
   box,
+  hoveredGeoPoint,
 } = useSharedGridLogic();
 
 const pendingUpdate = ref(false);
 const updatingData = ref(false);
+
+const { setHoverLookupFromIndex, clearHoverLookup } =
+  useGridHoverLookup(hoveredGeoPoint);
 
 const longitudes = ref(new Float64Array());
 const latitudes = ref(new Float64Array());
@@ -141,6 +150,7 @@ function updateMeshProjectionUniforms() {
 
 async function datasourceUpdate() {
   resetDataVars();
+  clearHoverLookup();
   if (props.datasources !== undefined) {
     await getDims();
     await Promise.all([makeGeometry(), getData()]);
@@ -538,7 +548,38 @@ async function getDimensionValues(
   return dimValues;
 }
 
-async function fetchAndRenderData(
+async function buildHoverSamples(rawData: Float32Array) {
+  const samples: { lat: number; lon: number; value: number }[] = [];
+  let rotPole: { lat: number; lon: number } | null = null;
+  if (props.isRotated) {
+    rotPole = await getRotatedNorthPole();
+  }
+  for (let latIdx = 0; latIdx < latitudes.value.length; latIdx++) {
+    if (isLatOnly.value) {
+      samples.push({
+        lat: latitudes.value[latIdx],
+        lon: 0,
+        value: rawData[latIdx],
+      });
+    } else {
+      for (let lonIdx = 0; lonIdx < longitudes.value.length; lonIdx++) {
+        const rawLat = latitudes.value[latIdx];
+        const rawLon = longitudes.value[lonIdx];
+        const { lat, lon } = rotPole
+          ? rotatedToGeographic(rawLat, rawLon, rotPole.lat, rotPole.lon)
+          : { lat: rawLat, lon: rawLon };
+        samples.push({
+          lat,
+          lon: ProjectionHelper.normalizeLongitude(lon),
+          value: rawData[latIdx * longitudes.value.length + lonIdx],
+        });
+      }
+    }
+  }
+  return samples;
+}
+
+async function buildDimensionConfig(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
   updateMode: TUpdateMode
 ) {
@@ -546,12 +587,10 @@ async function fetchAndRenderData(
     props.datasources!,
     varnameSelector.value
   );
-  // For lat-only data, only exclude the last dimension (lat)
-  // For regular lat/lon data, exclude the last two dimensions
   const excludedDims = isLatOnly.value
     ? [datavar.shape.length - 1]
     : [datavar.shape.length - 2, datavar.shape.length - 1];
-  const { dimensionRanges, indices } = buildDimensionRangesAndIndices(
+  return buildDimensionRangesAndIndices(
     datavar,
     dimensionNames,
     paramDimIndices.value,
@@ -561,6 +600,16 @@ async function fetchAndRenderData(
     excludedDims,
     varinfo.value?.dimRanges,
     updateMode === UPDATE_MODE.SLIDER_TOGGLE
+  );
+}
+
+async function fetchAndRenderData(
+  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  updateMode: TUpdateMode
+) {
+  const { dimensionRanges, indices } = await buildDimensionConfig(
+    datavar,
+    updateMode
   );
 
   let rawData = castDataVarToFloat32(
@@ -574,6 +623,15 @@ async function fetchAndRenderData(
   updateProjectionUniforms(material, helper);
 
   const { min, max, missingValue, fillValue } = getDataBounds(datavar, rawData);
+
+  // Update hover lookup
+  const samples = await buildHoverSamples(rawData);
+  setHoverLookupFromIndex(
+    createGeoSampleIndex(samples),
+    fillValue,
+    missingValue
+  );
+
   // Set missing/fill values as uniforms for the shader
   material.uniforms.missingValue.value = missingValue;
   material.uniforms.fillValue.value = fillValue;

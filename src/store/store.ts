@@ -19,6 +19,23 @@ export const UPDATE_MODE = {
 
 export type TUpdateMode = (typeof UPDATE_MODE)[keyof typeof UPDATE_MODE];
 
+export const HOVERED_GRID_POINT_STATUS = {
+  VALUE: "value",
+  MISSING: "missing",
+} as const;
+
+export type THoveredGridPointStatus =
+  (typeof HOVERED_GRID_POINT_STATUS)[keyof typeof HOVERED_GRID_POINT_STATUS];
+
+export type THoveredGridPoint = {
+  lat: number;
+  lon: number;
+  value: number | null;
+  status: THoveredGridPointStatus;
+  screenX: number;
+  screenY: number;
+};
+
 export const useGlobeControlStore = defineStore("globeControl", {
   state: () => {
     return {
@@ -48,6 +65,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
       projectionMode: PROJECTION_TYPES.NEARSIDE_PERSPECTIVE as TProjectionType,
       projectionCenter: { lat: 0, lon: 0 } as TProjectionCenter,
       isRotating: false,
+      hoveredGridPoint: undefined as THoveredGridPoint | undefined,
     };
   },
   actions: {
@@ -62,6 +80,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
     },
     startLoading() {
       this.loading = true;
+      this.hoveredGridPoint = undefined;
     },
     stopLoading() {
       this.loading = false;
@@ -118,6 +137,12 @@ export const useGlobeControlStore = defineStore("globeControl", {
     },
     setControlPanelVisible(visible: boolean) {
       this.controlPanelVisible = visible;
+    },
+    setHoveredGridPoint(point: THoveredGridPoint) {
+      this.hoveredGridPoint = point;
+    },
+    clearHoveredGridPoint() {
+      this.hoveredGridPoint = undefined;
     },
   },
 });

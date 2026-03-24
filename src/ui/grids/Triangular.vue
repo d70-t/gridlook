@@ -4,6 +4,10 @@ import * as THREE from "three";
 import { computed, onBeforeMount, ref, watch } from "vue";
 import * as zarr from "zarrita";
 
+import {
+  createGeoSampleIndex,
+  useGridHoverLookup,
+} from "./composables/gridHoverUtils.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
@@ -48,6 +52,7 @@ const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
 
 const pendingUpdate = ref(false);
 const updatingData = ref(false);
+const hoverTriangleVertices = ref<Float32Array | null>(null);
 
 let meshes: THREE.Mesh[] = [];
 
@@ -64,7 +69,11 @@ const {
   canvas,
   box,
   updateHistogram,
+  hoveredGeoPoint,
 } = useSharedGridLogic();
+
+const { setHoverLookupFromIndex, clearHoverLookup } =
+  useGridHoverLookup(hoveredGeoPoint);
 
 watch(
   () => varnameSelector.value,
@@ -152,6 +161,7 @@ const gridsource = computed(() => {
 });
 
 async function datasourceUpdate() {
+  clearHoverLookup();
   if (props.datasources !== undefined) {
     await fetchGrid();
     await getData();
@@ -177,6 +187,7 @@ const BATCH_SIZE = 3000000; // number of triangles per mesh (tune as needed)
 async function fetchGrid() {
   try {
     const verts = await grid2buffer(gridsource.value!);
+    hoverTriangleVertices.value = verts;
     cleanupMeshes();
 
     const nTriangles = verts.length / 9;
@@ -304,6 +315,29 @@ async function grid2buffer(grid: { store: string; dataset: string }) {
   return verts;
 }
 
+function buildTriangleHoverIndex(
+  vertices: Float32Array,
+  cellCount: number,
+  data: Float32Array
+) {
+  return createGeoSampleIndex(
+    Array.from({ length: cellCount }, (_, index) => {
+      const offset = index * 9;
+      const centroid = new THREE.Vector3(
+        vertices[offset] + vertices[offset + 3] + vertices[offset + 6],
+        vertices[offset + 1] + vertices[offset + 4] + vertices[offset + 7],
+        vertices[offset + 2] + vertices[offset + 5] + vertices[offset + 8]
+      ).normalize();
+      const { lat, lon } = ProjectionHelper.cartesianToLatLon(
+        centroid.x,
+        centroid.y,
+        centroid.z
+      );
+      return { lat, lon, value: data[index] };
+    })
+  );
+}
+
 function data2valueBuffer(
   data: zarr.Chunk<zarr.DataType>,
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>
@@ -370,7 +404,7 @@ function distributeDataToMeshes(dataBuffer: {
   }
 }
 
-async function fetchAndRenderData(
+async function buildDimensionConfig(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
   updateMode: TUpdateMode
 ) {
@@ -378,7 +412,7 @@ async function fetchAndRenderData(
     props.datasources!,
     varnameSelector.value
   );
-  const { dimensionRanges, indices } = buildDimensionRangesAndIndices(
+  return buildDimensionRangesAndIndices(
     datavar,
     dimensionNames,
     paramDimIndices.value,
@@ -389,6 +423,16 @@ async function fetchAndRenderData(
     varinfo.value?.dimRanges,
     updateMode === UPDATE_MODE.SLIDER_TOGGLE
   );
+}
+
+async function fetchAndRenderData(
+  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  updateMode: TUpdateMode
+) {
+  const { dimensionRanges, indices } = await buildDimensionConfig(
+    datavar,
+    updateMode
+  );
 
   const rawData = await ZarrDataManager.getVariableDataFromArray(
     datavar,
@@ -397,6 +441,21 @@ async function fetchAndRenderData(
   const dataBuffer = data2valueBuffer(rawData, datavar);
   // Distribute data values to each mesh
   distributeDataToMeshes(dataBuffer);
+
+  // Update hover lookup
+  const rawPlotData = castDataVarToFloat32(rawData.data);
+  if (hoverTriangleVertices.value) {
+    const hoverIndex = buildTriangleHoverIndex(
+      hoverTriangleVertices.value,
+      rawData.shape[0],
+      rawPlotData
+    );
+    setHoverLookupFromIndex(
+      hoverIndex,
+      dataBuffer.fillValue,
+      dataBuffer.missingValue
+    );
+  }
 
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
   updateHistogram(

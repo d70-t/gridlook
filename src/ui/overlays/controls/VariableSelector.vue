@@ -12,7 +12,7 @@ const props = defineProps<{
 }>();
 
 const store = useGlobeControlStore();
-const { loading, varinfo } = storeToRefs(store);
+const { loading } = storeToRefs(store);
 
 const variableOptions = computed(() => {
   const visibleVars = Object.keys(props.modelInfo.vars).filter((varname) => {
@@ -22,17 +22,27 @@ const variableOptions = computed(() => {
   return visibleVars;
 });
 
+const currentVarAttrs = computed(
+  () => props.modelInfo.vars[model.value]?.attrs
+);
+
 const currentVarUnits = computed(() => {
-  return varinfo.value?.attrs?.units ?? "-";
+  return currentVarAttrs.value?.units ?? "-";
 });
 
 const currentVarLongname = computed(() => {
-  return varinfo.value?.attrs?.long_name;
+  return currentVarAttrs.value?.long_name;
 });
 
 const currentVarStandardName = computed(() => {
-  return varinfo.value?.attrs?.standard_name;
+  return currentVarAttrs.value?.standard_name;
 });
+
+function getOptionLabel(varname: string): string {
+  const v = props.modelInfo.vars[varname];
+  const label = v?.attrs?.long_name ?? v?.attrs?.standard_name;
+  return label ? `${varname} - ${label}` : varname;
+}
 </script>
 
 <template>
@@ -45,19 +55,7 @@ const currentVarStandardName = computed(() => {
             :key="varname"
             :value="varname"
           >
-            {{ varname }}
-            <span
-              v-if="
-                modelInfo.vars[varname]?.attrs?.long_name ||
-                modelInfo.vars[varname]?.attrs?.standard_name
-              "
-            >
-              -
-              {{
-                modelInfo.vars[varname].attrs.long_name ??
-                modelInfo.vars[varname].attrs.standard_name
-              }}
-            </span>
+            {{ getOptionLabel(varname) }}
           </option>
         </select>
       </div>

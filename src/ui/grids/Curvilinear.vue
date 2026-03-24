@@ -4,6 +4,10 @@ import * as THREE from "three";
 import { computed, onBeforeMount, ref, watch } from "vue";
 import * as zarr from "zarrita";
 
+import {
+  createGeoSampleIndex,
+  useGridHoverLookup,
+} from "./composables/gridHoverUtils.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
@@ -70,7 +74,11 @@ const {
   canvas,
   box,
   updateHistogram,
+  hoveredGeoPoint,
 } = useSharedGridLogic();
+
+const { setHoverLookupFromIndex, clearHoverLookup } =
+  useGridHoverLookup(hoveredGeoPoint);
 
 watch(
   () => varnameSelector.value,
@@ -142,6 +150,7 @@ const colormapMaterial = computed(() => {
 });
 
 async function datasourceUpdate() {
+  clearHoverLookup();
   if (props.datasources !== undefined) {
     await Promise.all([getData()]);
     updateLandSeaMask();
@@ -510,6 +519,32 @@ async function getDimensionValues(
   return dimValues;
 }
 
+async function setHoverData(
+  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  rawData: Float32Array,
+  fillValue: number,
+  missingValue: number
+) {
+  // Update hover lookup
+  const { latitudes: latChunk, longitudes: lonChunk } = await getLatLonData(
+    datavar,
+    props.datasources
+  );
+  const hoverLats = latChunk.data as Float64Array;
+  const hoverLons = lonChunk!.data as Float64Array;
+  setHoverLookupFromIndex(
+    createGeoSampleIndex(
+      Array.from(rawData, (value, index) => ({
+        lat: hoverLats[index],
+        lon: hoverLons[index],
+        value,
+      }))
+    ),
+    fillValue,
+    missingValue
+  );
+}
+
 async function fetchAndRenderData(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
   updateMode: TUpdateMode
@@ -536,6 +571,7 @@ async function fetchAndRenderData(
   const { min, max, missingValue, fillValue } = getDataBounds(datavar, rawData);
 
   await getGrid(datavar, rawData);
+  await setHoverData(datavar, rawData, fillValue, missingValue);
 
   for (let mesh of meshes) {
     const material = mesh.material as THREE.ShaderMaterial;
