@@ -22,20 +22,20 @@ const variableOptions = computed(() => {
   return visibleVars;
 });
 
-const currentVarAttrs = computed(
-  () => props.modelInfo.vars[model.value]?.attrs
-);
+const currentVar = computed(() => props.modelInfo.vars[model.value]);
+
+const currentVarAttrs = computed(() => currentVar.value?.attrs);
 
 const currentVarUnits = computed(() => {
   return currentVarAttrs.value?.units ?? "-";
 });
 
-const currentVarLongname = computed(() => {
-  return currentVarAttrs.value?.long_name;
-});
-
-const currentVarStandardName = computed(() => {
-  return currentVarAttrs.value?.standard_name;
+const currentVarLabel = computed(() => {
+  return (
+    currentVarAttrs.value?.long_name ??
+    currentVarAttrs.value?.standard_name ??
+    "-"
+  );
 });
 
 function getOptionLabel(varname: string): string {
@@ -59,9 +59,9 @@ function getOptionLabel(varname: string): string {
           </option>
         </select>
       </div>
-      <div class="has-text-right">
+      <div :key="model" class="has-text-right">
         <span v-word-break>
-          {{ currentVarLongname || currentVarStandardName || "-" }}
+          {{ currentVarLabel }}
         </span>
         / {{ currentVarUnits }}
       </div>
