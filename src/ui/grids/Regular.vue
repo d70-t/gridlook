@@ -160,6 +160,7 @@ async function datasourceUpdate() {
 }
 
 const isLatOnly = ref(false);
+const isGridGlobal = ref(false);
 
 async function getDims() {
   // Assumptions: the last two dimensions of the data array are
@@ -268,6 +269,7 @@ function generateGridVerticesAndUVs(
   longitudes: Float64Array,
   isReversed: boolean,
   isRotated: boolean,
+  textureLonCount: number,
   poleLat?: number,
   poleLon?: number
 ) {
@@ -305,7 +307,10 @@ function generateGridVerticesAndUVs(
       // Calculate the texture coordinates for the point. The `u` coordinate
       // represents the longitude, and the `v` coordinate represents the latitude.
       // The coordinates are normalized to the range [0, 1].
-      const u = j / (lonCount - 1);
+      // Pixel-centre UVs: place each vertex at the centre of its texel so that
+      // nearest-neighbour cell boundaries align with the midpoints between data
+      // points (fixes the half-cell-east visual shift).
+      const u = (j + 0.5) / textureLonCount;
       const v = isReversed
         ? (latCount - 1 - i) / (latCount - 1)
         : i / (latCount - 1);
@@ -359,6 +364,10 @@ async function getGaussianGrid() {
   }
 
   const isGlobal = isLongitudeGlobal(longitudes.value);
+  isGridGlobal.value = isGlobal;
+  // Save original count before the global wrap-around vertex is appended;
+  // the texture has only this many pixels in the longitude direction.
+  const textureLonCount = longitudeValues.length;
 
   if (isGlobal) {
     // Add a duplicate of the first longitude + 360 to close the globe
@@ -377,6 +386,7 @@ async function getGaussianGrid() {
     longitudeValues,
     isLatReversed,
     isRotated,
+    textureLonCount,
     poleLat,
     poleLon
   );
@@ -479,7 +489,12 @@ async function makeGeometry() {
   }
 }
 
-function getRegularData(arr: Float32Array, latCount: number, lonCount: number) {
+function getRegularData(
+  arr: Float32Array,
+  latCount: number,
+  lonCount: number,
+  wrapRepeat: boolean
+) {
   let data = arr;
   // For lat-only data, tile it across all longitudes
   if (isLatOnly.value) {
@@ -498,6 +513,11 @@ function getRegularData(arr: Float32Array, latCount: number, lonCount: number) {
     THREE.FloatType,
     THREE.UVMapping
   );
+  if (wrapRepeat) {
+    // Global grids append a wrap vertex with UV > 1; RepeatWrapping makes it
+    // sample pixel 0 instead of clamping to the last pixel.
+    texture.wrapS = THREE.RepeatWrapping;
+  }
   texture.needsUpdate = true;
   return texture;
 }
@@ -516,7 +536,8 @@ function makeMaterial(rawData: Float32Array) {
   const textures = getRegularData(
     rawData,
     latitudes.value.length,
-    longitudes.value.length
+    longitudes.value.length,
+    isGridGlobal.value
   );
   const low = bounds.value?.low as number;
   const high = bounds.value?.high as number;

@@ -191,6 +191,14 @@ async function getGrid(
     ni,
     shouldFlipLongitude
   );
+
+  return {
+    latitudesData,
+    longitudesData,
+    nj,
+    ni,
+    shouldFlipLongitude,
+  };
 }
 
 function detectLongitudeFlip(
@@ -519,27 +527,142 @@ async function getDimensionValues(
   return dimValues;
 }
 
-async function setHoverData(
+function getCircularMeanLongitude(
+  lonA: number,
+  lonB: number,
+  lonC: number,
+  lonD: number
+) {
+  const lonRadA = THREE.MathUtils.degToRad(lonA);
+  const lonRadB = THREE.MathUtils.degToRad(lonB);
+  const lonRadC = THREE.MathUtils.degToRad(lonC);
+  const lonRadD = THREE.MathUtils.degToRad(lonD);
+
+  const sinLon =
+    Math.sin(lonRadA) +
+    Math.sin(lonRadB) +
+    Math.sin(lonRadC) +
+    Math.sin(lonRadD);
+  const cosLon =
+    Math.cos(lonRadA) +
+    Math.cos(lonRadB) +
+    Math.cos(lonRadC) +
+    Math.cos(lonRadD);
+
+  return THREE.MathUtils.radToDeg(Math.atan2(sinLon / 4, cosLon / 4));
+}
+
+function getCellCenter(
+  latitudes: Float64Array,
+  longitudes: Float64Array,
+  idx00: number,
+  idx01: number,
+  idx10: number,
+  idx11: number
+) {
+  const latA = latitudes[idx00];
+  const latB = latitudes[idx01];
+  const latC = latitudes[idx10];
+  const latD = latitudes[idx11];
+  const lonA = longitudes[idx00];
+  const lonB = longitudes[idx01];
+  const lonC = longitudes[idx10];
+  const lonD = longitudes[idx11];
+
+  return {
+    lat: (latA + latB + latC + latD) / 4,
+    lon: getCircularMeanLongitude(lonA, lonB, lonC, lonD),
+  };
+}
+
+function buildCurvilinearHoverSamples(
+  rawData: Float32Array,
+  latitudes: Float64Array,
+  longitudes: Float64Array,
+  nj: number,
+  ni: number,
+  flipLongitude: boolean
+) {
+  const samples: { lat: number; lon: number; value: number }[] = [];
+
+  for (let j = 0; j < nj - 1; j++) {
+    for (let i = 0; i < ni; i++) {
+      const { idx00, idx01, idx10, idx11 } = getCellCornerIndices(
+        j,
+        i,
+        ni,
+        flipLongitude
+      );
+      // Keep hover sampling colocated with rendered quads by using a cell center.
+      const { lat, lon } = getCellCenter(
+        latitudes,
+        longitudes,
+        idx00,
+        idx01,
+        idx10,
+        idx11
+      );
+
+      samples.push({
+        lat,
+        lon,
+        value: rawData[idx00],
+      });
+    }
+  }
+
+  return samples;
+}
+
+function setHoverData(
+  rawData: Float32Array,
+  latitudes: Float64Array,
+  longitudes: Float64Array,
+  nj: number,
+  ni: number,
+  flipLongitude: boolean,
+  fillValue: number,
+  missingValue: number
+) {
+  const samples = buildCurvilinearHoverSamples(
+    rawData,
+    latitudes,
+    longitudes,
+    nj,
+    ni,
+    flipLongitude
+  );
+
+  setHoverLookupFromIndex(
+    createGeoSampleIndex(samples),
+    fillValue,
+    missingValue
+  );
+}
+
+function applyMissingFillUniforms(fillValue: number, missingValue: number) {
+  for (let mesh of meshes) {
+    const material = mesh.material as THREE.ShaderMaterial;
+    material.uniforms.missingValue.value = missingValue;
+    material.uniforms.fillValue.value = fillValue;
+  }
+}
+
+async function renderGridAndHover(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
   rawData: Float32Array,
   fillValue: number,
   missingValue: number
 ) {
-  // Update hover lookup
-  const { latitudes: latChunk, longitudes: lonChunk } = await getLatLonData(
-    datavar,
-    props.datasources
-  );
-  const hoverLats = latChunk.data as Float64Array;
-  const hoverLons = lonChunk!.data as Float64Array;
-  setHoverLookupFromIndex(
-    createGeoSampleIndex(
-      Array.from(rawData, (value, index) => ({
-        lat: hoverLats[index],
-        lon: hoverLons[index],
-        value,
-      }))
-    ),
+  const { latitudesData, longitudesData, nj, ni, shouldFlipLongitude } =
+    await getGrid(datavar, rawData);
+  setHoverData(
+    rawData,
+    latitudesData,
+    longitudesData,
+    nj,
+    ni,
+    shouldFlipLongitude,
     fillValue,
     missingValue
   );
@@ -570,14 +693,8 @@ async function fetchAndRenderData(
   );
   const { min, max, missingValue, fillValue } = getDataBounds(datavar, rawData);
 
-  await getGrid(datavar, rawData);
-  await setHoverData(datavar, rawData, fillValue, missingValue);
-
-  for (let mesh of meshes) {
-    const material = mesh.material as THREE.ShaderMaterial;
-    material.uniforms.missingValue.value = missingValue;
-    material.uniforms.fillValue.value = fillValue;
-  }
+  await renderGridAndHover(datavar, rawData, fillValue, missingValue);
+  applyMissingFillUniforms(fillValue, missingValue);
 
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
 
