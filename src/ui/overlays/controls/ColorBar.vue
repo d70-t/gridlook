@@ -254,7 +254,7 @@ const hoveredValueLabel = computed(() => {
   if (!point) {
     return null;
   }
-  return point.value === null ? "No data" : formatValue(point.value);
+  return point.value === null ? "No data" : point.value.toFixed(5);
 });
 
 const hoveredMarkerStyle = computed(() => {

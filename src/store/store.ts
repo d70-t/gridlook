@@ -65,12 +65,19 @@ export const useGlobeControlStore = defineStore("globeControl", {
       projectionMode: PROJECTION_TYPES.NEARSIDE_PERSPECTIVE as TProjectionType,
       projectionCenter: { lat: 0, lon: 0 } as TProjectionCenter,
       isRotating: false,
+      hoverEnabled: false,
       hoveredGridPoint: undefined as THoveredGridPoint | undefined,
     };
   },
   actions: {
     toggleRotating() {
       this.isRotating = !this.isRotating;
+    },
+    toggleHoverEnabled() {
+      this.hoverEnabled = !this.hoverEnabled;
+      if (!this.hoverEnabled) {
+        this.clearHoveredGridPoint();
+      }
     },
     toggleCoastLines() {
       this.showCoastLines = !this.showCoastLines;

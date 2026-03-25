@@ -1,7 +1,10 @@
 <script lang="ts" setup>
 import { storeToRefs } from "pinia";
 
-import { useGlobeControlStore } from "@/store/store.ts";
+import {
+  HOVERED_GRID_POINT_STATUS,
+  useGlobeControlStore,
+} from "@/store/store.ts";
 
 const store = useGlobeControlStore();
 const { hoveredGridPoint } = storeToRefs(store);
@@ -21,6 +24,13 @@ function formatCoordinate(value: number) {
     <span class="grid-hover-label">Lon</span>
     <span class="grid-hover-value">{{
       formatCoordinate(hoveredGridPoint.lon)
+    }}</span>
+    <span class="grid-hover-separator">&bull;</span>
+    <span class="grid-hover-label">Value</span>
+    <span class="grid-hover-value">{{
+      hoveredGridPoint.status === HOVERED_GRID_POINT_STATUS.MISSING
+        ? "No data"
+        : hoveredGridPoint.value?.toFixed(5)
     }}</span>
   </div>
   <div v-else />
