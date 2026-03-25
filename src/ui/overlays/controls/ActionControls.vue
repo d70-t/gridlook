@@ -23,12 +23,10 @@ const valueProbeSupported = computed(
 
 <template>
   <div class="column">
-    <div
-      class="is-flex is-justify-content-space-between is-flex-wrap-wrap action-buttons"
-    >
+    <div class="grid">
       <SnapshotButton @on-snapshot="(opts) => $emit('onSnapshot', opts)" />
       <button
-        class="button"
+        class="button cell"
         :class="{ 'is-info': hoverEnabled && valueProbeSupported }"
         type="button"
         :title="
@@ -47,7 +45,7 @@ const valueProbeSupported = computed(
         <span> Data Picker </span>
       </button>
       <button
-        class="button"
+        class="button cell"
         :class="{ 'is-info': isRotating }"
         type="button"
         :title="
@@ -62,7 +60,7 @@ const valueProbeSupported = computed(
         </span>
         <span> Rotate </span>
       </button>
-      <ShareButton />
+      <ShareButton class="cell" />
     </div>
   </div>
 </template>
