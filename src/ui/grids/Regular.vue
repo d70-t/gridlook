@@ -4,6 +4,10 @@ import * as THREE from "three";
 import { computed, onBeforeMount, ref, watch } from "vue";
 import type * as zarr from "zarrita";
 
+import {
+  createGeoSampleIndex,
+  useGridHoverLookup,
+} from "./composables/gridHoverUtils.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
@@ -14,6 +18,7 @@ import {
   isLatitudeName,
   isLongitudeName,
 } from "@/lib/data/zarrUtils.ts";
+import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import {
   getColormapScaleOffset,
   makeGpuProjectedTextureMaterial,
@@ -67,10 +72,14 @@ const {
   projectionHelper,
   canvas,
   box,
+  hoveredGeoPoint,
 } = useSharedGridLogic();
 
 const pendingUpdate = ref(false);
 const updatingData = ref(false);
+
+const { setHoverLookupFromIndex, clearHoverLookup } =
+  useGridHoverLookup(hoveredGeoPoint);
 
 const longitudes = ref(new Float64Array());
 const latitudes = ref(new Float64Array());
@@ -141,6 +150,7 @@ function updateMeshProjectionUniforms() {
 
 async function datasourceUpdate() {
   resetDataVars();
+  clearHoverLookup();
   if (props.datasources !== undefined) {
     await getDims();
     await Promise.all([makeGeometry(), getData()]);
@@ -150,6 +160,7 @@ async function datasourceUpdate() {
 }
 
 const isLatOnly = ref(false);
+const isGridGlobal = ref(false);
 
 async function getDims() {
   // Assumptions: the last two dimensions of the data array are
@@ -258,6 +269,7 @@ function generateGridVerticesAndUVs(
   longitudes: Float64Array,
   isReversed: boolean,
   isRotated: boolean,
+  textureLonCount: number,
   poleLat?: number,
   poleLon?: number
 ) {
@@ -295,7 +307,10 @@ function generateGridVerticesAndUVs(
       // Calculate the texture coordinates for the point. The `u` coordinate
       // represents the longitude, and the `v` coordinate represents the latitude.
       // The coordinates are normalized to the range [0, 1].
-      const u = j / (lonCount - 1);
+      // Pixel-centre UVs: place each vertex at the centre of its texel so that
+      // nearest-neighbour cell boundaries align with the midpoints between data
+      // points (fixes the half-cell-east visual shift).
+      const u = (j + 0.5) / textureLonCount;
       const v = isReversed
         ? (latCount - 1 - i) / (latCount - 1)
         : i / (latCount - 1);
@@ -349,6 +364,10 @@ async function getGaussianGrid() {
   }
 
   const isGlobal = isLongitudeGlobal(longitudes.value);
+  isGridGlobal.value = isGlobal;
+  // Save original count before the global wrap-around vertex is appended;
+  // the texture has only this many pixels in the longitude direction.
+  const textureLonCount = longitudeValues.length;
 
   if (isGlobal) {
     // Add a duplicate of the first longitude + 360 to close the globe
@@ -367,6 +386,7 @@ async function getGaussianGrid() {
     longitudeValues,
     isLatReversed,
     isRotated,
+    textureLonCount,
     poleLat,
     poleLon
   );
@@ -469,7 +489,12 @@ async function makeGeometry() {
   }
 }
 
-function getRegularData(arr: Float32Array, latCount: number, lonCount: number) {
+function getRegularData(
+  arr: Float32Array,
+  latCount: number,
+  lonCount: number,
+  wrapRepeat: boolean
+) {
   let data = arr;
   // For lat-only data, tile it across all longitudes
   if (isLatOnly.value) {
@@ -488,6 +513,11 @@ function getRegularData(arr: Float32Array, latCount: number, lonCount: number) {
     THREE.FloatType,
     THREE.UVMapping
   );
+  if (wrapRepeat) {
+    // Global grids append a wrap vertex with UV > 1; RepeatWrapping makes it
+    // sample pixel 0 instead of clamping to the last pixel.
+    texture.wrapS = THREE.RepeatWrapping;
+  }
   texture.needsUpdate = true;
   return texture;
 }
@@ -506,7 +536,8 @@ function makeMaterial(rawData: Float32Array) {
   const textures = getRegularData(
     rawData,
     latitudes.value.length,
-    longitudes.value.length
+    longitudes.value.length,
+    isGridGlobal.value
   );
   const low = bounds.value?.low as number;
   const high = bounds.value?.high as number;
@@ -538,7 +569,38 @@ async function getDimensionValues(
   return dimValues;
 }
 
-async function fetchAndRenderData(
+async function buildHoverSamples(rawData: Float32Array) {
+  const samples: { lat: number; lon: number; value: number }[] = [];
+  let rotPole: { lat: number; lon: number } | null = null;
+  if (props.isRotated) {
+    rotPole = await getRotatedNorthPole();
+  }
+  for (let latIdx = 0; latIdx < latitudes.value.length; latIdx++) {
+    if (isLatOnly.value) {
+      samples.push({
+        lat: latitudes.value[latIdx],
+        lon: 0,
+        value: rawData[latIdx],
+      });
+    } else {
+      for (let lonIdx = 0; lonIdx < longitudes.value.length; lonIdx++) {
+        const rawLat = latitudes.value[latIdx];
+        const rawLon = longitudes.value[lonIdx];
+        const { lat, lon } = rotPole
+          ? rotatedToGeographic(rawLat, rawLon, rotPole.lat, rotPole.lon)
+          : { lat: rawLat, lon: rawLon };
+        samples.push({
+          lat,
+          lon: ProjectionHelper.normalizeLongitude(lon),
+          value: rawData[latIdx * longitudes.value.length + lonIdx],
+        });
+      }
+    }
+  }
+  return samples;
+}
+
+async function buildDimensionConfig(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
   updateMode: TUpdateMode
 ) {
@@ -546,12 +608,10 @@ async function fetchAndRenderData(
     props.datasources!,
     varnameSelector.value
   );
-  // For lat-only data, only exclude the last dimension (lat)
-  // For regular lat/lon data, exclude the last two dimensions
   const excludedDims = isLatOnly.value
     ? [datavar.shape.length - 1]
     : [datavar.shape.length - 2, datavar.shape.length - 1];
-  const { dimensionRanges, indices } = buildDimensionRangesAndIndices(
+  return buildDimensionRangesAndIndices(
     datavar,
     dimensionNames,
     paramDimIndices.value,
@@ -561,6 +621,16 @@ async function fetchAndRenderData(
     excludedDims,
     varinfo.value?.dimRanges,
     updateMode === UPDATE_MODE.SLIDER_TOGGLE
+  );
+}
+
+async function fetchAndRenderData(
+  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  updateMode: TUpdateMode
+) {
+  const { dimensionRanges, indices } = await buildDimensionConfig(
+    datavar,
+    updateMode
   );
 
   let rawData = castDataVarToFloat32(
@@ -574,6 +644,15 @@ async function fetchAndRenderData(
   updateProjectionUniforms(material, helper);
 
   const { min, max, missingValue, fillValue } = getDataBounds(datavar, rawData);
+
+  // Update hover lookup
+  const samples = await buildHoverSamples(rawData);
+  setHoverLookupFromIndex(
+    createGeoSampleIndex(samples),
+    fillValue,
+    missingValue
+  );
+
   // Set missing/fill values as uniforms for the shader
   material.uniforms.missingValue.value = missingValue;
   material.uniforms.fillValue.value = fillValue;

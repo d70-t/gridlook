@@ -5,6 +5,10 @@ import * as THREE from "three";
 import { computed, onBeforeMount, ref, watch } from "vue";
 import * as zarr from "zarrita";
 
+import {
+  createGeoSampleIndex,
+  useGridHoverLookup,
+} from "./composables/gridHoverUtils.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
@@ -80,7 +84,11 @@ const {
   canvas,
   box,
   updateHistogram,
+  hoveredGeoPoint,
 } = useSharedGridLogic();
+
+const { setHoverLookupFromIndex, clearHoverLookup } =
+  useGridHoverLookup(hoveredGeoPoint);
 
 watch(
   () => varnameSelector.value,
@@ -163,6 +171,7 @@ const colormapMaterial = computed(() => {
 });
 
 async function datasourceUpdate() {
+  clearHoverLookup();
   if (props.datasources !== undefined) {
     await getData();
     updateLandSeaMask();
@@ -725,23 +734,21 @@ function getGeographicDimensionIndices(
   return geoDims;
 }
 
-async function fetchAndRenderData(
+async function buildDimensionConfig(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
   updateMode: TUpdateMode
 ) {
-  // Load latitudes and longitudes arrays
   const { latitudes, longitudes, latitudesAttrs, longitudesAttrs } =
     await getLatLonData(datavar, props.datasources);
   const dimensions = await ZarrDataManager.getDimensionNames(
     props.datasources!,
     varnameSelector.value
   );
-  const geoDims: number[] = getGeographicDimensionIndices(
+  const geoDims = getGeographicDimensionIndices(
     dimensions,
     latitudesAttrs,
     longitudesAttrs!
   );
-
   const { dimensionRanges, indices } = buildDimensionRangesAndIndices(
     datavar,
     dimensions,
@@ -753,6 +760,40 @@ async function fetchAndRenderData(
     varinfo.value?.dimRanges,
     updateMode === UPDATE_MODE.SLIDER_TOGGLE
   );
+  return { latitudes, longitudes, dimensionRanges, indices };
+}
+
+function updateHoverLookup(
+  rawData: Float32Array,
+  latitudes: zarr.Chunk<zarr.DataType>,
+  longitudes: zarr.Chunk<zarr.DataType>,
+  fillValue: number,
+  missingValue: number
+) {
+  const { latitudes: reconLats, longitudes: reconLons } = reconcileCoordinates(
+    latitudes,
+    longitudes,
+    rawData.length
+  );
+  setHoverLookupFromIndex(
+    createGeoSampleIndex(
+      Array.from(rawData, (value, index) => ({
+        lat: reconLats[index],
+        lon: reconLons[index],
+        value,
+      }))
+    ),
+    fillValue,
+    missingValue
+  );
+}
+
+async function fetchAndRenderData(
+  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  updateMode: TUpdateMode
+) {
+  const { latitudes, longitudes, dimensionRanges, indices } =
+    await buildDimensionConfig(datavar, updateMode);
 
   let rawData = castDataVarToFloat32(
     (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
@@ -760,6 +801,8 @@ async function fetchAndRenderData(
 
   let { min, max, fillValue, missingValue } = getDataBounds(datavar, rawData);
   getGrid(latitudes, longitudes!, rawData, fillValue, missingValue);
+
+  updateHoverLookup(rawData, latitudes, longitudes!, fillValue, missingValue);
 
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
   updateHistogram(rawData, min, max, missingValue, fillValue);

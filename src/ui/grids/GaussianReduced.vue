@@ -4,6 +4,10 @@ import * as THREE from "three";
 import { computed, onBeforeMount, ref, watch } from "vue";
 import type * as zarr from "zarrita";
 
+import {
+  createGeoSampleIndex,
+  useGridHoverLookup,
+} from "./composables/gridHoverUtils.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
@@ -13,6 +17,7 @@ import {
   getDataBounds,
   getLatLonData,
 } from "@/lib/data/zarrUtils.ts";
+import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import {
   makeGpuProjectedMeshMaterial,
   updateProjectionUniforms,
@@ -69,7 +74,11 @@ const {
   canvas,
   box,
   updateHistogram,
+  hoveredGeoPoint,
 } = useSharedGridLogic();
+
+const { setHoverLookupFromIndex, clearHoverLookup } =
+  useGridHoverLookup(hoveredGeoPoint);
 
 watch(
   () => varnameSelector.value,
@@ -129,6 +138,7 @@ const colormapMaterial = computed(() => {
 });
 
 async function datasourceUpdate() {
+  clearHoverLookup();
   if (props.datasources !== undefined) {
     await Promise.all([getData()]);
     updateLandSeaMask();
@@ -342,6 +352,32 @@ function buildGaussianReducedGeometry(
   }
 }
 
+function buildGaussianReducedHoverIndex(
+  latitudes: Float64Array,
+  longitudes: Float64Array,
+  data: Float32Array
+) {
+  const { rows, uniqueLats } = buildRows(latitudes, longitudes, data);
+  const samples: { lat: number; lon: number; value: number }[] = [];
+
+  for (let l = 0; l < uniqueLats.length - 1; l++) {
+    const lat1 = uniqueLats[l];
+    const lat2 = uniqueLats[l + 1];
+    const row = rows[lat1];
+
+    for (let i = 0; i < row.length; i++) {
+      const { cell, lon2: dLon } = getCellData(row, i);
+      samples.push({
+        lat: (lat1 + lat2) / 2,
+        lon: ProjectionHelper.normalizeLongitude(cell.lon - dLon / 2),
+        value: cell.value,
+      });
+    }
+  }
+
+  return createGeoSampleIndex(samples);
+}
+
 function buildRows(
   latitudes: Float64Array,
   longitudes: Float64Array,
@@ -375,7 +411,7 @@ async function getDimensionValues(
   return dimValues;
 }
 
-async function fetchAndRenderData(
+async function buildDimensionConfig(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
   updateMode: TUpdateMode
 ) {
@@ -383,7 +419,7 @@ async function fetchAndRenderData(
     props.datasources!,
     varnameSelector.value
   );
-  const { dimensionRanges, indices } = buildDimensionRangesAndIndices(
+  return buildDimensionRangesAndIndices(
     datavar,
     dimensionNames,
     paramDimIndices.value,
@@ -393,6 +429,16 @@ async function fetchAndRenderData(
     [datavar.shape.length - 1],
     varinfo.value?.dimRanges,
     updateMode === UPDATE_MODE.SLIDER_TOGGLE
+  );
+}
+
+async function fetchAndRenderData(
+  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  updateMode: TUpdateMode
+) {
+  const { dimensionRanges, indices } = await buildDimensionConfig(
+    datavar,
+    updateMode
   );
 
   let rawData = castDataVarToFloat32(
@@ -409,6 +455,13 @@ async function fetchAndRenderData(
   let { min, max, missingValue, fillValue } = getDataBounds(datavar, rawData);
 
   buildGaussianReducedGeometry(latitudesData, longitudesData, rawData);
+
+  // Update hover lookup
+  setHoverLookupFromIndex(
+    buildGaussianReducedHoverIndex(latitudesData, longitudesData, rawData),
+    fillValue,
+    missingValue
+  );
 
   // Set projection uniforms on all meshes after grid creation
   updateMeshProjectionUniforms();

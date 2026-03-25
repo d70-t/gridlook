@@ -50,8 +50,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="snapshot-wrapper">
-    <button class="button" type="button" @click.stop="openDialog">
+  <div class="snapshot-wrapper cell">
+    <button class="button w-100" type="button" @click.stop="openDialog">
       <span class="icon"><i class="fa-solid fa-image"></i></span>
       <span>Snapshot</span>
     </button>

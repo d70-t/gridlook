@@ -35,6 +35,7 @@ import GridRegular from "@/ui/grids/Regular.vue";
 import GridTriangular from "@/ui/grids/Triangular.vue";
 import AboutView from "@/ui/overlays/AboutModal.vue";
 import GlobeControls from "@/ui/overlays/Controls.vue";
+import HoverReadout from "@/ui/overlays/HoverReadout.vue";
 import InfoPanel from "@/ui/overlays/InfoPanel.vue";
 import { useLog } from "@/utils/logging";
 
@@ -327,7 +328,7 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
     <div v-if="loading" class="top-right-loader loader" />
     <section
       v-if="detectedGridType === GRID_TYPES.ERROR"
-      class="hero is-fullheight"
+      class="hero is-fullheight w-100"
       style="background: linear-gradient(135deg, #f8fafc 60%, #ffe5e5 100%)"
     >
       <div class="hero-body">
@@ -340,13 +341,15 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
         </div>
       </div>
     </section>
-    <currentGlobeComponent
-      v-else-if="detectedGridType !== undefined"
-      ref="globe"
-      :key="globeKey"
-      :datasources="datasources"
-      :is-rotated="detectedGridType === GRID_TYPES.REGULAR_ROTATED"
-    />
+    <div v-else-if="detectedGridType !== undefined" class="grid-canvas-wrapper">
+      <currentGlobeComponent
+        ref="globe"
+        :key="globeKey"
+        :datasources="datasources"
+        :is-rotated="detectedGridType === GRID_TYPES.REGULAR_ROTATED"
+      />
+      <HoverReadout />
+    </div>
     <div v-show="!distractionFree" class="buttons about-corner-link">
       <InfoPanel
         :datasources="datasources"
@@ -385,5 +388,12 @@ div.top-right-loader {
   position: absolute;
   bottom: 18px;
   right: 18px;
+}
+
+.grid-canvas-wrapper {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
 }
 </style>

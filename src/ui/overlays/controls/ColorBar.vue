@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { storeToRefs } from "pinia";
 import * as THREE from "three";
 import {
   ref,
@@ -20,6 +21,7 @@ import {
   type TColorMap,
 } from "@/lib/shaders/colormapShaders";
 import { makeCompressedColormapLutMaterial } from "@/lib/shaders/gridShaders";
+import { useGlobeControlStore } from "@/store/store";
 import RangeSlider from "@/ui/common/RangeSlider.vue";
 import DistributionPlot from "@/ui/overlays/controls/DistributionPlot.vue";
 
@@ -75,6 +77,9 @@ let camera: THREE.PerspectiveCamera | undefined;
 let lutMesh: THREE.Mesh | undefined;
 let resizeObserver: ResizeObserver | undefined;
 let frameId = 0;
+
+const store = useGlobeControlStore();
+const { hoveredGridPoint } = storeToRefs(store);
 
 const dataRange = computed(() => {
   if (props.dataBoundsLow === undefined || props.dataBoundsHigh === undefined) {
@@ -226,6 +231,61 @@ const tooltipStyle = computed(() => ({
   left: `${tooltipX.value}px`,
   top: `${tooltipY.value}px`,
 }));
+
+const hoveredValueFraction = computed(() => {
+  const value = hoveredGridPoint.value?.value;
+  if (
+    value === null ||
+    value === undefined ||
+    props.dataBoundsLow === undefined ||
+    props.dataBoundsHigh === undefined ||
+    dataRange.value <= 0
+  ) {
+    return null;
+  }
+  return Math.max(
+    0,
+    Math.min(1, (value - props.dataBoundsLow) / dataRange.value)
+  );
+});
+
+const hoveredValueLabel = computed(() => {
+  const point = hoveredGridPoint.value;
+  if (!point) {
+    return null;
+  }
+  return point.value === null ? "No data" : point.value.toFixed(5);
+});
+
+const hoveredMarkerStyle = computed(() => {
+  if (hoveredValueFraction.value === null) {
+    return {};
+  }
+  return {
+    left: `${hoveredValueFraction.value * 100}%`,
+  };
+});
+
+const hoveredValueStyle = computed(() => {
+  if (hoveredValueFraction.value === null) {
+    return {};
+  }
+
+  const fraction = hoveredValueFraction.value;
+  const edgeThreshold = 0.14;
+  let transform = "translateX(-50%)";
+
+  if (fraction < edgeThreshold) {
+    transform = "translateX(0)";
+  } else if (fraction > 1 - edgeThreshold) {
+    transform = "translateX(-100%)";
+  }
+
+  return {
+    left: `${fraction * 100}%`,
+    transform,
+  };
+});
 
 // After tooltip content changes, nudge X/Y so it stays within the viewport.
 watch(tooltipData, async (newVal) => {
@@ -643,6 +703,19 @@ onBeforeUnmount(() => {
         @pointercancel="() => sliderRef?.onEnd()"
         @lostpointercapture="() => sliderRef?.onEnd()"
       ></canvas>
+      <div
+        v-if="hoveredValueLabel"
+        class="hover-value-chip"
+        :class="{ 'is-missing': hoveredGridPoint?.value === null }"
+        :style="hoveredValueStyle"
+      >
+        {{ hoveredValueLabel }}
+      </div>
+      <div
+        v-if="hoveredValueFraction !== null"
+        class="hover-marker"
+        :style="hoveredMarkerStyle"
+      ></div>
     </div>
 
     <!-- Value labels -->
@@ -716,6 +789,38 @@ onBeforeUnmount(() => {
 
 .sel-hist-overlay.is-pannable:active {
   cursor: grabbing;
+}
+
+.hover-marker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  transform: translateX(-50%);
+  background: rgba(255, 255, 255, 0.56);
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.45);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.hover-value-chip {
+  position: absolute;
+  top: 4px;
+  z-index: 3;
+  max-width: calc(100% - 10px);
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.72);
+  color: #f8fafc;
+  font-size: 0.72rem;
+  line-height: 1.1;
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.hover-value-chip.is-missing {
+  background: rgba(51, 65, 85, 0.82);
 }
 
 .label-section {

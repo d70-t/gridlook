@@ -5,6 +5,10 @@ import * as THREE from "three";
 import { computed, onBeforeMount, onMounted, ref, watch } from "vue";
 import * as zarr from "zarrita";
 
+import {
+  useGridHoverLookup,
+  type TGridHoverLookupResult,
+} from "./composables/gridHoverUtils.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
@@ -19,6 +23,7 @@ import {
 import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import {
+  HOVERED_GRID_POINT_STATUS,
   UPDATE_MODE,
   useGlobeControlStore,
   type TUpdateMode,
@@ -71,10 +76,17 @@ const {
   projectionHelper,
   canvas,
   box,
+  hoveredGeoPoint,
 } = useSharedGridLogic();
+
+const { setHoverLookup, clearHoverLookup } =
+  useGridHoverLookup(hoveredGeoPoint);
 
 const pendingUpdate = ref(false);
 const updatingData = ref(false);
+const hoverData = ref<Float32Array | null>(null);
+const hoverCellIndexMap = ref<Map<number, number> | null>(null);
+const hoverNside = ref<number | null>(null);
 
 const HEALPIX_NUMCHUNKS = 12;
 
@@ -154,6 +166,7 @@ function updateMeshProjectionUniforms() {
 
 async function datasourceUpdate() {
   resetDataVars();
+  clearHoverLookup();
   if (props.datasources !== undefined) {
     await Promise.all([fetchGrid(), getData()]);
     updateLandSeaMask();
@@ -656,6 +669,49 @@ async function processHealpixChunks(
   return { dataMin, dataMax, histogramSummaries };
 }
 
+function healpixHoverLookup(
+  lat: number,
+  lon: number
+): TGridHoverLookupResult | null {
+  if (!hoverData.value || hoverNside.value === null) {
+    return null;
+  }
+  const theta = THREE.MathUtils.degToRad(90 - lat);
+  const normalizedLon = ProjectionHelper.normalizeLongitude(lon);
+  const phi = THREE.MathUtils.degToRad(
+    normalizedLon < 0 ? normalizedLon + 360 : normalizedLon
+  );
+  const pixelIndex = healpix.ang2pix_nest(hoverNside.value, theta, phi);
+  const dataIndex = hoverCellIndexMap.value
+    ? hoverCellIndexMap.value.get(pixelIndex)
+    : pixelIndex;
+  if (
+    dataIndex === undefined ||
+    dataIndex < 0 ||
+    dataIndex >= hoverData.value.length
+  ) {
+    return {
+      lat,
+      lon: normalizedLon,
+      value: null,
+      status: HOVERED_GRID_POINT_STATUS.MISSING,
+    };
+  }
+  const value = hoverData.value[dataIndex];
+  const pixelAngles = healpix.pix2ang_nest(hoverNside.value, pixelIndex);
+  const isMissing = !Number.isFinite(value) || value === HEALPIX_UNSEEN;
+  return {
+    lat: 90 - THREE.MathUtils.radToDeg(pixelAngles.theta),
+    lon: ProjectionHelper.normalizeLongitude(
+      THREE.MathUtils.radToDeg(pixelAngles.phi)
+    ),
+    value: isMissing ? null : value,
+    status: isMissing
+      ? HOVERED_GRID_POINT_STATUS.MISSING
+      : HOVERED_GRID_POINT_STATUS.VALUE,
+  };
+}
+
 async function fetchAndRenderData(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
   updateMode: TUpdateMode
@@ -667,6 +723,14 @@ async function fetchAndRenderData(
 
   const cellCoord = await getCells();
   const nside = await getNside();
+  hoverNside.value = nside;
+  hoverData.value = castDataVarToFloat32(
+    (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
+  );
+  hoverCellIndexMap.value = cellCoord
+    ? new Map(cellCoord.map((pixel, index) => [pixel, index]))
+    : null;
+  setHoverLookup(healpixHoverLookup);
   const { dataMin, dataMax, histogramSummaries } = await processHealpixChunks(
     datavar,
     cellCoord,
