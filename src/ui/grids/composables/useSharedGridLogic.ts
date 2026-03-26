@@ -147,7 +147,7 @@ export function useSharedGridLogic() {
         updateLandSeaMaskProjectionUniforms();
       }
     },
-    { deep: true, flush: "sync" }
+    { deep: true }
   );
 
   function updateColormap(meshes: (THREE.Mesh | THREE.Points | undefined)[]) {

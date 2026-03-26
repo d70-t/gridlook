@@ -32,7 +32,7 @@ const props = defineProps<{ modelInfo?: TModelInfo; currentSource: string }>();
 defineEmits<{
   onSnapshot: [options: TSnapshotOptions];
   onRotate: [];
-  openDisplay: [];
+  toggleDisplay: [];
 }>();
 
 // Bounds management types
@@ -355,7 +355,7 @@ onMounted(() => {
             <ActionControls
               @on-snapshot="(opts) => $emit('onSnapshot', opts)"
               @on-rotate="() => $emit('onRotate')"
-              @open-display="() => $emit('openDisplay')"
+              @toggle-display="() => $emit('toggleDisplay')"
             />
           </div>
         </div>

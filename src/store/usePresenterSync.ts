@@ -1,6 +1,6 @@
 import { useBroadcastChannel, useEventListener } from "@vueuse/core";
 import { storeToRefs } from "pinia";
-import { ref, watch, computed, type Ref } from "vue";
+import { ref, watch, computed, onScopeDispose, type Ref } from "vue";
 
 import {
   PRESENTER_CHANNEL,
@@ -13,10 +13,18 @@ import { useUrlParameterStore } from "@/store/paramStore";
 import { useGlobeControlStore } from "@/store/store";
 
 const presenterRole: Ref<TPresenterRole | null> = ref(null);
+const presenterWindowOpen = ref(false);
+let presenterWindow: Window | null = null;
+let presenterWindowMonitorId: number | null = null;
 
 /** Whether the current window is in "display" mode (no controls, receives state). */
 export const isDisplayMode = computed(
   () => presenterRole.value === PresenterRole.DISPLAY
+);
+export const isPresenterActive = computed(
+  () =>
+    presenterRole.value === PresenterRole.CONTROLLER &&
+    presenterWindowOpen.value
 );
 
 /**
@@ -57,9 +65,41 @@ export function usePresenterSync() {
     name: PRESENTER_CHANNEL,
   });
 
+  function stopMonitoringPresenterWindow() {
+    if (presenterWindowMonitorId === null) {
+      return;
+    }
+    window.clearInterval(presenterWindowMonitorId);
+    presenterWindowMonitorId = null;
+  }
+
+  function syncPresenterWindowState() {
+    const isOpen = presenterWindow !== null && !presenterWindow.closed;
+    presenterWindowOpen.value = isOpen;
+    if (isOpen) {
+      return;
+    }
+    presenterWindow = null;
+    if (presenterRole.value === PresenterRole.CONTROLLER) {
+      presenterRole.value = null;
+    }
+    stopMonitoringPresenterWindow();
+  }
+
+  function startMonitoringPresenterWindow() {
+    if (presenterWindowMonitorId !== null) {
+      return;
+    }
+    presenterWindowMonitorId = window.setInterval(
+      syncPresenterWindowState,
+      500
+    );
+  }
+
   /** Gather the full current state for broadcasting. */
   function gatherState(opts?: {
-    skipProjectionCenter?: boolean;
+    includeProjectionCenter?: boolean;
+    includeDimSlidersValues?: boolean;
   }): TPresenterStatePayload {
     return {
       varnameSelector: varnameSelector.value,
@@ -71,17 +111,15 @@ export function usePresenterSync() {
       landSeaMaskChoice: landSeaMaskChoice.value,
       landSeaMaskUseTexture: landSeaMaskUseTexture.value,
       projectionMode: projectionMode.value,
-      // During rotation the display runs its own animation loop, so skip
-      // projectionCenter to avoid flooding the channel at 60fps.
-      projectionCenter: opts?.skipProjectionCenter
-        ? undefined
-        : projectionCenter.value
-          ? { ...projectionCenter.value }
-          : { lat: 0, lon: 0 },
+      projectionCenter: opts?.includeProjectionCenter
+        ? gatherProjectionCenter()
+        : undefined,
       isRotating: isRotating.value,
       showCoastLines: showCoastLines.value,
       showGraticules: showGraticules.value,
-      dimSlidersValues: [...dimSlidersValues.value],
+      dimSlidersValues: opts?.includeDimSlidersValues
+        ? gatherDimSlidersValues()
+        : undefined,
       selection:
         selection.value && "low" in selection.value
           ? { low: selection.value.low, high: selection.value.high }
@@ -89,6 +127,27 @@ export function usePresenterSync() {
       paramCameraState: paramCameraState.value,
       paramGridType: paramGridType.value,
     };
+  }
+
+  function gatherProjectionCenter() {
+    return projectionCenter.value
+      ? { ...projectionCenter.value }
+      : { lat: 0, lon: 0 };
+  }
+
+  function gatherDimSlidersValues() {
+    return [...dimSlidersValues.value];
+  }
+
+  function sendFullState() {
+    post({ type: "navigate", hash: location.hash });
+    post({
+      type: "full-state",
+      payload: gatherState({
+        includeProjectionCenter: true,
+        includeDimSlidersValues: true,
+      }),
+    });
   }
 
   /** Apply incoming globe-control fields to the local store. */
@@ -159,6 +218,16 @@ export function usePresenterSync() {
     applyUrlParams(payload);
   }
 
+  function applyProjectionCenter(center: { lat: number; lon: number }) {
+    if (!store.isRotating) {
+      projectionCenter.value = center;
+    }
+  }
+
+  function applyDimSlidersValues(values: (number | null)[]) {
+    dimSlidersValues.value = values;
+  }
+
   // ── Display side: react to incoming messages ──────────────────────────
   // When the display window is navigating to a new dataset, we must
   // ignore state-update messages until the dataset has finished loading.
@@ -192,6 +261,10 @@ export function usePresenterSync() {
       !navigating
     ) {
       applyState(msg.payload);
+    } else if (msg.type === "projection-center-update" && !navigating) {
+      applyProjectionCenter(msg.projectionCenter);
+    } else if (msg.type === "dim-sliders-update" && !navigating) {
+      applyDimSlidersValues(msg.dimSlidersValues);
     }
   });
 
@@ -215,6 +288,30 @@ export function usePresenterSync() {
     broadcasting = false;
   }
 
+  function broadcastProjectionCenter() {
+    if (presenterRole.value !== PresenterRole.CONTROLLER || broadcasting) {
+      return;
+    }
+    broadcasting = true;
+    post({
+      type: "projection-center-update",
+      projectionCenter: gatherProjectionCenter(),
+    });
+    broadcasting = false;
+  }
+
+  function broadcastDimSlidersValues() {
+    if (presenterRole.value !== PresenterRole.CONTROLLER || broadcasting) {
+      return;
+    }
+    broadcasting = true;
+    post({
+      type: "dim-sliders-update",
+      dimSlidersValues: gatherDimSlidersValues(),
+    });
+    broadcasting = false;
+  }
+
   // Watch every field that should be synced.
   const fieldsToWatch = [
     () => varnameSelector.value,
@@ -230,7 +327,6 @@ export function usePresenterSync() {
     () => isRotating.value,
     () => showCoastLines.value,
     () => showGraticules.value,
-    () => JSON.stringify(dimSlidersValues.value),
     () => JSON.stringify(selection.value),
     () => paramCameraState.value,
     () => paramGridType.value,
@@ -238,11 +334,12 @@ export function usePresenterSync() {
 
   watch(fieldsToWatch, () => {
     if (presenterRole.value === PresenterRole.CONTROLLER) {
-      broadcastState(gatherState({ skipProjectionCenter: isRotating.value }));
+      broadcastState(gatherState());
     }
   });
 
-  // Sync projectionCenter only when NOT rotating (user-driven drag/shift).
+  // Sync projectionCenter through a dedicated message so flat panning does not
+  // rebroadcast unrelated state and trigger extra watchers in the display.
   watch(
     () => JSON.stringify(projectionCenter.value),
     () => {
@@ -250,7 +347,18 @@ export function usePresenterSync() {
         presenterRole.value === PresenterRole.CONTROLLER &&
         !isRotating.value
       ) {
-        broadcastState(gatherState());
+        broadcastProjectionCenter();
+      }
+    }
+  );
+
+  // Sync dim slider updates separately so they do not rebroadcast unrelated
+  // state and trigger extra store writes in the display.
+  watch(
+    () => JSON.stringify(dimSlidersValues.value),
+    () => {
+      if (presenterRole.value === PresenterRole.CONTROLLER) {
+        broadcastDimSlidersValues();
       }
     }
   );
@@ -260,14 +368,21 @@ export function usePresenterSync() {
     () => isRotating.value,
     (rotating) => {
       if (!rotating && presenterRole.value === PresenterRole.CONTROLLER) {
-        broadcastState(gatherState());
+        broadcastProjectionCenter();
       }
     }
   );
 
   /** Open a new browser window in display mode with the same dataset. */
   function openDisplayWindow() {
-    presenterRole.value = PresenterRole.CONTROLLER;
+    if (presenterWindow && !presenterWindow.closed) {
+      presenterRole.value = PresenterRole.CONTROLLER;
+      presenterWindowOpen.value = true;
+      presenterWindow.focus();
+      sendFullState();
+      return;
+    }
+
     const url = new URL(window.location.href);
     url.searchParams.set("mode", "display");
     const width = Math.round(screen.width * 0.8);
@@ -275,27 +390,63 @@ export function usePresenterSync() {
     const left = Math.round((screen.width - width) / 2);
     const top = Math.round((screen.height - height) / 2);
     const features = `popup,width=${width},height=${height},left=${left},top=${top}`;
-    window.open(url.toString(), "gridlook-display", features);
+    const nextPresenterWindow = window.open(
+      url.toString(),
+      "gridlook-display",
+      features
+    );
+    if (!nextPresenterWindow) {
+      presenterWindow = null;
+      presenterWindowOpen.value = false;
+      presenterRole.value = null;
+      return;
+    }
+
+    presenterWindow = nextPresenterWindow;
+    presenterWindowOpen.value = true;
+    presenterRole.value = PresenterRole.CONTROLLER;
+    startMonitoringPresenterWindow();
+
     // Send full state so the display window starts in sync
     setTimeout(() => {
-      post({ type: "navigate", hash: location.hash });
-      post({ type: "full-state", payload: gatherState() });
+      if (isPresenterActive.value) {
+        sendFullState();
+      }
     }, 1500);
   }
+
+  function closeDisplayWindow() {
+    if (presenterWindow && !presenterWindow.closed) {
+      presenterWindow.close();
+    }
+    presenterWindow = null;
+    presenterWindowOpen.value = false;
+    if (presenterRole.value === PresenterRole.CONTROLLER) {
+      presenterRole.value = null;
+    }
+    stopMonitoringPresenterWindow();
+  }
+
+  function toggleDisplayWindow() {
+    if (isPresenterActive.value) {
+      closeDisplayWindow();
+      return;
+    }
+    openDisplayWindow();
+  }
+
+  onScopeDispose(() => {
+    stopMonitoringPresenterWindow();
+  });
 
   /** Activate display mode (called when ?mode=display is detected). */
   function enterDisplayMode() {
     presenterRole.value = PresenterRole.DISPLAY;
   }
 
-  /** Deactivate presenter mode entirely. */
-  function stopPresenter() {
-    presenterRole.value = null;
-  }
-
   return {
     openDisplayWindow,
+    toggleDisplayWindow,
     enterDisplayMode,
-    stopPresenter,
   };
 }

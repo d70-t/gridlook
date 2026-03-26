@@ -8,12 +8,13 @@ import SnapshotButton from "./SnapshotButton.vue";
 import { PROJECTION_TYPES } from "@/lib/projection/projectionUtils";
 import type { TSnapshotOptions } from "@/lib/types/GlobeTypes";
 import { useGlobeControlStore } from "@/store/store";
+import { isPresenterActive } from "@/store/usePresenterSync";
 import { isMobileDevice } from "@/ui/common/viewConstants";
 
 defineEmits<{
   onSnapshot: [options: TSnapshotOptions];
   onRotate: [];
-  openDisplay: [];
+  toggleDisplay: [];
 }>();
 
 const store = useGlobeControlStore();
@@ -67,9 +68,14 @@ const showPresenter = !isMobileDevice();
       <button
         v-if="showPresenter"
         class="button cell"
+        :class="{ 'is-info': isPresenterActive }"
         type="button"
-        title="Open a second window for presenting (controls stay here, display goes there)"
-        @click="() => $emit('openDisplay')"
+        :title="
+          isPresenterActive
+            ? 'Close the presenter window'
+            : 'Open a second window for presenting (controls stay here, display goes there)'
+        "
+        @click="() => $emit('toggleDisplay')"
       >
         <span class="icon">
           <i class="fas fa-display"></i>

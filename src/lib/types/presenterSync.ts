@@ -32,4 +32,12 @@ export type TPresenterStatePayload = {
 export type TPresenterMessage =
   | { type: "state-update"; payload: TPresenterStatePayload }
   | { type: "full-state"; payload: TPresenterStatePayload }
+  | {
+      type: "projection-center-update";
+      projectionCenter: { lat: number; lon: number };
+    }
+  | {
+      type: "dim-sliders-update";
+      dimSlidersValues: (number | null)[];
+    }
   | { type: "navigate"; hash: string };

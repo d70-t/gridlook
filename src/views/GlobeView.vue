@@ -49,7 +49,8 @@ const store = useGlobeControlStore();
 const urlParameterStore = useUrlParameterStore();
 
 // ── Presenter Mode ──────────────────────────────────────────────────────
-const { openDisplayWindow, enterDisplayMode } = usePresenterSync();
+const { openDisplayWindow, toggleDisplayWindow, enterDisplayMode } =
+  usePresenterSync();
 
 // Detect ?mode=display in the URL and activate display mode
 const urlParams = new URLSearchParams(window.location.search);
@@ -368,7 +369,7 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
         :current-source="props.src"
         @on-snapshot="makeSnapshot"
         @on-rotate="toggleRotate"
-        @open-display="openDisplayWindow"
+        @toggle-display="toggleDisplayWindow"
       />
     </div>
 
