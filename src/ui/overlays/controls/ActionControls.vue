@@ -8,10 +8,12 @@ import SnapshotButton from "./SnapshotButton.vue";
 import { PROJECTION_TYPES } from "@/lib/projection/projectionUtils";
 import type { TSnapshotOptions } from "@/lib/types/GlobeTypes";
 import { useGlobeControlStore } from "@/store/store";
+import { isMobileDevice } from "@/ui/common/viewConstants";
 
 defineEmits<{
   onSnapshot: [options: TSnapshotOptions];
   onRotate: [];
+  openDisplay: [];
 }>();
 
 const store = useGlobeControlStore();
@@ -19,6 +21,7 @@ const { projectionMode, isRotating, hoverEnabled } = storeToRefs(store);
 const valueProbeSupported = computed(
   () => projectionMode.value !== PROJECTION_TYPES.AZIMUTHAL_HYBRID
 );
+const showPresenter = !isMobileDevice();
 </script>
 
 <template>
@@ -61,6 +64,18 @@ const valueProbeSupported = computed(
         <span> Rotate </span>
       </button>
       <ShareButton class="cell" />
+      <button
+        v-if="showPresenter"
+        class="button cell"
+        type="button"
+        title="Open a second window for presenting (controls stay here, display goes there)"
+        @click="() => $emit('openDisplay')"
+      >
+        <span class="icon">
+          <i class="fas fa-display"></i>
+        </span>
+        <span> Present </span>
+      </button>
     </div>
   </div>
 </template>

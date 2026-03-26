@@ -81,10 +81,6 @@ export function useGridCameraState(): GridCameraState {
       camera.fov = data.fov;
     }
 
-    if (typeof data.aspect === "number") {
-      camera.aspect = data.aspect;
-    }
-
     if (typeof data.near === "number") {
       camera.near = data.near;
     }
