@@ -24,7 +24,7 @@ import {
 } from "@/lib/projection/projectionUtils.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
-import { isDisplayMode } from "@/store/usePresenterSync";
+import { isDisplayMode, isPresenterActive } from "@/store/usePresenterSync";
 import {
   CONTROL_PANEL_WIDTH,
   MOBILE_BREAKPOINT,
@@ -672,12 +672,16 @@ export function useGridScene(options: UseGridSceneOptions) {
     if (lastPointerPosition) {
       refreshHover();
     }
+    const cam = getCamera();
     if (!mouseDown && !store.isRotating && !controlsUpdated) {
-      const cam = getCamera();
       if (cam) {
         cameraState.debouncedEncodeCameraToURL(cam);
       }
       return;
+    } else if (isPresenterActive.value) {
+      if (cam) {
+        cameraState.encodeCameraToURL(cam);
+      }
     }
     frameId.value = requestAnimationFrame(animationLoop);
   }
