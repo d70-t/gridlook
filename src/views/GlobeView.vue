@@ -21,9 +21,14 @@ import {
   availableColormaps,
   type TColorMap,
 } from "@/lib/shaders/colormapShaders";
+import { PresenterRole } from "@/lib/types/presenterSync";
 import { useUrlParameterStore } from "@/store/paramStore";
 import { useGlobeControlStore } from "@/store/store";
-import { usePresenterSync, isDisplayMode } from "@/store/usePresenterSync";
+import {
+  usePresenterSync,
+  isDisplayMode,
+  isPresenterActive,
+} from "@/store/usePresenterSync";
 import { useUrlSync } from "@/store/useUrlSync";
 import Toast from "@/ui/common/Toast.vue";
 import { isMobileDevice } from "@/ui/common/viewConstants";
@@ -54,7 +59,7 @@ const { openDisplayWindow, toggleDisplayWindow, enterDisplayMode } =
 
 // Detect ?mode=display in the URL and activate display mode
 const urlParams = new URLSearchParams(window.location.search);
-if (urlParams.get("mode") === "display") {
+if (urlParams.get("mode") === PresenterRole.DISPLAY) {
   enterDisplayMode();
   store.setControlPanelVisible(false);
 
@@ -178,7 +183,12 @@ watch(
     detectedGridType.value = undefined;
     globeKey.value += 1;
     globeControlKey.value += 1;
-    store.$reset();
+    if (isDisplayMode.value || isPresenterActive.value) {
+      // In display/presenter mode we want to preserve some state across source changes
+      store.resetExcept(["projectionMode", "projectionCenter", "cameraPreset"]);
+    } else {
+      store.$reset();
+    }
     // stop loading is handled in the grid components after data load
     store.startLoading();
     await updateSrc();
@@ -362,7 +372,7 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
 <template>
   <main>
     <Toast />
-    <div v-if="!isDisplayMode" v-show="!distractionFree">
+    <div v-show="!distractionFree && !isDisplayMode">
       <GlobeControls
         :key="globeControlKey"
         :model-info="modelInfo"

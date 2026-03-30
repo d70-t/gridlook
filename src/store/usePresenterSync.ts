@@ -323,7 +323,6 @@ export function usePresenterSync() {
     () => landSeaMaskChoice.value,
     () => landSeaMaskUseTexture.value,
     () => projectionMode.value,
-    // projectionCenter is watched separately to avoid 60fps floods during rotation
     () => isRotating.value,
     () => showCoastLines.value,
     () => showGraticules.value,
@@ -334,7 +333,9 @@ export function usePresenterSync() {
 
   watch(fieldsToWatch, () => {
     if (presenterRole.value === PresenterRole.CONTROLLER) {
-      broadcastState(gatherState());
+      if (varnameSelector.value && varnameSelector.value !== "-") {
+        broadcastState(gatherState());
+      }
     }
   });
 
@@ -357,7 +358,10 @@ export function usePresenterSync() {
   watch(
     () => JSON.stringify(dimSlidersValues.value),
     () => {
-      if (presenterRole.value === PresenterRole.CONTROLLER) {
+      if (
+        presenterRole.value === PresenterRole.CONTROLLER &&
+        dimSlidersValues.value.length > 0
+      ) {
         broadcastDimSlidersValues();
       }
     }
@@ -448,5 +452,7 @@ export function usePresenterSync() {
     openDisplayWindow,
     toggleDisplayWindow,
     enterDisplayMode,
+    isPresenterActive,
+    isDisplayMode,
   };
 }
