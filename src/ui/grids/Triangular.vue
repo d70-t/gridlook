@@ -63,6 +63,7 @@ const {
   toggleRotate,
   applyCameraPreset,
   fetchDimensionDetails,
+  getDataVar,
   updateLandSeaMask,
   updateColormap,
   projectionHelper,
@@ -490,10 +491,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
     do {
       pendingUpdate.value = false;
       const localVarname = varnameSelector.value;
-      const datavar = await ZarrDataManager.getVariableInfo(
-        ZarrDataManager.getDatasetSource(props.datasources!, localVarname),
-        localVarname
-      );
+      const datavar = await getDataVar(localVarname, props.datasources!);
 
       if (datavar !== undefined) {
         await fetchAndRenderData(datavar, updateMode);
