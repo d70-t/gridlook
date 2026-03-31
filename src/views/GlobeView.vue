@@ -185,7 +185,7 @@ watch(
     globeControlKey.value += 1;
     if (isDisplayMode.value || isPresenterActive.value) {
       // In display/presenter mode we want to preserve some state across source changes
-      store.resetExcept(["projectionMode", "projectionCenter", "cameraPreset"]);
+      store.resetExcept(["projectionMode", "projectionCenter"]);
     } else {
       store.$reset();
     }
