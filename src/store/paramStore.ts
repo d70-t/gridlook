@@ -30,6 +30,15 @@ export const useUrlParameterStore = defineStore("urlParams", {
       paramGridType: undefined as string | undefined,
     };
   },
+  actions: {
+    resetExceptCamera() {
+      const keysToKeep = ["paramCameraState"] as const;
+      const state = this as unknown as Record<string, unknown>;
+      const saved = Object.fromEntries(keysToKeep.map((k) => [k, state[k]]));
+      this.$reset();
+      this.$patch(saved);
+    },
+  },
 });
 
 export const STORE_PARAM_MAPPING = {
