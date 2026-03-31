@@ -388,7 +388,7 @@ export function usePresenterSync() {
     }
 
     const url = new URL(window.location.href);
-    url.searchParams.set("mode", "display");
+    url.searchParams.set("mode", PresenterRole.DISPLAY);
     const width = Math.round(screen.width * 0.8);
     const height = Math.round(screen.height * 0.8);
     const left = Math.round((screen.width - width) / 2);

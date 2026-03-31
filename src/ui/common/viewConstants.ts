@@ -4,7 +4,7 @@ export const MOBILE_BREAKPOINT = 769; // px
 export function isMobileDevice() {
   const coarsePointer = window.matchMedia("(pointer: coarse)").matches;
   const noFinePointer = !window.matchMedia("(any-pointer: fine)").matches;
-  const smallScreen = screen.width < 768;
+  const smallScreen = screen.width < MOBILE_BREAKPOINT;
 
   return (coarsePointer && noFinePointer) || smallScreen;
 }

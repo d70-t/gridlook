@@ -33,8 +33,19 @@ export const useUrlParameterStore = defineStore("urlParams", {
   actions: {
     resetExceptCamera() {
       const keysToKeep = ["paramCameraState"] as const;
-      const state = this as unknown as Record<string, unknown>;
-      const saved = Object.fromEntries(keysToKeep.map((k) => [k, state[k]]));
+      const state = this as Record<keyof typeof this.$state, unknown>;
+      const saved = Object.fromEntries(
+        keysToKeep.map((k) => {
+          const val = state[k];
+          // Deep-clone to avoid restoring stale object references
+          return [
+            k,
+            val !== null && typeof val === "object"
+              ? JSON.parse(JSON.stringify(val))
+              : val,
+          ];
+        })
+      );
       this.$reset();
       this.$patch(saved);
     },
