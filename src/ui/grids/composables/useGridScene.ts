@@ -22,7 +22,9 @@ import {
   ProjectionHelper,
   type TProjectionCenter,
 } from "@/lib/projection/projectionUtils.ts";
+import { useUrlParameterStore } from "@/store/paramStore.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
+import { isDisplayMode, isPresenterActive } from "@/store/usePresenterSync";
 import {
   CONTROL_PANEL_WIDTH,
   MOBILE_BREAKPOINT,
@@ -47,6 +49,7 @@ export function useGridScene(options: UseGridSceneOptions) {
   } = options;
 
   const store = useGlobeControlStore();
+  const urlParameterStore = useUrlParameterStore();
 
   const canvas: Ref<HTMLCanvasElement | undefined> = ref();
   const box: Ref<HTMLDivElement | undefined> = ref();
@@ -442,6 +445,11 @@ export function useGridScene(options: UseGridSceneOptions) {
     applyCameraTarget(cam, controls);
     syncCameraStateWithUrl(cam, controls);
 
+    // In display mode, disable all direct interaction after camera is set up
+    if (isDisplayMode.value) {
+      controls.enabled = false;
+    }
+
     updateCameraForPanel();
     redraw();
 
@@ -450,6 +458,7 @@ export function useGridScene(options: UseGridSceneOptions) {
     }
   }
 
+  // set the camera from external preset (e.g. presenter sync) and apply to controls
   function applyCameraPreset(data: TCameraState) {
     const cam = getCamera();
     const controls = getOrbitControls();
@@ -582,7 +591,7 @@ export function useGridScene(options: UseGridSceneOptions) {
   }
 
   function startProjectionDrag(clientX: number, clientY: number) {
-    if (!projectionHelper.value.isFlat) {
+    if (!projectionHelper.value.isFlat || isDisplayMode.value) {
       return false;
     }
     projectionDragActive = true;
@@ -663,12 +672,16 @@ export function useGridScene(options: UseGridSceneOptions) {
     if (lastPointerPosition) {
       refreshHover();
     }
+    const cam = getCamera();
     if (!mouseDown && !store.isRotating && !controlsUpdated) {
-      const cam = getCamera();
       if (cam) {
         cameraState.debouncedEncodeCameraToURL(cam);
       }
       return;
+    } else if (isPresenterActive.value) {
+      if (cam) {
+        cameraState.encodeCameraToURL(cam);
+      }
     }
     frameId.value = requestAnimationFrame(animationLoop);
   }
@@ -821,6 +834,11 @@ export function useGridScene(options: UseGridSceneOptions) {
 
   // Setup keyboard navigation listeners
   function setupKeyboardListeners() {
+    if (isDisplayMode.value) {
+      // Disable keyboard navigation in display/presenter mode to avoid
+      // interfering with presenter controls
+      return;
+    }
     useEventListener(box.value, "keydown", (e: KeyboardEvent) => {
       const navigationKeys = [...projectionArrowKeys, "+", "-"];
 
@@ -863,6 +881,49 @@ export function useGridScene(options: UseGridSceneOptions) {
     () => {
       updateCameraForPanel();
       refreshHover();
+    }
+  );
+
+  // Sync rotation when store.isRotating is changed externally (e.g. presenter mode)
+  watch(
+    () => store.isRotating,
+    (rotating) => {
+      if (!projectionHelper.value.isFlat) {
+        const oc = getOrbitControls();
+        if (oc) {
+          oc.autoRotate = rotating;
+        }
+      }
+      animationLoop();
+    }
+  );
+
+  watch(
+    () => urlParameterStore.paramCameraState,
+    () => {
+      // This watcher is only relevant in presenter display mode where camera state is synced via URL.
+      // The controller display writes the URL on every camera change, and the
+      // display reacts to URL changes by applying the camera state.
+      if (!isDisplayMode.value) {
+        return;
+      }
+      const cam = getCamera();
+      const controls = getOrbitControls();
+      if (!cam || !controls) {
+        return;
+      }
+      const state = cameraState.decodeCameraFromURL();
+      if (!state) {
+        return;
+      }
+      cameraState.applyCameraState(cam, state);
+      if (projectionHelper.value.isFlat) {
+        controls.target.set(cam.position.x, cam.position.y, 0);
+      } else {
+        controls.target.set(0, 0, 0);
+      }
+      controls.update();
+      redraw();
     }
   );
 

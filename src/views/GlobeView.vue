@@ -16,15 +16,22 @@ import {
 } from "@/lib/data/gridTypeDetector";
 import { indexFromIndex, indexFromZarr } from "@/lib/data/sourceIndexing";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager";
-import { PROJECTION_TYPES } from "@/lib/projection/projectionUtils";
+import { PROJECTION_TYPES, clamp } from "@/lib/projection/projectionUtils";
 import {
   availableColormaps,
   type TColorMap,
 } from "@/lib/shaders/colormapShaders";
+import { PresenterRole } from "@/lib/types/presenterSync";
 import { useUrlParameterStore } from "@/store/paramStore";
 import { useGlobeControlStore } from "@/store/store";
+import {
+  usePresenterSync,
+  isDisplayMode,
+  isPresenterActive,
+} from "@/store/usePresenterSync";
 import { useUrlSync } from "@/store/useUrlSync";
 import Toast from "@/ui/common/Toast.vue";
+import { isMobileDevice } from "@/ui/common/viewConstants";
 import type { TCameraState } from "@/ui/grids/composables/useGridCameraState";
 import GridCurvilinear from "@/ui/grids/Curvilinear.vue";
 import GridGaussianReduced from "@/ui/grids/GaussianReduced.vue";
@@ -46,6 +53,40 @@ const { logError } = useLog();
 const store = useGlobeControlStore();
 const urlParameterStore = useUrlParameterStore();
 
+// ── Presenter Mode ──────────────────────────────────────────────────────
+const { openDisplayWindow, toggleDisplayWindow, enterDisplayMode } =
+  usePresenterSync();
+
+// Detect ?mode=display in the URL and activate display mode
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.get("mode") === PresenterRole.DISPLAY) {
+  enterDisplayMode();
+  store.setControlPanelVisible(false);
+
+  // In display mode, Controls.vue is not rendered, so we must initialise
+  // projection settings from URL params here (Controls normally does this).
+  const proj = urlParameterStore.paramProjection;
+  if (
+    proj &&
+    Object.values(PROJECTION_TYPES).includes(
+      proj as typeof store.projectionMode
+    )
+  ) {
+    store.projectionMode = proj as typeof store.projectionMode;
+  }
+  if (
+    urlParameterStore.paramProjectionCenterLat ||
+    urlParameterStore.paramProjectionCenterLon
+  ) {
+    const lat = parseFloat(urlParameterStore.paramProjectionCenterLat ?? "0");
+    const lon = parseFloat(urlParameterStore.paramProjectionCenterLon ?? "0");
+    store.projectionCenter = {
+      lat: clamp(lat, -90, 90),
+      lon: clamp(lon, -180, 180),
+    };
+  }
+}
+
 const { varnameSelector, loading, colormap, invertColormap } =
   storeToRefs(store);
 
@@ -61,7 +102,7 @@ const HYPERGLOBE_CAMERA_PRESET: TCameraState = {
   position: [0, 0, 33],
   quaternion: [0, 0, 0, 1],
   fov: 7.5,
-  aspect: 1.89,
+  aspect: 1,
   near: 0.1,
   far: 1000,
 };
@@ -142,7 +183,12 @@ watch(
     detectedGridType.value = undefined;
     globeKey.value += 1;
     globeControlKey.value += 1;
-    store.$reset();
+    if (isDisplayMode.value || isPresenterActive.value) {
+      // In display/presenter mode we want to preserve some state across source changes
+      store.resetExcept(["projectionMode", "projectionCenter"]);
+    } else {
+      store.$reset();
+    }
     // stop loading is handled in the grid components after data load
     store.startLoading();
     await updateSrc();
@@ -288,6 +334,15 @@ const applyHyperglobePreset = () => {
   globe.value?.applyCameraPreset(HYPERGLOBE_CAMERA_PRESET);
 };
 
+const applyHyperglobePresenter = () => {
+  store.projectionMode = PROJECTION_TYPES.AZIMUTHAL_HYBRID;
+  store.projectionCenter = { lat: -90, lon: -90 };
+  globe.value?.applyCameraPreset(HYPERGLOBE_CAMERA_PRESET);
+  // Defer long enough for useUrlSync's debounced projection center (200ms)
+  // to flush into the URL hash before the popup reads it.
+  setTimeout(() => openDisplayWindow(), 300);
+};
+
 onMounted(async () => {
   // stop loading is handled in the grid components after data load
   store.startLoading();
@@ -297,6 +352,10 @@ onMounted(async () => {
 });
 
 useEventListener(window, "keydown", (e: KeyboardEvent) => {
+  if (isDisplayMode.value) {
+    // Disable shortcuts in display/presenter mode to avoid interfering with presenter controls
+    return;
+  }
   const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
   if (tag === "input" || tag === "textarea" || tag === "select") {
     return;
@@ -308,6 +367,8 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
     toggleDistractionFree();
   } else if (key === "g") {
     applyHyperglobePreset();
+  } else if (key === "h" && !isMobileDevice()) {
+    applyHyperglobePresenter();
   }
 });
 </script>
@@ -315,13 +376,14 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
 <template>
   <main>
     <Toast />
-    <div v-show="!distractionFree">
+    <div v-show="!distractionFree && !isDisplayMode">
       <GlobeControls
         :key="globeControlKey"
         :model-info="modelInfo"
         :current-source="props.src"
         @on-snapshot="makeSnapshot"
         @on-rotate="toggleRotate"
+        @toggle-display="toggleDisplayWindow"
       />
     </div>
 
@@ -350,7 +412,11 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
       />
       <HoverReadout />
     </div>
-    <div v-show="!distractionFree" class="buttons about-corner-link">
+    <div
+      v-if="!isDisplayMode"
+      v-show="!distractionFree"
+      class="buttons about-corner-link"
+    >
       <InfoPanel
         :datasources="datasources"
         :grid-type="detectedGridType"

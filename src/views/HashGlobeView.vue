@@ -8,6 +8,7 @@ import GlobeView from "./GlobeView.vue";
 import { GRID_TYPES, type T_GRID_TYPES } from "@/lib/data/gridTypeDetector";
 import { STORE_PARAM_MAPPING, useUrlParameterStore } from "@/store/paramStore";
 import { useGlobeControlStore } from "@/store/store";
+import { isDisplayMode, isPresenterActive } from "@/store/usePresenterSync";
 import type { TURLParameterValues } from "@/utils/urlParams";
 
 type TParams = Partial<Record<TURLParameterValues, string>>;
@@ -26,7 +27,11 @@ const urlParameterStore = useUrlParameterStore();
 
 const onHashChange = () => {
   if (location.hash.length > 1) {
-    urlParameterStore.$reset();
+    if (isDisplayMode.value || isPresenterActive.value) {
+      urlParameterStore.resetExceptCamera();
+    } else {
+      urlParameterStore.$reset();
+    }
     // The hash is of the form "#resource::param1=value1::param2=value2::..."
     // We split on "::" to separate the resource from the parameters
     // and then parse the parameters and set the store values accordingly

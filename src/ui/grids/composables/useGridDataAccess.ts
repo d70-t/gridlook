@@ -24,7 +24,10 @@ export function useGridDataAccess() {
   }
 
   async function getDataVar(myVarname: string, datasources: TSources) {
-    const myDatasource = datasources!.levels[0].datasources[myVarname];
+    const myDatasource = datasources?.levels[0]?.datasources[myVarname];
+    if (!myDatasource) {
+      return undefined;
+    }
     try {
       const datavar = await ZarrDataManager.getVariableInfoByDatasetSources(
         datasources!,

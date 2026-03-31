@@ -151,5 +151,21 @@ export const useGlobeControlStore = defineStore("globeControl", {
     clearHoveredGridPoint() {
       this.hoveredGridPoint = undefined;
     },
+    resetExcept(keysToKeep: (keyof typeof this.$state)[] = []) {
+      const state = this as Record<keyof typeof this.$state, unknown>;
+      const saved = Object.fromEntries(
+        keysToKeep.map((k) => {
+          const val = state[k];
+          return [
+            k,
+            val !== null && typeof val === "object"
+              ? JSON.parse(JSON.stringify(val))
+              : val,
+          ];
+        })
+      );
+      this.$reset();
+      this.$patch(saved);
+    },
   },
 });
