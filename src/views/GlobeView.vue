@@ -352,6 +352,10 @@ onMounted(async () => {
 });
 
 useEventListener(window, "keydown", (e: KeyboardEvent) => {
+  if (isDisplayMode.value) {
+    // Disable shortcuts in display/presenter mode to avoid interfering with presenter controls
+    return;
+  }
   const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
   if (tag === "input" || tag === "textarea" || tag === "select") {
     return;

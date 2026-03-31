@@ -834,6 +834,11 @@ export function useGridScene(options: UseGridSceneOptions) {
 
   // Setup keyboard navigation listeners
   function setupKeyboardListeners() {
+    if (isDisplayMode.value) {
+      // Disable keyboard navigation in display/presenter mode to avoid
+      // interfering with presenter controls
+      return;
+    }
     useEventListener(box.value, "keydown", (e: KeyboardEvent) => {
       const navigationKeys = [...projectionArrowKeys, "+", "-"];
 
