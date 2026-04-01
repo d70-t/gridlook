@@ -1,6 +1,6 @@
 {
   "name": "gridlook",
-  "version": "0.0.0",
+  "version": "0.9.0",
   "license": "MIT",
   "scripts": {
     "dev": "vite --port 3000",
@@ -9,7 +9,20 @@
     "typecheck": "vue-tsc --noEmit",
     "lint": "eslint . ",
     "lint-ci": "eslint . --max-warnings 0",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{js,ts,vue}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.md": [
+      "prettier --write"
+    ],
+    "!(*package-lock).json": [
+      "prettier --write"
+    ]
   },
   "type": "module",
   "dependencies": {
@@ -40,6 +53,8 @@
     "zarrita": "^0.6.1"
   },
   "devDependencies": {
+    "@commitlint/cli": "^20.5.0",
+    "@commitlint/config-conventional": "^20.5.0",
     "@types/d3-delaunay": "^6.0.4",
     "@types/d3-geo": "^3.1.0",
     "@types/geojson": "7946.0.16",
@@ -58,6 +73,8 @@
     "eslint-plugin-promise": "^7.2.1",
     "eslint-plugin-vue": "^10.6",
     "globals": "^16.5.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
     "prettier": "^3.6.2",
     "sass": "^1.89.2",
     "typescript": "^5.9.3",
@@ -66,6 +83,6 @@
     "vue-tsc": "^3.1.8"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.17.0"
   }
 }

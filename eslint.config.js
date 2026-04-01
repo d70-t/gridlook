@@ -167,7 +167,9 @@ export default [
         "**/*.test.ts",
         "env.d.ts",
         "vite.config.ts",
-        "eslint.config.js",
+        "scripts/**",
+        "*.config.js",
+        "*.config.mjs",
       ],
       "import/resolver": {
         typescript: true,
