@@ -10,7 +10,7 @@ to keep contributions aligned with the current tooling and release workflow.
 
 ### Prerequisites
 
-- Node.js `>=18` as defined in [`package.json`](package.json)
+- Node.js `>=20.17` as defined in [`package.json`](package.json)
 - `npm`
 
 CI currently runs on newer Node versions as well, so using a recent LTS release

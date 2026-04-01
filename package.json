@@ -17,7 +17,10 @@
       "eslint --fix",
       "prettier --write"
     ],
-    "*.{json,md}": [
+    "*.md": [
+      "prettier --write"
+    ],
+    "!(*package-lock).json": [
       "prettier --write"
     ]
   },
@@ -73,7 +76,6 @@
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
     "prettier": "^3.6.2",
-    "release-please": "^17.3.0",
     "sass": "^1.89.2",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.50.0",
@@ -81,6 +83,6 @@
     "vue-tsc": "^3.1.8"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.17.0"
   }
 }
