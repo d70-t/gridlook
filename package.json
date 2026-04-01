@@ -13,7 +13,7 @@
     "prepare": "husky"
   },
   "lint-staged": {
-    "*.{js,ts}": [
+    "*.{js,ts,vue}": [
       "eslint --fix",
       "prettier --write"
     ],
