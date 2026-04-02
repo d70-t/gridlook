@@ -1,0 +1,41 @@
+{
+  "type": "gridlook_catalog",
+  "title": "Default Catalog",
+  "datasets": [
+    {
+      "title": "80km historical MPI-ESM1-2-HR Amon tas",
+      "url": "https://storage.googleapis.com/cmip6/CMIP6/CMIP/MPI-M/MPI-ESM1-2-HR/historical/r1i1p1f1/Amon/tas/gn/v20190710/",
+      "tag": "regular"
+    },
+    {
+      "title": "250km PMIP IPSL-CM6A-LR Amon tas",
+      "url": "https://storage.googleapis.com/cmip6/CMIP6/PMIP/IPSL/IPSL-CM6A-LR/midHolocene/r1i1p1f3/Amon/tas/gr/v20180926/",
+      "tag": "regular"
+    },
+    {
+      "title": "50km HighResMIP HadGEM3 highres-future Amon tas",
+      "url": "https://storage.googleapis.com/cmip6/CMIP6/HighResMIP/MOHC/HadGEM3-GC31-HM/highresSST-present/r1i1p1f1/Amon/tas/gn/v20170831/",
+      "tag": "regular"
+    },
+    {
+      "title": "50km tripolar historical NOAA GFDL-ESM4 Omon tos",
+      "url": "https://storage.googleapis.com/cmip6/CMIP6/CMIP/NOAA-GFDL/GFDL-ESM4/historical/r2i1p1f1/Omon/tos/gn/v20180701/",
+      "tag": "curvilinear"
+    },
+    {
+      "title": "25km historical AWI-CM-1-1-MR",
+      "url": "https://cmip6-pds.s3.amazonaws.com/CMIP6/CMIP/AWI/AWI-CM-1-1-MR/historical/r1i1p1f1/Oday/tos/gn/v20181218/",
+      "tag": "irregular"
+    },
+    {
+      "title": "WCRP Hackathon - P1D_mean_z7_atm",
+      "url": "https://s3.eu-dkrz-1.dkrz.cloud/wrcp-hackathon/data/ICON/d3hp003.zarr/P1D_mean_z7_atm",
+      "tag": "healpix"
+    },
+    {
+      "title": "dpp0066 - 2d_ml @ R02B06",
+      "url": "https://gridlook.pages.dev/static/index_mr_dpp0066.json",
+      "tag": "triangular"
+    }
+  ]
+}

@@ -1,11 +1,18 @@
 <script lang="ts" setup>
-import { nextTick, ref, watch } from "vue";
+import { nextTick, onMounted, ref, watch } from "vue";
 
+import CatalogPanel from "./CatalogPanel.vue";
+
+import { useGlobeControlStore } from "@/store/store";
 import Modal from "@/ui/common/Modal.vue";
+import { fetchCatalog, type TCatalogEntry } from "@/utils/catalog";
 
 const props = defineProps<{ currentSource: string }>();
 
+const store = useGlobeControlStore();
+
 const visible = ref(false);
+const checking = ref(false);
 const dataPath = ref("");
 const datasetInput = ref<HTMLInputElement | null>(null);
 
@@ -33,14 +40,54 @@ function close() {
   visible.value = false;
 }
 
-function setLocationHash() {
+async function setLocationHash() {
+  console.log("set location hash?", dataPath.value);
   const next = dataPath.value.trim();
   if (!next) {
     return;
   }
+
+  checking.value = true;
+  try {
+    const data = await fetchCatalog(next);
+    if (data) {
+      store.catalogUrl = next;
+      store.catalogData = data;
+      dataPath.value = "";
+      return;
+    }
+  } catch {
+    /* fetch failed or timed out, proceed with normal loading */
+  } finally {
+    checking.value = false;
+  }
+
   location.hash = "#" + next;
   close();
 }
+
+function onCatalogSelect(entry: TCatalogEntry) {
+  const catUrl = store.catalogUrl;
+  location.hash =
+    "#" + entry.url + (catUrl ? "::catalog=" + encodeURIComponent(catUrl) : "");
+  close();
+}
+
+onMounted(async () => {
+  if (store.catalogUrl && !store.catalogData) {
+    try {
+      const data = await fetchCatalog(store.catalogUrl);
+      if (data) {
+        store.catalogData = data;
+        return;
+      }
+    } catch {
+      /* fetch failed or timed out, proceed with normal loading */
+    } finally {
+      checking.value = false;
+    }
+  }
+});
 </script>
 
 <template>
@@ -51,7 +98,7 @@ function setLocationHash() {
   >
     <form id="load-dataset" @submit.prevent="setLocationHash">
       <div class="field">
-        <label class="label" for="dataset-url">Dataset URL</label>
+        <label class="label" for="dataset-url">Dataset / Catalog URL</label>
         <div class="control has-icons-left">
           <input
             id="dataset-url"
@@ -59,7 +106,7 @@ function setLocationHash() {
             v-model="dataPath"
             class="input"
             type="url"
-            placeholder="Zarr URI"
+            placeholder="Zarr URI or catalog URL"
           />
           <span class="icon is-left">
             <i class="fa-solid fa-folder-open"></i>
@@ -67,10 +114,31 @@ function setLocationHash() {
         </div>
       </div>
     </form>
+
+    <CatalogPanel
+      v-if="store.catalogData"
+      :title="store.catalogData.title"
+      :datasets="store.catalogData.datasets"
+      @select="onCatalogSelect"
+    />
+
     <template #footer>
       <div class="buttons">
-        <button type="button" class="button" @click="close">Cancel</button>
-        <button type="submit" form="load-dataset" class="button is-success">
+        <button
+          type="button"
+          class="button"
+          :disabled="checking"
+          @click="close"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          form="load-dataset"
+          class="button is-success"
+          :class="{ 'is-loading': checking }"
+          :disabled="checking"
+        >
           Load
         </button>
       </div>

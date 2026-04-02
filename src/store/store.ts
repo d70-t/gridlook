@@ -11,6 +11,7 @@ import {
 } from "@/lib/projection/projectionUtils";
 import type { TColorMap } from "@/lib/shaders/colormapShaders";
 import type { TVarInfo, TBounds } from "@/lib/types/GlobeTypes";
+import type { TCatalog } from "@/utils/catalog";
 
 export const UPDATE_MODE = {
   INITIAL_LOAD: "initialLoad",
@@ -67,6 +68,8 @@ export const useGlobeControlStore = defineStore("globeControl", {
       isRotating: false,
       hoverEnabled: false,
       hoveredGridPoint: undefined as THoveredGridPoint | undefined,
+      catalogUrl: undefined as string | undefined,
+      catalogData: undefined as TCatalog | undefined,
     };
   },
   actions: {

@@ -16,6 +16,8 @@ You can view any CORS-enabled, public Zarr dataset with GridLook:
 https://gridlook.pages.dev/#<ZARR_URI>
 ```
 
+Gridlook can also load catalog JSON files that list multiple datasets. The catalog format and deployment options are documented in [docs/catalogs.md](/home/afast/workspace/gridlook/docs/catalogs.md).
+
 ## Project Setup
 
 This project uses [Node.js](https://nodejs.org/en) and [vue.js](https://vuejs.org/)
