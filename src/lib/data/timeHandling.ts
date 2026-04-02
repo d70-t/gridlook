@@ -57,8 +57,12 @@ export function encodeTime(datetime: Dayjs, attrs: zarr.Attributes): number {
 /**
  * Converts a bigint or number to a number, handling BigInt64Array values.
  */
-function toNumber(value: number | bigint): number {
-  return typeof value === "bigint" ? Number(value) : value;
+function toNumber(value: number | bigint | string): number {
+  return typeof value === "bigint"
+    ? Number(value)
+    : typeof value === "string"
+      ? Number(value)
+      : value;
 }
 
 /**
@@ -80,7 +84,7 @@ function toNumber(value: number | bigint): number {
  */
 export function findTimeIndex(
   targetDatetime: Dayjs | string | Date,
-  timeArray: ArrayLike<number | bigint>,
+  timeArray: ArrayLike<number | bigint | string>,
   attrs: zarr.Attributes
 ): number {
   const target = dayjs.utc(targetDatetime);
@@ -137,7 +141,7 @@ export function findTimeIndex(
  */
 function binarySearchFloor(
   targetValue: number,
-  timeArray: ArrayLike<number | bigint>
+  timeArray: ArrayLike<number | bigint | string>
 ): number {
   let left = 0;
   let right = timeArray.length - 1;

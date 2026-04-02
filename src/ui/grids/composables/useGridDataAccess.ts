@@ -1,6 +1,6 @@
 import type { ShallowRef } from "vue";
 import { shallowRef } from "vue";
-import type * as zarr from "zarrita";
+import * as zarr from "zarrita";
 
 import { decodeTime } from "@/lib/data/timeHandling.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
@@ -46,14 +46,14 @@ export function useGridDataAccess() {
   async function getTimeInfo(
     datasources: TSources,
     dimensionRanges: TDimensionRange[],
+    dimensionIndex: number,
     index: number
   ): Promise<TDimInfo> {
-    if (dimensionRanges[0]?.name !== "time") {
+    if (dimensionRanges[dimensionIndex]?.name !== "time") {
       return {};
     }
     try {
       const myDatasource = datasources!.levels[0].time;
-
       const timevalues = (
         await ZarrDataManager.getVariableData(myDatasource, "time", [null])
       ).data as Int32Array;
@@ -83,17 +83,29 @@ export function useGridDataAccess() {
         return {};
       }
 
-      const dimValues = (
-        await ZarrDataManager.getVariableData(datasource, dimensionName, [null])
-      ).data as Int32Array;
+      const dimArray = await ZarrDataManager.getVariableData(
+        datasource,
+        dimensionName,
+        [null]
+      );
 
+      let dimValues = dimArray.data as
+        | zarr.TypedArray<zarr.DataType>
+        | string[];
+      if (
+        dimValues instanceof zarr.UnicodeStringArray ||
+        dimValues instanceof zarr.ByteStringArray
+      ) {
+        dimValues = [...dimValues] as string[];
+      }
+      const indexable = dimValues as { [n: number]: unknown };
       const dimvar = await ZarrDataManager.getVariableInfo(
         datasource,
         dimensionName
       );
       return {
         values: dimValues,
-        current: dimValues[index],
+        current: indexable[index] as zarr.DataType,
         attrs: dimvar.attrs,
         units: dimvar.attrs.units as string,
         longName: (dimvar.attrs.long_name ??

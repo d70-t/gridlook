@@ -1,4 +1,4 @@
-# Pre-Versioning Changelog
+## Pre-Versioning Changelog
 
 For the period covered below, this changelog was organized in a conventional-commit-inspired format, inferred from merge request and pull request titles rather than commit messages.
 
