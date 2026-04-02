@@ -185,19 +185,21 @@ export function useSharedGridLogic() {
     dimSlidersValues: (number | zarr.Slice | null)[]
   ): Promise<TDimInfo[]> {
     const array: TDimInfo[] = [];
-    for (const dim of dimensionRanges) {
+    for (let i = 0; i < dimensionRanges.length; i++) {
+      const dim = dimensionRanges[i];
       if (dim?.name === "time") {
         const timeInfo = await getTimeInfo(
           datasources,
           dimensionRanges,
-          dimSlidersValues[0] as number
+          i,
+          dimSlidersValues[i] as number
         );
         array.push(timeInfo);
       } else {
         const dimInfo = await getDimensionInfo(
           datasources.levels[0].datasources[currentVariable],
           dim!,
-          dimSlidersValues[dimensionRanges.indexOf(dim)] as number
+          dimSlidersValues[i] as number
         );
         array.push(dimInfo);
       }

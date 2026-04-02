@@ -46,9 +46,10 @@ export function useGridDataAccess() {
   async function getTimeInfo(
     datasources: TSources,
     dimensionRanges: TDimensionRange[],
+    dimensionIndex: number,
     index: number
   ): Promise<TDimInfo> {
-    if (dimensionRanges[0]?.name !== "time") {
+    if (dimensionRanges[dimensionIndex]?.name !== "time") {
       return {};
     }
     try {
