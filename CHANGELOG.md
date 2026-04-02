@@ -4,6 +4,14 @@ For the period covered below, this changelog was organized in a conventional-com
 
 Because the project did not use version tags yet, entries were grouped by month instead of release version. Category assignments were approximate when a PR title spanned more than one conventional-commit type.
 
+## 1.0.0 (2026-04-02)
+
+
+### Features
+
+* **config:** added changelog for previous PRs ([e2eb2e8](https://github.com/d70-t/gridlook/commit/e2eb2e862046901f1db78df78d09f98a844727a1))
+* **ui:** Added Catalog-Feature ([48c304a](https://github.com/d70-t/gridlook/commit/48c304af5c261d1391e6af3ea1f3c743edf92068))
+
 ## 2026-03
 
 ### Features
