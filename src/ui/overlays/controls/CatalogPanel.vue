@@ -20,20 +20,20 @@ const sortKey = ref<SortKey>("default");
 const filteredAndSortedDatasets = computed(() => {
   const q = searchQuery.value.trim().toLowerCase();
 
-  if (!q) {
-    return props.datasets;
+  let list = [...props.datasets];
+  if (q) {
+    list = props.datasets.filter((entry) => {
+      const haystack = [
+        entry.title ?? "",
+        entry.url,
+        entry.tag ?? "",
+        entry.description ?? "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(q);
+    });
   }
-  let list = props.datasets.filter((entry) => {
-    const haystack = [
-      entry.title ?? "",
-      entry.url,
-      entry.tag ?? "",
-      entry.description ?? "",
-    ]
-      .join(" ")
-      .toLowerCase();
-    return haystack.includes(q);
-  });
 
   if (sortKey.value === "title") {
     list.sort((a, b) => (a.title ?? a.url).localeCompare(b.title ?? b.url));
@@ -101,11 +101,12 @@ function select(entry: TCatalogEntry) {
       >
         No datasets match your search.
       </p>
-      <a
+      <button
         v-for="(entry, i) in filteredAndSortedDatasets"
         :key="entry.url + '-' + i"
         class="catalog-entry panel-block"
-        @click.prevent="select(entry)"
+        type="button"
+        @click="select(entry)"
       >
         <div class="catalog-entry-content">
           <div class="catalog-entry-header">
@@ -132,7 +133,7 @@ function select(entry: TCatalogEntry) {
             {{ entry.url }}
           </p>
         </div>
-      </a>
+      </button>
     </div>
   </nav>
 </template>
@@ -158,6 +159,13 @@ function select(entry: TCatalogEntry) {
 
 .catalog-entry {
   display: block !important;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
   &:hover {
     background-color: var(--bulma-link-light) !important;
   }

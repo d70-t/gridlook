@@ -41,28 +41,39 @@ function close() {
 }
 
 async function setLocationHash() {
-  console.log("set location hash?", dataPath.value);
   const next = dataPath.value.trim();
   if (!next) {
     return;
   }
+  const filenameToCheck = next.endsWith("/") ? next.slice(0, -1) : next;
+  // Catalogs are expected to be JSON files, so if the input ends with .json, we
+  // can try to fetch it as a catalog before setting the location hash
+  const isMaybeCatalog = filenameToCheck.endsWith(".json");
 
-  checking.value = true;
-  try {
-    const data = await fetchCatalog(next);
-    if (data) {
-      store.catalogUrl = next;
-      store.catalogData = data;
-      dataPath.value = "";
-      return;
+  if (isMaybeCatalog) {
+    checking.value = true;
+    try {
+      const data = await fetchCatalog(next);
+      if (data) {
+        store.catalogUrl = next;
+        store.catalogData = data;
+        dataPath.value = "";
+        return;
+      }
+    } catch {
+      /* fetch failed or timed out, proceed with normal loading */
+    } finally {
+      checking.value = false;
     }
-  } catch {
-    /* fetch failed or timed out, proceed with normal loading */
-  } finally {
-    checking.value = false;
   }
 
-  location.hash = "#" + next;
+  const catUrl = store.catalogUrl;
+  if (catUrl) {
+    location.hash =
+      "#" + next + (catUrl ? "::catalog=" + encodeURIComponent(catUrl) : "");
+  } else {
+    location.hash = "#" + next;
+  }
   close();
 }
 
