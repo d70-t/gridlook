@@ -185,9 +185,14 @@ watch(
     globeControlKey.value += 1;
     if (isDisplayMode.value || isPresenterActive.value) {
       // In display/presenter mode we want to preserve some state across source changes
-      store.resetExcept(["projectionMode", "projectionCenter"]);
+      store.resetExcept([
+        "projectionMode",
+        "projectionCenter",
+        "catalogData",
+        "catalogUrl",
+      ]);
     } else {
-      store.$reset();
+      store.resetExcept(["catalogData", "catalogUrl"]);
     }
     // stop loading is handled in the grid components after data load
     store.startLoading();

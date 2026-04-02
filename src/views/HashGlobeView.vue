@@ -16,6 +16,8 @@ type TParams = Partial<Record<TURLParameterValues, string>>;
 const DEFAULT_DATASET =
   "https://s3.eu-dkrz-1.dkrz.cloud/wrcp-hackathon/data/ICON/d3hp003.zarr/P1D_mean_z7_atm";
 
+const DEFAULT_CATALOG = "static/catalog.json";
+
 const defaultSrc = ref(DEFAULT_DATASET);
 const src = ref(DEFAULT_DATASET);
 const params: Ref<TParams> = ref({});
@@ -76,7 +78,9 @@ const onHashChange = () => {
       urlParameterStore[paramProperty] = value as any;
     }
     src.value = resource || defaultSrc.value;
+    store.catalogUrl = params.value.catalog || DEFAULT_CATALOG;
   } else {
+    store.catalogUrl = DEFAULT_CATALOG;
     src.value = defaultSrc.value;
   }
 };
