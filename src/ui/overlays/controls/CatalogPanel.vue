@@ -58,8 +58,8 @@ function select(entry: TCatalogEntry) {
     <h2 class="catalog-title">
       {{ title ?? "Dataset Catalog" }}
     </h2>
-    <div class="is-flex-direction-column my-3" style="gap: 0.5rem">
-      <div class="control has-icons-left mb-2" style="width: 100%">
+    <div class="is-flex-direction-column my-3 w-100">
+      <div class="control has-icons-left mb-2">
         <input
           v-model="searchQuery"
           class="input is-small"
@@ -71,8 +71,7 @@ function select(entry: TCatalogEntry) {
         </span>
       </div>
       <div
-        class="is-flex is-align-items-center is-justify-content-space-between"
-        style="width: 100%"
+        class="is-flex is-align-items-center is-justify-content-space-between w-100"
       >
         <span class="is-size-7 has-text-grey">
           {{ filteredAndSortedDatasets.length }} /
@@ -148,7 +147,6 @@ function select(entry: TCatalogEntry) {
 .catalog-panel {
   margin-top: 1rem;
   max-height: 400px;
-  // border-top: 1px solid var(--bulma-border);
 }
 
 .catalog-entries {
@@ -170,6 +168,9 @@ function select(entry: TCatalogEntry) {
     background-color: var(--bulma-link-light) !important;
   }
   border-bottom: 1px solid var(--bulma-border) !important;
+  &:last-child {
+    border-bottom: none !important;
+  }
 }
 
 .catalog-entry-content {
