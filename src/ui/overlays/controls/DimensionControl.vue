@@ -110,7 +110,11 @@ function capitalize(str: string): string {
             {{ capitalize(range.name) }}:
             <DatetimePicker
               v-if="range.name === 'time'"
-              :time-values="varinfo.dimInfo[index]?.values ?? []"
+              :time-values="
+                (varinfo.dimInfo[index]?.values as ArrayLike<
+                  number | bigint | string
+                > | null) ?? []
+              "
               :time-attrs="varinfo.dimInfo[index]?.attrs ?? {}"
               :current-index="localSliders[index] ?? 0"
               :min-index="range?.minBound ?? 0"
