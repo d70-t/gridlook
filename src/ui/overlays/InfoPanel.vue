@@ -1108,6 +1108,7 @@ function formatValue(value: unknown): string {
   .info-panel {
     width: 100%;
     right: -100%;
+    padding-bottom: calc(8rem + env(safe-area-inset-bottom, 0px));
   }
 }
 

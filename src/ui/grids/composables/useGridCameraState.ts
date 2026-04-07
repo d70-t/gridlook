@@ -1,3 +1,4 @@
+import { inflateSync, strFromU8, deflate } from "fflate";
 import debounce from "lodash.debounce";
 import { storeToRefs } from "pinia";
 import type * as THREE from "three";
@@ -7,10 +8,6 @@ import { useUrlParameterStore } from "@/store/paramStore.ts";
 export type TCameraState = {
   position: number[];
   quaternion: number[];
-  fov: number;
-  aspect: number;
-  near: number;
-  far: number;
 };
 
 export type GridCameraState = {
@@ -32,19 +29,26 @@ export function useGridCameraState(): GridCameraState {
     const state: TCameraState = {
       position: camera.position.toArray(),
       quaternion: camera.quaternion.toArray(),
-      fov: camera.fov,
-      aspect: camera.aspect,
-      near: camera.near,
-      far: camera.far,
     };
 
     const json = JSON.stringify(state);
-    const encoded = btoa(json)
-      .replace(/\+/g, "-")
-      .replace(/\//g, "_")
-      .replace(/=+$/, "");
-
-    paramCameraState.value = encoded;
+    deflate(new TextEncoder().encode(json), { level: 9 }, (err, compressed) => {
+      if (err) {
+        console.error("Compression failed, falling back to uncompressed:", err);
+        // Fallback to uncompressed base64
+        const encoded = btoa(json)
+          .replace(/\+/g, "-")
+          .replace(/\//g, "_")
+          .replace(/=+$/, "");
+        paramCameraState.value = encoded;
+      } else {
+        const encoded = btoa(strFromU8(compressed, true))
+          .replace(/\+/g, "-")
+          .replace(/\//g, "_")
+          .replace(/=+$/, "");
+        paramCameraState.value = encoded;
+      }
+    });
   }
 
   function decodeCameraFromURL(): TCameraState | null {
@@ -54,8 +58,22 @@ export function useGridCameraState(): GridCameraState {
     }
 
     try {
-      const json = atob(encoded.replace(/-/g, "+").replace(/_/g, "/"));
-      return JSON.parse(json);
+      const base64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
+      const paddingLength = (4 - (base64.length % 4)) % 4;
+      const paddedBase64 = `${base64}${"=".repeat(paddingLength)}`;
+      const binary = atob(paddedBase64);
+
+      const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+
+      // Try decompressing first (new format)
+      try {
+        const decompressed = inflateSync(bytes);
+        const json = new TextDecoder().decode(decompressed);
+        return JSON.parse(json);
+      } catch {
+        // Fall back to legacy uncompressed base64
+        return JSON.parse(binary);
+      }
     } catch {
       return null;
     }
@@ -76,19 +94,6 @@ export function useGridCameraState(): GridCameraState {
     if (data.quaternion && data.quaternion.length === 4) {
       camera.quaternion.fromArray(data.quaternion);
     }
-
-    if (typeof data.fov === "number") {
-      camera.fov = data.fov;
-    }
-
-    if (typeof data.near === "number") {
-      camera.near = data.near;
-    }
-
-    if (typeof data.far === "number") {
-      camera.far = data.far;
-    }
-
     camera.updateProjectionMatrix();
   }
 

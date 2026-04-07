@@ -152,7 +152,7 @@ function handleOptionHover(option: TColorMap) {
 
     <!-- Row: Colormap selector + options -->
     <div class="columns is-mobile is-vcentered compact-row px-1">
-      <div class="column">
+      <div class="column colormap-column">
         <Select
           v-model="colormap"
           :options="modelInfo.colormaps"
@@ -227,6 +227,11 @@ function handleOptionHover(option: TColorMap) {
 .slider-column {
   display: flex;
   align-items: center;
+}
+
+.colormap-column {
+  min-width: 0;
+  overflow: hidden;
 }
 
 .colormap-select {
