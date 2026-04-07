@@ -496,6 +496,7 @@ onMounted(() => {
     position: fixed;
     height: 95%;
     border-radius: 0 !important;
+    padding-bottom: calc(8rem + env(safe-area-inset-bottom, 0px));
 
     &.mobile-visible {
       max-height: 100vh;
