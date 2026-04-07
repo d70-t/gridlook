@@ -101,6 +101,10 @@ export function findTimeIndex(
   const firstValue = toNumber(timeArray[0]);
   const lastValue = toNumber(timeArray[n - 1]);
 
+  if (isNaN(targetValue) || isNaN(firstValue) || isNaN(lastValue)) {
+    throw new Error("Time array contains invalid values");
+  }
+
   // Handle out-of-bounds cases: clamp to array bounds
   if (targetValue < firstValue) {
     return 0;

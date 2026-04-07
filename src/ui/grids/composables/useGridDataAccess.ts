@@ -89,23 +89,32 @@ export function useGridDataAccess() {
         [null]
       );
 
-      let dimValues = dimArray.data as
-        | zarr.TypedArray<zarr.DataType>
-        | string[];
+      type TCoordinateValue = number | bigint | string;
+
+      const rawValues = dimArray.data;
+      let dimValues: ArrayLike<TCoordinateValue>;
+      let current: TCoordinateValue;
+
       if (
-        dimValues instanceof zarr.UnicodeStringArray ||
-        dimValues instanceof zarr.ByteStringArray
+        rawValues instanceof zarr.UnicodeStringArray ||
+        rawValues instanceof zarr.ByteStringArray
       ) {
-        dimValues = [...dimValues] as string[];
+        const stringValues = [...rawValues];
+        dimValues = stringValues;
+        current = stringValues[index] as TCoordinateValue;
+      } else {
+        const numericValues = rawValues as ArrayLike<TCoordinateValue>;
+        dimValues = numericValues;
+        current = numericValues[index] as TCoordinateValue;
       }
-      const indexable = dimValues as { [n: number]: unknown };
+
       const dimvar = await ZarrDataManager.getVariableInfo(
         datasource,
         dimensionName
       );
       return {
         values: dimValues,
-        current: indexable[index] as zarr.DataType,
+        current,
         attrs: dimvar.attrs,
         units: dimvar.attrs.units as string,
         longName: (dimvar.attrs.long_name ??
