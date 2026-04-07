@@ -1,3 +1,4 @@
+import { deflateSync, inflateSync, strFromU8 } from "fflate";
 import debounce from "lodash.debounce";
 import { storeToRefs } from "pinia";
 import type * as THREE from "three";
@@ -39,7 +40,8 @@ export function useGridCameraState(): GridCameraState {
     };
 
     const json = JSON.stringify(state);
-    const encoded = btoa(json)
+    const compressed = deflateSync(new TextEncoder().encode(json));
+    const encoded = btoa(strFromU8(compressed, true))
       .replace(/\+/g, "-")
       .replace(/\//g, "_")
       .replace(/=+$/, "");
@@ -54,8 +56,18 @@ export function useGridCameraState(): GridCameraState {
     }
 
     try {
-      const json = atob(encoded.replace(/-/g, "+").replace(/_/g, "/"));
-      return JSON.parse(json);
+      const binary = atob(encoded.replace(/-/g, "+").replace(/_/g, "/"));
+      const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+
+      // Try decompressing first (new format)
+      try {
+        const decompressed = inflateSync(bytes);
+        const json = new TextDecoder().decode(decompressed);
+        return JSON.parse(json);
+      } catch {
+        // Fall back to legacy uncompressed base64
+        return JSON.parse(binary);
+      }
     } catch {
       return null;
     }
