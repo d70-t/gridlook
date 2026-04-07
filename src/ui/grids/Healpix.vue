@@ -207,7 +207,7 @@ async function getNside() {
 
 async function getCells() {
   try {
-    let cells = (
+    const rawCells = (
       await ZarrDataManager.getVariableData(
         ZarrDataManager.getDatasetSource(
           props.datasources!,
@@ -215,11 +215,9 @@ async function getCells() {
         ),
         "cell"
       )
-    ).data as Int32Array | BigInt64Array | number[];
-    if (typeof cells[0] === "bigint") {
-      cells = Array.from(cells, Number) as number[];
-    }
-    return cells as number[];
+    ).data as ArrayLike<number | bigint>;
+
+    return Array.from(rawCells, (cell) => Number(cell));
   } catch {
     return undefined;
   }
@@ -727,9 +725,15 @@ async function fetchAndRenderData(
   hoverData.value = castDataVarToFloat32(
     (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
   );
-  hoverCellIndexMap.value = cellCoord
-    ? new Map(cellCoord.map((pixel, index) => [pixel, index]))
-    : null;
+  if (cellCoord) {
+    const cellIndexMap = new Map<number, number>();
+    for (let index = 0; index < cellCoord.length; index++) {
+      cellIndexMap.set(cellCoord[index], index);
+    }
+    hoverCellIndexMap.value = cellIndexMap;
+  } else {
+    hoverCellIndexMap.value = null;
+  }
   setHoverLookup(healpixHoverLookup);
   const { dataMin, dataMax, histogramSummaries } = await processHealpixChunks(
     datavar,
