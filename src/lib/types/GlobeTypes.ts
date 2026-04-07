@@ -28,8 +28,8 @@ export type TDimensionRange = {
 export type TDimInfo =
   | EmptyObj
   | {
-      current: Dayjs | number;
-      values: Int32Array;
+      current: Dayjs | number | bigint | string;
+      values: ArrayLike<number | bigint | string>;
       units?: string;
       attrs: zarr.Attributes;
       longName?: string;
