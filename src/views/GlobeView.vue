@@ -101,10 +101,6 @@ type TGlobeHandle = {
 const HYPERGLOBE_CAMERA_PRESET: TCameraState = {
   position: [0, 0, 33],
   quaternion: [0, 0, 0, 1],
-  fov: 7.5,
-  aspect: 1,
-  near: 0.1,
-  far: 1000,
 };
 
 const globe: Ref<TGlobeHandle | null> = ref(null);

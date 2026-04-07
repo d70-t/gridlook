@@ -8,10 +8,6 @@ import { useUrlParameterStore } from "@/store/paramStore.ts";
 export type TCameraState = {
   position: number[];
   quaternion: number[];
-  fov: number;
-  aspect: number;
-  near: number;
-  far: number;
 };
 
 export type GridCameraState = {
@@ -33,10 +29,6 @@ export function useGridCameraState(): GridCameraState {
     const state: TCameraState = {
       position: camera.position.toArray(),
       quaternion: camera.quaternion.toArray(),
-      fov: camera.fov,
-      aspect: camera.aspect,
-      near: camera.near,
-      far: camera.far,
     };
 
     const json = JSON.stringify(state);
@@ -88,19 +80,6 @@ export function useGridCameraState(): GridCameraState {
     if (data.quaternion && data.quaternion.length === 4) {
       camera.quaternion.fromArray(data.quaternion);
     }
-
-    if (typeof data.fov === "number") {
-      camera.fov = data.fov;
-    }
-
-    if (typeof data.near === "number") {
-      camera.near = data.near;
-    }
-
-    if (typeof data.far === "number") {
-      camera.far = data.far;
-    }
-
     camera.updateProjectionMatrix();
   }
 
