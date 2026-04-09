@@ -219,6 +219,7 @@ function openPicker() {
 
     <template #footer>
       <div class="buttons">
+        <button class="button" type="button" @click="onCancel">Cancel</button>
         <button
           class="button is-success"
           :disabled="previewIndex === null"
@@ -230,7 +231,6 @@ function openPicker() {
           </span>
           <span>Apply</span>
         </button>
-        <button class="button" type="button" @click="onCancel">Cancel</button>
       </div>
     </template>
   </Modal>
