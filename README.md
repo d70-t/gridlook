@@ -18,6 +18,8 @@ https://gridlook.pages.dev/#<ZARR_URI>
 
 Gridlook can also load catalog JSON files that list multiple datasets. The catalog format and deployment options are documented in [docs/catalogs.md](docs/catalogs.md).
 
+A guide to the viewer keyboard, mouse, and touch interaction is available in [docs/Controls.md](docs/Controls.md).
+
 ## Project Setup
 
 This project uses [Node.js](https://nodejs.org/en) and [vue.js](https://vuejs.org/)
