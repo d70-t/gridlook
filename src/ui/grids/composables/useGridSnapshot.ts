@@ -7,11 +7,13 @@ import type { TColorMap } from "@/lib/shaders/colormapShaders.ts";
 import { makeCompressedColormapLutMaterial } from "@/lib/shaders/gridShaders.ts";
 import {
   DEFAULT_SNAPSHOT_OPTIONS,
+  SnapshotBackgrounds,
   type TSnapshotBackground,
   type TSnapshotOptions,
 } from "@/lib/types/GlobeTypes.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 import { useLog } from "@/utils/logging";
+
 type UseGridSnapshotOptions = {
   canvas: Ref<HTMLCanvasElement | undefined>;
   getRenderer: () => THREE.WebGLRenderer | undefined;
@@ -120,42 +122,63 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
     if (!renderer || !scene || !camera) {
       return;
     }
-    if (background === "black") {
-      render();
-      ctx.drawImage(canvas.value!, 0, 0);
-      return;
-    }
+
+    const clearColor = new THREE.Color();
+    renderer.getClearColor(clearColor);
+    const clearAlpha = renderer.getClearAlpha();
+
     const rt = new THREE.WebGLRenderTarget(w, h);
-    if (background === "transparent") {
-      const origVisible = baseSurface ? baseSurface.visible : true;
-      if (baseSurface) {
-        baseSurface.visible = false;
-      }
-      renderer.setClearColor(0x000000, 0);
-      renderer.setRenderTarget(rt);
-      renderer.render(scene, camera);
-      renderer.setRenderTarget(null);
-      renderer.setClearColor(0x000000, 1);
-      if (baseSurface) {
-        baseSurface.visible = origVisible;
-      }
-    } else {
-      const mat = baseSurface?.material as THREE.MeshBasicMaterial | undefined;
-      const origColor = mat ? mat.color.getHex() : null;
-      renderer.setClearColor(0xffffff, 1);
-      if (mat) {
-        mat.color.set(0xffffff);
-      }
-      renderer.setRenderTarget(rt);
-      renderer.render(scene, camera);
-      renderer.setRenderTarget(null);
-      renderer.setClearColor(0x000000, 1);
-      if (mat && origColor !== null) {
-        mat.color.setHex(origColor);
-      }
+    const origVisible = baseSurface ? baseSurface.visible : true;
+    const mat = baseSurface?.material as THREE.MeshBasicMaterial | undefined;
+    const origColor = mat ? mat.color.getHex() : null;
+
+    if (background === SnapshotBackgrounds.TRANSPARENT && baseSurface) {
+      baseSurface.visible = false;
+    } else if (background === SnapshotBackgrounds.WHITE && mat) {
+      mat.color.set(0xffffff);
     }
+
+    const clearHex =
+      background === SnapshotBackgrounds.WHITE ? 0xffffff : 0x000000;
+    const clearTargetAlpha =
+      background === SnapshotBackgrounds.TRANSPARENT ? 0 : 1;
+
+    renderer.setClearColor(clearHex, clearTargetAlpha);
+    renderer.setRenderTarget(rt);
+    renderer.render(scene, camera);
+    renderer.setRenderTarget(null);
+    renderer.setClearColor(clearColor, clearAlpha);
+
+    if (baseSurface) {
+      baseSurface.visible = origVisible;
+    }
+    if (mat && origColor !== null) {
+      mat.color.setHex(origColor);
+    }
+
     blitRtToCtx(ctx, rt, w, h);
     render(); // restore live canvas
+  }
+
+  function getSnapshotDimensions(
+    glCanvas: HTMLCanvasElement,
+    requestedScale: TSnapshotOptions["resolutionScale"]
+  ) {
+    const renderer = getRenderer();
+    const maxTextureSize = renderer?.capabilities.maxTextureSize ?? Infinity;
+    const maxScale = Math.max(
+      1,
+      Math.min(
+        maxTextureSize / glCanvas.width,
+        maxTextureSize / glCanvas.height
+      )
+    );
+    const safeScale = Math.max(1, Math.min(requestedScale, maxScale));
+
+    return {
+      width: Math.max(1, Math.floor(glCanvas.width * safeScale)),
+      height: Math.max(1, Math.floor(glCanvas.height * safeScale)),
+    };
   }
 
   /** Collect dimension value strings for the info overlay. */
@@ -329,8 +352,10 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
     if (!glCanvas || !getRenderer() || !getScene() || !getCamera()) {
       return;
     }
-    const w = glCanvas.width;
-    const h = glCanvas.height;
+    const { width: w, height: h } = getSnapshotDimensions(
+      glCanvas,
+      options.resolutionScale
+    );
     const { background, showDatasetInfo, showColormap } = options;
 
     const fontSize = Math.round(Math.max(13, h * 0.022));

@@ -79,16 +79,25 @@ export type TSources = {
   }[];
 };
 
-export type TSnapshotBackground = "black" | "white" | "transparent";
+export const SnapshotBackgrounds = {
+  BLACK: "black",
+  WHITE: "white",
+  TRANSPARENT: "transparent",
+} as const;
+export type TSnapshotBackground =
+  (typeof SnapshotBackgrounds)[keyof typeof SnapshotBackgrounds];
+export type TSnapshotResolutionScale = 1 | 2 | 4;
 
 export type TSnapshotOptions = {
   background: TSnapshotBackground;
+  resolutionScale: TSnapshotResolutionScale;
   showDatasetInfo: boolean;
   showColormap: boolean;
 };
 
 export const DEFAULT_SNAPSHOT_OPTIONS: TSnapshotOptions = {
-  background: "black",
+  background: SnapshotBackgrounds.BLACK,
+  resolutionScale: 1,
   showDatasetInfo: true,
   showColormap: true,
 };

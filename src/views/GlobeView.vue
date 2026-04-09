@@ -90,7 +90,8 @@ if (urlParams.get("mode") === PresenterRole.DISPLAY) {
 const { varnameSelector, loading, colormap, invertColormap } =
   storeToRefs(store);
 
-const { paramVarname, paramGridType } = storeToRefs(urlParameterStore);
+const { paramVarname, paramGridType, paramDistractionFree } =
+  storeToRefs(urlParameterStore);
 
 type TGlobeHandle = {
   makeSnapshot: (options: TSnapshotOptions) => void;
@@ -114,6 +115,13 @@ const sourceValid = ref(false);
 const datasources: Ref<TSources | undefined> = ref(undefined);
 const detectedGridType: Ref<T_GRID_TYPES | undefined> = ref(undefined);
 const infoPanelOpen = ref(false);
+
+const distractionFreeFromUrl = paramDistractionFree.value === "true";
+
+if (distractionFreeFromUrl && !isDisplayMode.value) {
+  distractionFree.value = true;
+  store.setControlPanelVisible(false);
+}
 
 const activeGridType = computed(() => {
   const detected = detectedGridType.value;

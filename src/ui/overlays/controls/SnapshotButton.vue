@@ -7,6 +7,7 @@ import {
   DEFAULT_SNAPSHOT_OPTIONS,
   type TSnapshotBackground,
   type TSnapshotOptions,
+  type TSnapshotResolutionScale,
 } from "@/lib/types/GlobeTypes";
 
 const emit = defineEmits<{
@@ -20,6 +21,15 @@ const BG_LABELS: { value: TSnapshotBackground; label: string }[] = [
   { value: "black", label: "Black" },
   { value: "white", label: "White" },
   { value: "transparent", label: "Transparent" },
+];
+
+const RESOLUTION_LABELS: {
+  value: TSnapshotResolutionScale;
+  label: string;
+}[] = [
+  { value: 1, label: "1x" },
+  { value: 2, label: "2x" },
+  { value: 4, label: "4x" },
 ];
 
 function close() {
@@ -42,6 +52,22 @@ function takeSnapshot() {
     </template>
 
     <template #default>
+      <p class="dialog-section-label">RESOLUTION</p>
+      <div class="buttons mb-3">
+        <button
+          v-for="resolution in RESOLUTION_LABELS"
+          :key="resolution.value"
+          class="button is-small"
+          :class="{
+            'is-primary': options.resolutionScale === resolution.value,
+          }"
+          type="button"
+          @click="options.resolutionScale = resolution.value"
+        >
+          {{ resolution.label }}
+        </button>
+      </div>
+
       <p class="dialog-section-label">BACKGROUND</p>
       <div class="buttons mb-3">
         <button
