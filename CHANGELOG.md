@@ -4,6 +4,28 @@ For the period covered below, this changelog was organized in a conventional-com
 
 Because the project did not use version tags yet, entries were grouped by month instead of release version. Category assignments were approximate when a PR title spanned more than one conventional-commit type.
 
+## 1.0.0 (2026-04-10)
+
+
+### Features
+
+* **config:** added changelog for previous PRs ([e2eb2e8](https://github.com/d70-t/gridlook/commit/e2eb2e862046901f1db78df78d09f98a844727a1))
+* **lib:** added functionality to make min-bound values transparent ([230d01e](https://github.com/d70-t/gridlook/commit/230d01efa66ef9ffc22f63c26cdf50cff2291ae2))
+* **lib:** URL-Camerastate is now compressed via fflate. Backwards-compatibility is ensured ([2ee270d](https://github.com/d70-t/gridlook/commit/2ee270d94fc95a04b3d51576bd17ead469c539c3))
+* **ui:** Added Catalog-Feature ([48c304a](https://github.com/d70-t/gridlook/commit/48c304af5c261d1391e6af3ea1f3c743edf92068))
+* **ui:** added distraction free-mode controllable via URL ([a376c61](https://github.com/d70-t/gridlook/commit/a376c617a7275a220bf8c658de33d7aed72f4945))
+* **ui:** added possibility to change resolution for snapshots ([c40d835](https://github.com/d70-t/gridlook/commit/c40d835b49059b83bf038f66396b257bd67efb50))
+* **ui:** added QR-Code to the share button ([15fed7e](https://github.com/d70-t/gridlook/commit/15fed7eb9b444d397b582699231edda8d2273f14))
+
+
+### Bug Fixes
+
+* **lib:** fixed broken cellCoords for Healpix ([7d4464f](https://github.com/d70-t/gridlook/commit/7d4464f2ec13f49d4196a1e146777d965b80015e))
+* **lib:** fixed broken dimension value information, when the value is a string ([3ea3c64](https://github.com/d70-t/gridlook/commit/3ea3c64782b5ad24ebc8cc1a9fe028f0658fc505))
+* **lib:** fixed broken time info when time dimension is not at first pos ([0115aaa](https://github.com/d70-t/gridlook/commit/0115aaa4739154e18dbc9e23c6cf3b4bbe853d16))
+* **ui:** fixed hidden bottom control elements on mobile devices ([cb495eb](https://github.com/d70-t/gridlook/commit/cb495eb7d90689c6cd169c28e907891b24e1e9f7))
+* **ui:** fixed name truncation for colormap selector in Chrome ([86f0156](https://github.com/d70-t/gridlook/commit/86f0156f16e1a330e3d99af14f3b2603f4203dab))
+
 ## 2026-03
 
 ### Features
