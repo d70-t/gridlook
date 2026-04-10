@@ -8,13 +8,7 @@ import {
   projectionShaderFunctions,
   getProjectionTypeFromMode,
 } from "@/lib/projection/projectionShaders";
-import {
-  AZIMUTHAL_CLIP_ANGLE,
-  MERCATOR_LAT_LIMIT,
-  PROJECTION_TYPES,
-  ProjectionHelper,
-  isAzimuthalProjectionType,
-} from "@/lib/projection/projectionUtils";
+import { ProjectionHelper } from "@/lib/projection/projectionUtils";
 
 export const LAND_SEA_MASK_MODES = {
   OFF: "off",
@@ -29,15 +23,6 @@ export const LAND_SEA_MASK_MODES = {
 
 export type TLandSeaMaskMode =
   (typeof LAND_SEA_MASK_MODES)[keyof typeof LAND_SEA_MASK_MODES];
-
-type TMaskContext = {
-  vertices: number[];
-  angularDistances: number[];
-  isAzimuthal: boolean;
-  lonSegments: number;
-  threshold: number;
-  straddleMultiplier: number;
-};
 
 type TMaskConfig = {
   showLand: boolean;
@@ -105,6 +90,22 @@ class CanvasFactory {
     ctx.clearRect(0, 0, width, height);
     return { canvas, ctx, width, height };
   }
+}
+
+function configureEquirectangularTexture(texture: THREE.Texture) {
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.anisotropy = 16;
+  texture.generateMipmaps = false;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function copyAntimeridianEdge(ctx: CanvasRenderingContext2D, width: number) {
+  const edge = ctx.getImageData(0, 0, 1, ctx.canvas.height);
+  ctx.putImageData(edge, width - 1, 0);
 }
 
 // =============================================================================
@@ -259,54 +260,37 @@ class GlobeMaskRenderer {
  * Projects lat/lon coordinates on the GPU.
  */
 const gpuProjectedMaskVertexShader = `
-${projectionShaderFunctions}
-
-uniform int projectionType;
-uniform float centerLon;
-uniform float centerLat;
 uniform float projectionRadius;
 
-attribute vec2 latLon;
-
-varying vec2 vUv;
+varying vec3 vSpherePosition;
 
 void main() {
-  vUv = uv;
-  vec3 projected = projectLatLon(
-    latLon.x,
-    latLon.y,
-    projectionType,
-    centerLon,
-    centerLat,
-    projectionRadius
-  );
+  vSpherePosition = normalize(position);
+  vec3 projected = position * projectionRadius;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(projected, 1.0);
 }
 `;
 
 /**
- * Simple vertex shader for pre-projected flat mask geometry.
- */
-const flatMaskVertexShader = `
-varying vec2 vUv;
-
-void main() {
-  vUv = uv;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-}
-`;
-
-/**
- * Fragment shader for mask rendering.
+ * Fragment shader for globe mask rendering.
+ * Computes UV from interpolated lat/lon rather than from a UV attribute,
+ * so there is no 0/1 discontinuity at the antimeridian.
  */
 const gpuProjectedMaskFragmentShader = `
+#define PI 3.141592653589793
+
 uniform sampler2D maskTexture;
 uniform float opacity;
 
-varying vec2 vUv;
+varying vec3 vSpherePosition;
 
 void main() {
-  vec4 texColor = texture2D(maskTexture, vUv);
+  vec3 spherePosition = normalize(vSpherePosition);
+  float lon = atan(spherePosition.y, spherePosition.x);
+  float lat = asin(clamp(spherePosition.z, -1.0, 1.0));
+  float u = (lon + PI) / (2.0 * PI);
+  float v = (lat + PI * 0.5) / PI;
+  vec4 texColor = texture2D(maskTexture, vec2(u, v));
   if (texColor.a < 0.01) {
     discard;
   }
@@ -315,10 +299,191 @@ void main() {
 `;
 
 /**
- * Fragment shader for flat mask rendering.
+ * Vertex shader for flat mask: passes projected coordinates to fragment shader.
  */
-const flatMaskFragmentShader = `
+const flatInverseVertexShader = `
+varying vec2 vProjectedCoord;
+
+void main() {
+  vProjectedCoord = position.xy;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`;
+
+/**
+ * Fragment shader for flat mask: inverse-projects screen coordinates to lat/lon
+ * and samples the equirectangular mask texture. Eliminates geometry rebuilds
+ * when the projection center changes (rotation).
+ */
+const flatInverseFragmentShader = `
 ${projectionShaderFunctions}
+
+// Unrotate: inverse of rotateCoords. Recovers geographic (lat, lon) from
+// the rotated frame produced by the forward projection.
+vec2 unrotateCoords(float rotatedLat, float rotatedLon, float cLon, float cLat) {
+  float latRad = rotatedLat * DEG_TO_RAD;
+  float lonRad = rotatedLon * DEG_TO_RAD;
+  float cLatRad = cLat * DEG_TO_RAD;
+
+  float cosLat = cos(latRad);
+  float sinLat = sin(latRad);
+  float cosLon = cos(lonRad);
+  float sinLon = sin(lonRad);
+  float cosCLat = cos(cLatRad);
+  float sinCLat = sin(cLatRad);
+
+  float newSinLat = sinLat * cosCLat + cosLat * cosLon * sinCLat;
+  float newLat = asin(clamp(newSinLat, -1.0, 1.0));
+
+  float y = cosLat * sinLon;
+  float x = cosLat * cosLon * cosCLat - sinLat * sinCLat;
+  float newLon = atan(y, x) + cLon * DEG_TO_RAD;
+
+  return vec2(newLat * RAD_TO_DEG, newLon * RAD_TO_DEG);
+}
+
+// --- Inverse projection functions ---
+// Each returns vec3(rotatedLat, rotatedLon, valid).
+// valid < 0 means the point is outside the projection domain.
+
+vec3 inverseEquirectangular(float x, float y) {
+  float rLon = x * RAD_TO_DEG;
+  float rLat = y * RAD_TO_DEG;
+  if (abs(rLat) > 90.0 || abs(rLon) > 180.0) return vec3(0.0, 0.0, -1.0);
+  return vec3(rLat, rLon, 1.0);
+}
+
+vec3 inverseMercator(float x, float y) {
+  float rLon = x * RAD_TO_DEG;
+  float rLat = (2.0 * atan(exp(y)) - PI * 0.5) * RAD_TO_DEG;
+  if (abs(rLat) > MERCATOR_LAT_LIMIT || abs(rLon) > 180.0) return vec3(0.0, 0.0, -1.0);
+  return vec3(rLat, rLon, 1.0);
+}
+
+vec3 inverseCylindricalEqualArea(float x, float y) {
+  float k = 1.2792006328649603;
+  float sinLat = y / k;
+  if (abs(sinLat) > 1.0) return vec3(0.0, 0.0, -1.0);
+  float rLon = x * k * RAD_TO_DEG;
+  if (abs(rLon) > 180.0) return vec3(0.0, 0.0, -1.0);
+  return vec3(asin(sinLat) * RAD_TO_DEG, rLon, 1.0);
+}
+
+vec3 inverseMollweide(float x, float y) {
+  float sinTheta = y / sqrt(2.0);
+  if (abs(sinTheta) > 1.0) return vec3(0.0, 0.0, -1.0);
+  float theta = asin(sinTheta);
+  float cosTheta = cos(theta);
+
+  float rLon;
+  if (abs(cosTheta) < 0.0001) {
+    rLon = 0.0;
+  } else {
+    rLon = (PI * x / (2.0 * sqrt(2.0) * cosTheta)) * RAD_TO_DEG;
+  }
+  if (abs(rLon) > 180.0) return vec3(0.0, 0.0, -1.0);
+
+  float sinLatVal = (2.0 * theta + sin(2.0 * theta)) / PI;
+  if (abs(sinLatVal) > 1.0) return vec3(0.0, 0.0, -1.0);
+  return vec3(asin(sinLatVal) * RAD_TO_DEG, rLon, 1.0);
+}
+
+vec3 inverseRobinson(float x, float y) {
+  float absY = abs(y);
+  if (absY > robinsonK[39]) return vec3(0.0, 0.0, -1.0);
+
+  // Linear search through Y coefficients to find the latitude band
+  int band = 1;
+  for (int i = 2; i <= 19; i++) {
+    if (robinsonK[i * 2 + 1] > absY) {
+      band = i - 1;
+      break;
+    }
+    band = i;
+  }
+
+  float y0 = robinsonK[band * 2 + 1];
+  float y1 = robinsonK[(band + 1) * 2 + 1];
+  float frac = (abs(y1 - y0) > 0.0001) ? (absY - y0) / (y1 - y0) : 0.0;
+
+  // Each band spans 5 degrees; band 1 = 0 degrees
+  float latDeg = (float(band - 1) + frac) * 5.0;
+  if (y < 0.0) latDeg = -latDeg;
+
+  float x0 = robinsonK[band * 2];
+  float x1 = robinsonK[(band + 1) * 2];
+  float xCoeff = mix(x0, x1, frac);
+
+  if (abs(xCoeff) < 0.0001) return vec3(0.0, 0.0, -1.0);
+  float rLon = (x / xCoeff) * RAD_TO_DEG;
+  if (abs(rLon) > 180.0) return vec3(0.0, 0.0, -1.0);
+  return vec3(latDeg, rLon, 1.0);
+}
+
+vec3 inverseAzimuthalEquidistant(float x, float y) {
+  float rho = sqrt(x * x + y * y);
+  if (rho > AZIMUTHAL_CLIP_ANGLE_RAD) return vec3(0.0, 0.0, -1.0);
+  if (rho < 0.0001) return vec3(0.0, 0.0, 1.0);
+
+  float c = rho;
+  float sinC = sin(c);
+  float cosC = cos(c);
+  float rLat = asin(clamp(y * sinC / rho, -1.0, 1.0)) * RAD_TO_DEG;
+  float rLon = atan(x * sinC, rho * cosC) * RAD_TO_DEG;
+  return vec3(rLat, rLon, 1.0);
+}
+
+vec3 inverseAzimuthalHybrid(float x, float y) {
+  float rho = sqrt(x * x + y * y);
+  if (rho > AZIMUTHAL_CLIP_ANGLE_RAD) return vec3(0.0, 0.0, -1.0);
+  if (rho < 0.0001) return vec3(0.0, 0.0, 1.0);
+
+  // Newton-Raphson: solve mix(rhoEA(c), rhoED(c), blend(c)) = rho for c
+  float c = rho;
+  for (int iter = 0; iter < 8; iter++) {
+    float sinC = sin(c);
+    float cosC = cos(c);
+    float rhoEA = sqrt(max(0.0, 2.0 - 2.0 * clamp(cosC, -1.0, 1.0)));
+    float rhoED = c;
+    float blend = getAzimuthalEffectiveBlend(
+      AZIMUTHAL_HYBRID_BLEND, AZIMUTHAL_HYBRID_RIM_BLEND,
+      AZIMUTHAL_HYBRID_FAR_BLEND, c
+    );
+    float f = mix(rhoEA, rhoED, blend) - rho;
+    if (abs(f) < 0.0001) break;
+    float drhoEA = (rhoEA > 0.0001) ? sinC / rhoEA : 1.0;
+    float df = mix(drhoEA, 1.0, blend);
+    if (abs(df) < 0.0001) break;
+    c -= f / df;
+    c = max(0.0001, c);
+  }
+
+  if (c > AZIMUTHAL_CLIP_ANGLE_RAD) return vec3(0.0, 0.0, -1.0);
+  float sinC = sin(c);
+  float cosC = cos(c);
+  float rLat = asin(clamp(y * sinC / rho, -1.0, 1.0)) * RAD_TO_DEG;
+  float rLon = atan(x * sinC, rho * cosC) * RAD_TO_DEG;
+
+  // Round-trip validation: forward-project the result and verify it matches.
+  // The blended forward mapping is non-monotonic near the clip boundary,
+  // so the Newton-Raphson solver can converge to ghost solutions.
+  vec3 fwd = projectAzimuthalHybrid(rLat, rLon, 0.0, 0.0);
+  float errSq = (fwd.x - x) * (fwd.x - x) + (fwd.y - y) * (fwd.y - y);
+  if (errSq > 0.001) return vec3(0.0, 0.0, -1.0);
+
+  return vec3(rLat, rLon, 1.0);
+}
+
+vec3 inverseProjectLatLon(float x, float y, int projType) {
+  if (projType == PROJ_EQUIRECTANGULAR) return inverseEquirectangular(x, y);
+  if (projType == PROJ_MERCATOR) return inverseMercator(x, y);
+  if (projType == PROJ_ROBINSON) return inverseRobinson(x, y);
+  if (projType == PROJ_MOLLWEIDE) return inverseMollweide(x, y);
+  if (projType == PROJ_CYLINDRICAL_EQUAL_AREA) return inverseCylindricalEqualArea(x, y);
+  if (projType == PROJ_AZIMUTHAL_EQUIDISTANT) return inverseAzimuthalEquidistant(x, y);
+  if (projType == PROJ_AZIMUTHAL_HYBRID) return inverseAzimuthalHybrid(x, y);
+  return vec3(0.0, 0.0, -1.0);
+}
 
 uniform sampler2D maskTexture;
 uniform float opacity;
@@ -326,22 +491,23 @@ uniform int projectionType;
 uniform float centerLon;
 uniform float centerLat;
 
-varying vec2 vUv;
+varying vec2 vProjectedCoord;
 
 void main() {
-  if (projectionType == PROJ_MERCATOR) {
-    float lat = vUv.y * 180.0 - 90.0;
-    float lon = vUv.x * 360.0 - 180.0;
-    vec2 rotated = rotateCoords(lat, lon, centerLon, centerLat);
-    if (abs(rotated.x) > MERCATOR_LAT_LIMIT) {
-      discard;
-    }
-  }
+  vec3 result = inverseProjectLatLon(vProjectedCoord.x, vProjectedCoord.y, projectionType);
+  if (result.z < 0.0) discard;
 
-  vec4 texColor = texture2D(maskTexture, vUv);
-  if (texColor.a < 0.01) {
-    discard;
-  }
+  vec2 geo = unrotateCoords(result.x, result.y, centerLon, centerLat);
+
+  // Normalize longitude to [-180, 180]
+  float lon = mod(geo.y + 180.0, 360.0) - 180.0;
+
+  // Convert to equirectangular texture UV
+  float u = (lon + 180.0) / 360.0;
+  float v = (geo.x + 90.0) / 180.0;
+
+  vec4 texColor = texture2D(maskTexture, vec2(u, v));
+  if (texColor.a < 0.01) discard;
   gl_FragColor = vec4(texColor.rgb, texColor.a * opacity);
 }
 `;
@@ -354,8 +520,9 @@ class GpuProjectedMaskRenderer {
 
   /**
    * Create a mask mesh.
-   * For globe mode: GPU-projected geometry for instant center changes.
-   * For flat projections: d3-projected geometry with proper clipping.
+   * Globe: uses GPU forward-projected geometry with latLon attributes.
+   * Flat:  uses a quad with inverse-projection fragment shader.
+   * Both paths support instant center changes via uniform updates only.
    */
   static async render(
     mode: TLandSeaMaskMode,
@@ -373,27 +540,23 @@ class GpuProjectedMaskRenderer {
     let material: THREE.ShaderMaterial;
 
     if (projectionHelper.isFlat) {
-      // For flat projections, use d3 to project geometry with proper clipping
-      geometry = this.createD3ProjectedGeometry(projectionHelper, mode);
-      material = this.createFlatMaterial(
+      geometry = this.createFlatQuadGeometry(mode);
+      material = this.createFlatInverseMaterial(
         texture,
         mode,
         getProjectionTypeFromMode(projectionHelper.type),
         projectionHelper.center
       );
     } else {
-      // For globe, use GPU projection
       geometry = this.createGlobeGeometry();
-      material = this.createGlobeMaterial(texture, mode, projectionHelper);
+      material = this.createGlobeMaterial(texture, mode);
     }
 
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = "mask";
-    mesh.userData.maskMode = mode; // Store mode for updateProjection
+    mesh.userData.maskMode = mode;
 
-    if (!projectionHelper.isFlat) {
-      mesh.frustumCulled = false;
-    }
+    mesh.frustumCulled = false;
     const globeMode = isGlobeMaskMode(mode);
     mesh.renderOrder = globeMode ? -1 : 10;
 
@@ -402,33 +565,15 @@ class GpuProjectedMaskRenderer {
 
   /**
    * Update projection on an existing mask mesh.
-   * For globe: updates uniforms (fast).
-   * For flat: rebuilds geometry (required for proper clipping).
+   * For both globe and flat projections, this only updates uniforms (fast).
    */
   static updateProjection(
     mesh: THREE.Mesh,
     projectionHelper: ProjectionHelper
   ): void {
     const material = mesh.material as THREE.ShaderMaterial;
-
-    if (projectionHelper.isFlat) {
-      // For flat projections, rebuild geometry with new projection
-      const oldGeometry = mesh.geometry;
-      const mode = mesh.userData.maskMode as TLandSeaMaskMode;
-      const newGeometry = this.createD3ProjectedGeometry(
-        projectionHelper,
-        mode
-      );
-      mesh.geometry = newGeometry;
-      this.applyProjectionUniforms(material, projectionHelper);
-      // Signal Three.js that the geometry has changed
-      mesh.geometry.computeBoundingSphere();
-      mesh.geometry.computeBoundingBox();
-      oldGeometry.dispose();
-    } else {
-      this.applyProjectionUniforms(material, projectionHelper);
-      material.needsUpdate = true;
-    }
+    this.applyProjectionUniforms(material, projectionHelper);
+    material.needsUpdate = true;
   }
 
   private static applyProjectionUniforms(
@@ -454,407 +599,77 @@ class GpuProjectedMaskRenderer {
   }
 
   /**
-   * Calculate angular distance from projection center to a point.
-   * Uses the spherical law of cosines.
+   * Create a quad covering the flat projection's coordinate space.
+   * The fragment shader handles clipping to the actual projection boundary.
    */
-  private static angularDistanceFromCenter(
-    lat: number,
-    lon: number,
-    centerLat: number,
-    centerLon: number
-  ): number {
-    const toRad = Math.PI / 180;
-    const lat1 = centerLat * toRad;
-    const lat2 = lat * toRad;
-    const dLon = (lon - centerLon) * toRad;
-
-    // Spherical law of cosines
-    const cosAngle =
-      Math.sin(lat1) * Math.sin(lat2) +
-      Math.cos(lat1) * Math.cos(lat2) * Math.cos(dLon);
-
-    // Clamp to [-1, 1] to handle floating point errors
-    const clampedCos = Math.max(-1, Math.min(1, cosAngle));
-    return Math.acos(clampedCos) * (180 / Math.PI);
-  }
-
-  private static generateVerticesAndUVs(
-    projectionHelper: ProjectionHelper,
-    latSegments: number,
-    lonSegments: number,
+  private static createFlatQuadGeometry(
     mode?: TLandSeaMaskMode
-  ) {
+  ): THREE.BufferGeometry {
     const isBackground = mode ? isGlobeMaskMode(mode) : true;
     const zOffset = isBackground ? -0.01 : 0.01;
-    const vertices: number[] = [];
-    const uvs: number[] = [];
-    const angularDistances: number[] = []; // Track angular distance from center for azimuthal clipping
-    const isMercator = projectionHelper.type === PROJECTION_TYPES.MERCATOR;
-    const isAzimuthal = isAzimuthalProjectionType(projectionHelper.type);
+    const extent = 4.0; // generous extent covering all projection types
 
-    const centerLat = projectionHelper.center.lat;
-    const centerLon = projectionHelper.center.lon;
+    const vertices = new Float32Array([
+      -extent,
+      -extent,
+      zOffset,
+      extent,
+      -extent,
+      zOffset,
+      extent,
+      extent,
+      zOffset,
+      -extent,
+      extent,
+      zOffset,
+    ]);
 
-    // Generate vertices using the helper projection (matches data orientation).
-    // For Mercator, clamp projection latitude to avoid infinity, then discard
-    // outside the valid band in the fragment shader.
-    for (let latIdx = 0; latIdx <= latSegments; latIdx++) {
-      const latRaw = 90 - (latIdx / latSegments) * 180;
-      let latProjected = latRaw;
-      if (isAzimuthal && Math.abs(latProjected) >= 90) {
-        // Avoid antipode singularity in azimuthal projections.
-        latProjected = Math.sign(latProjected) * 89.999;
-      }
-      if (isMercator) {
-        latProjected = Math.max(
-          -MERCATOR_LAT_LIMIT,
-          Math.min(MERCATOR_LAT_LIMIT, latProjected)
-        );
-      }
-      const v = (90 - latRaw) / 180; // top (90) -> 0, bottom (-90) -> 1
-
-      for (let lonIdx = 0; lonIdx <= lonSegments; lonIdx++) {
-        const lon = (lonIdx / lonSegments) * 360 - 180;
-        const u = lonIdx / lonSegments;
-        const [x, y, z] = projectionHelper.project(latProjected, lon, 1);
-        vertices.push(x, y, z + zOffset);
-        uvs.push(u, 1 - v);
-
-        // For azimuthal projection, track angular distance for clipping
-        if (isAzimuthal) {
-          const angularDist = this.angularDistanceFromCenter(
-            latRaw,
-            lon,
-            centerLat,
-            centerLon
-          );
-          angularDistances.push(angularDist);
-        }
-      }
-    }
-    return { vertices, uvs, angularDistances, isAzimuthal };
-  }
-
-  private static getVertexPosition(vertices: number[], index: number) {
-    return {
-      x: vertices[index * 3],
-      y: vertices[index * 3 + 1],
-    };
-  }
-
-  // Calculate maximum distance between triangle vertices
-  private static calculateMaxTriangleDistance(
-    vertices: number[],
-    i1: number,
-    i2: number,
-    i3: number
-  ) {
-    const v1 = this.getVertexPosition(vertices, i1);
-    const v2 = this.getVertexPosition(vertices, i2);
-    const v3 = this.getVertexPosition(vertices, i3);
-
-    const maxDx = Math.max(
-      Math.abs(v1.x - v2.x),
-      Math.abs(v1.x - v3.x),
-      Math.abs(v2.x - v3.x)
-    );
-
-    const maxDy = Math.max(
-      Math.abs(v1.y - v2.y),
-      Math.abs(v1.y - v3.y),
-      Math.abs(v2.y - v3.y)
-    );
-
-    return { maxDx, maxDy };
-  }
-
-  // Check if triangle should be included (doesn't span projection cut)
-  private static shouldIncludeTriangle(
-    vertices: number[],
-    i1: number,
-    i2: number,
-    i3: number,
-    threshold: number,
-    straddleMultiplier: number = 0.5
-  ): boolean {
-    const { maxDx, maxDy } = this.calculateMaxTriangleDistance(
-      vertices,
-      i1,
-      i2,
-      i3
-    );
-
-    // Primary check: no edge should span more than threshold
-    if (maxDx >= threshold || maxDy >= threshold) {
-      return false;
-    }
-
-    // Secondary check for elliptical projections (Mollweide):
-    // Triangles that straddle x=0 (the center longitude) with significant
-    // span should be clipped. This catches triangles where vertices are on
-    // opposite sides of the projection center but individual edges are short.
-    const v1 = this.getVertexPosition(vertices, i1);
-    const v2 = this.getVertexPosition(vertices, i2);
-    const v3 = this.getVertexPosition(vertices, i3);
-
-    let minX = v1.x;
-    let maxX = v1.x;
-
-    if (v2.x < minX) {
-      minX = v2.x;
-    }
-    if (v2.x > maxX) {
-      maxX = v2.x;
-    }
-
-    if (v3.x < minX) {
-      minX = v3.x;
-    }
-    if (v3.x > maxX) {
-      maxX = v3.x;
-    }
-    // If triangle straddles x=0 and total x-span is significant, clip it
-    // The straddleMultiplier varies by projection type:
-    // - Mollweide uses 0.12 (aggressive) due to its elliptical shape causing polar bands
-    // - Other projections use 0.5 (less aggressive) to avoid over-clipping
-    const straddlesCenter = minX < 0 && maxX > 0;
-    const totalXSpan = maxX - minX;
-    if (straddlesCenter && totalXSpan > threshold * straddleMultiplier) {
-      return false;
-    }
-
-    return true;
-  }
-
-  /**
-   * Check if any vertex in a triangle exceeds the azimuthal clip angle.
-   */
-  private static isTriangleWithinClipAngle(
-    angularDistances: number[],
-    i1: number,
-    i2: number,
-    i3: number,
-    clipAngle: number
-  ): boolean {
-    return (
-      angularDistances[i1] < clipAngle &&
-      angularDistances[i2] < clipAngle &&
-      angularDistances[i3] < clipAngle
-    );
-  }
-
-  private static isWithinClipAngle(
-    angularDistances: number[],
-    isAzimuthal: boolean,
-    idx1: number,
-    idx2: number,
-    idx3: number
-  ): boolean {
-    if (!isAzimuthal) {
-      return true;
-    }
-
-    return this.isTriangleWithinClipAngle(
-      angularDistances,
-      idx1,
-      idx2,
-      idx3,
-      AZIMUTHAL_CLIP_ANGLE
-    );
-  }
-
-  private static isValidTriangle(
-    context: TMaskContext,
-    idx1: number,
-    idx2: number,
-    idx3: number
-  ): boolean {
-    const withinClip = this.isWithinClipAngle(
-      context.angularDistances,
-      context.isAzimuthal,
-      idx1,
-      idx2,
-      idx3
-    );
-
-    if (!withinClip) {
-      return false;
-    }
-
-    return this.shouldIncludeTriangle(
-      context.vertices,
-      idx1,
-      idx2,
-      idx3,
-      context.threshold,
-      context.straddleMultiplier
-    );
-  }
-
-  /**
-   * Create geometry projected by d3 with proper antimeridian clipping.
-   */
-  private static createD3ProjectedGeometry(
-    projectionHelper: ProjectionHelper,
-    mode?: TLandSeaMaskMode
-  ): THREE.BufferGeometry {
-    const { latSegments, lonSegments } = this.GRID_RESOLUTION;
-    const { vertices, uvs, angularDistances, isAzimuthal } =
-      this.generateVerticesAndUVs(
-        projectionHelper,
-        latSegments,
-        lonSegments,
-        mode
-      );
-    const indices = this.generateD3MaskIndices(
-      vertices,
-      angularDistances,
-      isAzimuthal,
-      latSegments,
-      lonSegments,
-      projectionHelper
-    );
-    return this.createBufferGeometry(vertices, uvs, indices);
-  }
-
-  private static generateD3MaskIndices(
-    vertices: number[],
-    angularDistances: number[],
-    isAzimuthal: boolean,
-    latSegments: number,
-    lonSegments: number,
-    projectionHelper: ProjectionHelper
-  ): number[] {
-    const width = this.getProjectionWidth(projectionHelper);
-    const threshold = width * 0.4; // Triangles spanning more than 40% of width are cut
-
-    // Mollweide's elliptical shape requires aggressive straddle clipping at poles
-    const isMollweide = projectionHelper.type === PROJECTION_TYPES.MOLLWEIDE;
-    const straddleMultiplier = isMollweide ? 0.12 : 0.5;
-
-    const context: TMaskContext = {
-      vertices,
-      angularDistances,
-      isAzimuthal,
-      lonSegments,
-      threshold,
-      straddleMultiplier,
-    };
-
-    return this.collectMaskTriangleIndices(context, latSegments);
-  }
-
-  private static getQuadIndices(
-    latIdx: number,
-    lonIdx: number,
-    lonSegments: number
-  ): { a: number; b: number; c: number; d: number } {
-    const a = latIdx * (lonSegments + 1) + lonIdx;
-    const b = a + lonSegments + 1;
-    const c = a + 1;
-    const d = b + 1;
-
-    return { a, b, c, d };
-  }
-
-  private static collectMaskTriangleIndices(
-    context: TMaskContext,
-    latSegments: number
-  ): number[] {
-    const indices: number[] = [];
-
-    for (let latIdx = 0; latIdx < latSegments; latIdx++) {
-      for (let lonIdx = 0; lonIdx < context.lonSegments; lonIdx++) {
-        const { a, b, c, d } = this.getQuadIndices(
-          latIdx,
-          lonIdx,
-          context.lonSegments
-        );
-
-        if (this.isValidTriangle(context, a, b, c)) {
-          indices.push(a, b, c);
-        }
-        if (this.isValidTriangle(context, c, b, d)) {
-          indices.push(c, b, d);
-        }
-      }
-    }
-    return indices;
-  }
-
-  private static createBufferGeometry(
-    vertices: number[],
-    uvs: number[],
-    indices: number[]
-  ): THREE.BufferGeometry {
     const geometry = new THREE.BufferGeometry();
-
     geometry.setAttribute(
       "position",
       new THREE.Float32BufferAttribute(vertices, 3)
     );
-    geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
-    geometry.setIndex(indices);
-
+    geometry.setIndex([0, 1, 2, 0, 2, 3]);
     return geometry;
   }
 
   /**
-   * Get the approximate width of the projection in projected coordinates.
-   */
-  private static getProjectionWidth(
-    projectionHelper: ProjectionHelper
-  ): number {
-    const d3Proj = projectionHelper.getD3Projection();
-    if (d3Proj) {
-      const path = d3.geoPath(d3Proj);
-      const bounds = path.bounds({ type: "Sphere" });
-      if (bounds && bounds[0] && bounds[1]) {
-        return Math.abs(bounds[1][0] - bounds[0][0]);
-      }
-    }
-    return Math.PI * 2; // Fallback
-  }
-
-  /**
-   * Create geometry for globe projection (closed mesh that wraps around).
+   * Create globe geometry with wrapped indices and no duplicated antimeridian
+   * vertex column. The fragment shader derives UVs from sphere position, so it
+   * does not need a UV or lat/lon attribute seam.
    */
   private static createGlobeGeometry(): THREE.BufferGeometry {
     const { latSegments, lonSegments } = this.GRID_RESOLUTION;
     const geometry = new THREE.BufferGeometry();
 
     const vertices: number[] = [];
-    const uvs: number[] = [];
-    const latLonCoords: number[] = [];
     const indices: number[] = [];
 
-    // Generate vertices - for globe we need to include lon=180 for proper UV mapping
     for (let latIdx = 0; latIdx <= latSegments; latIdx++) {
-      const lat = 90 - (latIdx / latSegments) * 180; // 90 to -90
-      const v = latIdx / latSegments;
+      const lat = 90 - (latIdx / latSegments) * 180;
+      const latRad = THREE.MathUtils.degToRad(lat);
+      const cosLat = Math.cos(latRad);
+      const sinLat = Math.sin(latRad);
 
-      for (let lonIdx = 0; lonIdx <= lonSegments; lonIdx++) {
-        const lon = (lonIdx / lonSegments) * 360 - 180; // -180 to 180
-        const u = lonIdx / lonSegments;
+      for (let lonIdx = 0; lonIdx < lonSegments; lonIdx++) {
+        const lon = (lonIdx / lonSegments) * 360 - 180;
+        const lonRad = THREE.MathUtils.degToRad(lon);
 
-        // Store lat/lon for GPU projection
-        latLonCoords.push(lat, lon);
-
-        // Placeholder vertex positions (will be computed on GPU)
-        vertices.push(0, 0, 0);
-
-        // UV coordinates for texture sampling
-        uvs.push(u, 1 - v);
+        vertices.push(
+          cosLat * Math.cos(lonRad),
+          cosLat * Math.sin(lonRad),
+          sinLat
+        );
       }
     }
 
-    // Generate indices - for globe, create all triangles
     for (let latIdx = 0; latIdx < latSegments; latIdx++) {
       for (let lonIdx = 0; lonIdx < lonSegments; lonIdx++) {
-        const a = latIdx * (lonSegments + 1) + lonIdx;
-        const b = a + lonSegments + 1;
-        const c = a + 1;
-        const d = b + 1;
+        const nextLonIdx = (lonIdx + 1) % lonSegments;
+        const a = latIdx * lonSegments + lonIdx;
+        const b = (latIdx + 1) * lonSegments + lonIdx;
+        const c = latIdx * lonSegments + nextLonIdx;
+        const d = (latIdx + 1) * lonSegments + nextLonIdx;
 
         indices.push(a, b, c);
         indices.push(c, b, d);
@@ -864,11 +679,6 @@ class GpuProjectedMaskRenderer {
     geometry.setAttribute(
       "position",
       new THREE.Float32BufferAttribute(vertices, 3)
-    );
-    geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
-    geometry.setAttribute(
-      "latLon",
-      new THREE.Float32BufferAttribute(latLonCoords, 2)
     );
     geometry.setIndex(indices);
 
@@ -880,11 +690,8 @@ class GpuProjectedMaskRenderer {
    */
   private static createGlobeMaterial(
     texture: THREE.Texture,
-    mode: TLandSeaMaskMode,
-    projectionHelper: ProjectionHelper
+    mode: TLandSeaMaskMode
   ): THREE.ShaderMaterial {
-    const projType = getProjectionTypeFromMode(projectionHelper.type);
-    const center = projectionHelper.center;
     const globeMode = isGlobeMaskMode(mode);
 
     // For globe mode (full earth background), use smaller radius so it's behind data
@@ -894,16 +701,13 @@ class GpuProjectedMaskRenderer {
     const material = new THREE.ShaderMaterial({
       uniforms: {
         maskTexture: { value: texture },
-        projectionType: { value: projType },
-        centerLon: { value: center.lon },
-        centerLat: { value: center.lat },
         projectionRadius: { value: radius },
         opacity: { value: 1.0 },
       },
       vertexShader: gpuProjectedMaskVertexShader,
       fragmentShader: gpuProjectedMaskFragmentShader,
       transparent: true,
-      side: THREE.DoubleSide,
+      side: THREE.FrontSide,
       depthWrite: false,
       depthTest: true,
     });
@@ -912,9 +716,9 @@ class GpuProjectedMaskRenderer {
   }
 
   /**
-   * Create the shader material for d3-projected flat mask.
+   * Create the shader material for flat mask with inverse projection.
    */
-  private static createFlatMaterial(
+  private static createFlatInverseMaterial(
     texture: THREE.Texture,
     mode: TLandSeaMaskMode,
     projectionType: number,
@@ -928,12 +732,12 @@ class GpuProjectedMaskRenderer {
         centerLon: { value: center.lon },
         centerLat: { value: center.lat },
       },
-      vertexShader: flatMaskVertexShader,
-      fragmentShader: flatMaskFragmentShader,
+      vertexShader: flatInverseVertexShader,
+      fragmentShader: flatInverseFragmentShader,
       transparent: true,
       side: THREE.DoubleSide,
       depthWrite: false,
-      depthTest: true,
+      depthTest: false,
     });
 
     // Use polygon offset to prevent z-fighting
@@ -942,6 +746,17 @@ class GpuProjectedMaskRenderer {
     material.polygonOffsetUnits = isGlobeMaskMode(mode) ? 1 : -1;
 
     return material;
+  }
+
+  private static async createGlobeTexture(): Promise<THREE.Texture> {
+    const img = await ResourceCache.loadImage(albedo);
+    const { canvas, ctx, width, height } = CanvasFactory.create(
+      img.naturalWidth,
+      img.naturalHeight
+    );
+    ctx.drawImage(img, 0, 0, width, height);
+    copyAntimeridianEdge(ctx, width);
+    return configureEquirectangularTexture(new THREE.CanvasTexture(canvas));
   }
 
   private static async renderMaskedMode(
@@ -953,37 +768,36 @@ class GpuProjectedMaskRenderer {
     width: number,
     height: number
   ) {
-    // Masked modes: show only land or sea
     if (useTexture) {
       const img = await ResourceCache.loadImage(albedo);
       ctx.drawImage(img, 0, 0, width, height);
 
-      // Mask out unwanted area
       ctx.beginPath();
       path(land);
       ctx.globalCompositeOperation = config.showLand
         ? "destination-in"
         : "destination-out";
       ctx.fill();
-    } else {
-      if (config.showSea) {
-        ctx.fillStyle = MASK_COLORS.sea;
-        ctx.fillRect(0, 0, width, height);
-        if (!config.showLand) {
-          // Cut out land
-          ctx.beginPath();
-          path(land);
-          ctx.globalCompositeOperation = "destination-out";
-          ctx.fill();
-        }
-      }
-      if (config.showLand) {
-        ctx.globalCompositeOperation = "source-over";
+      return;
+    }
+
+    if (config.showSea) {
+      ctx.fillStyle = MASK_COLORS.sea;
+      ctx.fillRect(0, 0, width, height);
+      if (!config.showLand) {
         ctx.beginPath();
         path(land);
-        ctx.fillStyle = MASK_COLORS.land;
+        ctx.globalCompositeOperation = "destination-out";
         ctx.fill();
       }
+    }
+
+    if (config.showLand) {
+      ctx.globalCompositeOperation = "source-over";
+      ctx.beginPath();
+      path(land);
+      ctx.fillStyle = MASK_COLORS.land;
+      ctx.fill();
     }
   }
 
@@ -995,21 +809,19 @@ class GpuProjectedMaskRenderer {
     width: number,
     height: number
   ) {
-    // Globe modes: full earth texture or colored land/sea
     if (useTexture) {
       const img = await ResourceCache.loadImage(albedo);
       ctx.drawImage(img, 0, 0, width, height);
-    } else {
-      // Draw sea background
-      ctx.fillStyle = MASK_COLORS.sea;
-      ctx.fillRect(0, 0, width, height);
-
-      // Draw land
-      ctx.beginPath();
-      path(land);
-      ctx.fillStyle = MASK_COLORS.land;
-      ctx.fill();
+      return;
     }
+
+    ctx.fillStyle = MASK_COLORS.sea;
+    ctx.fillRect(0, 0, width, height);
+
+    ctx.beginPath();
+    path(land);
+    ctx.fillStyle = MASK_COLORS.land;
+    ctx.fill();
   }
 
   /**
@@ -1021,10 +833,13 @@ class GpuProjectedMaskRenderer {
     useTexture: boolean,
     config: TMaskConfig
   ): Promise<THREE.Texture> {
-    const { canvas, ctx, width, height } = CanvasFactory.create(4096, 2048);
-    const land = await ResourceCache.loadLandGeoJSON();
+    // Globe texture also goes through a canvas so its antimeridian columns match.
+    if (isGlobeMaskMode(mode) && useTexture) {
+      return this.createGlobeTexture();
+    }
 
-    // Create equirectangular projection for texture rendering
+    const { canvas, ctx, width, height } = CanvasFactory.create();
+    const land = await ResourceCache.loadLandGeoJSON();
     const projection = D3ProjectionFactory.createEquirectangular(width, height);
     const path = d3.geoPath(projection, ctx);
 
@@ -1042,12 +857,9 @@ class GpuProjectedMaskRenderer {
       );
     }
 
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.wrapS = THREE.ClampToEdgeWrapping;
-    texture.wrapT = THREE.ClampToEdgeWrapping;
-    texture.needsUpdate = true;
+    copyAntimeridianEdge(ctx, width);
 
-    return texture;
+    return configureEquirectangularTexture(new THREE.CanvasTexture(canvas));
   }
 }
 
