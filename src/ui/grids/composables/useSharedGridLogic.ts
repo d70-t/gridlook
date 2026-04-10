@@ -38,6 +38,7 @@ export function useSharedGridLogic() {
     colormap,
     invertColormap,
     posterizeLevels,
+    hideLowerBound,
     controlPanelVisible,
     projectionMode,
     projectionCenter,
@@ -172,6 +173,11 @@ export function useSharedGridLogic() {
       material.uniforms.scaleFactor.value = scaleFactor;
       if (material.uniforms.posterizeLevels) {
         material.uniforms.posterizeLevels.value = posterizeLevels.value;
+      }
+      if (material.uniforms.hideBelowValue) {
+        material.uniforms.hideBelowValue.value = hideLowerBound.value
+          ? low
+          : -1e38;
       }
       material.needsUpdate = true;
     }

@@ -72,6 +72,7 @@ const {
   paramColormap,
   paramInvertColormap,
   paramPosterizeLevels,
+  paramHideLowerBound,
   paramMaskMode,
   paramMaskingUseTexture,
   paramProjection,
@@ -271,6 +272,10 @@ onMounted(() => {
     if (!isNaN(levels) && levels >= 0 && levels <= 32) {
       posterizeLevels.value = levels;
     }
+  }
+
+  if (paramHideLowerBound.value === "true") {
+    store.hideLowerBound = true;
   }
 
   // Initialize control panel visibility

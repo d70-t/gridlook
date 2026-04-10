@@ -56,6 +56,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
       colormap: "turbo" as TColorMap,
       invertColormap: true,
       posterizeLevels: 0 as number,
+      hideLowerBound: false,
       userBoundsLow: undefined as number | undefined,
       userBoundsHigh: undefined as number | undefined,
       dimSlidersValues: [] as (number | null)[],

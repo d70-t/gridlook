@@ -26,6 +26,7 @@ const {
   colormap,
   invertColormap,
   posterizeLevels,
+  hideLowerBound,
   selection,
   histogram,
   fullHistogram,
@@ -210,6 +211,19 @@ function handleOptionHover(option: TColorMap) {
             "
           />
           auto
+        </label>
+      </div>
+      <div class="column is-narrow">
+        <label
+          class="checkbox"
+          title="Hide values at or below the lower bound (useful with globe mask, e.g. for precipitation)"
+        >
+          <input
+            id="hide_lower_bound"
+            v-model="hideLowerBound"
+            type="checkbox"
+          />
+          hide min
         </label>
       </div>
     </div>

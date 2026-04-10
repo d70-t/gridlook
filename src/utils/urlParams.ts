@@ -3,6 +3,7 @@ const URL_PARAMETERS = {
   COLORMAP: "colormap",
   INVERT_COLORMAP: "invertcolormap",
   POSTERIZE_LEVELS: "posterizelevels",
+  HIDE_LOWER_BOUND: "hidelowerbound",
   DISTRACTION_FREE: "distractionFree",
   USER_BOUNDS_LOW: "boundlow",
   USER_BOUNDS_HIGH: "boundhigh",
