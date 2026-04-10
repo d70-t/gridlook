@@ -123,6 +123,15 @@ export function useUrlSync() {
   );
 
   watch(
+    () => store.hideLowerBound,
+    () => {
+      changeURLHash({
+        [URL_PARAMETERS.HIDE_LOWER_BOUND]: String(store.hideLowerBound),
+      });
+    }
+  );
+
+  watch(
     () => store.landSeaMaskChoice,
     () => {
       changeURLHash({ [URL_PARAMETERS.MASK_MODE]: store.landSeaMaskChoice });

@@ -110,6 +110,7 @@ watch(
     () => invertColormap.value,
     () => colormap.value,
     () => posterizeLevels.value,
+    () => store.hideLowerBound,
   ],
   () => {
     updateColormap(meshes);

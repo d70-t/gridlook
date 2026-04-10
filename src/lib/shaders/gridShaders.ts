@@ -47,6 +47,7 @@ uniform float missingValue;
 uniform float fillValue;
 uniform int colormap;
 uniform float posterizeLevels;
+uniform float hideBelowValue;
 uniform sampler2D data;
 
 varying vec2 vUv;
@@ -54,7 +55,7 @@ varying vec2 vUv;
 void main() {
     gl_FragColor.a = 1.0;
     float v_value = texture(data, vUv).r;
-    if (is_nan(v_value) || v_value == fillValue || v_value == missingValue) {
+    if (is_nan(v_value) || v_value == fillValue || v_value == missingValue || v_value <= hideBelowValue) {
         gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
         return;
     }
@@ -80,9 +81,10 @@ uniform int colormap;
 uniform float missingValue;
 uniform float fillValue;
 uniform float posterizeLevels;
+uniform float hideBelowValue;
 
 void main() {
-    if (is_nan(v_value) || v_value == fillValue || v_value == missingValue) {
+    if (is_nan(v_value) || v_value == fillValue || v_value == missingValue || v_value <= hideBelowValue) {
         gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
         return;
     }
@@ -117,6 +119,7 @@ uniform int colormap;
 uniform float fillValue;
 uniform float missingValue;
 uniform float posterizeLevels;
+uniform float hideBelowValue;
 
 void main() {
     vec2 uv = gl_PointCoord * 2.0 - 1.0;
@@ -130,7 +133,7 @@ void main() {
     if (falloff < 0.01) discard; // Optional: discard transparent fragments
 
 
-    if (is_nan(v_value) || v_value == fillValue || v_value == missingValue) {
+    if (is_nan(v_value) || v_value == fillValue || v_value == missingValue || v_value <= hideBelowValue) {
         gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
         return;
     }
@@ -362,6 +365,7 @@ export function makeGpuProjectedTextureMaterial(
       fillValue: { value: Number.POSITIVE_INFINITY },
       missingValue: { value: Number.POSITIVE_INFINITY },
       posterizeLevels: { value: 0.0 },
+      hideBelowValue: { value: -1e38 },
       data: { value: texture },
       // Projection uniforms
       projectionType: {
@@ -396,6 +400,7 @@ export function makeGpuProjectedMeshMaterial(
       fillValue: { value: Number.POSITIVE_INFINITY },
       missingValue: { value: Number.POSITIVE_INFINITY },
       posterizeLevels: { value: 0.0 },
+      hideBelowValue: { value: -1e38 },
       // Projection uniforms
       projectionType: {
         value: PROJECTION_TYPE_BY_MODE[PROJECTION_TYPES.NEARSIDE_PERSPECTIVE],
@@ -430,6 +435,7 @@ export function makeGpuProjectedPointMaterial(
       fillValue: { value: Number.POSITIVE_INFINITY },
       missingValue: { value: Number.POSITIVE_INFINITY },
       posterizeLevels: { value: 0.0 },
+      hideBelowValue: { value: -1e38 },
       colormap: { value: availableColormaps[colormap] },
       // Projection uniforms
       projectionType: {
