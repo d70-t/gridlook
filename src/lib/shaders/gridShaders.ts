@@ -142,25 +142,6 @@ void main() {
     gl_FragColor.a = falloff;
 }`;
 
-export function makeColormapLutMaterial(
-  colormap: TColorMap = "turbo",
-  addOffset: 0 | 1,
-  scaleFactor: 1 | -1
-) {
-  const material = new THREE.ShaderMaterial({
-    uniforms: {
-      addOffset: { value: addOffset },
-      scaleFactor: { value: scaleFactor },
-      colormap: { value: availableColormaps[colormap] },
-      posterizeLevels: { value: 0.0 },
-    },
-
-    vertexShader: screenQuadValueVertexShader,
-    fragmentShader: scalarColormapFragmentShader,
-  });
-  return material;
-}
-
 const compressedLutFragmentShader = `
 ${colormapShaders}
 
