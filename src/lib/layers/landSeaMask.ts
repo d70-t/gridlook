@@ -108,151 +108,24 @@ function copyAntimeridianEdge(ctx: CanvasRenderingContext2D, width: number) {
   ctx.putImageData(edge, width - 1, 0);
 }
 
-// =============================================================================
-// Globe Mask Renderer (3D sphere)
-// =============================================================================
-
-class GlobeMaskRenderer {
-  static async render(
-    mode: TLandSeaMaskMode,
-    useTexture: boolean
-  ): Promise<THREE.Mesh | undefined> {
-    let mesh: THREE.Mesh | undefined;
-
-    switch (mode) {
-      case LAND_SEA_MASK_MODES.GLOBE:
-        mesh = useTexture
-          ? await this.createTexturedGlobe()
-          : await this.createColoredGlobe();
-        break;
-      case LAND_SEA_MASK_MODES.SEA:
-      case LAND_SEA_MASK_MODES.LAND:
-        mesh = useTexture
-          ? await this.createMaskedTexture(mode === LAND_SEA_MASK_MODES.LAND)
-          : await this.createMaskedSolid(mode === LAND_SEA_MASK_MODES.LAND);
-        break;
-      default:
-        mesh = undefined;
-    }
-
-    if (mesh && isGlobeMaskMode(mode)) {
-      const material = mesh.material as THREE.MeshBasicMaterial;
-      material.depthWrite = false;
-      material.depthTest = true;
-    }
-
-    return mesh;
+/**
+ * Threshold all alpha values to be exactly 0 or 255.
+ * Canvas2D anti-aliases path edges, creating semi-transparent fringe pixels.
+ * Those fringe pixels are discarded by the shader's `a < 0.01` test, which
+ * makes mask edges look blurry/recessed when zoomed in.  Hard-quantising the
+ * alpha produces the same sharp coastline appearance as the globe mask.
+ */
+function thresholdAlpha(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number
+) {
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const data = imageData.data;
+  for (let i = 3; i < data.length; i += 4) {
+    data[i] = data[i] > 127 ? 255 : 0;
   }
-
-  private static async createTexturedGlobe(): Promise<THREE.Mesh> {
-    const img = await ResourceCache.loadImage(albedo);
-    const texture = new THREE.Texture(img);
-    texture.needsUpdate = true;
-
-    return this.createSphereMesh(texture, 0.999, false);
-  }
-
-  private static async createColoredGlobe(): Promise<THREE.Mesh> {
-    const { canvas, ctx, width, height } = CanvasFactory.create();
-    const land = await ResourceCache.loadLandGeoJSON();
-    const projection = D3ProjectionFactory.createEquirectangular(width, height);
-    const path = d3.geoPath(projection, ctx);
-
-    // Draw ocean background
-    ctx.fillStyle = MASK_COLORS.sea;
-    ctx.fillRect(0, 0, width, height);
-
-    // Draw land
-    ctx.beginPath();
-    path(land);
-    ctx.fillStyle = MASK_COLORS.land;
-    ctx.fill();
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.anisotropy = 16;
-    texture.needsUpdate = true;
-
-    return this.createSphereMesh(texture, 0.999, false);
-  }
-
-  private static async createMaskedTexture(
-    showLandOnly: boolean
-  ): Promise<THREE.Mesh> {
-    const { canvas, ctx, width, height } = CanvasFactory.create();
-    const [land, img] = await Promise.all([
-      ResourceCache.loadLandGeoJSON(),
-      ResourceCache.loadImage(albedo),
-    ]);
-
-    // Draw earth texture
-    ctx.drawImage(img, 0, 0, width, height);
-
-    // Create projection and path
-    const projection = D3ProjectionFactory.createEquirectangular(width, height);
-    const path = d3.geoPath(projection, ctx);
-
-    // Mask out unwanted area
-    ctx.beginPath();
-    path(land);
-    ctx.globalCompositeOperation = showLandOnly
-      ? "destination-in"
-      : "destination-out";
-    ctx.fill();
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.needsUpdate = true;
-
-    return this.createSphereMesh(texture, 1.002);
-  }
-
-  private static async createMaskedSolid(
-    showLandOnly: boolean
-  ): Promise<THREE.Mesh> {
-    const { canvas, ctx, width, height } = CanvasFactory.create();
-    const land = await ResourceCache.loadLandGeoJSON();
-    const projection = D3ProjectionFactory.createEquirectangular(width, height);
-    const path = d3.geoPath(projection, ctx);
-
-    if (!showLandOnly) {
-      // Fill with sea color, then cut out land
-      ctx.fillStyle = MASK_COLORS.sea;
-      ctx.fillRect(0, 0, width, height);
-      ctx.beginPath();
-      path(land);
-      ctx.globalCompositeOperation = "destination-out";
-      ctx.fill();
-    } else {
-      // Just draw land
-      ctx.beginPath();
-      path(land);
-      ctx.fillStyle = MASK_COLORS.land;
-      ctx.fill();
-    }
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.anisotropy = 16;
-    texture.needsUpdate = true;
-
-    return this.createSphereMesh(texture, 1.002);
-  }
-
-  private static createSphereMesh(
-    texture: THREE.Texture,
-    radius: number,
-    transparent = true
-  ): THREE.Mesh {
-    const geometry = new THREE.SphereGeometry(radius, 64, 64);
-    const material = new THREE.MeshBasicMaterial({
-      map: texture,
-      transparent,
-      side: THREE.FrontSide,
-    });
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.name = "mask";
-    mesh.renderOrder = 1;
-    mesh.rotation.x = Math.PI / 2;
-    return mesh;
-  }
+  ctx.putImageData(imageData, 0, 0);
 }
 
 /**
@@ -540,16 +413,15 @@ class GpuProjectedMaskRenderer {
     let material: THREE.ShaderMaterial;
 
     if (projectionHelper.isFlat) {
-      geometry = this.createFlatQuadGeometry(mode);
+      geometry = this.createFlatQuadGeometry();
       material = this.createFlatInverseMaterial(
         texture,
-        mode,
         getProjectionTypeFromMode(projectionHelper.type),
         projectionHelper.center
       );
     } else {
       geometry = this.createGlobeGeometry();
-      material = this.createGlobeMaterial(texture, mode);
+      material = this.createGlobeMaterial(texture);
     }
 
     const mesh = new THREE.Mesh(geometry, material);
@@ -602,11 +474,13 @@ class GpuProjectedMaskRenderer {
    * Create a quad covering the flat projection's coordinate space.
    * The fragment shader handles clipping to the actual projection boundary.
    */
-  private static createFlatQuadGeometry(
-    mode?: TLandSeaMaskMode
-  ): THREE.BufferGeometry {
-    const isBackground = mode ? isGlobeMaskMode(mode) : true;
-    const zOffset = isBackground ? -0.01 : 0.01;
+  private static createFlatQuadGeometry(): THREE.BufferGeometry {
+    // All flat mask quads sit at z=0.  depthTest is disabled on the material
+    // so depth has no effect on layering; renderOrder handles that exclusively.
+    // Using different z offsets per mode caused perspective-camera scaling
+    // differences: the land/sea quads (z=+0.01) appeared ~1% larger than the
+    // globe quad (z=-0.01), making land shapes look "more zoomed in".
+    const zOffset = 0;
     const extent = 4.0; // generous extent covering all projection types
 
     const vertices = new Float32Array([
@@ -689,14 +563,14 @@ class GpuProjectedMaskRenderer {
    * Create the shader material for GPU-projected globe mask.
    */
   private static createGlobeMaterial(
-    texture: THREE.Texture,
-    mode: TLandSeaMaskMode
+    texture: THREE.Texture
   ): THREE.ShaderMaterial {
-    const globeMode = isGlobeMaskMode(mode);
-
-    // For globe mode (full earth background), use smaller radius so it's behind data
-    // For overlay masks (land-only or sea-only), use larger radius so they're in front of data
-    const radius = globeMode ? 0.998 : 1.003;
+    // All masks sit at radius 1.003, matching the coastline layer, so there is no
+    // parallax drift when the camera orbits. Layering is handled purely via renderOrder:
+    //   globe mask = -1 (background, depthWrite: false)
+    //   land/sea masks = 10 (above data)
+    //   coastlines/graticules = 20 (always on top)
+    const radius = 1.003;
 
     const material = new THREE.ShaderMaterial({
       uniforms: {
@@ -709,7 +583,11 @@ class GpuProjectedMaskRenderer {
       transparent: true,
       side: THREE.FrontSide,
       depthWrite: false,
-      depthTest: true,
+      // depthTest: false so rendering order is controlled solely by renderOrder.
+      // The globe mask (renderOrder = -1) always paints first as a background;
+      // relying on the depth buffer here is unnecessary and was preventing proper
+      // layering at non-standard camera angles.
+      depthTest: false,
     });
 
     return material;
@@ -720,7 +598,6 @@ class GpuProjectedMaskRenderer {
    */
   private static createFlatInverseMaterial(
     texture: THREE.Texture,
-    mode: TLandSeaMaskMode,
     projectionType: number,
     center: { lat: number; lon: number }
   ): THREE.ShaderMaterial {
@@ -739,11 +616,6 @@ class GpuProjectedMaskRenderer {
       depthWrite: false,
       depthTest: false,
     });
-
-    // Use polygon offset to prevent z-fighting
-    material.polygonOffset = true;
-    material.polygonOffsetFactor = isGlobeMaskMode(mode) ? 1 : -1;
-    material.polygonOffsetUnits = isGlobeMaskMode(mode) ? 1 : -1;
 
     return material;
   }
@@ -778,6 +650,9 @@ class GpuProjectedMaskRenderer {
         ? "destination-in"
         : "destination-out";
       ctx.fill();
+      // Restore composite mode before the alpha threshold pass
+      ctx.globalCompositeOperation = "source-over";
+      thresholdAlpha(ctx, width, height);
       return;
     }
 
@@ -789,6 +664,7 @@ class GpuProjectedMaskRenderer {
         path(land);
         ctx.globalCompositeOperation = "destination-out";
         ctx.fill();
+        ctx.globalCompositeOperation = "source-over";
       }
     }
 
@@ -815,6 +691,7 @@ class GpuProjectedMaskRenderer {
       return;
     }
 
+    // Fill with sea colour, then paint land on top.
     ctx.fillStyle = MASK_COLORS.sea;
     ctx.fillRect(0, 0, width, height);
 
@@ -838,7 +715,22 @@ class GpuProjectedMaskRenderer {
       return this.createGlobeTexture();
     }
 
-    const { canvas, ctx, width, height } = CanvasFactory.create();
+    // When textures are enabled, create the canvas at the earth image's native
+    // resolution so the mask cutout matches the photo pixel-for-pixel.
+    // For solid-colour masks we stay at 4096×2048 because complex d3 polygon
+    // fills can exceed browser canvas path limits at higher resolutions.
+    let canvasWidth = 4096;
+    let canvasHeight = 2048;
+    if (useTexture) {
+      const img = await ResourceCache.loadImage(albedo);
+      canvasWidth = img.naturalWidth;
+      canvasHeight = img.naturalHeight;
+    }
+
+    const { canvas, ctx, width, height } = CanvasFactory.create(
+      canvasWidth,
+      canvasHeight
+    );
     const land = await ResourceCache.loadLandGeoJSON();
     const projection = D3ProjectionFactory.createEquirectangular(width, height);
     const path = d3.geoPath(projection, ctx);
@@ -880,26 +772,22 @@ export async function getLandSeaMask(
   landSeaMaskUseTexture: boolean,
   projectionHelper?: ProjectionHelper
 ): Promise<THREE.Object3D | undefined> {
-  const choice = landSeaMaskChoice ?? LAND_SEA_MASK_MODES.OFF;
-  const useTexture = landSeaMaskUseTexture;
+  if (landSeaMaskChoice === LAND_SEA_MASK_MODES.OFF) {
+    return undefined;
+  }
 
-  if (choice === LAND_SEA_MASK_MODES.OFF) {
+  if (!projectionHelper) {
     return undefined;
   }
 
   try {
-    // Use GPU-projected renderer for all projections
-    // This allows instant projection center changes without rebuilding
-    if (projectionHelper) {
-      return await GpuProjectedMaskRenderer.render(
-        choice,
-        useTexture,
-        projectionHelper
-      );
-    }
-
-    // Fallback to globe renderer if no projection helper
-    return await GlobeMaskRenderer.render(choice, useTexture);
+    // Use GPU-projected renderer for all projections.
+    // Projection center changes only update uniforms — no geometry rebuild needed.
+    return await GpuProjectedMaskRenderer.render(
+      landSeaMaskChoice,
+      landSeaMaskUseTexture,
+      projectionHelper
+    );
   } catch {
     return undefined;
   }
