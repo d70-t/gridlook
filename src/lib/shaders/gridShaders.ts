@@ -23,6 +23,12 @@ bool is_nan(float v) {
 }
 `;
 
+const isEqualsEpsilon = `
+bool is_equals_epsilon(float a, float b) {
+  return abs(a - b) < abs(b) * 1e-6;
+}
+`;
+
 const posterizeGLSL = `
 float posterize(float value, float levels) {
     if (levels > 1.0) {
@@ -38,6 +44,8 @@ const textureColormapFragmentShader = `
 ${colormapShaders}
 
 ${isNaNGLSL}
+
+${isEqualsEpsilon}
 
 ${posterizeGLSL}
 
@@ -55,7 +63,7 @@ varying vec2 vUv;
 void main() {
     gl_FragColor.a = 1.0;
     float v_value = texture(data, vUv).r;
-    if (is_nan(v_value) || v_value == fillValue || v_value == missingValue || v_value <= hideBelowValue) {
+    if (is_nan(v_value) || is_equals_epsilon(v_value, fillValue) || is_equals_epsilon(v_value, missingValue) || v_value <= hideBelowValue) {
         gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
         return;
     }
@@ -72,6 +80,8 @@ ${colormapShaders}
 
 ${isNaNGLSL}
 
+${isEqualsEpsilon}
+
 ${posterizeGLSL}
 
 varying float v_value;
@@ -84,7 +94,7 @@ uniform float posterizeLevels;
 uniform float hideBelowValue;
 
 void main() {
-    if (is_nan(v_value) || v_value == fillValue || v_value == missingValue || v_value <= hideBelowValue) {
+    if (is_nan(v_value) || is_equals_epsilon(v_value, fillValue) || is_equals_epsilon(v_value, missingValue) || v_value <= hideBelowValue) {
         gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
         return;
     }
@@ -110,6 +120,8 @@ ${colormapShaders}
 
 ${isNaNGLSL}
 
+${isEqualsEpsilon}
+
 ${posterizeGLSL}
 
 varying float v_value;
@@ -133,7 +145,7 @@ void main() {
     if (falloff < 0.01) discard; // Optional: discard transparent fragments
 
 
-    if (is_nan(v_value) || v_value == fillValue || v_value == missingValue || v_value <= hideBelowValue) {
+    if (is_nan(v_value) || is_equals_epsilon(v_value, fillValue) || is_equals_epsilon(v_value, missingValue) || v_value <= hideBelowValue) {
         gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
         return;
     }
