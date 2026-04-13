@@ -13,7 +13,11 @@ import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
-import { castDataVarToFloat32, getDataBounds } from "@/lib/data/zarrUtils.ts";
+import {
+  castDataVarToFloat32,
+  getDataBounds,
+  mapMissingAndFillToNaN,
+} from "@/lib/data/zarrUtils.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import {
   getColormapScaleOffset,
@@ -372,6 +376,8 @@ async function getHealpixData(
   } else if (isNaN(fillValue)) {
     fillValue = HEALPIX_UNSEEN;
   }
+  mapMissingAndFillToNaN(dataSlice, missingValue, fillValue);
+  ({ min, max } = getDataBounds(datavar, dataSlice));
 
   // Filter out missing and fill values before building histogram
   return {
@@ -656,8 +662,6 @@ async function processHealpixChunks(
       dataMax = dataMax < texData.max ? texData.max : dataMax;
 
       const material = mainMeshes[ipix].material as THREE.ShaderMaterial;
-      material.uniforms.missingValue.value = texData.missingValue;
-      material.uniforms.fillValue.value = texData.fillValue;
       material.uniforms.data.value.dispose();
       material.uniforms.data.value = texData.texture;
 
@@ -726,6 +730,13 @@ async function fetchAndRenderData(
   hoverData.value = castDataVarToFloat32(
     (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
   );
+  let { missingValue, fillValue } = getDataBounds(datavar, hoverData.value);
+  if (isNaN(missingValue)) {
+    missingValue = HEALPIX_UNSEEN;
+  } else if (isNaN(fillValue)) {
+    fillValue = HEALPIX_UNSEEN;
+  }
+  mapMissingAndFillToNaN(hoverData.value, missingValue, fillValue);
   if (cellCoord) {
     const cellIndexMap = new Map<number, number>();
     for (let index = 0; index < cellCoord.length; index++) {

@@ -18,14 +18,11 @@ import {
 } from "./colormapShaders";
 
 const isNaNGLSL = `
-bool is_nan(float v) {
-    return v != v;
-}
-`;
-
-const isEqualsEpsilon = `
-bool is_equals_epsilon(float a, float b) {
-  return abs(a - b) < abs(b) * 1e-6;
+bool is_nan(float val) {
+    uint bits = floatBitsToUint(val);
+    // exponent all 1s (0x7F800000) AND non-zero mantissa = NaN
+    // exponent all 1s AND zero mantissa = Infinity (not NaN)
+    return (bits & 0x7F800000u) == 0x7F800000u && (bits & 0x007FFFFFu) != 0u;
 }
 `;
 
@@ -45,14 +42,10 @@ ${colormapShaders}
 
 ${isNaNGLSL}
 
-${isEqualsEpsilon}
-
 ${posterizeGLSL}
 
 uniform float addOffset;
 uniform float scaleFactor;
-uniform float missingValue;
-uniform float fillValue;
 uniform int colormap;
 uniform float posterizeLevels;
 uniform float hideBelowValue;
@@ -63,7 +56,7 @@ varying vec2 vUv;
 void main() {
     gl_FragColor.a = 1.0;
     float v_value = texture(data, vUv).r;
-    if (is_nan(v_value) || is_equals_epsilon(v_value, fillValue) || is_equals_epsilon(v_value, missingValue) || v_value <= hideBelowValue) {
+    if (is_nan(v_value) || v_value <= hideBelowValue) {
         gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
         return;
     }
@@ -80,21 +73,17 @@ ${colormapShaders}
 
 ${isNaNGLSL}
 
-${isEqualsEpsilon}
-
 ${posterizeGLSL}
 
 varying float v_value;
 uniform float addOffset;
 uniform float scaleFactor;
 uniform int colormap;
-uniform float missingValue;
-uniform float fillValue;
 uniform float posterizeLevels;
 uniform float hideBelowValue;
 
 void main() {
-    if (is_nan(v_value) || is_equals_epsilon(v_value, fillValue) || is_equals_epsilon(v_value, missingValue) || v_value <= hideBelowValue) {
+    if (is_nan(v_value) || v_value <= hideBelowValue) {
         gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
         return;
     }
@@ -120,16 +109,12 @@ ${colormapShaders}
 
 ${isNaNGLSL}
 
-${isEqualsEpsilon}
-
 ${posterizeGLSL}
 
 varying float v_value;
 uniform float addOffset;
 uniform float scaleFactor;
 uniform int colormap;
-uniform float fillValue;
-uniform float missingValue;
 uniform float posterizeLevels;
 uniform float hideBelowValue;
 
@@ -145,7 +130,7 @@ void main() {
     if (falloff < 0.01) discard; // Optional: discard transparent fragments
 
 
-    if (is_nan(v_value) || is_equals_epsilon(v_value, fillValue) || is_equals_epsilon(v_value, missingValue) || v_value <= hideBelowValue) {
+    if (is_nan(v_value) || v_value <= hideBelowValue) {
         gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
         return;
     }
@@ -355,8 +340,6 @@ export function makeGpuProjectedTextureMaterial(
       addOffset: { value: addOffset },
       scaleFactor: { value: scaleFactor },
       colormap: { value: availableColormaps[colormap] },
-      fillValue: { value: Number.POSITIVE_INFINITY },
-      missingValue: { value: Number.POSITIVE_INFINITY },
       posterizeLevels: { value: 0.0 },
       hideBelowValue: { value: -1e38 },
       data: { value: texture },
@@ -390,8 +373,6 @@ export function makeGpuProjectedMeshMaterial(
       scaleFactor: { value: scaleFactor },
       pointSize: { value: 0.0 },
       colormap: { value: availableColormaps[colormap] },
-      fillValue: { value: Number.POSITIVE_INFINITY },
-      missingValue: { value: Number.POSITIVE_INFINITY },
       posterizeLevels: { value: 0.0 },
       hideBelowValue: { value: -1e38 },
       // Projection uniforms
@@ -425,8 +406,6 @@ export function makeGpuProjectedPointMaterial(
       basePointSize: { value: 5.0 },
       minPointSize: { value: 1.0 },
       maxPointSize: { value: 10.0 },
-      fillValue: { value: Number.POSITIVE_INFINITY },
-      missingValue: { value: Number.POSITIVE_INFINITY },
       posterizeLevels: { value: 0.0 },
       hideBelowValue: { value: -1e38 },
       colormap: { value: availableColormaps[colormap] },

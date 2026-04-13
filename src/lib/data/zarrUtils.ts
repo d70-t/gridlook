@@ -377,6 +377,25 @@ export function getDataBounds(
     missingValue: missingValue,
   };
 }
+
+export function mapMissingAndFillToNaN(
+  data: Float32Array<ArrayBufferLike>,
+  missingValue: number,
+  fillValue: number
+) {
+  for (let i = 0; i < data.length; i++) {
+    const value = data[i];
+    if (
+      !Number.isFinite(value) ||
+      value === missingValue ||
+      value === fillValue
+    ) {
+      data[i] = NaN;
+    }
+  }
+  return data;
+}
+
 /**
  * Gridlook cannot handle Float64 and integer types in textures, so cast to Float32
  */

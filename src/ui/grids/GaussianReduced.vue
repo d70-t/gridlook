@@ -16,6 +16,7 @@ import {
   castDataVarToFloat32,
   getDataBounds,
   getLatLonData,
+  mapMissingAndFillToNaN,
 } from "@/lib/data/zarrUtils.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import {
@@ -454,6 +455,7 @@ async function fetchAndRenderData(
   const longitudesData = longitudes!.data as Float64Array;
 
   let { min, max, missingValue, fillValue } = getDataBounds(datavar, rawData);
+  rawData = mapMissingAndFillToNaN(rawData, missingValue, fillValue);
 
   buildGaussianReducedGeometry(latitudesData, longitudesData, rawData);
 
@@ -466,12 +468,6 @@ async function fetchAndRenderData(
 
   // Set projection uniforms on all meshes after grid creation
   updateMeshProjectionUniforms();
-
-  for (let mesh of meshes) {
-    const material = mesh.material as THREE.ShaderMaterial;
-    material.uniforms.missingValue.value = missingValue;
-    material.uniforms.fillValue.value = fillValue;
-  }
 
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
   updateHistogram(rawData, min, max, missingValue, fillValue);

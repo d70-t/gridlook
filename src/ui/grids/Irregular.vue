@@ -17,6 +17,7 @@ import {
   castDataVarToFloat32,
   getDataBounds,
   getLatLonData,
+  mapMissingAndFillToNaN,
 } from "@/lib/data/zarrUtils.ts";
 import {
   makeGpuProjectedPointMaterial,
@@ -456,16 +457,11 @@ async function fetchAndRenderData(
   );
 
   let { min, max, fillValue, missingValue } = getDataBounds(datavar, rawData);
+  rawData = mapMissingAndFillToNaN(rawData, missingValue, fillValue);
   getGrid(latitudes, longitudes!, rawData);
 
   // Update hover lookup
   updateHoverLookup(rawData, latitudes, longitudes!, fillValue, missingValue);
-
-  for (const p of points) {
-    const material = p.material as THREE.ShaderMaterial;
-    material.uniforms.fillValue.value = fillValue;
-    material.uniforms.missingValue.value = missingValue;
-  }
 
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
   updateHistogram(rawData, min, max, missingValue, fillValue);
