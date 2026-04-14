@@ -399,7 +399,7 @@ class GpuProjectedMaskRenderer {
 
   /**
    * Create a mask mesh.
-   * Globe: uses GPU forward-projected geometry with latLon attributes.
+   * Globe: uses CPU-built sphere geometry rendered directly in globe space.
    * Flat:  uses a quad with inverse-projection fragment shader.
    * Both paths support instant center changes via uniform updates only.
    */
