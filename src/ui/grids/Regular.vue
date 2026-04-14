@@ -17,6 +17,7 @@ import {
   getDataBounds,
   isLatitudeName,
   isLongitudeName,
+  mapMissingAndFillToNaN,
 } from "@/lib/data/zarrUtils.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import {
@@ -638,13 +639,14 @@ async function fetchAndRenderData(
     (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
   );
 
+  const { min, max, missingValue, fillValue } = getDataBounds(datavar, rawData);
+  rawData = mapMissingAndFillToNaN(rawData, missingValue, fillValue);
+
   const material = makeMaterial(rawData);
 
   // Set initial projection uniforms
   const helper = projectionHelper.value;
   updateProjectionUniforms(material, helper);
-
-  const { min, max, missingValue, fillValue } = getDataBounds(datavar, rawData);
 
   // Update hover lookup
   const samples = await buildHoverSamples(rawData);
@@ -654,9 +656,6 @@ async function fetchAndRenderData(
     missingValue
   );
 
-  // Set missing/fill values as uniforms for the shader
-  material.uniforms.missingValue.value = missingValue;
-  material.uniforms.fillValue.value = fillValue;
   updateHistogram(rawData, min, max, missingValue, fillValue);
 
   for (const mesh of meshes) {

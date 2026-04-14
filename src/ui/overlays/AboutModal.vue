@@ -18,6 +18,7 @@ const visible = ref(false);
       Developed by Max-Planck-Institute for Meteorology (MPI-M) and the German
       Climate Computing Center (DKRZ)
     </p>
+    <p class="mt-3 is-size-7 has-text-grey">Earth texture credit: NASA.</p>
     <template #footer>
       <p>
         <a

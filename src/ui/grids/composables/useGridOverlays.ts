@@ -102,7 +102,7 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
       });
       coast = new THREE.LineSegments(geometry, material);
       coast.name = "coastlines";
-      coast.renderOrder = 1;
+      coast.renderOrder = 20;
       coast.frustumCulled = false;
     }
     updateLineProjection(coast, coastStyle);
@@ -143,7 +143,7 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
       });
       graticules = new THREE.LineSegments(geometry, material);
       graticules.name = "graticules";
-      graticules.renderOrder = 1;
+      graticules.renderOrder = 20;
       graticules.frustumCulled = false;
     }
     updateLineProjection(graticules, graticuleStyle);

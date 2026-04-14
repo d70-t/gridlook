@@ -18,6 +18,7 @@ import {
   castDataVarToFloat32,
   getDataBounds,
   getLatLonData,
+  mapMissingAndFillToNaN,
 } from "@/lib/data/zarrUtils.ts";
 import {
   PROJECTION_TYPES,
@@ -292,9 +293,7 @@ function cleanupMeshes() {
 function createMeshBatch(
   batchPositions: Float32Array,
   batchLatLon: Float32Array,
-  batchDataValues: Float32Array,
-  fillValue: number,
-  missingValue: number
+  batchDataValues: Float32Array
 ) {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute(
@@ -310,10 +309,6 @@ function createMeshBatch(
 
   const mesh = new THREE.Mesh(geometry, colormapMaterial.value);
   mesh.frustumCulled = false;
-
-  const material = mesh.material as THREE.ShaderMaterial;
-  material.uniforms.fillValue.value = fillValue;
-  material.uniforms.missingValue.value = missingValue;
 
   meshes.push(mesh);
   getScene()?.add(mesh);
@@ -356,33 +351,23 @@ function shouldFlipTriangle(
 }
 
 /**
- * Check if a value is a fill or missing value.
+ * Check if a value is invalid for interpolation.
  */
-function isInvalidValue(
-  value: number,
-  fillValue: number,
-  missingValue: number
-): boolean {
-  return value === fillValue || value === missingValue || !isFinite(value);
+function isInvalidValue(value: number): boolean {
+  return !Number.isFinite(value);
 }
 
 /**
  * Compute triangle average using only valid vertices.
- * Returns missingValue if all vertices are invalid.
+ * Returns NaN if all vertices are invalid.
  */
-function computeTriangleAverage(
-  v0: number,
-  v1: number,
-  v2: number,
-  fillValue: number,
-  missingValue: number
-): number {
-  const valid0 = !isInvalidValue(v0, fillValue, missingValue);
-  const valid1 = !isInvalidValue(v1, fillValue, missingValue);
-  const valid2 = !isInvalidValue(v2, fillValue, missingValue);
+function computeTriangleAverage(v0: number, v1: number, v2: number): number {
+  const valid0 = !isInvalidValue(v0);
+  const valid1 = !isInvalidValue(v1);
+  const valid2 = !isInvalidValue(v2);
 
   if (!valid0 && !valid1 && !valid2) {
-    return missingValue;
+    return NaN;
   }
 
   let sum = 0;
@@ -408,9 +393,7 @@ function computeTriangleAverage(
 function getTriangleIndicesAndAverage(
   triangleOffset: number,
   triangleIndices: Uint32Array,
-  data: Float32Array,
-  fillValue: number,
-  missingValue: number
+  data: Float32Array
 ): { i0: number; i1: number; i2: number; avgValue: number } {
   const triIdx = triangleOffset * 3;
   const i0 = triangleIndices[triIdx];
@@ -421,7 +404,7 @@ function getTriangleIndicesAndAverage(
   const v1 = data[i1];
   const v2 = data[i2];
 
-  const avgValue = computeTriangleAverage(v0, v1, v2, fillValue, missingValue);
+  const avgValue = computeTriangleAverage(v0, v1, v2);
 
   return { i0, i1, i2, avgValue };
 }
@@ -452,16 +435,12 @@ function processTriangle(
   batchStart: number,
   triangleIndices: Uint32Array,
   src: { pos: Float32Array; ll: Float32Array; data: Float32Array },
-  dst: { pos: Float32Array; ll: Float32Array; data: Float32Array },
-  fillValue: number,
-  missingValue: number
+  dst: { pos: Float32Array; ll: Float32Array; data: Float32Array }
 ) {
   let { i0, i1, i2, avgValue } = getTriangleIndicesAndAverage(
     batchStart + t,
     triangleIndices,
-    src.data,
-    fillValue,
-    missingValue
+    src.data
   );
 
   const needsFlip = shouldFlipTriangle(
@@ -497,22 +476,12 @@ function populateBatchArrays(
   data: Float32Array,
   batchPositions: Float32Array,
   batchLatLon: Float32Array,
-  batchDataValues: Float32Array,
-  fillValue: number,
-  missingValue: number
+  batchDataValues: Float32Array
 ) {
   const src = { pos: positions, ll: latLonValues, data };
   const dst = { pos: batchPositions, ll: batchLatLon, data: batchDataValues };
   for (let t = 0; t < batchTriangleCount; t++) {
-    processTriangle(
-      t,
-      batchStart,
-      triangleIndices,
-      src,
-      dst,
-      fillValue,
-      missingValue
-    );
+    processTriangle(t, batchStart, triangleIndices, src, dst);
   }
 }
 
@@ -552,9 +521,7 @@ function createBatchedMeshes(
   positions: Float32Array,
   latLonValues: Float32Array,
   data: Float32Array,
-  triangleIndices: Uint32Array,
-  fillValue: number,
-  missingValue: number
+  triangleIndices: Uint32Array
 ) {
   const numTriangles = triangleIndices.length / 3;
 
@@ -580,18 +547,10 @@ function createBatchedMeshes(
       data,
       batchPositions,
       batchLatLon,
-      batchDataValues,
-      fillValue,
-      missingValue
+      batchDataValues
     );
 
-    createMeshBatch(
-      batchPositions,
-      batchLatLon,
-      batchDataValues,
-      fillValue,
-      missingValue
-    );
+    createMeshBatch(batchPositions, batchLatLon, batchDataValues);
   }
 }
 
@@ -602,9 +561,7 @@ function buildMeshes(
   latitudes: Float32Array,
   longitudes: Float32Array,
   data: Float32Array,
-  triangleIndices: Uint32Array,
-  fillValue: number,
-  missingValue: number
+  triangleIndices: Uint32Array
 ) {
   const N = latitudes.length;
   const positions = new Float32Array(N * 3);
@@ -612,14 +569,7 @@ function buildMeshes(
 
   projectCoordinates(latitudes, longitudes, positions, latLonValues);
   cleanupMeshes();
-  createBatchedMeshes(
-    positions,
-    latLonValues,
-    data,
-    triangleIndices,
-    fillValue,
-    missingValue
-  );
+  createBatchedMeshes(positions, latLonValues, data, triangleIndices);
   updateMeshProjectionUniforms();
   redraw();
 }
@@ -629,9 +579,7 @@ function buildMeshes(
  */
 function updateMeshDataValues(
   data: Float32Array,
-  triangleIndices: Uint32Array,
-  fillValue: number,
-  missingValue: number
+  triangleIndices: Uint32Array
 ) {
   let triOffset = 0;
 
@@ -645,9 +593,7 @@ function updateMeshDataValues(
       const { avgValue } = getTriangleIndicesAndAverage(
         triOffset + t,
         triangleIndices,
-        data,
-        fillValue,
-        missingValue
+        data
       );
 
       const vertBase = t * 3;
@@ -656,10 +602,6 @@ function updateMeshDataValues(
       dataAttr.array[vertBase + 2] = avgValue;
     }
     dataAttr.needsUpdate = true;
-
-    const material = mesh.material as THREE.ShaderMaterial;
-    material.uniforms.fillValue.value = fillValue;
-    material.uniforms.missingValue.value = missingValue;
 
     triOffset += triCount;
   }
@@ -670,9 +612,7 @@ function updateMeshDataValues(
 function getGrid(
   latitudesVar: zarr.Chunk<zarr.DataType>,
   longitudesVar: zarr.Chunk<zarr.DataType>,
-  data: Float32Array,
-  fillValue: number,
-  missingValue: number
+  data: Float32Array
 ) {
   const N = data.length;
   const { latitudes, longitudes } = reconcileCoordinates(
@@ -690,17 +630,10 @@ function getGrid(
   }
 
   if (needsRetriangulation || meshes.length === 0) {
-    buildMeshes(
-      latitudes,
-      longitudes,
-      data,
-      cachedTriangleIndices!,
-      fillValue,
-      missingValue
-    );
+    buildMeshes(latitudes, longitudes, data, cachedTriangleIndices!);
   } else {
     // Just update data values if geometry is the same
-    updateMeshDataValues(data, cachedTriangleIndices!, fillValue, missingValue);
+    updateMeshDataValues(data, cachedTriangleIndices!);
   }
 }
 
@@ -801,7 +734,8 @@ async function fetchAndRenderData(
   );
 
   let { min, max, fillValue, missingValue } = getDataBounds(datavar, rawData);
-  getGrid(latitudes, longitudes!, rawData, fillValue, missingValue);
+  rawData = mapMissingAndFillToNaN(rawData, missingValue, fillValue);
+  getGrid(latitudes, longitudes!, rawData);
 
   updateHoverLookup(rawData, latitudes, longitudes!, fillValue, missingValue);
 

@@ -35,6 +35,7 @@ export const projectionShaderFunctions = `
   #define DEG_TO_RAD 0.017453292519943295
   #define RAD_TO_DEG 57.29577951308232
   #define MERCATOR_LAT_LIMIT 85.0
+  #define CYLINDRICAL_EQUAL_AREA_SCALE 1.2792006328649603
   #define AZIMUTHAL_CLIP_ANGLE_RAD ${(AZIMUTHAL_CLIP_ANGLE * Math.PI) / 180.0}
 
   #define PROJ_GLOBE 0
@@ -221,9 +222,8 @@ export const projectionShaderFunctions = `
   // D3 uses: x = λ / k, y = sin(φ) * k where k ≈ 1.2792 (derived from default scale)
   vec3 projectCylindricalEqualArea(float lat, float lon, float centerLon, float centerLat) {
     vec2 rotated = rotateCoords(lat, lon, centerLon, centerLat);
-    float k = 1.2792006328649603;  // From d3-geo-projection internal scaling
-    float x = rotated.y * DEG_TO_RAD / k;
-    float y = sin(rotated.x * DEG_TO_RAD) * k;
+    float x = rotated.y * DEG_TO_RAD / CYLINDRICAL_EQUAL_AREA_SCALE;
+    float y = sin(rotated.x * DEG_TO_RAD) * CYLINDRICAL_EQUAL_AREA_SCALE;
     return vec3(x, y, 0.0);
   }
 

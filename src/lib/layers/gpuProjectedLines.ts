@@ -144,9 +144,6 @@ export function makeGpuProjectedLineMaterial(
     },
     transparent: true,
     depthWrite: false,
-    polygonOffset: true,
-    polygonOffsetFactor: -1,
-    polygonOffsetUnits: -1,
     vertexShader: gpuProjectedLineVertexShader,
     fragmentShader: gpuProjectedLineFragmentShader,
   });
@@ -164,4 +161,5 @@ export function updateGpuProjectedLineMaterial(
   material.uniforms.centerLat.value = helper.center.lat;
   material.uniforms.projectionRadius.value = options.radius;
   material.uniforms.zOffset.value = options.zOffset;
+  material.depthTest = !helper.isFlat;
 }

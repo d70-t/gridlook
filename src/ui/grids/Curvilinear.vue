@@ -14,9 +14,10 @@ import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts"
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   castDataVarToFloat32,
+  createMissingOrFillPredicate,
   getDataBounds,
   getLatLonData,
-  createMissingOrFillPredicate,
+  mapMissingAndFillToNaN,
 } from "@/lib/data/zarrUtils.ts";
 import {
   makeGpuProjectedMeshMaterial,
@@ -641,14 +642,6 @@ function setHoverData(
   );
 }
 
-function applyMissingFillUniforms(fillValue: number, missingValue: number) {
-  for (let mesh of meshes) {
-    const material = mesh.material as THREE.ShaderMaterial;
-    material.uniforms.missingValue.value = missingValue;
-    material.uniforms.fillValue.value = fillValue;
-  }
-}
-
 async function renderGridAndHover(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
   rawData: Float32Array,
@@ -689,13 +682,13 @@ async function fetchAndRenderData(
     false
   );
 
-  const rawData = castDataVarToFloat32(
+  let rawData = castDataVarToFloat32(
     (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
   );
   const { min, max, missingValue, fillValue } = getDataBounds(datavar, rawData);
+  rawData = mapMissingAndFillToNaN(rawData, missingValue, fillValue);
 
   await renderGridAndHover(datavar, rawData, fillValue, missingValue);
-  applyMissingFillUniforms(fillValue, missingValue);
 
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
 
