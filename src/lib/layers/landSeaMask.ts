@@ -234,10 +234,9 @@ vec3 inverseMercator(float x, float y) {
 }
 
 vec3 inverseCylindricalEqualArea(float x, float y) {
-  float k = 1.2792006328649603;
-  float sinLat = y / k;
+  float sinLat = y / CYLINDRICAL_EQUAL_AREA_SCALE;
   if (abs(sinLat) > 1.0) return vec3(0.0, 0.0, -1.0);
-  float rLon = x * k * RAD_TO_DEG;
+  float rLon = x * CYLINDRICAL_EQUAL_AREA_SCALE * RAD_TO_DEG;
   if (abs(rLon) > 180.0) return vec3(0.0, 0.0, -1.0);
   return vec3(asin(sinLat) * RAD_TO_DEG, rLon, 1.0);
 }
@@ -265,28 +264,35 @@ vec3 inverseRobinson(float x, float y) {
   float absY = abs(y);
   if (absY > robinsonK[39]) return vec3(0.0, 0.0, -1.0);
 
-  // Linear search through Y coefficients to find the latitude band
-  int band = 1;
-  for (int i = 2; i <= 19; i++) {
-    if (robinsonK[i * 2 + 1] > absY) {
-      band = i - 1;
+  int i0 = 0;
+  for (int i = 0; i <= 17; i++) {
+    if (absY <= robinsonK[(i + 2) * 2 + 1]) {
+      i0 = i;
       break;
     }
-    band = i;
+    i0 = i;
   }
 
-  float y0 = robinsonK[band * 2 + 1];
-  float y1 = robinsonK[(band + 1) * 2 + 1];
-  float frac = (abs(y1 - y0) > 0.0001) ? (absY - y0) / (y1 - y0) : 0.0;
+  float ax = robinsonK[i0 * 2];
+  float ay = robinsonK[i0 * 2 + 1];
+  float bx = robinsonK[(i0 + 1) * 2];
+  float by = robinsonK[(i0 + 1) * 2 + 1];
+  float cx = robinsonK[(i0 + 2) * 2];
+  float cy = robinsonK[(i0 + 2) * 2 + 1];
 
-  // Each band spans 5 degrees; band 1 = 0 degrees
-  float latDeg = (float(band - 1) + frac) * 5.0;
+  float di = (abs(cy - by) > 0.0001) ? (absY - by) / (cy - by) : 0.0;
+  di = clamp(di, 0.0, 1.0);
+  for (int iter = 0; iter < 5; iter++) {
+    float yCoeff = by + di * (cy - ay) / 2.0 + di * di * (cy - 2.0 * by + ay) / 2.0;
+    float dyCoeff = (cy - ay) / 2.0 + di * (cy - 2.0 * by + ay);
+    if (abs(dyCoeff) < 0.0001) break;
+    di = clamp(di - (yCoeff - absY) / dyCoeff, 0.0, 1.0);
+  }
+
+  float latDeg = (float(i0) + di) * 5.0;
   if (y < 0.0) latDeg = -latDeg;
 
-  float x0 = robinsonK[band * 2];
-  float x1 = robinsonK[(band + 1) * 2];
-  float xCoeff = mix(x0, x1, frac);
-
+  float xCoeff = bx + di * (cx - ax) / 2.0 + di * di * (cx - 2.0 * bx + ax) / 2.0;
   if (abs(xCoeff) < 0.0001) return vec3(0.0, 0.0, -1.0);
   float rLon = (x / xCoeff) * RAD_TO_DEG;
   if (abs(rLon) > 180.0) return vec3(0.0, 0.0, -1.0);
