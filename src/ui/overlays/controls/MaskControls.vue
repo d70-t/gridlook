@@ -46,6 +46,7 @@ const { landSeaMaskChoice, landSeaMaskUseTexture } = storeToRefs(store);
           />
           <label
             for="use_texture"
+            title="Earth texture credit: NASA"
             :class="{
               'has-text-grey-light': landSeaMaskChoice === 'off',
             }"
