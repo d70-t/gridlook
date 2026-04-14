@@ -448,4 +448,6 @@ export function updateProjectionUniforms(
   if (material.uniforms.projectionRadius) {
     material.uniforms.projectionRadius.value = radius;
   }
+  material.depthTest =
+    projectionHelper.type === PROJECTION_TYPES.NEARSIDE_PERSPECTIVE;
 }
