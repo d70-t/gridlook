@@ -687,6 +687,9 @@ export function useGridScene(options: UseGridSceneOptions) {
       } else {
         idleFrameCount++;
       }
+      if (cam && isPresenterActive.value && !store.isRotating) {
+        cameraState.encodeCameraToURL(cam);
+      }
       if (idleFrameCount >= IDLE_FRAMES_BEFORE_STOP) {
         // Damping is fully drained – safe to stop the loop.
         idleFrameCount = 0;
@@ -697,7 +700,7 @@ export function useGridScene(options: UseGridSceneOptions) {
       }
     } else {
       idleFrameCount = 0;
-      if (isPresenterActive.value && cam) {
+      if (isPresenterActive.value && cam && mouseDown) {
         cameraState.encodeCameraToURL(cam);
       }
     }
