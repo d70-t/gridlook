@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { computed, ref } from "vue";
 
-import type { TCatalogEntry } from "@/utils/catalog";
+import type { TCatalogEntry } from "@/utils/catalog.ts";
 
 const props = defineProps<{
   title?: string;

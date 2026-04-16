@@ -6,8 +6,8 @@ import ToastService from "primevue/toastservice";
 import { createApp } from "vue";
 
 import App from "./App.vue";
-import router from "./router";
-import { vWordBreak } from "./utils/wordbreak";
+import router from "./router/index.ts";
+import { vWordBreak } from "./utils/wordbreak.ts";
 const app = createApp(App);
 app.directive("word-break", vWordBreak);
 

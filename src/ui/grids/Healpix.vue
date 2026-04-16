@@ -237,7 +237,7 @@ function getHealpixChunkRange(ipix: number, numChunks: number, nside: number) {
 }
 
 async function fillGlobalHealpixChunkData(
-  datavar: zarr.Array<zarr.DataType>,
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   localDimensionIndices: (number | zarr.Slice | null)[],
   pixelStart: number,
   pixelEnd: number,
@@ -258,7 +258,7 @@ async function fillGlobalHealpixChunkData(
 }
 
 async function fillLimitedAreaHealpixChunkData(
-  datavar: zarr.Array<zarr.DataType>,
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   cellCoord: number[],
   localDimensionIndices: (number | zarr.Slice | null)[],
   pixelStart: number,
@@ -318,7 +318,7 @@ async function fillLimitedAreaHealpixChunkData(
 }
 
 async function fillHealpixChunkData(
-  datavar: zarr.Array<zarr.DataType>,
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   cellCoord: number[] | undefined,
   localDimensionIndices: (number | zarr.Slice | null)[],
   pixelStart: number,
@@ -346,7 +346,7 @@ async function fillHealpixChunkData(
 }
 
 async function getHealpixData(
-  datavar: zarr.Array<zarr.DataType>,
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   cellCoord: number[] | undefined, // Optional - undefined for global data
   ipix: number,
   numChunks: number,
@@ -592,7 +592,7 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
 }
 
 async function prepareDimensionData(
-  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   updateMode: TUpdateMode
 ) {
   const dimensionNames = await ZarrDataManager.getDimensionNames(
@@ -628,7 +628,7 @@ async function getDimensionValues(
 }
 
 async function processHealpixChunks(
-  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   cellCoord: number[] | undefined,
   nside: number,
   indices: (number | zarr.Slice | null)[]
@@ -716,7 +716,7 @@ function healpixHoverLookup(
 }
 
 async function fetchAndRenderData(
-  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   updateMode: TUpdateMode
 ) {
   const { dimensionRanges, indices } = await prepareDimensionData(

@@ -5,11 +5,14 @@ import { ref, onBeforeMount, type Ref } from "vue";
 
 import GlobeView from "./GlobeView.vue";
 
-import { GRID_TYPES, type T_GRID_TYPES } from "@/lib/data/gridTypeDetector";
-import { STORE_PARAM_MAPPING, useUrlParameterStore } from "@/store/paramStore";
-import { useGlobeControlStore } from "@/store/store";
-import { isDisplayMode, isPresenterActive } from "@/store/usePresenterSync";
-import type { TURLParameterValues } from "@/utils/urlParams";
+import { GRID_TYPES, type T_GRID_TYPES } from "@/lib/data/gridTypeDetector.ts";
+import {
+  STORE_PARAM_MAPPING,
+  useUrlParameterStore,
+} from "@/store/paramStore.ts";
+import { useGlobeControlStore } from "@/store/store.ts";
+import { isDisplayMode, isPresenterActive } from "@/store/usePresenterSync.ts";
+import type { TURLParameterValues } from "@/utils/urlParams.ts";
 
 type TParams = Partial<Record<TURLParameterValues, string>>;
 

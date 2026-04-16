@@ -1,7 +1,7 @@
 import type { Dayjs } from "dayjs";
 import * as zarr from "zarrita";
 
-import type { TColorMap } from "@/lib/shaders/colormapShaders";
+import type { TColorMap } from "@/lib/shaders/colormapShaders.ts";
 
 export const ZARR_FORMAT = {
   V2: 2,
@@ -100,13 +100,4 @@ export const DEFAULT_SNAPSHOT_OPTIONS: TSnapshotOptions = {
   resolutionScale: 1,
   showDatasetInfo: true,
   showColormap: true,
-};
-
-export type TZarrV3RootMetadata = {
-  zarr_format: 3;
-  node_type: "group";
-  attributes?: Record<string, unknown>;
-  consolidated_metadata: {
-    metadata: Record<string, zarr.ArrayMetadata | zarr.GroupMetadata>;
-  };
 };

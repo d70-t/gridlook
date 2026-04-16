@@ -1,5 +1,5 @@
 import type { CustomOrbitControls } from "three";
-import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
+import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
 /*
  * The regular OrbitControls type defintion does not include the "private" methods

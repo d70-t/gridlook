@@ -5,11 +5,11 @@ import { computed } from "vue";
 import ShareButton from "./ShareButton.vue";
 import SnapshotButton from "./SnapshotButton.vue";
 
-import { PROJECTION_TYPES } from "@/lib/projection/projectionUtils";
-import type { TSnapshotOptions } from "@/lib/types/GlobeTypes";
-import { useGlobeControlStore } from "@/store/store";
-import { isPresenterActive } from "@/store/usePresenterSync";
-import { isMobileDevice } from "@/ui/common/viewConstants";
+import { PROJECTION_TYPES } from "@/lib/projection/projectionUtils.ts";
+import type { TSnapshotOptions } from "@/lib/types/GlobeTypes.ts";
+import { useGlobeControlStore } from "@/store/store.ts";
+import { isPresenterActive } from "@/store/usePresenterSync.ts";
+import { isMobileDevice } from "@/ui/common/viewConstants.ts";
 
 defineEmits<{
   onSnapshot: [options: TSnapshotOptions];

@@ -17,15 +17,15 @@ import {
   clamp,
   PROJECTION_TYPES,
   type TProjectionType,
-} from "@/lib/projection/projectionUtils";
+} from "@/lib/projection/projectionUtils.ts";
 import type {
   TBounds,
   TModelInfo,
   TSnapshotOptions,
-} from "@/lib/types/GlobeTypes";
-import { useUrlParameterStore } from "@/store/paramStore";
-import { useGlobeControlStore } from "@/store/store";
-import { MOBILE_BREAKPOINT } from "@/ui/common/viewConstants";
+} from "@/lib/types/GlobeTypes.ts";
+import { useUrlParameterStore } from "@/store/paramStore.ts";
+import { useGlobeControlStore } from "@/store/store.ts";
+import { MOBILE_BREAKPOINT } from "@/ui/common/viewConstants.ts";
 
 const props = defineProps<{ modelInfo?: TModelInfo; currentSource: string }>();
 

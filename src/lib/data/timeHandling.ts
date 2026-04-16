@@ -1,5 +1,5 @@
 import dayjs, { Dayjs } from "dayjs";
-import utc from "dayjs/plugin/utc";
+import utc from "dayjs/plugin/utc.js";
 import * as zarr from "zarrita";
 
 dayjs.extend(utc);

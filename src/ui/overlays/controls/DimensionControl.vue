@@ -6,7 +6,7 @@ import { computed, ref, watch } from "vue";
 
 import DatetimePicker from "./DatetimePicker.vue";
 
-import { useGlobeControlStore } from "@/store/store";
+import { useGlobeControlStore } from "@/store/store.ts";
 
 const store = useGlobeControlStore();
 const { varinfo, dimSlidersValues } = storeToRefs(store);

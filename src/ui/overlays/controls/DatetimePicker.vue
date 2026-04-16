@@ -1,10 +1,10 @@
 <script lang="ts" setup>
 import dayjs, { Dayjs } from "dayjs";
-import utc from "dayjs/plugin/utc";
+import utc from "dayjs/plugin/utc.js";
 import DatePicker from "primevue/datepicker";
 import { computed, ref, watch } from "vue";
 
-import { findTimeIndex, decodeTime } from "@/lib/data/timeHandling";
+import { findTimeIndex, decodeTime } from "@/lib/data/timeHandling.ts";
 import Modal from "@/ui/common/Modal.vue";
 
 const props = defineProps<{

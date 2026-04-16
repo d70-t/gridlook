@@ -1,6 +1,6 @@
 import * as zarr from "zarrita";
 
-import type { TDimensionRange } from "@/lib/types/GlobeTypes";
+import type { TDimensionRange } from "@/lib/types/GlobeTypes.ts";
 
 function setDimensionStart(
   presetStarts: Record<string, string>,
@@ -74,14 +74,14 @@ function setDimensionMinMaxBounds(
  * CF standard, which would sort the dimensions by its size. This might be a
  * problem in the future.
  *
- * @param {zarr.Array<zarr.DataType, zarr.FetchStore>} datavar - the zarray to process
+ * @param {zarr.Array<zarr.DataType, zarr.AsyncReadable>} datavar - the zarray to process
  * @param {Record<string, string>} presetStarts - optional preset starting positions
  * @param {Record<string, string>} presetMinBounds - optional preset minimum bounds
  * @param {Record<string, string>} presetMaxBounds - optional preset maximum bounds
  * @returns {TDimensionRange[]} an array of dimension range objects
  */
 function createDimensionRanges(
-  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   dimensionNames: string[] | undefined,
   presetStarts: Record<string, string>,
   presetMinBounds: Record<string, string>,
@@ -154,7 +154,7 @@ function calculateIndices(
 }
 
 export function buildDimensionRangesAndIndices(
-  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   dimensionNames: string[] | undefined,
   presetStarts: Record<string, string>,
   presetMinBounds: Record<string, string>,

@@ -3,9 +3,9 @@ import { nextTick, onMounted, ref, watch } from "vue";
 
 import CatalogPanel from "./CatalogPanel.vue";
 
-import { useGlobeControlStore } from "@/store/store";
+import { useGlobeControlStore } from "@/store/store.ts";
 import Modal from "@/ui/common/Modal.vue";
-import { fetchCatalog, type TCatalogEntry } from "@/utils/catalog";
+import { fetchCatalog, type TCatalogEntry } from "@/utils/catalog.ts";
 
 const props = defineProps<{ currentSource: string }>();
 

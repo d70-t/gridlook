@@ -2,8 +2,8 @@
 import { storeToRefs } from "pinia";
 import { computed } from "vue";
 
-import type { TBounds } from "@/lib/types/GlobeTypes.js";
-import { useGlobeControlStore } from "@/store/store";
+import type { TBounds } from "@/lib/types/GlobeTypes.ts";
+import { useGlobeControlStore } from "@/store/store.ts";
 
 const props = defineProps<{
   pickedBoundsMode: string;

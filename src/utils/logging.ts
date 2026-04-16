@@ -1,6 +1,6 @@
 import { useToast } from "primevue/usetoast";
 
-import { getErrorMessage, toNormalizedError } from "./errorHandling";
+import { getErrorMessage, toNormalizedError } from "./errorHandling.ts";
 
 export function useLog() {
   const toast = useToast();

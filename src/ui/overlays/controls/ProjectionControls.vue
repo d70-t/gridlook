@@ -2,8 +2,8 @@
 import { storeToRefs } from "pinia";
 import { computed, ref, watch } from "vue";
 
-import { clamp, PROJECTION_TYPES } from "@/lib/projection/projectionUtils";
-import { useGlobeControlStore } from "@/store/store";
+import { clamp, PROJECTION_TYPES } from "@/lib/projection/projectionUtils.ts";
+import { useGlobeControlStore } from "@/store/store.ts";
 
 const store = useGlobeControlStore();
 const { projectionMode, projectionCenter } = storeToRefs(store);

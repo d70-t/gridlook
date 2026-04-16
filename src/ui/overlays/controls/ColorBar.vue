@@ -14,14 +14,14 @@ import {
   formatValue,
   computeBinTooltip,
   type BinTooltip,
-} from "./colorbarUtils";
+} from "./colorbarUtils.ts";
 
 import {
   availableColormaps,
   type TColorMap,
-} from "@/lib/shaders/colormapShaders";
-import { makeCompressedColormapLutMaterial } from "@/lib/shaders/gridShaders";
-import { useGlobeControlStore } from "@/store/store";
+} from "@/lib/shaders/colormapShaders.ts";
+import { makeCompressedColormapLutMaterial } from "@/lib/shaders/gridShaders.ts";
+import { useGlobeControlStore } from "@/store/store.ts";
 import RangeSlider from "@/ui/common/RangeSlider.vue";
 import DistributionPlot from "@/ui/overlays/controls/DistributionPlot.vue";
 

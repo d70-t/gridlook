@@ -1,14 +1,14 @@
 import * as d3 from "d3-geo";
 import * as THREE from "three";
 
-import { ResourceCache } from "./ResourceCache";
+import { ResourceCache } from "./ResourceCache.ts";
 
 import albedo from "@/assets/earth.jpg";
 import {
   projectionShaderFunctions,
   getProjectionTypeFromMode,
-} from "@/lib/projection/projectionShaders";
-import { ProjectionHelper } from "@/lib/projection/projectionUtils";
+} from "@/lib/projection/projectionShaders.ts";
+import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 
 export const LAND_SEA_MASK_MODES = {
   OFF: "off",

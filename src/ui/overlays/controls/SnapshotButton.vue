@@ -8,7 +8,7 @@ import {
   type TSnapshotBackground,
   type TSnapshotOptions,
   type TSnapshotResolutionScale,
-} from "@/lib/types/GlobeTypes";
+} from "@/lib/types/GlobeTypes.ts";
 
 const emit = defineEmits<{
   onSnapshot: [options: TSnapshotOptions];
