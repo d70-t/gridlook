@@ -49,42 +49,55 @@ async function collectZarrV2Variables(
   candidates: PromiseSettledResult<Record<string, TDataSource>>[];
   dimensions: Set<string>;
 }> {
+  console.log(root.kind, root.attrs);
   const dimensions = new Set<string>();
   const candidates = await Promise.allSettled(
-    store.contents().map(async ({ path, kind }) => {
-      if (kind !== "array") {
-        return {};
-      }
-      const variable = await zarr.open(root.resolve(path), { kind: "array" });
-      const arrayDimensions = variable.attrs?._ARRAY_DIMENSIONS;
+    store
+      .contents()
+      .map(
+        async ({
+          path,
+          kind,
+        }: {
+          path: zarr.AbsolutePath;
+          kind: "array" | "group";
+        }) => {
+          if (kind !== "array") {
+            return {};
+          }
+          const variable = await zarr.open(root.resolve(path), {
+            kind: "array",
+          });
+          const arrayDimensions = variable.dimensionNames;
 
-      if (Array.isArray(arrayDimensions)) {
-        for (const dim of arrayDimensions) {
-          dimensions.add(dim);
+          if (Array.isArray(arrayDimensions)) {
+            for (const dim of arrayDimensions) {
+              dimensions.add(dim);
+            }
+          }
+
+          if (variable.attrs.coordinates) {
+            const coords = variable.attrs.coordinates as string;
+            for (const coord of coords.split(" ")) {
+              dimensions.add(coord);
+            }
+          }
+
+          const varname = path.slice(1);
+          return {
+            [varname]: {
+              store: src,
+              dataset: "",
+              hidden: !isValidVariable(
+                varname,
+                variable.shape,
+                arrayDimensions as string[]
+              ),
+              attrs: { ...variable.attrs, dimensionNames: arrayDimensions },
+            },
+          };
         }
-      }
-
-      if (variable.attrs.coordinates) {
-        const coords = variable.attrs.coordinates as string;
-        for (const coord of coords.split(" ")) {
-          dimensions.add(coord);
-        }
-      }
-
-      const varname = path.slice(1);
-      return {
-        [varname]: {
-          store: src,
-          dataset: "",
-          hidden: !isValidVariable(
-            varname,
-            variable.shape,
-            arrayDimensions as string[]
-          ),
-          attrs: { ...variable.attrs, dimensionNames: arrayDimensions },
-        },
-      };
-    })
+      )
   );
 
   return { candidates, dimensions };
@@ -101,6 +114,7 @@ async function processZarrV2Variables(
     src
   );
 
+  console.log("candidates, dimensions", candidates, dimensions);
   // Filter and merge datasources
   const datasources = candidates
     .filter((promise) => promise.status === "fulfilled")
@@ -117,51 +131,6 @@ async function processZarrV2Variables(
     })
     .reduce((a, b) => ({ ...a, ...b }), {});
 
-  return datasources;
-}
-
-function processZarrV3Variables(
-  group: zarr.Group<zarr.FetchStore>,
-  src: string
-) {
-  const datasources: Record<
-    string,
-    {
-      store: string;
-      dataset: string;
-      hidden: boolean;
-      attrs: Record<string, unknown>;
-    }
-  > = {};
-  const dimensions = new Set<string>();
-  const attributes = group.attrs as TZarrV3RootMetadata;
-  const consolidatedMetadata = attributes.consolidated_metadata;
-  const metadata = consolidatedMetadata?.metadata;
-
-  for (const node of Object.values(metadata || {})) {
-    if (node.node_type === "array" && Array.isArray(node.dimension_names)) {
-      for (const dim of node.dimension_names) {
-        dimensions.add(dim);
-      }
-    }
-  }
-  for (const [name, node] of Object.entries(metadata || {})) {
-    if (node.node_type !== "array") {
-      continue;
-    }
-    const arrayNode = node as zarr.ArrayMetadata;
-    datasources[name] = {
-      store: src,
-      dataset: "",
-      hidden:
-        !isValidVariable(name, arrayNode.shape, arrayNode.dimension_names) ||
-        dimensions.has(name),
-      attrs: {
-        ...node.attributes,
-        dimensionNames: node.dimension_names,
-      } as Record<string, unknown>,
-    };
-  }
   return datasources;
 }
 
@@ -192,7 +161,10 @@ function createIndex(
 
 export async function indexFromZarr(src: string): Promise<TSources> {
   try {
-    const store = await zarr.withConsolidated(lru(new zarr.FetchStore(src)));
+    const store = await zarr.withConsolidatedMetadata(
+      lru(new zarr.FetchStore(src)),
+      { format: "v2" }
+    );
     const root = await zarr.open(store, { kind: "group" });
     const datasources = await processZarrV2Variables(store, root, src);
     return createIndex(
@@ -202,12 +174,14 @@ export async function indexFromZarr(src: string): Promise<TSources> {
       ZARR_FORMAT.V2
     );
   } catch {
-    const group = await ZarrDataManager.openZarrV3Metadata(
-      new zarr.FetchStore(src)
+    const store = await zarr.withConsolidatedMetadata(
+      lru(new zarr.FetchStore(src)),
+      { format: "v3" }
     );
-    const datasources = processZarrV3Variables(group, src);
+    const root = await zarr.open(store, { kind: "group" });
+    const datasources = await processZarrV2Variables(store, root, src);
     return createIndex(
-      group.attrs?.title as string,
+      root.attrs?.title as string,
       datasources,
       src,
       ZARR_FORMAT.V3
@@ -239,13 +213,15 @@ function collectStores(
  * Enrich the index with dimension names and attributes from Zarr V2
  * consolidated metadata.
  */
-async function enrichMetadataWithZarrV2(
+async function enrichMetadata(
   stores: Record<string, Set<string>>,
-  datasources: Record<string, TDataSource>
+  datasources: Record<string, TDataSource>,
+  format: "v2" | "v3"
 ) {
   for (const [store, vars] of Object.entries(stores)) {
-    const zarrStore = await zarr.withConsolidated(
-      lru(new zarr.FetchStore(store))
+    const zarrStore = await zarr.withConsolidatedMetadata(
+      lru(new zarr.FetchStore(store)),
+      { format: format }
     );
     const root = await zarr.open(zarrStore, { kind: "group" });
 
@@ -254,7 +230,7 @@ async function enrichMetadataWithZarrV2(
         const variable = await zarr.open(root.resolve(`/${varname}`), {
           kind: "array",
         });
-        const arrayDimensions = variable.attrs?._ARRAY_DIMENSIONS;
+        const arrayDimensions = variable.dimensionNames ?? [];
         datasources[varname].attrs = {
           ...datasources[varname].attrs,
           ...variable.attrs,
@@ -262,39 +238,6 @@ async function enrichMetadataWithZarrV2(
         } as Record<string, unknown>;
       } catch {
         // ignore
-      }
-    }
-  }
-}
-
-/**
- * Zarrita does not provide a proper way to get dimension names for Zarr V3
- * arrays, so we need to fetch metadata for each store and enrich the index with
- * dimension names and attributes.
- */
-async function enrichMetadataWithZarrV3(
-  stores: Record<string, Set<string>>,
-  datasources: Record<string, TDataSource>
-) {
-  for (const [store, vars] of Object.entries(stores)) {
-    const group = await ZarrDataManager.openZarrV3Metadata(
-      new zarr.FetchStore(store)
-    );
-    if (group.attrs) {
-      const rootMetadata = group.attrs as TZarrV3RootMetadata;
-      const metadata = rootMetadata.consolidated_metadata?.metadata;
-      if (metadata) {
-        for (const varname of vars) {
-          const node = metadata[varname];
-          if (node && node.node_type === "array") {
-            const arrayNode = node as zarr.ArrayMetadata;
-            datasources[varname].attrs = {
-              ...datasources[varname].attrs,
-              ...arrayNode.attributes,
-              dimensionNames: arrayNode.dimension_names,
-            } as Record<string, unknown>;
-          }
-        }
       }
     }
   }
@@ -311,10 +254,10 @@ export async function indexFromIndex(src: string): Promise<TSources> {
   const datasources = sources.levels[0].datasources;
   const stores = collectStores(datasources);
   try {
-    await enrichMetadataWithZarrV3(stores, datasources);
+    await enrichMetadata(stores, datasources, "v3");
     sources.zarr_format = ZARR_FORMAT.V3; // eslint-disable-line camelcase
   } catch {
-    await enrichMetadataWithZarrV2(stores, datasources);
+    await enrichMetadata(stores, datasources, "v2");
     sources.zarr_format = ZARR_FORMAT.V2; // eslint-disable-line camelcase
   }
   return sources;

@@ -171,7 +171,7 @@ export class ZarrDataManager {
       ZarrDataManager.getDatasetSource(datasources, varname),
       varname
     );
-    return datavar.attrs._ARRAY_DIMENSIONS as string[];
+    return datavar.dimensionNames ?? [];
   }
 
   static invalidateCache() {

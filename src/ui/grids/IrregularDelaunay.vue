@@ -657,8 +657,8 @@ function getGeographicDimensionIndices(
 ) {
   const geoDims: number[] = [];
   for (let i = 0; i < dimensions.length; i++) {
-    let latDims = latitudesAttrs._ARRAY_DIMENSIONS as string[];
-    let lonDims = longitudesAttrs._ARRAY_DIMENSIONS as string[];
+    let latDims = latitudesAttrs.dimensionNames as string[];
+    let lonDims = longitudesAttrs.dimensionNames as string[];
     if (latDims.includes(dimensions[i])) {
       geoDims.push(i);
     } else if (lonDims.includes(dimensions[i])) {

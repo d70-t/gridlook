@@ -350,7 +350,7 @@ function processLonData(
   lonMax.value = loMax;
   collectGeoCoordinateInfo(
     lonDimensions,
-    longitudesAttrs?._ARRAY_DIMENSIONS as string[],
+    longitudesAttrs?.dimensionNames as string[],
     longitudes.shape
   );
   lonLength.value = lonData.length;
@@ -393,7 +393,7 @@ async function getLatLonInfo(
     latMax.value = lMax;
     collectGeoCoordinateInfo(
       latDimensions,
-      latitudesAttrs?._ARRAY_DIMENSIONS as string[],
+      latitudesAttrs?.dimensionNames as string[],
       latitudes.shape
     );
     latLength.value = latData.length;

@@ -2,8 +2,7 @@ import * as zarr from "zarrita";
 
 import { ZarrDataManager } from "./ZarrDataManager";
 
-import { ZARR_FORMAT, type TSources } from "@/lib/types/GlobeTypes";
-import trim from "@/utils/trim";
+import { type TSources } from "@/lib/types/GlobeTypes";
 
 export function getMissingValue(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>
@@ -23,16 +22,13 @@ export function getMissingValue(
  * naming conventions ("fillValue", "fill_value", "_FillValue", "_fillvalue")
  * that various tools and conventions (Zarr v2, CF conventions, xarray, etc.)
  * may use to store it in the metadata attributes.
- *
- * If no fill value is found in the attributes, we fall back to the internal
- * Zarr context object (not publicly documented) which always holds the
- * canonical fill_value. The result is cast through Float32Array to reproduce
- * the float32 rounding artifact (e.g. -1e30 → -1.0000000150474662e+30),
- * ensuring the value matches what is actually stored in the binary data.
  */
 export function getFillValue(
   datavar: zarr.Array<zarr.DataType, zarr.FetchStore>
 ) {
+  if (datavar.fillValue) {
+    return datavar.fillValue as number;
+  }
   const attributes = datavar.attrs;
   if (Object.hasOwn(attributes, "fillValue")) {
     return new Float32Array([Number(attributes.fillValue)])[0];
@@ -46,17 +42,7 @@ export function getFillValue(
   if (Object.hasOwn(attributes, "_fillvalue")) {
     return new Float32Array([Number(attributes._fillvalue)])[0];
   }
-  const symbols = Object.getOwnPropertySymbols(datavar);
-  const contextSymbol = symbols.find(
-    (sym) => sym.toString() === "Symbol(zarrita.context)"
-  );
-  if (!contextSymbol) {
-    return NaN;
-  }
-  // FIXME
-  // @ts-expect-error This context symbol is not publicly exposed in the documentation
-  const obj = datavar[contextSymbol];
-  return new Float32Array([Number(obj.fill_value)])[0];
+  return NaN;
 }
 
 /**
@@ -162,7 +148,7 @@ function resolveLatLonFromCoordinates(
       }
     }
   } else {
-    (datavar.attrs._ARRAY_DIMENSIONS as string[]).forEach((dimName: string) => {
+    (datavar.dimensionNames as string[]).forEach((dimName: string) => {
       if (isLatitudeName(dimName)) {
         latitudeName = dimName;
       } else if (isLongitudeName(dimName)) {
@@ -202,7 +188,7 @@ function refineLatLonFromSources(
  * This function search for the names of the latitude and longitude variables based on the following behaviour:
  * 1. Get the "coordinates" attribute of the data variable. If the grid is rotated,
  * we enforce "rlon rlat" as the coordinates
- * 2. If 1. failed, use the "_ARRAY_DIMENSIONS" attribute of the data variable
+ * 2. If 1. failed, use the "dimensionNames" attribute of the data variable
  * 3. We search for variables with longitude/latitude-like names found in the steps 1. and 2. and take
  * 4. If we still don't have lat/lon names, we search for any variable with
  * longitude/latitude-like names and the appropriate unit. If multiple
@@ -239,19 +225,6 @@ function findLatLonNames(
   };
 }
 
-async function getZarrV3Attributes(
-  storeName: string,
-  varname: string
-): Promise<zarr.Attributes> {
-  const store = new zarr.FetchStore(trim(storeName) + "/" + trim(varname));
-  const group = await ZarrDataManager.openZarrV3Metadata(store);
-  const v3Attributes = group.attrs;
-  if (v3Attributes.dimension_names) {
-    v3Attributes._ARRAY_DIMENSIONS = v3Attributes.dimension_names;
-  }
-  return v3Attributes;
-}
-
 function applyScaleFactor(
   data?: zarr.Chunk<zarr.DataType>,
   attributes?: zarr.Attributes
@@ -269,20 +242,6 @@ async function fetchLatLonVariables(
 ) {
   const gridsource = datasources.levels[0].grid;
 
-  let latV3Attributes: zarr.Attributes = {};
-  let lonV3Attributes: zarr.Attributes = {};
-  if (datasources.zarr_format === ZARR_FORMAT.V3) {
-    latV3Attributes = await getZarrV3Attributes(gridsource.store, latitudeName);
-    try {
-      lonV3Attributes = await getZarrV3Attributes(
-        gridsource.store,
-        longitudeName
-      );
-    } catch {
-      // Longitude may not exist for lat-only datasets
-    }
-  }
-
   const latitudesVar = await ZarrDataManager.getVariableInfo(
     gridsource,
     latitudeName
@@ -298,7 +257,7 @@ async function fetchLatLonVariables(
     // Longitude variable doesn't exist - this is a lat-only dataset
   }
 
-  return { latitudesVar, longitudesVar, latV3Attributes, lonV3Attributes };
+  return { latitudesVar, longitudesVar };
 }
 
 export async function getLatLonData(
@@ -312,8 +271,11 @@ export async function getLatLonData(
     isRotated
   );
 
-  const { latitudesVar, longitudesVar, latV3Attributes, lonV3Attributes } =
-    await fetchLatLonVariables(datasources!, latitudeName, longitudeName);
+  const { latitudesVar, longitudesVar } = await fetchLatLonVariables(
+    datasources!,
+    latitudeName,
+    longitudeName
+  );
 
   const latitudes =
     await ZarrDataManager.getVariableDataFromArray(latitudesVar);
@@ -324,10 +286,13 @@ export async function getLatLonData(
   }
 
   const returnObject = {
-    latitudesAttrs: { ...latitudesVar.attrs, ...latV3Attributes },
+    latitudesAttrs: {
+      dimensionNames: latitudesVar.dimensionNames,
+      ...latitudesVar.attrs,
+    },
     latitudes,
     longitudesAttrs: longitudesVar
-      ? { ...longitudesVar.attrs, ...lonV3Attributes }
+      ? { dimensionNames: longitudesVar.dimensionNames, ...longitudesVar.attrs }
       : null,
     longitudes,
   };
