@@ -4,11 +4,11 @@ import Select from "primevue/select";
 import { ref, watch } from "vue";
 
 import ColorBar from "./ColorBar.vue";
-import { roundToDataPrecision } from "./colorbarUtils";
+import { roundToDataPrecision } from "./colorbarUtils.ts";
 
-import type { TColorMap } from "@/lib/shaders/colormapShaders";
-import type { TBounds, TModelInfo } from "@/lib/types/GlobeTypes.js";
-import { useGlobeControlStore } from "@/store/store";
+import type { TColorMap } from "@/lib/shaders/colormapShaders.ts";
+import type { TBounds, TModelInfo } from "@/lib/types/GlobeTypes.ts";
+import { useGlobeControlStore } from "@/store/store.ts";
 
 const props = defineProps<{
   modelInfo: TModelInfo;

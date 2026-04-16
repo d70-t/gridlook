@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { storeToRefs } from "pinia";
 
-import { useGlobeControlStore } from "@/store/store";
+import { useGlobeControlStore } from "@/store/store.ts";
 
 const store = useGlobeControlStore();
 const { landSeaMaskChoice, landSeaMaskUseTexture } = storeToRefs(store);

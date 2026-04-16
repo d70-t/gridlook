@@ -15,7 +15,7 @@ import type {
   TDimensionRange,
   TSources,
   TDimInfo,
-} from "@/lib/types/GlobeTypes";
+} from "@/lib/types/GlobeTypes.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 import {
   HISTOGRAM_SUMMARY_BINS,

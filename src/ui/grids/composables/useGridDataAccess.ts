@@ -9,7 +9,7 @@ import type {
   TDimensionRange,
   TSources,
   TDimInfo,
-} from "@/lib/types/GlobeTypes";
+} from "@/lib/types/GlobeTypes.ts";
 import { useLog } from "@/utils/logging.ts";
 
 /* eslint-disable-next-line max-lines-per-function */

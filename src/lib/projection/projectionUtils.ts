@@ -6,7 +6,7 @@ import {
 } from "d3-geo-projection";
 import { MathUtils } from "three";
 
-import { createAzimuthalHybridRaw } from "./azimuthalHybrid";
+import { createAzimuthalHybridRaw } from "./azimuthalHybrid.ts";
 
 export const PROJECTION_TYPES = {
   NEARSIDE_PERSPECTIVE: "nearside_perspective",

@@ -10,7 +10,7 @@
  * characteristic look. Changing them will visibly alter the projection shape.
  */
 
-import { clamp } from "./projectionUtils";
+import { clamp } from "./projectionUtils.ts";
 
 // Base interpolation weight (0 = equal-area, 1 = equidistant).
 const BLEND = 0.43;

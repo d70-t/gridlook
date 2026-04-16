@@ -2,7 +2,7 @@ import * as d3 from "d3-geo";
 import type { FeatureCollection } from "geojson";
 import * as THREE from "three";
 
-import { ProjectionHelper } from "../projection/projectionUtils";
+import { ProjectionHelper } from "../projection/projectionUtils.ts";
 
 type TGeometryOptions = {
   radius?: number;

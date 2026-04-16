@@ -1,11 +1,11 @@
 import * as zarr from "zarrita";
 
-import { ZarrDataManager } from "./ZarrDataManager";
+import { ZarrDataManager } from "./ZarrDataManager.ts";
 
-import { type TSources } from "@/lib/types/GlobeTypes";
+import { type TSources } from "@/lib/types/GlobeTypes.ts";
 
 export function getMissingValue(
-  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
   const attributes = datavar.attrs;
   if (Object.hasOwn(attributes, "missingValue")) {
@@ -24,7 +24,7 @@ export function getMissingValue(
  * may use to store it in the metadata attributes.
  */
 export function getFillValue(
-  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
   if (datavar.fillValue) {
     return datavar.fillValue as number;
@@ -50,7 +50,7 @@ export function getFillValue(
  * missing or fill value (or is NaN).
  */
 export function createMissingOrFillPredicate(
-  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
   const missingValue = getMissingValue(datavar);
   const fillValue = getFillValue(datavar);
@@ -131,7 +131,7 @@ function latPriority(name: string) {
 }
 
 function resolveLatLonFromCoordinates(
-  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   isRotated: boolean
 ): { latitudeName: string | null; longitudeName: string | null } {
   const coordinates = isRotated
@@ -200,7 +200,7 @@ function refineLatLonFromSources(
  */
 function findLatLonNames(
   datasources: TSources,
-  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   isRotated = false
 ) {
   let { latitudeName, longitudeName } = resolveLatLonFromCoordinates(
@@ -247,7 +247,8 @@ async function fetchLatLonVariables(
     latitudeName
   );
 
-  let longitudesVar: zarr.Array<zarr.DataType, zarr.FetchStore> | null = null;
+  let longitudesVar: zarr.Array<zarr.DataType, zarr.AsyncReadable> | null =
+    null;
   try {
     longitudesVar = await ZarrDataManager.getVariableInfo(
       gridsource,
@@ -261,7 +262,7 @@ async function fetchLatLonVariables(
 }
 
 export async function getLatLonData(
-  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   datasources: TSources | undefined,
   isRotated = false
 ) {
@@ -307,7 +308,7 @@ export async function getLatLonData(
 }
 
 export function getDataBounds(
-  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   data: Float32Array<ArrayBufferLike>
 ) {
   let min = Number.POSITIVE_INFINITY;

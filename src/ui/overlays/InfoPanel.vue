@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import dayjs from "dayjs";
-import duration from "dayjs/plugin/duration";
+import duration from "dayjs/plugin/duration.js";
 import humanizeDuration from "humanize-duration";
 import { storeToRefs } from "pinia";
 import { ref, watch, computed, type Ref } from "vue";
@@ -14,19 +14,19 @@ import {
   GRID_TYPE_DISPLAY_OVERRIDES,
   GRID_TYPES,
   type T_GRID_TYPES,
-} from "@/lib/data/gridTypeDetector";
-import { decodeTime } from "@/lib/data/timeHandling";
-import queryVariable, { type TNercVariable } from "@/lib/data/variableQuery";
-import { ZarrDataManager } from "@/lib/data/ZarrDataManager";
+} from "@/lib/data/gridTypeDetector.ts";
+import { decodeTime } from "@/lib/data/timeHandling.ts";
+import queryVariable, { type TNercVariable } from "@/lib/data/variableQuery.ts";
+import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   getLatLonData,
   getMissingValue,
   getFillValue,
-} from "@/lib/data/zarrUtils";
-import type { TSources } from "@/lib/types/GlobeTypes";
-import { useUrlParameterStore } from "@/store/paramStore";
-import { useGlobeControlStore } from "@/store/store";
-import { useLog } from "@/utils/logging";
+} from "@/lib/data/zarrUtils.ts";
+import type { TSources } from "@/lib/types/GlobeTypes.ts";
+import { useUrlParameterStore } from "@/store/paramStore.ts";
+import { useGlobeControlStore } from "@/store/store.ts";
+import { useLog } from "@/utils/logging.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -357,7 +357,7 @@ function processLonData(
 }
 
 async function getLatLonInfo(
-  variable: zarr.Array<zarr.DataType, zarr.FetchStore>
+  variable: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
   if (
     props.gridType === GRID_TYPES.TRIANGULAR ||
@@ -407,7 +407,7 @@ async function getLatLonInfo(
 }
 
 async function loadVariableDetails(
-  variable: zarr.Array<zarr.DataType, zarr.FetchStore>
+  variable: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
   variableAttrs.value = variable.attrs;
   variableUnits.value = (variable.attrs?.units as string) || null;

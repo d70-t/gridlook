@@ -179,18 +179,49 @@ export default [
       ...boundaries.configs.recommended.rules,
       "boundaries/no-unknown-files": "warn",
       "boundaries/no-unknown": "warn",
-      "boundaries/element-types": [
+      "boundaries/dependencies": [
         2,
         {
           default: "disallow",
           rules: [
-            { from: "ui", allow: ["store", "lib", "ui", "utils"] },
-            { from: "store", allow: ["lib", "utils"] },
-            { from: "lib", allow: ["assets", "utils"] },
-            { from: "views", allow: ["lib", "store", "ui", "utils"] },
-            { from: "src", allow: ["lib", "src", "router", "views", "utils"] },
-            { from: "router", allow: ["views"] },
-            { from: "utils", disallow: ["*"] },
+            {
+              from: { type: "ui" },
+              allow: [
+                { to: { type: "store" } },
+                { to: { type: "lib" } },
+                { to: { type: "ui" } },
+                { to: { type: "utils" } },
+              ],
+            },
+            {
+              from: { type: "store" },
+              allow: [{ to: { type: "lib" } }, { to: { type: "utils" } }],
+            },
+            {
+              from: { type: "lib" },
+              allow: [{ to: { type: "assets" } }, { to: { type: "utils" } }],
+            },
+            {
+              from: { type: "views" },
+              allow: [
+                { to: { type: "lib" } },
+                { to: { type: "store" } },
+                { to: { type: "ui" } },
+                { to: { type: "utils" } },
+              ],
+            },
+            {
+              from: { type: "src" },
+              allow: [
+                { to: { type: "lib" } },
+                { to: { type: "src" } },
+                { to: { type: "router" } },
+                { to: { type: "views" } },
+                { to: { type: "utils" } },
+              ],
+            },
+            { from: { type: "router" }, allow: [{ to: { type: "views" } }] },
+            { from: { type: "utils" }, disallow: [{ to: { type: "*" } }] },
           ],
         },
       ],

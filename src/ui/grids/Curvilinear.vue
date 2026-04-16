@@ -163,7 +163,7 @@ async function datasourceUpdate() {
 const BATCH_SIZE = 30;
 
 async function getGrid(
-  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   data: Float32Array
 ) {
   const { latitudes, longitudes } = await getLatLonData(
@@ -643,7 +643,7 @@ function setHoverData(
 }
 
 async function renderGridAndHover(
-  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   rawData: Float32Array,
   fillValue: number,
   missingValue: number
@@ -663,7 +663,7 @@ async function renderGridAndHover(
 }
 
 async function fetchAndRenderData(
-  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   updateMode: TUpdateMode
 ) {
   const dimensionNames = await ZarrDataManager.getDimensionNames(

@@ -2,10 +2,13 @@ import debounce from "lodash.debounce";
 import { storeToRefs } from "pinia";
 import { watch } from "vue";
 
-import { URL_PARAMETERS, type TURLParameterValues } from "../utils/urlParams";
+import {
+  URL_PARAMETERS,
+  type TURLParameterValues,
+} from "../utils/urlParams.ts";
 
-import { useUrlParameterStore } from "./paramStore";
-import { useGlobeControlStore } from "./store";
+import { useUrlParameterStore } from "./paramStore.ts";
+import { useGlobeControlStore } from "./store.ts";
 
 /* eslint-disable-next-line max-lines-per-function */
 export function useUrlSync() {

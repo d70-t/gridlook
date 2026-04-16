@@ -5,13 +5,11 @@ import {
   type TDataSource,
   type TSources,
   type TZarrFormat,
-  type TZarrV3RootMetadata,
-} from "../types/GlobeTypes";
+} from "../types/GlobeTypes.ts";
 
-import { lru } from "./lruStore";
-import { ZarrDataManager } from "./ZarrDataManager";
+import { lru } from "./lruStore.ts";
 
-import trim from "@/utils/trim";
+import trim from "@/utils/trim.ts";
 
 function isValidVariable(
   varname: string,
@@ -41,15 +39,32 @@ function isValidVariable(
   return shapeValid && !hasExcludedName && !isLatLon;
 }
 
-async function collectZarrV2Variables(
-  store: zarr.Listable<zarr.FetchStore>,
-  root: zarr.Group<zarr.FetchStore>,
+function searchDimensionsAndCoordinates(
+  dimensions: Set<string>,
+  variable: zarr.Array<zarr.DataType, zarr.AsyncReadable>
+) {
+  if (Array.isArray(variable.dimensionNames)) {
+    for (const dim of variable.dimensionNames) {
+      dimensions.add(dim);
+    }
+  }
+
+  if (variable.attrs.coordinates) {
+    const coords = variable.attrs.coordinates as string;
+    for (const coord of coords.split(" ")) {
+      dimensions.add(coord);
+    }
+  }
+}
+
+async function collectVariables(
+  store: zarr.Listable<zarr.AsyncReadable>,
+  root: zarr.Group<zarr.AsyncReadable>,
   src: string
 ): Promise<{
   candidates: PromiseSettledResult<Record<string, TDataSource>>[];
   dimensions: Set<string>;
 }> {
-  console.log(root.kind, root.attrs);
   const dimensions = new Set<string>();
   const candidates = await Promise.allSettled(
     store
@@ -68,20 +83,7 @@ async function collectZarrV2Variables(
           const variable = await zarr.open(root.resolve(path), {
             kind: "array",
           });
-          const arrayDimensions = variable.dimensionNames;
-
-          if (Array.isArray(arrayDimensions)) {
-            for (const dim of arrayDimensions) {
-              dimensions.add(dim);
-            }
-          }
-
-          if (variable.attrs.coordinates) {
-            const coords = variable.attrs.coordinates as string;
-            for (const coord of coords.split(" ")) {
-              dimensions.add(coord);
-            }
-          }
+          searchDimensionsAndCoordinates(dimensions, variable);
 
           const varname = path.slice(1);
           return {
@@ -91,9 +93,12 @@ async function collectZarrV2Variables(
               hidden: !isValidVariable(
                 varname,
                 variable.shape,
-                arrayDimensions as string[]
+                variable.dimensionNames as string[]
               ),
-              attrs: { ...variable.attrs, dimensionNames: arrayDimensions },
+              attrs: {
+                ...variable.attrs,
+                dimensionNames: variable.dimensionNames,
+              },
             },
           };
         }
@@ -103,18 +108,13 @@ async function collectZarrV2Variables(
   return { candidates, dimensions };
 }
 
-async function processZarrV2Variables(
-  store: zarr.Listable<zarr.FetchStore>,
-  root: zarr.Group<zarr.FetchStore>,
+async function processZarrVariables(
+  store: zarr.Listable<zarr.AsyncReadable>,
+  root: zarr.Group<zarr.AsyncReadable>,
   src: string
 ): Promise<Record<string, TDataSource>> {
-  const { candidates, dimensions } = await collectZarrV2Variables(
-    store,
-    root,
-    src
-  );
+  const { candidates, dimensions } = await collectVariables(store, root, src);
 
-  console.log("candidates, dimensions", candidates, dimensions);
   // Filter and merge datasources
   const datasources = candidates
     .filter((promise) => promise.status === "fulfilled")
@@ -166,7 +166,7 @@ export async function indexFromZarr(src: string): Promise<TSources> {
       { format: "v2" }
     );
     const root = await zarr.open(store, { kind: "group" });
-    const datasources = await processZarrV2Variables(store, root, src);
+    const datasources = await processZarrVariables(store, root, src);
     return createIndex(
       root.attrs?.title as string,
       datasources,
@@ -179,7 +179,7 @@ export async function indexFromZarr(src: string): Promise<TSources> {
       { format: "v3" }
     );
     const root = await zarr.open(store, { kind: "group" });
-    const datasources = await processZarrV2Variables(store, root, src);
+    const datasources = await processZarrVariables(store, root, src);
     return createIndex(
       root.attrs?.title as string,
       datasources,

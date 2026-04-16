@@ -1,11 +1,7 @@
 import * as zarr from "zarrita";
 
-import { lru } from "@/lib/data/lruStore";
-import type {
-  TDataSource,
-  TSources,
-  TZarrV3RootMetadata,
-} from "@/lib/types/GlobeTypes";
+import { lru } from "@/lib/data/lruStore.ts";
+import type { TDataSource, TSources } from "@/lib/types/GlobeTypes.ts";
 
 export type TZarrDatasetMetadata = {
   attrs: zarr.Attributes;
@@ -26,7 +22,7 @@ export type TZarrVariableMetadata = {
 type TDatasetSource = Pick<TDataSource, "dataset" | "store">;
 
 export class ZarrDataManager {
-  private static fetchStore: zarr.Location<zarr.FetchStore> | null = null;
+  private static fetchStore: zarr.Location<zarr.AsyncReadable> | null = null;
   private static fetchStorePath: string | null = null;
 
   private static normalizeStorePath(store: string) {
@@ -39,7 +35,7 @@ export class ZarrDataManager {
 
   private static async getDataset(
     datasource: TDatasetSource
-  ): Promise<zarr.Group<zarr.FetchStore>> {
+  ): Promise<zarr.Group<zarr.AsyncReadable>> {
     const storePath = this.normalizeStorePath(datasource.store);
     if (!this.fetchStore || this.fetchStorePath !== storePath) {
       this.fetchStorePath = storePath;
@@ -54,29 +50,10 @@ export class ZarrDataManager {
     return dataset;
   }
 
-  public static async openZarrV3Metadata<Store extends zarr.Readable>(
-    store: Store
-  ): Promise<zarr.Group<Store>> {
-    const location = zarr.root(store);
-    const rootMetadata: TZarrV3RootMetadata = JSON.parse(
-      new TextDecoder().decode(
-        await store.get(location.resolve("zarr.json").path)
-      )
-    );
-
-    return new zarr.Group(store, location.path, {
-      /* eslint-disable camelcase */
-      zarr_format: 3,
-      node_type: "group",
-      attributes: { ...rootMetadata },
-      /* eslint-enable camelcase */
-    });
-  }
-
   private static async getVariable(
-    store: zarr.Group<zarr.FetchStore>,
+    store: zarr.Group<zarr.AsyncReadable>,
     variable: string
-  ): Promise<zarr.Array<zarr.DataType, zarr.FetchStore>> {
+  ): Promise<zarr.Array<zarr.DataType, zarr.AsyncReadable>> {
     const fetchPromise = (async () => {
       return await zarr.open(store.resolve(variable), {
         kind: "array",
@@ -93,7 +70,7 @@ export class ZarrDataManager {
   static async getVariableInfo(
     datasource: TDatasetSource,
     variable: string
-  ): Promise<zarr.Array<zarr.DataType, zarr.FetchStore>> {
+  ): Promise<zarr.Array<zarr.DataType, zarr.AsyncReadable>> {
     const group = await this.getDataset(datasource);
     const array = await this.getVariable(group, variable);
     return array;
@@ -102,7 +79,7 @@ export class ZarrDataManager {
   static async getVariableInfoByDatasetSources(
     datasource: TSources,
     variable: string
-  ): Promise<zarr.Array<zarr.DataType, zarr.FetchStore>> {
+  ): Promise<zarr.Array<zarr.DataType, zarr.AsyncReadable>> {
     const array = await ZarrDataManager.getVariableInfo(
       ZarrDataManager.getDatasetSource(datasource!, variable),
       variable
@@ -123,7 +100,7 @@ export class ZarrDataManager {
   }
 
   static getVariableDataFromArray(
-    array: zarr.Array<zarr.DataType, zarr.FetchStore>,
+    array: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
     selection?: (number | null | zarr.Slice)[]
   ) {
     if (selection && selection.length > 0) {
@@ -135,7 +112,7 @@ export class ZarrDataManager {
   static async getCRSInfo(
     datasource: TSources,
     variable: string
-  ): Promise<zarr.Array<zarr.DataType, zarr.FetchStore>> {
+  ): Promise<zarr.Array<zarr.DataType, zarr.AsyncReadable>> {
     const crsVar = await this.findCRSVar(datasource, variable);
     const variableSource = this.getDatasetSource(datasource, variable);
     return await this.getVariableInfo(variableSource, crsVar);

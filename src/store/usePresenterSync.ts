@@ -8,9 +8,9 @@ import {
   type TPresenterMessage,
   type TPresenterRole,
   type TPresenterStatePayload,
-} from "@/lib/types/presenterSync";
-import { useUrlParameterStore } from "@/store/paramStore";
-import { useGlobeControlStore } from "@/store/store";
+} from "@/lib/types/presenterSync.ts";
+import { useUrlParameterStore } from "@/store/paramStore.ts";
+import { useGlobeControlStore } from "@/store/store.ts";
 
 const presenterRole: Ref<TPresenterRole | null> = ref(null);
 const presenterWindowOpen = ref(false);

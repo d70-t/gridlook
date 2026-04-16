@@ -346,7 +346,7 @@ function buildTriangleHoverIndex(
 
 function data2valueBuffer(
   data: zarr.Chunk<zarr.DataType>,
-  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
   const awaitedData = data;
   const ncells = awaitedData.shape[0];
@@ -411,7 +411,7 @@ function distributeDataToMeshes(dataBuffer: {
 }
 
 async function buildDimensionConfig(
-  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   updateMode: TUpdateMode
 ) {
   const dimensionNames = await ZarrDataManager.getDimensionNames(
@@ -432,7 +432,7 @@ async function buildDimensionConfig(
 }
 
 async function fetchAndRenderData(
-  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   updateMode: TUpdateMode
 ) {
   const { dimensionRanges, indices } = await buildDimensionConfig(

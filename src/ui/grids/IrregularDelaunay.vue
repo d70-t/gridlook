@@ -669,7 +669,7 @@ function getGeographicDimensionIndices(
 }
 
 async function buildDimensionConfig(
-  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   updateMode: TUpdateMode
 ) {
   const { latitudes, longitudes, latitudesAttrs, longitudesAttrs } =
@@ -723,7 +723,7 @@ function updateHoverLookup(
 }
 
 async function fetchAndRenderData(
-  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   updateMode: TUpdateMode
 ) {
   const { latitudes, longitudes, dimensionRanges, indices } =

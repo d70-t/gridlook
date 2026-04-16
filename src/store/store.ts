@@ -3,15 +3,15 @@ import { defineStore } from "pinia";
 import {
   LAND_SEA_MASK_MODES,
   type TLandSeaMaskMode,
-} from "@/lib/layers/landSeaMask";
+} from "@/lib/layers/landSeaMask.ts";
 import {
   PROJECTION_TYPES,
   type TProjectionCenter,
   type TProjectionType,
-} from "@/lib/projection/projectionUtils";
-import type { TColorMap } from "@/lib/shaders/colormapShaders";
-import type { TVarInfo, TBounds } from "@/lib/types/GlobeTypes";
-import type { TCatalog } from "@/utils/catalog";
+} from "@/lib/projection/projectionUtils.ts";
+import type { TColorMap } from "@/lib/shaders/colormapShaders.ts";
+import type { TVarInfo, TBounds } from "@/lib/types/GlobeTypes.ts";
+import type { TCatalog } from "@/utils/catalog.ts";
 
 export const UPDATE_MODE = {
   INITIAL_LOAD: "initialLoad",

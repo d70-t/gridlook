@@ -1,9 +1,9 @@
 import * as zarr from "zarrita";
 
-import { ZarrDataManager } from "./ZarrDataManager";
-import { getLatLonData, isLatitudeName, isLongitudeName } from "./zarrUtils";
+import { ZarrDataManager } from "./ZarrDataManager.ts";
+import { getLatLonData, isLatitudeName, isLongitudeName } from "./zarrUtils.ts";
 
-import type { TSources } from "@/lib/types/GlobeTypes";
+import type { TSources } from "@/lib/types/GlobeTypes.ts";
 
 export const GRID_TYPES = {
   REGULAR: "regular",
@@ -51,12 +51,12 @@ async function checkTriangularGrid(
   }
 }
 
-function checkHealpixGrid(crs: zarr.Array<zarr.DataType, zarr.FetchStore>) {
+function checkHealpixGrid(crs: zarr.Array<zarr.DataType, zarr.AsyncReadable>) {
   return crs.attrs["grid_mapping_name"] === "healpix";
 }
 
 function checkRegularRotatedGrid(
-  crs: zarr.Array<zarr.DataType, zarr.FetchStore>
+  crs: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
   return crs.attrs["grid_mapping_name"] === "rotated_latitude_longitude";
 }
@@ -119,7 +119,7 @@ async function determineGridTypeFromCRS(
 
 // Determine grid type from lat/lon data analysis
 async function determineGridTypeFromData(
-  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   datasources: TSources | undefined
 ): Promise<T_GRID_TYPES | null> {
   const { latitudes, longitudes } = await getLatLonData(datavar, datasources);

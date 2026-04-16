@@ -4,10 +4,9 @@
   "compilerOptions": {
     "target": "ES2022",
     "useDefineForClassFields": true,
-    "module": "es2020",
+    "module": "es2022",
     "types": ["vite/client", "node"],
     "skipLibCheck": true,
-    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
     },
@@ -15,7 +14,7 @@
     "allowJs": true,
 
     /* Bundler mode */
-    "moduleResolution": "node10",
+    "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "isolatedModules": true,
     "moduleDetection": "force",

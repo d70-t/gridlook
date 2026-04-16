@@ -12,7 +12,7 @@ import {
   type TSnapshotOptions,
 } from "@/lib/types/GlobeTypes.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
-import { useLog } from "@/utils/logging";
+import { useLog } from "@/utils/logging.ts";
 
 type UseGridSnapshotOptions = {
   canvas: Ref<HTMLCanvasElement | undefined>;

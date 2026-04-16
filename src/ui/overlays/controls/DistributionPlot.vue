@@ -17,7 +17,7 @@ import {
   nextTick,
 } from "vue";
 
-import { computeBinTooltip, type BinTooltip } from "./colorbarUtils";
+import { computeBinTooltip, type BinTooltip } from "./colorbarUtils.ts";
 
 // ---------------------------------------------------------------------------
 // Props & emits

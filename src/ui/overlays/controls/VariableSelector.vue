@@ -3,7 +3,7 @@ import { storeToRefs } from "pinia";
 import { computed } from "vue";
 
 import type { TModelInfo } from "@/lib/types/GlobeTypes.js";
-import { useGlobeControlStore } from "@/store/store";
+import { useGlobeControlStore } from "@/store/store.ts";
 
 const model = defineModel<string>({ required: true });
 

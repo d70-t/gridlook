@@ -10,7 +10,7 @@ import {
   AZIMUTHAL_CLIP_ANGLE,
   PROJECTION_TYPES,
   type TProjectionType,
-} from "./projectionUtils";
+} from "./projectionUtils.ts";
 
 export const PROJECTION_TYPE_BY_MODE = {
   [PROJECTION_TYPES.NEARSIDE_PERSPECTIVE]: 0,

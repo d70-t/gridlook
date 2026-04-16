@@ -1,6 +1,6 @@
 import { onBeforeUnmount, shallowRef, watch, type ShallowRef } from "vue";
 
-import { ProjectionHelper } from "@/lib/projection/projectionUtils";
+import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import {
   HOVERED_GRID_POINT_STATUS,
   useGlobeControlStore,

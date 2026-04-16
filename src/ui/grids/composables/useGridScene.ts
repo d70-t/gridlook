@@ -1,7 +1,7 @@
 import { useEventListener } from "@vueuse/core";
 import * as d3 from "d3-geo";
 import * as THREE from "three";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import {
   onBeforeUnmount,
   onMounted,
@@ -24,7 +24,7 @@ import {
 } from "@/lib/projection/projectionUtils.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
-import { isDisplayMode, isPresenterActive } from "@/store/usePresenterSync";
+import { isDisplayMode, isPresenterActive } from "@/store/usePresenterSync.ts";
 import {
   CONTROL_PANEL_WIDTH,
   MOBILE_BREAKPOINT,

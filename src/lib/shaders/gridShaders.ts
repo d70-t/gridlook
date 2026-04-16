@@ -4,18 +4,18 @@ import {
   projectionShaderFunctions,
   PROJECTION_TYPE_BY_MODE,
   getProjectionTypeFromMode,
-} from "../projection/projectionShaders";
+} from "../projection/projectionShaders.ts";
 import {
   PROJECTION_TYPES,
   type ProjectionHelper,
-} from "../projection/projectionUtils";
+} from "../projection/projectionUtils.ts";
 
 import {
   applyColormapShaders,
   availableColormaps,
   colormapShaders,
   type TColorMap,
-} from "./colormapShaders";
+} from "./colormapShaders.ts";
 
 const isNaNGLSL = `
 bool is_nan(float val) {

@@ -417,7 +417,7 @@ function updateHoverLookup(
 }
 
 async function buildDimensionConfig(
-  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   updateMode: TUpdateMode
 ) {
   const { latitudes, longitudes, latitudesAttrs, longitudesAttrs } =
@@ -446,7 +446,7 @@ async function buildDimensionConfig(
 }
 
 async function fetchAndRenderData(
-  datavar: zarr.Array<zarr.DataType, zarr.FetchStore>,
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   updateMode: TUpdateMode
 ) {
   const { latitudes, longitudes, dimensionRanges, indices } =

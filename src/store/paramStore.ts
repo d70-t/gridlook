@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 
-import type { TColorMap } from "@/lib/shaders/colormapShaders";
+import type { TColorMap } from "@/lib/shaders/colormapShaders.ts";
 // import type { TURLParameterValues } from "../utils/urlParams";
 
 /* Initial values of SOME of the URL parameters.
