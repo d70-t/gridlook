@@ -1,6 +1,6 @@
+import QuickLRU from "quick-lru";
 import * as zarr from "zarrita";
 
-import { lru } from "@/lib/data/lruStore.ts";
 import type { TDataSource, TSources } from "@/lib/types/GlobeTypes.ts";
 
 export type TZarrDatasetMetadata = {
@@ -20,7 +20,6 @@ export type TZarrVariableMetadata = {
 };
 
 type TDatasetSource = Pick<TDataSource, "dataset" | "store">;
-
 export class ZarrDataManager {
   private static fetchStore: zarr.Location<zarr.AsyncReadable> | null = null;
   private static fetchStorePath: string | null = null;
@@ -33,15 +32,25 @@ export class ZarrDataManager {
     return dataset.replace(/^\/+/, "").replace(/\/+$/, "");
   }
 
+  public static async createNewStore(storePath: string) {
+    const cache = new QuickLRU<string, Uint8Array | undefined>({
+      maxSize: 512,
+    });
+    const fetchStore = zarr.extendStore(
+      new zarr.FetchStore(storePath, { useSuffixRequest: true }),
+      (s) => zarr.withRangeCoalescing(s, { coalesceSize: 32768 }),
+      (s) => zarr.withByteCaching(s, { cache: cache })
+    );
+    return fetchStore;
+  }
+
   private static async getDataset(
     datasource: TDatasetSource
   ): Promise<zarr.Group<zarr.AsyncReadable>> {
     const storePath = this.normalizeStorePath(datasource.store);
     if (!this.fetchStore || this.fetchStorePath !== storePath) {
       this.fetchStorePath = storePath;
-      this.fetchStore = zarr.root(
-        lru(new zarr.FetchStore(storePath, { useSuffixRequest: true }))
-      );
+      this.fetchStore = zarr.root(await this.createNewStore(storePath));
     }
     const root = this.fetchStore!;
     const datasetPath = this.normalizeDatasetPath(datasource.dataset);

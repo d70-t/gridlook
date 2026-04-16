@@ -7,7 +7,7 @@ import {
   type TZarrFormat,
 } from "../types/GlobeTypes.ts";
 
-import { lru } from "./lruStore.ts";
+import { ZarrDataManager } from "./ZarrDataManager.ts";
 
 import trim from "@/utils/trim.ts";
 
@@ -162,7 +162,7 @@ function createIndex(
 export async function indexFromZarr(src: string): Promise<TSources> {
   try {
     const store = await zarr.withConsolidatedMetadata(
-      lru(new zarr.FetchStore(src)),
+      await ZarrDataManager.createNewStore(src),
       { format: "v2" }
     );
     const root = await zarr.open(store, { kind: "group" });
@@ -175,7 +175,7 @@ export async function indexFromZarr(src: string): Promise<TSources> {
     );
   } catch {
     const store = await zarr.withConsolidatedMetadata(
-      lru(new zarr.FetchStore(src)),
+      await ZarrDataManager.createNewStore(src),
       { format: "v3" }
     );
     const root = await zarr.open(store, { kind: "group" });
@@ -220,7 +220,7 @@ async function enrichMetadata(
 ) {
   for (const [store, vars] of Object.entries(stores)) {
     const zarrStore = await zarr.withConsolidatedMetadata(
-      lru(new zarr.FetchStore(store)),
+      await ZarrDataManager.createNewStore(store),
       { format: format }
     );
     const root = await zarr.open(zarrStore, { kind: "group" });
