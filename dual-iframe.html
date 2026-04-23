@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gridlook – dual iframe with shared camera</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      html,
+      body {
+        height: 100%;
+        background: #111;
+        font-family: sans-serif;
+        color: #eee;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+      }
+      .container {
+        display: flex;
+        flex: 1;
+        gap: 4px;
+        padding: 4px 4px 0;
+        min-height: 0;
+      }
+      iframe {
+        flex: 1;
+        border: none;
+        border-radius: 4px;
+      }
+      #time-bar {
+        display: none;
+        align-items: center;
+        gap: 10px;
+        padding: 6px 10px;
+        background: #1e1e1e;
+        border-top: 1px solid #333;
+        flex-shrink: 0;
+      }
+      #time-bar.visible {
+        display: flex;
+      }
+      #time-bar label {
+        white-space: nowrap;
+        font-size: 13px;
+        color: #aaa;
+      }
+      #time-slider {
+        flex: 1;
+        accent-color: #4a9eff;
+        cursor: pointer;
+      }
+      #time-value {
+        font-size: 13px;
+        min-width: 3ch;
+        text-align: right;
+        color: #eee;
+      }
+      #play-btn {
+        background: #2a2a2a;
+        border: 1px solid #444;
+        color: #eee;
+        border-radius: 4px;
+        padding: 2px 10px;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      #play-btn:hover {
+        background: #3a3a3a;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <!--
+        Both iframes point at the local gridlook dev server.
+        Change the src to your deployed URL if needed.
+        distractionFree=true hides the control panel UI.
+      -->
+      <iframe
+        id="gl-a"
+        src="http://localhost:3000/#::distractionFree=true"
+        allow="cross-origin-isolated"
+      ></iframe>
+      <iframe
+        id="gl-b"
+        src="http://localhost:3000/#::distractionFree=true"
+        allow="cross-origin-isolated"
+      ></iframe>
+    </div>
+
+    <!-- Time-dimension control bar — hidden until a time dimension is discovered -->
+    <div id="time-bar">
+      <label id="time-label">time</label>
+      <input id="time-slider" type="range" min="0" max="0" value="0" step="1" />
+      <span id="time-value">0</span>
+      <button id="play-btn">&#9654;</button>
+    </div>
+
+    <script>
+      const iframeA = document.getElementById("gl-a");
+      const iframeB = document.getElementById("gl-b");
+      const timeBar = document.getElementById("time-bar");
+      const timeSlider = document.getElementById("time-slider");
+      const timeValue = document.getElementById("time-value");
+      const timeLabel = document.getElementById("time-label");
+      const playBtn = document.getElementById("play-btn");
+
+      // Name of the detected time dimension (set once first varInfo arrives)
+      let timeDimName = null;
+      let playInterval = null;
+
+      // ── Camera relay ──────────────────────────────────────────────────────
+
+      function relayCameraState(camerastate, skipIframe) {
+        const msg = {
+          type: "gridlook:setParams",
+          params: { camerastate },
+        };
+        if (skipIframe !== iframeA) {
+          iframeA.contentWindow.postMessage(msg, "*");
+        }
+        if (skipIframe !== iframeB) {
+          iframeB.contentWindow.postMessage(msg, "*");
+        }
+      }
+
+      // ── Time dimension helpers ────────────────────────────────────────────
+
+      function setTimeDim(dimName, min, max, current) {
+        timeDimName = dimName;
+        timeLabel.textContent = dimName;
+        timeSlider.min = min;
+        timeSlider.max = max;
+        timeSlider.value = current;
+        timeValue.textContent = current;
+        timeBar.classList.add("visible");
+      }
+
+      function broadcastTimeIndex(index) {
+        const key = "dimIndices_" + timeDimName;
+        const msg = {
+          type: "gridlook:setParams",
+          params: { [key]: String(index) },
+        };
+        iframeA.contentWindow.postMessage(msg, "*");
+        iframeB.contentWindow.postMessage(msg, "*");
+      }
+
+      // ── Slider interaction ────────────────────────────────────────────────
+
+      timeSlider.addEventListener("input", () => {
+        const idx = parseInt(timeSlider.value, 10);
+        timeValue.textContent = idx;
+        if (timeDimName) {
+          broadcastTimeIndex(idx);
+        }
+      });
+
+      // ── Play / pause animation ────────────────────────────────────────────
+
+      playBtn.addEventListener("click", () => {
+        if (playInterval) {
+          clearInterval(playInterval);
+          playInterval = null;
+          playBtn.innerHTML = "&#9654;";
+        } else {
+          playBtn.innerHTML = "&#9646;&#9646;";
+          playInterval = setInterval(() => {
+            const max = parseInt(timeSlider.max, 10);
+            const next = (parseInt(timeSlider.value, 10) + 1) % (max + 1);
+            timeSlider.value = next;
+            timeValue.textContent = next;
+            if (timeDimName) {
+              broadcastTimeIndex(next);
+            }
+          }, 200);
+        }
+      });
+
+      // ── Message listener ──────────────────────────────────────────────────
+
+      window.addEventListener("message", (event) => {
+        if (typeof event.data !== "object" || event.data === null) return;
+
+        if (event.data.type === "gridlook:cameraState") {
+          const { camerastate } = event.data;
+          if (!camerastate) return;
+          const source =
+            event.source === iframeA.contentWindow
+              ? iframeA
+              : event.source === iframeB.contentWindow
+                ? iframeB
+                : null;
+          relayCameraState(camerastate, source);
+          return;
+        }
+
+        if (event.data.type === "gridlook:varInfo") {
+          const { dims } = event.data;
+          if (!Array.isArray(dims)) return;
+          // Find the first dimension whose name contains "time" (case-insensitive).
+          // Fall back to the first dimension if none match.
+          const timeDim =
+            dims.find((d) => /time/i.test(d.name)) ?? dims[0] ?? null;
+          if (timeDim && !timeDimName) {
+            setTimeDim(timeDim.name, timeDim.min, timeDim.max, timeDim.current);
+          }
+        }
+      });
+    </script>
+  </body>
+</html>

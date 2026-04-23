@@ -10,6 +10,7 @@ import {
   useUrlParameterStore,
 } from "@/store/paramStore.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
+import { useIframeMessages } from "@/store/useIframeMessages.ts";
 import { isDisplayMode, isPresenterActive } from "@/store/usePresenterSync.ts";
 import type { TURLParameterValues } from "@/utils/urlParams.ts";
 
@@ -80,6 +81,7 @@ const onHashChange = () => {
 };
 
 useEventListener(window, "hashchange", onHashChange);
+useIframeMessages(src, defaultSrc);
 
 onBeforeMount(() => {
   onHashChange();
