@@ -21,7 +21,9 @@ export type TZarrVariableMetadata = {
 
 type TDatasetSource = Pick<TDataSource, "dataset" | "store">;
 export class ZarrDataManager {
-  private static fetchStore: zarr.Location<zarr.AsyncReadable> | null = null;
+  private static pendingStore: Promise<
+    zarr.Location<zarr.AsyncReadable>
+  > | null = null;
   private static fetchStorePath: string | null = null;
 
   private static normalizeStorePath(store: string) {
@@ -48,11 +50,20 @@ export class ZarrDataManager {
     datasource: TDatasetSource
   ): Promise<zarr.Group<zarr.AsyncReadable>> {
     const storePath = this.normalizeStorePath(datasource.store);
-    if (!this.fetchStore || this.fetchStorePath !== storePath) {
+    if (!this.pendingStore || this.fetchStorePath !== storePath) {
       this.fetchStorePath = storePath;
-      this.fetchStore = zarr.root(await this.createNewStore(storePath));
+      this.pendingStore = this.createNewStore(storePath)
+        .then((s) => zarr.root(s))
+        .catch((e) => {
+          // Clear the cache on failure so callers can retry.
+          if (this.fetchStorePath === storePath) {
+            this.pendingStore = null;
+          }
+          throw e;
+        });
     }
-    const root = this.fetchStore!;
+    // Capture locally so a concurrent path switch cannot swap the store under us.
+    const root = await this.pendingStore;
     const datasetPath = this.normalizeDatasetPath(datasource.dataset);
     const target = datasetPath ? root.resolve(datasetPath) : root;
     const dataset = await zarr.open(target, { kind: "group" });
@@ -161,7 +172,7 @@ export class ZarrDataManager {
   }
 
   static invalidateCache() {
-    this.fetchStore = null;
+    this.pendingStore = null;
     this.fetchStorePath = null;
   }
 }
