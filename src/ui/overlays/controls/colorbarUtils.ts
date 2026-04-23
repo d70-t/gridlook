@@ -42,16 +42,10 @@ export function formatValue(value: number): string {
   if (abs === 0) {
     return "0";
   }
-  if (abs >= 1000 || abs < 0.01) {
+  if (abs >= 1e6 || abs < 1e-4) {
     return value.toExponential(1);
   }
-  if (abs >= 100) {
-    return value.toFixed(0);
-  }
-  if (abs >= 10) {
-    return value.toFixed(1);
-  }
-  return value.toFixed(2);
+  return String(parseFloat(value.toPrecision(3)));
 }
 
 export interface BinTooltip {

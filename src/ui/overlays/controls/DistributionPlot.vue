@@ -17,7 +17,11 @@ import {
   nextTick,
 } from "vue";
 
-import { computeBinTooltip, type BinTooltip } from "./colorbarUtils.ts";
+import {
+  computeBinTooltip,
+  formatValue,
+  type BinTooltip,
+} from "./colorbarUtils.ts";
 
 // ---------------------------------------------------------------------------
 // Props & emits
@@ -139,17 +143,6 @@ function tickFraction(tick: number): number {
     return 0;
   }
   return (tick - props.dataBoundsLow) / dataRange.value;
-}
-
-function formatTick(value: number): string {
-  if (value === 0) {
-    return "0";
-  }
-  const abs = Math.abs(value);
-  if (abs >= 1e5 || abs < 1e-2) {
-    return value.toExponential(1);
-  }
-  return String(parseFloat(value.toPrecision(3)));
 }
 
 // ---------------------------------------------------------------------------
@@ -512,7 +505,7 @@ onBeforeUnmount(() => {
         :key="i"
         class="tick-label"
         :style="{ left: tickFraction(tick) * 100 + '%' }"
-        >{{ formatTick(tick) }}</span
+        >{{ formatValue(tick) }}</span
       >
     </div>
 
