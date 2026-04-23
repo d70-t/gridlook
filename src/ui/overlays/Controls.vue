@@ -65,7 +65,7 @@ const defaultBounds = ref<TBounds>({});
 const isInitialVarLoad = ref(true);
 
 // Colormap logic state
-const autoColormap = ref<boolean>(true);
+const userHasSelectedColormap = ref<boolean>(false);
 
 const urlParameterStore = useUrlParameterStore();
 const {
@@ -129,7 +129,7 @@ const setDefaultBounds = () => {
 const setDefaultColormap = () => {
   const defaultColormap =
     props.modelInfo?.vars[varnameSelector.value]?.default_colormap;
-  if (autoColormap.value && defaultColormap !== undefined) {
+  if (!userHasSelectedColormap.value && defaultColormap !== undefined) {
     invertColormap.value = defaultColormap.inverted || false;
     colormap.value = defaultColormap.name;
   }
@@ -177,13 +177,6 @@ watch(
     store.updateBounds(currentBounds.value as TBounds);
   },
   { deep: true }
-);
-
-watch(
-  () => autoColormap.value,
-  () => {
-    setDefaultColormap();
-  }
 );
 
 function onPickedBoundsModeChange(newMode: TBoundModes) {
@@ -266,6 +259,7 @@ onMounted(() => {
 
   if (paramColormap.value) {
     colormap.value = paramColormap.value;
+    userHasSelectedColormap.value = true;
   }
 
   if (paramInvertColormap.value) {
@@ -355,9 +349,8 @@ onMounted(() => {
             />
             <ColormapControls
               :model-info="modelInfo"
-              :auto-colormap="autoColormap"
               :data-bounds="dataBounds"
-              @update:auto-colormap="autoColormap = $event"
+              @colormap-user-selected="userHasSelectedColormap = true"
               @force-user-bounds="pickedBoundsMode = BOUND_MODES.USER"
             />
             <div class="section-title mt-2">Projections</div>

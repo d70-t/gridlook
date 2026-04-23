@@ -12,13 +12,12 @@ import { useGlobeControlStore } from "@/store/store.ts";
 
 const props = defineProps<{
   modelInfo: TModelInfo;
-  autoColormap: boolean;
   dataBounds?: TBounds;
 }>();
 
 const emit = defineEmits<{
-  "update:autoColormap": [value: boolean];
   forceUserBounds: [];
+  colormapUserSelected: [];
 }>();
 
 const store = useGlobeControlStore();
@@ -104,6 +103,7 @@ function handleDropdownHide() {
 
 function handleDropdownChange() {
   selectionMade.value = true;
+  emit("colormapUserSelected");
 }
 
 function handleOptionHover(option: TColorMap) {
@@ -195,22 +195,6 @@ function handleOptionHover(option: TColorMap) {
             type="checkbox"
           />
           invert
-        </label>
-      </div>
-      <div class="column is-narrow">
-        <label class="checkbox">
-          <input
-            id="auto_colormap"
-            :checked="autoColormap"
-            type="checkbox"
-            @change="
-              emit(
-                'update:autoColormap',
-                ($event.target as HTMLInputElement).checked
-              )
-            "
-          />
-          auto
         </label>
       </div>
       <div class="column is-narrow">
