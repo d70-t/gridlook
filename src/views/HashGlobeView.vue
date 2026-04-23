@@ -1,6 +1,5 @@
 <script lang="ts" setup>
 import { useEventListener } from "@vueuse/core";
-import { storeToRefs } from "pinia";
 import { ref, onBeforeMount, type Ref } from "vue";
 
 import GlobeView from "./GlobeView.vue";
@@ -26,7 +25,6 @@ const src = ref(DEFAULT_DATASET);
 const params: Ref<TParams> = ref({});
 
 const store = useGlobeControlStore();
-const { userBoundsLow, userBoundsHigh } = storeToRefs(store);
 
 const urlParameterStore = useUrlParameterStore();
 
@@ -45,13 +43,6 @@ const onHashChange = () => {
 
     params.value = Object.fromEntries(new URLSearchParams(paramString));
 
-    if (
-      params.value.boundlow !== undefined &&
-      params.value.boundhigh !== undefined
-    ) {
-      userBoundsLow.value = parseFloat(params.value.boundlow);
-      userBoundsHigh.value = parseFloat(params.value.boundhigh);
-    }
     for (const [key, value] of Object.entries(params.value) as [
       keyof typeof STORE_PARAM_MAPPING,
       string,

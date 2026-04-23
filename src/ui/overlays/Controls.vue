@@ -78,6 +78,8 @@ const {
   paramProjection,
   paramProjectionCenterLat,
   paramProjectionCenterLon,
+  paramBoundLow,
+  paramBoundHigh,
 } = storeToRefs(urlParameterStore);
 
 const menuCollapsed: Ref<boolean> = ref(false);
@@ -247,6 +249,14 @@ if (paramProjectionCenterLat.value || paramProjectionCenterLon.value) {
     lat: clamp(lat, -90, 90),
     lon: clamp(lon, -180, 180),
   };
+}
+
+if (paramBoundHigh.value && paramBoundLow.value) {
+  const low = parseFloat(paramBoundLow.value);
+  const high = parseFloat(paramBoundHigh.value);
+  userBoundsLow.value = low;
+  userBoundsHigh.value = high;
+  pickedBoundsMode.value = BOUND_MODES.USER;
 }
 
 // Initialize bounds and colormap when component mounts
