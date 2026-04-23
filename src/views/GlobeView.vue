@@ -360,6 +360,23 @@ onMounted(async () => {
   await setGridType();
 });
 
+// Prevent the long-press context menu on touch-enabled devices (e.g. touchscreen
+// laptops) while still allowing right-click context menus from a regular mouse.
+let lastPointerType = "mouse";
+useEventListener(window, "pointerdown", (e: PointerEvent) => {
+  lastPointerType = e.pointerType;
+});
+useEventListener(
+  window,
+  "contextmenu",
+  (e: MouseEvent) => {
+    if (lastPointerType === "touch") {
+      e.preventDefault();
+    }
+  },
+  { capture: true }
+);
+
 useEventListener(window, "keydown", (e: KeyboardEvent) => {
   if (isDisplayMode.value) {
     // Disable shortcuts in display/presenter mode to avoid interfering with presenter controls

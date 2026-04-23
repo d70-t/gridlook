@@ -219,9 +219,7 @@ export function usePresenterSync() {
   }
 
   function applyProjectionCenter(center: { lat: number; lon: number }) {
-    if (!store.isRotating) {
-      projectionCenter.value = center;
-    }
+    projectionCenter.value = center;
   }
 
   function applyDimSlidersValues(values: (number | null)[]) {
@@ -344,10 +342,7 @@ export function usePresenterSync() {
   watch(
     () => JSON.stringify(projectionCenter.value),
     () => {
-      if (
-        presenterRole.value === PresenterRole.CONTROLLER &&
-        !isRotating.value
-      ) {
+      if (presenterRole.value === PresenterRole.CONTROLLER) {
         broadcastProjectionCenter();
       }
     }
