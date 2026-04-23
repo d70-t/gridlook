@@ -489,6 +489,7 @@ onMounted(() => {
   min-width: 0;
   height: calc(100vh - 56px);
   overflow-y: auto;
+  overscroll-behavior-x: none;
   flex-shrink: 0;
   z-index: 10;
   background-color: #ddd;

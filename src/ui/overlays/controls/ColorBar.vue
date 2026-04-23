@@ -780,6 +780,7 @@ onBeforeUnmount(() => {
   height: 100%;
   z-index: 1;
   pointer-events: auto;
+  touch-action: none;
   cursor: crosshair;
 }
 
