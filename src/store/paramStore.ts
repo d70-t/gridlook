@@ -26,6 +26,8 @@ export const useUrlParameterStore = defineStore("urlParams", {
       paramDimIndices: {} as Record<string, string>,
       paramDimMinBounds: {} as Record<string, string>,
       paramDimMaxBounds: {} as Record<string, string>,
+      paramBoundLow: undefined as string | undefined,
+      paramBoundHigh: undefined as string | undefined,
       paramProjection: undefined as string | undefined,
       paramProjectionCenterLat: undefined as string | undefined,
       paramProjectionCenterLon: undefined as string | undefined,
@@ -71,6 +73,8 @@ export const STORE_PARAM_MAPPING = {
   projection: "paramProjection",
   projectionCenterLat: "paramProjectionCenterLat",
   projectionCenterLon: "paramProjectionCenterLon",
+  boundlow: "paramBoundLow",
+  boundhigh: "paramBoundHigh",
   gridtype: "paramGridType",
   catalog: "paramCatalog",
 } as const;
