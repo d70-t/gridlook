@@ -3,20 +3,26 @@ import dayjs from "dayjs";
 import duration from "dayjs/plugin/duration.js";
 import humanizeDuration from "humanize-duration";
 import { storeToRefs } from "pinia";
-import { ref, watch, computed, type Ref } from "vue";
-import VueJsonPretty from "vue-json-pretty";
+import { ref, watch, type Ref } from "vue";
 import * as zarr from "zarrita";
 
-import "vue-json-pretty/lib/styles.css";
-import CollapsibleText from "../common/CollapsibleText.vue";
+import AttributesSection from "./infoPanel/AttributesSection.vue";
+import AvailableVariablesSection from "./infoPanel/AvailableVariablesSection.vue";
+import CurrentVariableSection from "./infoPanel/CurrentVariableSection.vue";
+import DatasetMetadataSection from "./infoPanel/DatasetMetadataSection.vue";
+import DataStorageSection from "./infoPanel/DataStorageSection.vue";
+import DimensionsSection from "./infoPanel/DimensionsSection.vue";
+import GridTypeSection from "./infoPanel/GridTypeSection.vue";
+import SpatialCoverageSection from "./infoPanel/SpatialCoverageSection.vue";
+import TimeDimensionSection from "./infoPanel/TimeDimensionSection.vue";
+import type {
+  TCoordinateSlice,
+  TInfoDimension,
+  TTimeInfo,
+} from "./infoPanel/types.ts";
 
-import {
-  GRID_TYPE_DISPLAY_OVERRIDES,
-  GRID_TYPES,
-  type T_GRID_TYPES,
-} from "@/lib/data/gridTypeDetector.ts";
+import { GRID_TYPES, type T_GRID_TYPES } from "@/lib/data/gridTypeDetector.ts";
 import { decodeTime } from "@/lib/data/timeHandling.ts";
-import queryVariable, { type TNercVariable } from "@/lib/data/variableQuery.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   getLatLonData,
@@ -24,7 +30,6 @@ import {
   getFillValue,
 } from "@/lib/data/zarrUtils.ts";
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
-import { useUrlParameterStore } from "@/store/paramStore.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 import { useLog } from "@/utils/logging.ts";
 
@@ -47,28 +52,17 @@ const { logError } = useLog();
 const store = useGlobeControlStore();
 const { varnameSelector } = storeToRefs(store);
 
-const paramStore = useUrlParameterStore();
-const { paramGridType } = storeToRefs(paramStore);
-
 const groupAttrs = ref<zarr.Attributes | null>(null);
 const variableAttrs = ref<zarr.Attributes | null>(null);
-const dimensions = ref<{ name: string; size: number }[]>([]);
+const dimensions = ref<TInfoDimension[]>([]);
 
-const metadataVariableName = ref<string | null>(null);
-const metadataVariableAttrs = ref<zarr.Attributes | null>(null);
-const metadataVariableDimensions = ref<{ name: string; size: number }[]>([]);
-const metadataVariableDtype = ref<string | null>(null);
-const metadataVariableChunks = ref<readonly (number | null)[] | null>(null);
-const metadataVariableError = ref<string | null>(null);
-const metadataVariableLoading = ref(false);
-
-const latSlice = ref<{ first10: number[]; last10: number[] } | null>(null);
-const latDimensions = ref<{ name: string; size: number }[]>([]);
+const latSlice = ref<TCoordinateSlice | null>(null);
+const latDimensions = ref<TInfoDimension[]>([]);
 const latLength = ref<number | null>(null);
 const latMin = ref<number | null>(null);
 const latMax = ref<number | null>(null);
-const lonSlice = ref<{ first10: number[]; last10: number[] } | null>(null);
-const lonDimensions = ref<{ name: string; size: number }[]>([]);
+const lonSlice = ref<TCoordinateSlice | null>(null);
+const lonDimensions = ref<TInfoDimension[]>([]);
 const lonLength = ref<number | null>(null);
 const lonMin = ref<number | null>(null);
 const lonMax = ref<number | null>(null);
@@ -76,217 +70,12 @@ const lonMax = ref<number | null>(null);
 const variableUnits = ref<string | null>(null);
 const variableLongName = ref<string | null>(null);
 const variableStandardName = ref<string | null>(null);
-const nercInfo = ref<TNercVariable | null>(null);
 const variableDtype = ref<string | null>(null);
 const variableChunks = ref<readonly (number | null)[] | null>(null);
 const variableMissingValue = ref<number | null>(null);
 const variableFillValue = ref<number | null>(null);
-const timeInfo = ref<{
-  units: string;
-  calendar: string;
-  firstTimestamp: string;
-  lastTimestamp: string;
-  timestep: string | null;
-  numTimesteps: number;
-} | null>(null);
+const timeInfo = ref<TTimeInfo | null>(null);
 const error = ref<string | null>(null);
-
-const activeGridType = computed(() => {
-  if (!props.gridType) {
-    return undefined;
-  }
-  return paramGridType.value || props.gridType;
-});
-
-const availableGridTypes = computed(() => {
-  if (!props.gridType) {
-    return [];
-  }
-  const overrides = GRID_TYPE_DISPLAY_OVERRIDES[props.gridType];
-  if (!overrides || overrides.length === 0) {
-    return [props.gridType];
-  }
-  return [props.gridType, ...overrides];
-});
-
-const hasLatLon = computed(
-  () => latSlice.value !== null || lonSlice.value !== null
-);
-
-// Computed properties for common group attributes
-const datasetTitle = computed(() => (groupAttrs.value?.title as string) || "-");
-
-const datasetContact = computed(
-  () =>
-    (groupAttrs.value?.contact as string) ||
-    (groupAttrs.value?.creator_email as string) ||
-    "-"
-);
-
-const datasetCreationDate = computed(
-  () =>
-    (groupAttrs.value?.creation_date as string) ||
-    (groupAttrs.value?.date_created as string) ||
-    "-"
-);
-
-const datasetInstitution = computed(
-  () =>
-    (groupAttrs.value?.institution as string) ||
-    (groupAttrs.value?.institute as string) ||
-    "-"
-);
-
-const datasetLicense = computed(
-  () =>
-    (groupAttrs.value?.license as string) ||
-    (groupAttrs.value?.licence as string) ||
-    "-"
-);
-
-const datasetDescription = computed(
-  () =>
-    (groupAttrs.value?.description as string) ||
-    (groupAttrs.value?.summary as string) ||
-    "-"
-);
-
-const datasetCreators = computed(
-  () =>
-    (groupAttrs.value?.creators as string) ||
-    (groupAttrs.value?.authors as string) ||
-    (groupAttrs.value?.creator_name as string) ||
-    "-"
-);
-
-const allVariables = computed(() => {
-  if (!props.datasources) {
-    return [];
-  }
-  return Object.entries(props.datasources.levels[0].datasources).map(
-    ([name, source]) => ({
-      name,
-      longName: source.attrs?.long_name ?? source.attrs?.standard_name,
-      hidden: source.hidden ?? false,
-    })
-  );
-});
-
-const availableVariables = computed(() =>
-  allVariables.value.filter((v) => !v.hidden)
-);
-
-const hiddenVariables = computed(() =>
-  allVariables.value.filter((v) => v.hidden)
-);
-
-function selectVariable(varName: string) {
-  clearMetadataVariable();
-  varnameSelector.value = varName;
-}
-
-function clearMetadataVariable() {
-  metadataVariableName.value = null;
-  metadataVariableAttrs.value = null;
-  metadataVariableDimensions.value = [];
-  metadataVariableDtype.value = null;
-  metadataVariableChunks.value = null;
-  metadataVariableError.value = null;
-  metadataVariableLoading.value = false;
-}
-
-function toggleVariableMetadata(varName: string) {
-  if (metadataVariableName.value === varName) {
-    clearMetadataVariable();
-    return;
-  }
-  showVariableMetadata(varName);
-}
-
-async function showVariableMetadata(varName: string) {
-  if (!props.datasources) {
-    return;
-  }
-
-  metadataVariableName.value = varName;
-  metadataVariableAttrs.value = null;
-  metadataVariableDimensions.value = [];
-  metadataVariableDtype.value = null;
-  metadataVariableChunks.value = null;
-  metadataVariableError.value = null;
-  metadataVariableLoading.value = true;
-
-  try {
-    const varSource = props.datasources.levels[0].datasources[varName];
-    const variable = await ZarrDataManager.getVariableInfo(varSource, varName);
-    if (metadataVariableName.value !== varName) {
-      return;
-    }
-    metadataVariableAttrs.value = variable.attrs;
-    metadataVariableDtype.value = String(variable.dtype);
-    metadataVariableChunks.value = variable.chunks;
-    const dimensionNames = Array.isArray(variable.dimensionNames)
-      ? variable.dimensionNames
-      : [];
-    metadataVariableDimensions.value = variable.shape.map((size, idx) => ({
-      name: dimensionNames[idx] ?? `dim_${idx}`,
-      size,
-    }));
-  } catch (err) {
-    logError(err);
-    if (metadataVariableName.value === varName) {
-      metadataVariableError.value = `Could not load metadata for ${varName}`;
-    }
-  } finally {
-    if (metadataVariableName.value === varName) {
-      metadataVariableLoading.value = false;
-    }
-  }
-}
-
-const zarrFormat = computed(() => {
-  if (!props.datasources) {
-    return null;
-  }
-  return props.datasources.zarr_format;
-});
-
-function getDtypeBytes(dtype: string): number {
-  if (dtype.includes("64")) {
-    return 8;
-  }
-  if (dtype.includes("32")) {
-    return 4;
-  }
-  if (dtype.includes("16")) {
-    return 2;
-  }
-  if (dtype.includes("8")) {
-    return 1;
-  }
-  return 4;
-}
-
-const estimatedSizeMB = computed(() => {
-  if (!dimensions.value.length || !variableDtype.value) {
-    return null;
-  }
-  const totalElements = dimensions.value.reduce((acc, d) => acc * d.size, 1);
-  const bytes = totalElements * getDtypeBytes(String(variableDtype.value));
-  if (!Number.isFinite(bytes)) {
-    return null;
-  }
-  if (bytes >= 1024 * 1024 * 1024 * 1024) {
-    return (bytes / (1024 * 1024 * 1024 * 1024)).toFixed(2) + " TB";
-  }
-  if (bytes >= 1024 * 1024 * 1024) {
-    return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " GB";
-  }
-  if (bytes >= 1024 * 1024) {
-    return (bytes / (1024 * 1024)).toFixed(2) + " MB";
-  }
-  return (bytes / 1024).toFixed(2) + " KB";
-});
 
 /**
  * Converts a bigint or number to a number, handling BigInt64Array values.
@@ -383,7 +172,7 @@ async function getTimeDimensionInfo() {
 }
 
 function collectGeoCoordinateInfo(
-  coordinateRef: Ref<{ name: string; size: number }[]>,
+  coordinateRef: Ref<TInfoDimension[]>,
   dimensionNames: string[],
   shape: number[]
 ) {
@@ -481,9 +270,6 @@ async function loadVariableDetails(
   variableUnits.value = (variable.attrs?.units as string) || null;
   variableStandardName.value =
     (variable.attrs?.standard_name as string) || null;
-  if (variableStandardName.value) {
-    nercInfo.value = await queryVariable(variableStandardName.value);
-  }
   variableLongName.value = (variable.attrs?.long_name as string) || null;
   variableDtype.value = String(variable.dtype);
   variableChunks.value = variable.chunks;
@@ -522,7 +308,6 @@ async function fetchInfo() {
   variableChunks.value = null;
   variableMissingValue.value = null;
   variableFillValue.value = null;
-  nercInfo.value = null;
   latSlice.value = null;
   latDimensions.value = [];
   latLength.value = null;
@@ -560,18 +345,6 @@ watch(
   },
   { immediate: true }
 );
-
-watch(() => props.datasources, clearMetadataVariable);
-
-function formatValue(value: unknown): string {
-  if (typeof value === "number") {
-    return value.toFixed(6);
-  }
-  if (typeof value === "object" && value !== null) {
-    return JSON.stringify(value, null, 2);
-  }
-  return String(value);
-}
 </script>
 
 <template>
@@ -607,648 +380,50 @@ function formatValue(value: unknown): string {
     </div>
 
     <div v-else class="info-panel-content">
-      <!-- Grid Type -->
-      <section class="info-section">
-        <h4
-          class="title is-6 is-flex is-justify-content-space-between is-align-items-center"
-        >
-          <span class="is-flex is-align-items-center gap-2"> Grid Type </span>
-          <div v-if="availableGridTypes.length > 1" class="select is-small">
-            <select
-              :value="activeGridType"
-              class="grid-type-select"
-              @change="
-                emit(
-                  'selectGridType',
-                  ($event.target as HTMLSelectElement).value as T_GRID_TYPES
-                )
-              "
-            >
-              <option
-                v-for="typeOption in availableGridTypes"
-                :key="typeOption"
-                :value="typeOption"
-              >
-                {{ typeOption }}
-              </option>
-            </select>
-          </div>
-          <button
-            v-else
-            type="button"
-            class="button is-small is-light grid-type-button"
-            disabled
-          >
-            {{ activeGridType ?? "Unknown" }}
-          </button>
-        </h4>
-      </section>
-
-      <!-- Variable Info -->
-      <section class="info-section">
-        <h4
-          class="title is-6 is-flex is-justify-content-space-between is-align-items-center"
-        >
-          <span>Current Variable</span>
-          <code>{{ varnameSelector }}</code>
-        </h4>
-        <div class="content">
-          <table class="table is-narrow is-fullwidth is-size-7">
-            <tbody>
-              <tr>
-                <td><strong>Long name</strong></td>
-                <td>
-                  <span v-if="variableLongName">{{ variableLongName }}</span>
-                  <span v-else class="has-text-grey-light">-</span>
-                </td>
-              </tr>
-              <tr>
-                <td><strong>Standard name</strong></td>
-                <td>
-                  <div
-                    class="is-flex is-align-items-baseline is-justify-content-space-between"
-                    style="gap: 0.25rem"
-                  >
-                    <span
-                      v-if="variableStandardName"
-                      style="word-break: break-all; min-width: 0"
-                    >
-                      <a
-                        v-if="nercInfo"
-                        :href="nercInfo.variable.Url.value"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        <code>{{ variableStandardName }}</code>
-                      </a>
-                      <code v-else>{{ variableStandardName }}</code>
-                    </span>
-                    <span v-else class="has-text-grey-light">-</span>
-                    <span
-                      v-if="nercInfo"
-                      class="tag is-success is-light is-size-7 is-flex-shrink-0"
-                      title="Recognised CF standard name"
-                      >CF</span
-                    >
-                  </div>
-                </td>
-              </tr>
-              <tr>
-                <td><strong>Units</strong></td>
-                <td>
-                  <code v-if="variableUnits">{{ variableUnits }}</code>
-                  <span v-else class="has-text-grey-light">-</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <!-- NERC vocabulary info -->
-        <details v-if="nercInfo" class="is-size-7 mt-2">
-          <summary class="has-text-grey coord-details-summary">
-            CF standard name info (NERC)
-            <span
-              v-if="nercInfo.variable.Deprecated.value === 'true'"
-              class="tag is-danger is-light is-size-7 ml-1"
-              >DEPRECATED</span
-            >
-          </summary>
-          <div class="mt-2">
-            <div v-if="nercInfo.variable.Definition?.value" class="mb-2">
-              <CollapsibleText :text="nercInfo.variable.Definition.value" />
-            </div>
-            <table
-              v-if="
-                nercInfo.replacedBy.length ||
-                nercInfo.replaces.length ||
-                nercInfo.alternatives.length
-              "
-              class="table is-narrow is-fullwidth is-size-7"
-            >
-              <tbody>
-                <tr v-if="nercInfo.replacedBy.length">
-                  <td><strong>Replaced by</strong></td>
-                  <td>
-                    <span
-                      v-for="v in nercInfo.replacedBy"
-                      :key="v.Url.value"
-                      class="mr-2"
-                    >
-                      <a
-                        :href="v.Url.value"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        >{{ v.PrefLabel.value }}</a
-                      >
-                    </span>
-                  </td>
-                </tr>
-                <tr v-if="nercInfo.replaces.length">
-                  <td><strong>Replaces</strong></td>
-                  <td>
-                    <span
-                      v-for="v in nercInfo.replaces"
-                      :key="v.Url.value"
-                      class="mr-2"
-                    >
-                      <a
-                        :href="v.Url.value"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        >{{ v.PrefLabel.value }}</a
-                      >
-                    </span>
-                  </td>
-                </tr>
-                <tr v-if="nercInfo.alternatives.length">
-                  <td><strong>Alternatives</strong></td>
-                  <td>
-                    <span
-                      v-for="v in nercInfo.alternatives"
-                      :key="v.Url.value"
-                      class="mr-2"
-                    >
-                      <a
-                        :href="v.Url.value"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        >{{ v.PrefLabel.value }}</a
-                      >
-                    </span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-            <p class="is-size-7 is-italic has-text-grey-light">
-              Variable information provided by The NERC Vocabulary Server (NVS),
-              National Oceanography Centre – BODC,
-              <a
-                href="https://vocab.nerc.ac.uk"
-                target="_blank"
-                rel="noopener noreferrer"
-                >vocab.nerc.ac.uk</a
-              >
-            </p>
-          </div>
-        </details>
-      </section>
-
-      <!-- Dataset Metadata -->
-      <section class="info-section">
-        <h4 class="title is-6">Dataset Metadata</h4>
-        <div class="content">
-          <table class="table is-narrow is-fullwidth is-size-7">
-            <tbody>
-              <tr>
-                <td><strong>Title</strong></td>
-                <td>{{ datasetTitle }}</td>
-              </tr>
-              <tr>
-                <td><strong>Description</strong></td>
-                <td>
-                  <CollapsibleText :text="datasetDescription" />
-                </td>
-              </tr>
-              <tr>
-                <td><strong>Institution</strong></td>
-                <td>{{ datasetInstitution }}</td>
-              </tr>
-              <tr>
-                <td><strong>Creators</strong></td>
-                <td>
-                  <CollapsibleText :text="datasetCreators" />
-                </td>
-              </tr>
-              <tr>
-                <td><strong>Contact</strong></td>
-                <td>{{ datasetContact }}</td>
-              </tr>
-              <tr>
-                <td><strong>Creation Date</strong></td>
-                <td>{{ datasetCreationDate }}</td>
-              </tr>
-              <tr>
-                <td><strong>License</strong></td>
-                <td>
-                  <CollapsibleText :text="datasetLicense" />
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-      <!-- Data Type & Storage -->
-      <section v-if="variableDtype" class="info-section">
-        <h4 class="title is-6">Data Type &amp; Storage</h4>
-        <div class="content">
-          <table class="table is-narrow is-fullwidth is-size-7">
-            <tbody>
-              <tr v-if="zarrFormat">
-                <td><strong>Zarr format version</strong></td>
-                <td>{{ zarrFormat }}</td>
-              </tr>
-
-              <tr>
-                <td><strong>Data type</strong></td>
-                <td>
-                  <code>{{ variableDtype }}</code>
-                </td>
-              </tr>
-              <tr v-if="variableChunks && variableChunks.length > 0">
-                <td><strong>Chunk shape</strong></td>
-                <td>
-                  <code>{{ variableChunks.join(" × ") }}</code>
-                </td>
-              </tr>
-              <tr v-if="variableMissingValue !== null">
-                <td><strong>Missing value</strong></td>
-                <td>
-                  <code>{{ variableMissingValue }}</code>
-                </td>
-              </tr>
-              <tr v-if="variableFillValue !== null">
-                <td><strong>Fill value</strong></td>
-                <td>
-                  <code>{{ variableFillValue }}</code>
-                </td>
-              </tr>
-              <tr v-if="estimatedSizeMB">
-                <td>
-                  <strong>Estimated size</strong>
-                  <span class="ml-1 has-text-grey is-size-7"
-                    >(uncompressed)</span
-                  >
-                </td>
-                <td>{{ estimatedSizeMB }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <!-- Dimensions -->
-      <section class="info-section">
-        <h4 class="title is-6">Dimensions</h4>
-        <div v-if="dimensions.length > 0" class="content">
-          <table class="table is-narrow is-fullwidth is-size-7">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Shape</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="dim in dimensions" :key="dim.name">
-                <td>
-                  <code>{{ dim.name }}</code>
-                </td>
-                <td>{{ dim.size.toLocaleString() }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <p v-else class="has-text-grey-light">No dimension info available</p>
-      </section>
-
-      <!-- Time Dimension Info -->
-      <section v-if="timeInfo" class="info-section">
-        <h4 class="title is-6">Time Dimension</h4>
-        <div class="content">
-          <table class="table is-narrow is-fullwidth is-size-7">
-            <tbody>
-              <tr>
-                <td><strong>Units</strong></td>
-                <td>
-                  <code>{{ timeInfo.units }}</code>
-                </td>
-              </tr>
-              <tr>
-                <td><strong>Calendar</strong></td>
-                <td>
-                  <code>{{ timeInfo.calendar }}</code>
-                </td>
-              </tr>
-              <tr>
-                <td><strong>Timesteps</strong></td>
-                <td>{{ timeInfo.numTimesteps.toLocaleString() }}</td>
-              </tr>
-              <tr v-if="timeInfo.timestep">
-                <td>
-                  <strong>Initial interval</strong>
-                  <span class="ml-1 has-text-grey is-size-7">(1st→2nd)</span>
-                </td>
-                <td>{{ timeInfo.timestep }}</td>
-              </tr>
-              <tr>
-                <td><strong>First timestamp</strong></td>
-                <td>
-                  <code>{{ timeInfo.firstTimestamp }}</code>
-                </td>
-              </tr>
-              <tr>
-                <td><strong>Last timestamp</strong></td>
-                <td>
-                  <code>{{ timeInfo.lastTimestamp }}</code>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <!-- Spatial Coverage -->
-      <section v-if="hasLatLon" class="info-section">
-        <h4 class="title is-6">Spatial Coverage</h4>
-
-        <!-- Latitude -->
-        <div v-if="latSlice" class="mb-4">
-          <p class="is-size-7 has-text-weight-semibold mb-2">
-            Latitude
-            <span class="has-text-grey-light has-text-weight-normal"
-              >({{ latLength?.toLocaleString() }} values)</span
-            >
-          </p>
-          <div class="mb-2">
-            <code> min {{ formatValue(latMin ?? 0) }} </code>
-            →
-            <code> max {{ formatValue(latMax ?? 0) }} </code>
-          </div>
-          <div v-if="latDimensions && latDimensions.length > 0" class="content">
-            <table class="table is-narrow is-fullwidth is-size-7">
-              <thead>
-                <tr>
-                  <th>Dimension</th>
-                  <th>Shape</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="dim in latDimensions" :key="dim.name">
-                  <td>
-                    <code>{{ dim.name }}</code>
-                  </td>
-                  <td>{{ dim.size.toLocaleString() }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <details class="is-size-7">
-            <summary class="has-text-grey coord-details-summary">
-              Raw sample values
-            </summary>
-            <p class="has-text-weight-semibold mt-2 mb-1">First 10:</p>
-            <div class="tags">
-              <span
-                v-for="(val, i) in latSlice.first10"
-                :key="'lat-f-' + i"
-                class="tag is-info is-light is-family-monospace"
-                >{{ formatValue(val) }}</span
-              >
-            </div>
-            <p class="has-text-weight-semibold mt-2 mb-1">Last 10:</p>
-            <div class="tags">
-              <span
-                v-for="(val, i) in latSlice.last10"
-                :key="'lat-l-' + i"
-                class="tag is-info is-light is-family-monospace"
-                >{{ formatValue(val) }}</span
-              >
-            </div>
-          </details>
-        </div>
-
-        <!-- Longitude -->
-        <div v-if="lonSlice">
-          <p class="is-size-7 has-text-weight-semibold mb-2">
-            Longitude
-            <span class="has-text-grey-light has-text-weight-normal"
-              >({{ lonLength?.toLocaleString() }} values)</span
-            >
-          </p>
-          <div class="mb-2">
-            <code> min {{ formatValue(lonMin ?? 0) }} </code>
-            →
-            <code> max {{ formatValue(lonMax ?? 0) }} </code>
-          </div>
-          <div v-if="lonDimensions && lonDimensions.length > 0" class="content">
-            <table class="table is-narrow is-fullwidth is-size-7">
-              <thead>
-                <tr>
-                  <th>Dimension</th>
-                  <th>Shape</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="dim in lonDimensions" :key="dim.name">
-                  <td>
-                    <code>{{ dim.name }}</code>
-                  </td>
-                  <td>{{ dim.size.toLocaleString() }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <details class="is-size-7">
-            <summary class="has-text-grey coord-details-summary">
-              Raw sample values
-            </summary>
-            <p class="has-text-weight-semibold mt-2 mb-1">First 10:</p>
-            <div class="tags">
-              <span
-                v-for="(val, i) in lonSlice.first10"
-                :key="'lon-f-' + i"
-                class="tag is-warning is-light is-family-monospace"
-                >{{ formatValue(val) }}</span
-              >
-            </div>
-            <p class="has-text-weight-semibold mt-2 mb-1">Last 10:</p>
-            <div class="tags">
-              <span
-                v-for="(val, i) in lonSlice.last10"
-                :key="'lon-l-' + i"
-                class="tag is-warning is-light is-family-monospace"
-                >{{ formatValue(val) }}</span
-              >
-            </div>
-          </details>
-        </div>
-      </section>
-
-      <!-- No Lat/Lon Notice -->
-      <div v-if="!hasLatLon" class="info-section">
-        <div class="notification is-info is-light is-size-7">
-          <strong>Note:</strong> No lat/lon coordinates found for this grid
-          type.
-        </div>
-      </div>
-
-      <!-- Available Variables -->
-      <section v-if="allVariables.length > 0" class="info-section">
-        <h4 class="title is-6">
-          Available Variables
-          <span
-            class="has-text-grey-light is-size-7 has-text-weight-normal ml-1"
-            >({{ availableVariables.length }})</span
-          >
-        </h4>
-        <div class="tags">
-          <button
-            v-for="v in availableVariables"
-            :key="v.name"
-            class="tag is-family-monospace is-clickable"
-            :class="v.name === varnameSelector ? 'is-info' : 'is-light is-info'"
-            :title="
-              'Select ' + v.name + (v.longName ? ' (' + v.longName + ')' : '')
-            "
-            type="button"
-            @click="selectVariable(v.name)"
-          >
-            {{ v.name }}
-          </button>
-        </div>
-        <div v-if="hiddenVariables.length > 0" class="mt-2">
-          <p class="is-size-7 has-text-grey mb-1">
-            Dimensions &amp; coordinates
-            <span class="has-text-grey-light"
-              >({{ hiddenVariables.length }})</span
-            >
-          </p>
-          <div class="tags dimension-metadata-tags">
-            <button
-              v-for="v in hiddenVariables"
-              :key="v.name"
-              class="tag is-family-monospace dimension-metadata-tag"
-              :class="
-                v.name === metadataVariableName
-                  ? 'is-info'
-                  : 'is-light has-text-grey'
-              "
-              :title="
-                v.name === metadataVariableName
-                  ? 'Hide metadata for ' + v.name
-                  : 'Show metadata for ' + v.name
-              "
-              type="button"
-              @click="toggleVariableMetadata(v.name)"
-            >
-              <span>{{ v.name }}</span>
-              <span class="icon is-small ml-1">
-                <i class="fa-solid fa-circle-info"></i>
-              </span>
-            </button>
-          </div>
-
-          <div v-if="metadataVariableName" class="card">
-            <header class="card-header">
-              <span class="card-header-title is-justify-content-space-between">
-                <span class="title is-6 m-0">
-                  Metadata for <code>{{ metadataVariableName }}</code>
-                </span>
-                <button
-                  type="button"
-                  class="delete is-small"
-                  aria-label="close metadata"
-                  @click="clearMetadataVariable"
-                ></button>
-              </span>
-            </header>
-            <div class="card-content">
-              <p v-if="metadataVariableLoading" class="has-text-grey-light">
-                Loading metadata...
-              </p>
-              <div
-                v-else-if="metadataVariableError"
-                class="notification is-danger is-light is-size-7"
-              >
-                {{ metadataVariableError }}
-              </div>
-              <template v-else>
-                <table class="table is-narrow is-fullwidth is-size-7">
-                  <tbody>
-                    <tr v-if="metadataVariableDtype">
-                      <td><strong>Data type</strong></td>
-                      <td>
-                        <code>{{ metadataVariableDtype }}</code>
-                      </td>
-                    </tr>
-                    <tr
-                      v-if="
-                        metadataVariableChunks &&
-                        metadataVariableChunks.length > 0
-                      "
-                    >
-                      <td><strong>Chunk shape</strong></td>
-                      <td>
-                        <code>{{ metadataVariableChunks.join(" × ") }}</code>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-
-                <div v-if="metadataVariableDimensions.length > 0">
-                  <table class="table is-narrow is-fullwidth is-size-7">
-                    <thead>
-                      <tr>
-                        <th>Dimension</th>
-                        <th>Shape</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr
-                        v-for="dim in metadataVariableDimensions"
-                        :key="dim.name"
-                      >
-                        <td>
-                          <code>{{ dim.name }}</code>
-                        </td>
-                        <td>{{ dim.size.toLocaleString() }}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-
-                <p class="is-size-7 has-text-weight-semibold mt-3">
-                  Attributes
-                </p>
-                <div
-                  v-if="
-                    metadataVariableAttrs &&
-                    Object.keys(metadataVariableAttrs).length > 0
-                  "
-                  class="info-pre"
-                >
-                  <VueJsonPretty :data="metadataVariableAttrs" />
-                </div>
-                <p v-else class="has-text-grey-light">No variable attributes</p>
-              </template>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- Variable Attributes -->
-      <section class="info-section">
-        <h4 class="title is-6">Variable Attributes</h4>
-        <div
-          v-if="variableAttrs && Object.keys(variableAttrs).length > 0"
-          class="info-pre"
-        >
-          <VueJsonPretty :data="variableAttrs" />
-        </div>
-        <p v-else class="has-text-grey-light">No variable attributes</p>
-      </section>
-
-      <!-- Group Attributes -->
-      <section class="info-section">
-        <h4 class="title is-6">Group Attributes</h4>
-        <div
-          v-if="groupAttrs && Object.keys(groupAttrs).length > 0"
-          class="info-pre"
-        >
-          <VueJsonPretty :data="groupAttrs" />
-        </div>
-        <p v-else class="has-text-grey-light">No group attributes</p>
-      </section>
+      <GridTypeSection
+        :grid-type="gridType"
+        @select-grid-type="emit('selectGridType', $event)"
+      />
+      <CurrentVariableSection
+        :varname="varnameSelector"
+        :variable-long-name="variableLongName"
+        :variable-standard-name="variableStandardName"
+        :variable-units="variableUnits"
+      />
+      <DatasetMetadataSection :group-attrs="groupAttrs" />
+      <DataStorageSection
+        :dimensions="dimensions"
+        :variable-dtype="variableDtype"
+        :variable-chunks="variableChunks"
+        :variable-missing-value="variableMissingValue"
+        :variable-fill-value="variableFillValue"
+        :zarr-format="datasources?.zarr_format ?? null"
+      />
+      <DimensionsSection :dimensions="dimensions" />
+      <TimeDimensionSection :time-info="timeInfo" />
+      <SpatialCoverageSection
+        :lat-slice="latSlice"
+        :lat-dimensions="latDimensions"
+        :lat-length="latLength"
+        :lat-min="latMin"
+        :lat-max="latMax"
+        :lon-slice="lonSlice"
+        :lon-dimensions="lonDimensions"
+        :lon-length="lonLength"
+        :lon-min="lonMin"
+        :lon-max="lonMax"
+      />
+      <AvailableVariablesSection :datasources="datasources" />
+      <AttributesSection
+        title="Variable Attributes"
+        :attrs="variableAttrs"
+        empty-label="No variable attributes"
+      />
+      <AttributesSection
+        title="Group Attributes"
+        :attrs="groupAttrs"
+        empty-label="No group attributes"
+      />
     </div>
   </div>
 </template>
@@ -1298,63 +473,5 @@ function formatValue(value: unknown): string {
   flex: 1;
   overflow-y: auto;
   padding: 1rem;
-}
-
-.info-section {
-  margin-bottom: 1.5rem;
-  // border-bottom: 1px solid var(--bulma-border);
-
-  &:last-child {
-    border-bottom: none;
-  }
-
-  .title {
-    margin-bottom: 0.5rem;
-  }
-}
-
-.grid-type-select {
-  background-color: var(--bulma-light);
-  color: var(--bulma-code);
-  font-family: var(--bulma-family-code);
-  border: 1px solid var(--bulma-border);
-  border-radius: 4px;
-  cursor: pointer;
-
-  &:hover {
-    border-color: var(--bulma-link);
-  }
-}
-
-.grid-type-button {
-  color: var(--bulma-code);
-  font-family: var(--bulma-family-code);
-  cursor: not-allowed;
-}
-
-.info-pre {
-  padding: 0.75rem;
-  border-radius: 4px;
-  overflow-x: auto;
-  font-size: 0.75rem;
-  max-height: 300px;
-  overflow-y: auto;
-}
-
-.info-toggle-button {
-  position: fixed !important;
-  top: 18px;
-  right: 18px;
-  z-index: 1002;
-  border-radius: 0.375rem;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-
-  &:hover {
-    transform: scale(1.05);
-  }
-}
-
-details {
-  cursor: pointer;
 }
 </style>

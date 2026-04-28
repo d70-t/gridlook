@@ -1,5 +1,6 @@
 @use "bulma";
 @import "@fortawesome/fontawesome-free/css/all.css";
+@import "vue-json-pretty/lib/styles.css";
 
 :root {
   --bulma-scheme-main: white;
@@ -69,6 +70,33 @@ div.globe_canvas {
   & > .column {
     padding-top: 0.1rem;
     padding-bottom: 0.1rem;
+  }
+}
+
+.info-panel {
+  .info-section {
+    margin-bottom: 1.5rem;
+
+    &:last-child {
+      border-bottom: none;
+    }
+
+    .title {
+      margin-bottom: 0.5rem;
+    }
+  }
+
+  .info-pre {
+    padding: 0.75rem;
+    border-radius: 4px;
+    overflow-x: auto;
+    font-size: 0.75rem;
+    max-height: 300px;
+    overflow-y: auto;
+  }
+
+  details {
+    cursor: pointer;
   }
 }
 
