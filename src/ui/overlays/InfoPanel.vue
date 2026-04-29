@@ -50,10 +50,9 @@ dayjs.extend(duration);
 const { logError } = useLog();
 
 const store = useGlobeControlStore();
-const { varnameSelector } = storeToRefs(store);
+const { varnameSelector, loading } = storeToRefs(store);
 
 const groupAttrs = ref<zarr.Attributes | null>(null);
-const variableAttrs = ref<zarr.Attributes | null>(null);
 const dimensions = ref<TInfoDimension[]>([]);
 
 const latSlice = ref<TCoordinateSlice | null>(null);
@@ -222,7 +221,6 @@ async function getLatLonInfo(
   ) {
     return;
   }
-
   try {
     const { latitudes, latitudesAttrs, longitudes, longitudesAttrs } =
       await getLatLonData(
@@ -266,7 +264,6 @@ async function getLatLonInfo(
 async function loadVariableDetails(
   variable: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
-  variableAttrs.value = variable.attrs;
   variableUnits.value = (variable.attrs?.units as string) || null;
   variableStandardName.value =
     (variable.attrs?.standard_name as string) || null;
@@ -337,9 +334,9 @@ async function fetchInfo() {
 }
 
 watch(
-  () => [props.datasources, varnameSelector.value, props.isOpen],
+  () => [props.datasources, varnameSelector.value, props.isOpen, loading.value],
   () => {
-    if (props.isOpen) {
+    if (props.isOpen && !loading.value) {
       fetchInfo();
     }
   },
@@ -413,11 +410,9 @@ watch(
         :lon-min="lonMin"
         :lon-max="lonMax"
       />
-      <AvailableVariablesSection :datasources="datasources" />
-      <AttributesSection
-        title="Variable Attributes"
-        :attrs="variableAttrs"
-        empty-label="No variable attributes"
+      <AvailableVariablesSection
+        :datasources="datasources"
+        :varname="varnameSelector"
       />
       <AttributesSection
         title="Group Attributes"
