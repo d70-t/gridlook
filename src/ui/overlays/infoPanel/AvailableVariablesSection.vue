@@ -185,9 +185,14 @@ const isTimeFromAnotherFile = computed(() => {
   const time = props.datasources.levels[0].time;
   const currentVariable =
     props.datasources.levels[0].datasources[props.varname ?? ""] ?? null;
+  if (!time || !currentVariable) {
+    // We only show the warning if there is a time variable and a selected
+    // variable, otherwise it can be confusing
+    return true;
+  }
   return (
-    time?.dataset + time?.store !==
-    currentVariable?.dataset + currentVariable?.store
+    time?.dataset + "/" + time?.store !==
+    currentVariable?.dataset + "/" + currentVariable?.store
   );
 });
 
@@ -198,9 +203,14 @@ const isGridFromAnotherFile = computed(() => {
   const grid = props.datasources.levels[0].grid;
   const currentVariable =
     props.datasources.levels[0].datasources[props.varname ?? ""] ?? null;
+  if (!grid || !currentVariable) {
+    // We only show the warning if there is a grid and a selected
+    // variable, otherwise it can be confusing
+    return true;
+  }
   return (
-    grid?.dataset + grid?.store !==
-    currentVariable?.dataset + currentVariable?.store
+    grid?.dataset + "/" + grid?.store !==
+    currentVariable?.dataset + "/" + currentVariable?.store
   );
 });
 
