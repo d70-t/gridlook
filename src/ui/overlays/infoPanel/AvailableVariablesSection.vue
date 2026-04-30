@@ -136,21 +136,6 @@ const datasourceEntries = computed(() => {
   return Object.entries(props.datasources.levels[0].datasources);
 });
 
-const dimensionNames = computed(() => {
-  const names = new Set<string>();
-  for (const [, source] of datasourceEntries.value) {
-    for (const name of getSourceDimensionNames(source)) {
-      names.add(name);
-    }
-  }
-  for (const metadata of Object.values(metadataByName.value)) {
-    for (const name of metadata.dimensions) {
-      names.add(name);
-    }
-  }
-  return names;
-});
-
 const allVariables = computed(() =>
   datasourceEntries.value.map(([name, source]) => {
     const metadata = metadataByName.value[name] ?? getInitialMetadata(source);
@@ -162,16 +147,8 @@ const allVariables = computed(() =>
   })
 );
 
-const dimensionVariables = computed(() =>
-  allVariables.value.filter(
-    (variable) => variable.hidden && dimensionNames.value.has(variable.name)
-  )
-);
-
 const coordinateVariables = computed(() =>
-  allVariables.value.filter(
-    (variable) => variable.hidden && !dimensionNames.value.has(variable.name)
-  )
+  allVariables.value.filter((variable) => variable.hidden)
 );
 
 const dataVariables = computed(() =>
@@ -255,13 +232,6 @@ watch(
         Grid related dimensions are from a different file and may not be
         correctly recognized.
       </p>
-      <VariableTableSection
-        title="Dimensions"
-        :rows="dimensionVariables"
-        empty-label="No dimensions found"
-        :selected-attributes-variable="selectedAttributesVariableName"
-        @toggle-attributes="toggleVariableAttributes"
-      />
       <VariableTableSection
         title="Coordinates"
         :rows="coordinateVariables"
