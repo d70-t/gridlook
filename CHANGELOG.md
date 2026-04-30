@@ -1,8 +1,4 @@
-## Pre-Versioning Changelog
-
-For the period covered below, this changelog was organized in a conventional-commit-inspired format, inferred from merge request and pull request titles rather than commit messages.
-
-Because the project did not use version tags yet, entries were grouped by month instead of release version. Category assignments were approximate when a PR title spanned more than one conventional-commit type.
+# Changelog
 
 ## 1.0.0 (2026-04-30)
 
@@ -32,6 +28,12 @@ Because the project did not use version tags yet, entries were grouped by month 
 * **ui:** fixed name truncation for colormap selector in Chrome ([86f0156](https://github.com/d70-t/gridlook/commit/86f0156f16e1a330e3d99af14f3b2603f4203dab))
 * **ui:** fixed prematurely cancelled inertia animation ([5a1daa2](https://github.com/d70-t/gridlook/commit/5a1daa2bc383b26ab7bc58f36463096b424c1369))
 * **ui:** graticules and coastlines are now visible even when mask is enabled ([5ea1526](https://github.com/d70-t/gridlook/commit/5ea15265bf863ebce10cdac0fe22ee2e60398b56))
+
+## Pre-Versioning Changelog
+
+For the period covered below, this changelog was organized in a conventional-commit-inspired format, inferred from merge request and pull request titles rather than commit messages.
+
+Because the project did not use version tags yet, entries were grouped by month instead of release version. Category assignments were approximate when a PR title spanned more than one conventional-commit type.
 
 ## 2026-03
 
