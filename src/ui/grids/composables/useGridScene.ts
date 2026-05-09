@@ -416,10 +416,7 @@ export function useGridScene(options: UseGridSceneOptions) {
   function createBackgroundMaterial() {
     return new THREE.MeshBasicMaterial({
       color: 0x000000,
-      depthTest: false,
-      depthWrite: false,
       side: THREE.DoubleSide,
-      transparent: true,
     });
   }
 
@@ -459,8 +456,6 @@ export function useGridScene(options: UseGridSceneOptions) {
   function createGlobeSurfaces() {
     const backgroundMaterial = new THREE.MeshBasicMaterial({
       color: 0x000000,
-      depthTest: false,
-      depthWrite: false,
     });
     baseSurface = new THREE.Mesh(
       new THREE.SphereGeometry(0.99, 64, 64),
