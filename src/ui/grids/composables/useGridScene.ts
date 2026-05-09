@@ -457,10 +457,16 @@ export function useGridScene(options: UseGridSceneOptions) {
   }
 
   function createGlobeSurfaces() {
+    const backgroundMaterial = new THREE.MeshBasicMaterial({
+      color: 0x000000,
+      depthTest: false,
+      depthWrite: false,
+    });
     baseSurface = new THREE.Mesh(
       new THREE.SphereGeometry(0.99, 64, 64),
-      new THREE.MeshBasicMaterial({ color: 0x000000 })
+      backgroundMaterial
     );
+    baseSurface.renderOrder = -10;
     baseSurface.rotation.x = Math.PI / 2;
 
     pickSurface = new THREE.Mesh(
