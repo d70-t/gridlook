@@ -136,7 +136,7 @@ export function useGridScene(options: UseGridSceneOptions) {
   }
 
   function redraw() {
-    if (store.isRotating) {
+    if (store.isRotating || projectionDragActive) {
       return;
     }
     render();
