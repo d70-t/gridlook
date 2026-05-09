@@ -25,6 +25,12 @@ type ProjectionWatchOptions = {
   onUpdate: () => void;
 };
 
+const TRIANGLE_WRAP_ATTRIBUTE_NAMES = [
+  "triangleLatLon0",
+  "triangleLatLon1",
+  "triangleLatLon2",
+] as const;
+
 export function watchProjectionEdgeQuality(options: ProjectionWatchOptions) {
   const { projectionMode, projectionCenter, isSceneInMotion, onUpdate } =
     options;
@@ -65,6 +71,71 @@ export function setupProjectionGeometryWrap(
   geometry: THREE.InstancedBufferGeometry
 ): void {
   addWrapDirectionAttribute(geometry);
+}
+
+function copyGeometryAttributes(
+  source: THREE.BufferGeometry,
+  target: THREE.InstancedBufferGeometry
+) {
+  for (const name of Object.keys(source.attributes)) {
+    target.setAttribute(name, source.getAttribute(name));
+  }
+}
+
+function setTriangleLatLonAttribute(
+  geometry: THREE.InstancedBufferGeometry,
+  latLon: THREE.BufferAttribute | THREE.InterleavedBufferAttribute,
+  attributeName: string,
+  corner: number
+) {
+  const values = new Float32Array(latLon.count * 2);
+
+  for (
+    let triangleOffset = 0;
+    triangleOffset < latLon.count;
+    triangleOffset += 3
+  ) {
+    const cornerIndex = triangleOffset + corner;
+    const lat = latLon.getX(cornerIndex);
+    const lon = latLon.getY(cornerIndex);
+
+    for (let i = 0; i < 3; i++) {
+      const targetOffset = (triangleOffset + i) * 2;
+      values[targetOffset] = lat;
+      values[targetOffset + 1] = lon;
+    }
+  }
+
+  geometry.setAttribute(
+    attributeName,
+    new THREE.Float32BufferAttribute(values, 2)
+  );
+}
+
+function addTriangleLatLonAttributes(geometry: THREE.InstancedBufferGeometry) {
+  const latLon = geometry.getAttribute("latLon");
+  if (!latLon || latLon.itemSize !== 2 || latLon.count % 3 !== 0) {
+    return;
+  }
+
+  for (let corner = 0; corner < 3; corner++) {
+    setTriangleLatLonAttribute(
+      geometry,
+      latLon,
+      TRIANGLE_WRAP_ATTRIBUTE_NAMES[corner],
+      corner
+    );
+  }
+}
+
+export function createTriangleWrapProjectionGeometry(
+  geometry: THREE.InstancedBufferGeometry
+): THREE.InstancedBufferGeometry {
+  const source = geometry.index ? geometry.toNonIndexed() : geometry;
+  const result = new THREE.InstancedBufferGeometry();
+  copyGeometryAttributes(source, result);
+  addTriangleLatLonAttributes(result);
+  return result;
 }
 
 export function createWrappedProjectionMesh(

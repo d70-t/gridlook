@@ -10,6 +10,7 @@ import {
   type TGridHoverLookupResult,
 } from "./composables/gridHoverUtils.ts";
 import {
+  createTriangleWrapProjectionGeometry,
   createWrappedProjectionMesh,
   setupProjectionGeometryWrap,
   updateProjectionMeshes,
@@ -428,7 +429,7 @@ function createGeometry(
     "latLon",
     new THREE.Float32BufferAttribute(latLonValues, 2)
   );
-  return geometry;
+  return createTriangleWrapProjectionGeometry(geometry);
 }
 
 function generateHealpixIndices(positionValues: Float32Array, steps: number) {
@@ -807,6 +808,7 @@ onBeforeMount(async () => {
       addOffset,
       scaleFactor
     );
+    material.uniforms.useTriangleWrapCull.value = 1;
     // Set initial projection uniforms
     const helper = projectionHelper.value;
     updateProjectionUniforms(material, helper);
