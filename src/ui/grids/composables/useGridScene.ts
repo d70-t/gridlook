@@ -18,6 +18,8 @@ import { useGridSnapshot } from "./useGridSnapshot.ts";
 
 import { handleKeyDown } from "@/lib/camera/OrbitControlsAddOn.ts";
 import {
+  isAzimuthalProjectionType,
+  MERCATOR_LAT_LIMIT,
   PROJECTION_TYPES,
   ProjectionHelper,
   type TProjectionCenter,
@@ -35,6 +37,7 @@ type UseGridSceneOptions = {
   projectionCenter: Ref<TProjectionCenter | undefined>;
   controlPanelVisible: Ref<boolean>;
   cameraState: GridCameraState;
+  onMotionStateChange?: (isInMotion: boolean) => void;
   onReady?: () => void | Promise<void>;
 };
 
@@ -45,6 +48,7 @@ export function useGridScene(options: UseGridSceneOptions) {
     projectionCenter,
     controlPanelVisible,
     cameraState,
+    onMotionStateChange,
     onReady,
   } = options;
 
@@ -75,7 +79,6 @@ export function useGridScene(options: UseGridSceneOptions) {
   let dragStartY = 0;
   let dragStartCenterLon = 0;
   let dragStartCenterLat = 0;
-
   let init = true;
   let currentOffset = 0;
   // Counts consecutive frames where OrbitControls reported no camera change.
@@ -85,8 +88,20 @@ export function useGridScene(options: UseGridSceneOptions) {
   // the next time anything triggers a render (click, bounds change, etc.).
   let idleFrameCount = 0;
   const IDLE_FRAMES_BEFORE_STOP = 30; // ~500 ms at 60 fps – outlasts any realistic damping
+  const FLAT_CROP_RENDER_ORDER = 5;
+  const FLAT_CROP_Z_OFFSET = 0.06;
+  const FLAT_BOUNDARY_STEP_DEGREES = 0.25;
   let targetOffset = 0;
   let isInitialLoad = true;
+  let isInMotion = false;
+
+  function setMotionState(next: boolean) {
+    if (isInMotion === next) {
+      return;
+    }
+    isInMotion = next;
+    onMotionStateChange?.(next);
+  }
 
   function getScene() {
     return scene;
@@ -258,13 +273,32 @@ export function useGridScene(options: UseGridSceneOptions) {
     };
   }
 
-  function cleanupSurface(mesh: THREE.Mesh | undefined) {
+  function disposeObject3D(object: THREE.Object3D) {
+    const geometries = new Set<THREE.BufferGeometry>();
+    const materials = new Set<THREE.Material>();
+
+    object.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) {
+        return;
+      }
+      geometries.add(child.geometry);
+      if (Array.isArray(child.material)) {
+        child.material.forEach((material) => materials.add(material));
+      } else {
+        materials.add(child.material);
+      }
+    });
+
+    geometries.forEach((geometry) => geometry.dispose());
+    materials.forEach((material) => material.dispose());
+  }
+
+  function cleanupSurface(mesh: THREE.Object3D | undefined) {
     if (!scene || !mesh) {
       return;
     }
     scene.remove(mesh);
-    mesh.geometry.dispose();
-    (mesh.material as THREE.Material).dispose();
+    disposeObject3D(mesh);
   }
 
   function makePickMaterial(doubleSided = false) {
@@ -278,18 +312,142 @@ export function useGridScene(options: UseGridSceneOptions) {
     return material;
   }
 
+  function appendBoundaryPoint(points: THREE.Vector2[], x: number, y: number) {
+    const point = new THREE.Vector2(x, y);
+    const previous = points[points.length - 1];
+    if (previous && previous.distanceToSquared(point) < 1e-10) {
+      return;
+    }
+    points.push(point);
+  }
+
+  function projectBoundaryPoint(
+    projection: d3.GeoProjection,
+    bounds: ReturnType<typeof getProjectedBounds>,
+    points: THREE.Vector2[],
+    lon: number,
+    lat: number
+  ) {
+    const projected = projection([lon, lat]);
+    if (
+      !projected ||
+      !Number.isFinite(projected[0]) ||
+      !Number.isFinite(projected[1])
+    ) {
+      return;
+    }
+    appendBoundaryPoint(
+      points,
+      projected[0] - bounds.centerX,
+      -projected[1] - bounds.centerY
+    );
+  }
+
+  function createFlatBoundaryPoints(
+    bounds: ReturnType<typeof getProjectedBounds>
+  ) {
+    const helper = projectionHelper.value;
+    if (isAzimuthalProjectionType(helper.type)) {
+      return [];
+    }
+
+    const projection = new ProjectionHelper(helper.type, {
+      lat: 0,
+      lon: 0,
+    }).getD3Projection();
+    if (!projection) {
+      return [];
+    }
+
+    const points: THREE.Vector2[] = [];
+    const maxLat =
+      helper.type === PROJECTION_TYPES.MERCATOR ? MERCATOR_LAT_LIMIT : 90;
+
+    for (let lon = -180; lon <= 180; lon += FLAT_BOUNDARY_STEP_DEGREES) {
+      projectBoundaryPoint(projection, bounds, points, lon, maxLat);
+    }
+    for (
+      let lat = maxLat - FLAT_BOUNDARY_STEP_DEGREES;
+      lat >= -maxLat;
+      lat -= FLAT_BOUNDARY_STEP_DEGREES
+    ) {
+      projectBoundaryPoint(projection, bounds, points, 180, lat);
+    }
+    for (
+      let lon = 180 - FLAT_BOUNDARY_STEP_DEGREES;
+      lon >= -180;
+      lon -= FLAT_BOUNDARY_STEP_DEGREES
+    ) {
+      projectBoundaryPoint(projection, bounds, points, lon, -maxLat);
+    }
+    for (
+      let lat = -maxLat + FLAT_BOUNDARY_STEP_DEGREES;
+      lat <= maxLat;
+      lat += FLAT_BOUNDARY_STEP_DEGREES
+    ) {
+      projectBoundaryPoint(projection, bounds, points, -180, lat);
+    }
+
+    return points;
+  }
+
+  function createFlatCropGeometry(
+    bounds: ReturnType<typeof getProjectedBounds>,
+    scaledWidth: number,
+    scaledHeight: number
+  ) {
+    const boundaryPoints = createFlatBoundaryPoints(bounds);
+    if (boundaryPoints.length < 3) {
+      return undefined;
+    }
+
+    const halfWidth = scaledWidth / 2;
+    const halfHeight = scaledHeight / 2;
+    const outerShape = new THREE.Shape([
+      new THREE.Vector2(-halfWidth, -halfHeight),
+      new THREE.Vector2(halfWidth, -halfHeight),
+      new THREE.Vector2(halfWidth, halfHeight),
+      new THREE.Vector2(-halfWidth, halfHeight),
+    ]);
+    outerShape.holes.push(new THREE.Path(boundaryPoints));
+    return new THREE.ShapeGeometry(outerShape);
+  }
+
+  function createBackgroundMaterial() {
+    return new THREE.MeshBasicMaterial({
+      color: 0x000000,
+      depthTest: false,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      transparent: true,
+    });
+  }
+
   function createFlatSurfaces() {
     const bounds = getProjectedBounds();
     const width = Math.max(bounds.width, 1);
     const height = Math.max(bounds.height, 1);
     const scaledWidth = width * 1.05;
     const scaledHeight = height * 1.05;
-
+    const backgroundMaterial = createBackgroundMaterial();
     baseSurface = new THREE.Mesh(
       new THREE.PlaneGeometry(scaledWidth, scaledHeight),
-      new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide })
+      backgroundMaterial
     );
+    baseSurface.renderOrder = -10;
     baseSurface.position.set(bounds.centerX, bounds.centerY, -0.05);
+
+    const cropGeometry = createFlatCropGeometry(
+      bounds,
+      scaledWidth,
+      scaledHeight
+    );
+    if (cropGeometry) {
+      const cropSurface = new THREE.Mesh(cropGeometry, backgroundMaterial);
+      cropSurface.renderOrder = FLAT_CROP_RENDER_ORDER;
+      cropSurface.position.z = FLAT_CROP_Z_OFFSET;
+      baseSurface.add(cropSurface);
+    }
 
     pickSurface = new THREE.Mesh(
       new THREE.PlaneGeometry(scaledWidth, scaledHeight),
@@ -676,6 +834,7 @@ export function useGridScene(options: UseGridSceneOptions) {
     }
 
     const controlsUpdated = render();
+    setMotionState(mouseDown || store.isRotating || controlsUpdated);
     if (lastPointerPosition) {
       refreshHover();
     }
@@ -693,6 +852,7 @@ export function useGridScene(options: UseGridSceneOptions) {
       if (idleFrameCount >= IDLE_FRAMES_BEFORE_STOP) {
         // Damping is fully drained – safe to stop the loop.
         idleFrameCount = 0;
+        setMotionState(false);
         if (cam) {
           cameraState.debouncedEncodeCameraToURL(cam);
         }
@@ -710,6 +870,7 @@ export function useGridScene(options: UseGridSceneOptions) {
   function onInteractionStart() {
     mouseDown = true;
     idleFrameCount = 0;
+    setMotionState(true);
     animationLoop();
   }
 

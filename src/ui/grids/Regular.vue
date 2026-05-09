@@ -8,6 +8,12 @@ import {
   createGeoSampleIndex,
   useGridHoverLookup,
 } from "./composables/gridHoverUtils.ts";
+import {
+  createWrappedProjectionMesh,
+  setupProjectionGeometryWrap,
+  updateProjectionMeshes,
+  watchProjectionEdgeQuality,
+} from "./composables/useProjectionEdgeQuality.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
@@ -71,6 +77,7 @@ const {
   updateColormap,
   updateHistogram,
   projectionHelper,
+  isSceneInMotion,
   canvas,
   box,
   hoveredGeoPoint,
@@ -131,23 +138,19 @@ watch(
   }
 );
 
-watch(
-  [() => projectionMode.value, () => projectionCenter.value],
-  () => {
-    updateMeshProjectionUniforms();
-  },
-  { deep: true }
-);
+watchProjectionEdgeQuality({
+  projectionMode,
+  projectionCenter,
+  isSceneInMotion,
+  onUpdate: updateMeshProjectionUniforms,
+});
 
 function updateMeshProjectionUniforms() {
-  const helper = projectionHelper.value;
-  for (const mesh of meshes) {
-    const material = mesh.material as THREE.ShaderMaterial;
-    if (material.uniforms?.projectionType) {
-      updateProjectionUniforms(material, helper);
-    }
-  }
-  redraw();
+  updateProjectionMeshes(meshes, {
+    redraw,
+    projectionHelper: projectionHelper.value,
+    isSceneInMotion: isSceneInMotion.value,
+  });
 }
 
 async function datasourceUpdate() {
@@ -426,7 +429,7 @@ function createBatchGeometry(
   latStart: number,
   latEnd: number
 ) {
-  const geometry = new THREE.BufferGeometry();
+  const geometry = new THREE.InstancedBufferGeometry();
 
   // Extract vertices for this batch (from latStart to latEnd inclusive)
   const batchLatCount = latEnd - latStart + 1;
@@ -475,17 +478,22 @@ async function makeGeometry() {
         latEnd
       );
 
+      setupProjectionGeometryWrap(geometry);
       if (meshes[batchIndex]) {
         meshes[batchIndex].geometry.dispose();
         meshes[batchIndex].geometry = geometry;
       } else {
-        const mesh = new THREE.Mesh(geometry, new THREE.ShaderMaterial());
+        const mesh = createWrappedProjectionMesh(
+          geometry,
+          new THREE.ShaderMaterial(),
+          projectionHelper.value.type
+        );
         mesh.frustumCulled = false;
         meshes.push(mesh);
         getScene()?.add(mesh);
       }
     }
-    redraw();
+    updateMeshProjectionUniforms();
   } catch (error) {
     logError(error, "Could not fetch grid");
   }
