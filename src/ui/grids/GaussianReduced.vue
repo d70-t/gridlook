@@ -8,6 +8,12 @@ import {
   createGeoSampleIndex,
   useGridHoverLookup,
 } from "./composables/gridHoverUtils.ts";
+import {
+  createWrappedProjectionMesh,
+  setupProjectionGeometryWrap,
+  updateProjectionMeshes,
+  watchProjectionEdgeQuality,
+} from "./composables/useProjectionEdgeQuality.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
@@ -19,10 +25,7 @@ import {
   mapMissingAndFillToNaN,
 } from "@/lib/data/zarrUtils.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
-import {
-  makeGpuProjectedMeshMaterial,
-  updateProjectionUniforms,
-} from "@/lib/shaders/gridShaders.ts";
+import { makeGpuProjectedMeshMaterial } from "@/lib/shaders/gridShaders.ts";
 import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import {
@@ -72,6 +75,7 @@ const {
   updateLandSeaMask,
   updateColormap,
   projectionHelper,
+  isSceneInMotion,
   canvas,
   box,
   updateHistogram,
@@ -118,17 +122,19 @@ watch(
   }
 );
 
-watch([() => projectionMode.value, () => projectionCenter.value], () => {
-  updateMeshProjectionUniforms();
+watchProjectionEdgeQuality({
+  projectionMode,
+  projectionCenter,
+  isSceneInMotion,
+  onUpdate: updateMeshProjectionUniforms,
 });
 
 function updateMeshProjectionUniforms() {
-  const helper = projectionHelper.value;
-
-  for (const mesh of meshes) {
-    updateProjectionUniforms(mesh.material as THREE.ShaderMaterial, helper);
-  }
-  redraw();
+  updateProjectionMeshes(meshes, {
+    redraw,
+    projectionHelper: projectionHelper.value,
+    isSceneInMotion: isSceneInMotion.value,
+  });
 }
 
 const colormapMaterial = computed(() => {
@@ -152,13 +158,18 @@ const BATCH_SIZE = 64; // Adjust based on memory and browser limits
 
 function updateOrCreateMesh(
   batchIndex: number,
-  geometry: THREE.BufferGeometry
+  geometry: THREE.InstancedBufferGeometry
 ) {
+  setupProjectionGeometryWrap(geometry);
   if (meshes[batchIndex]) {
     meshes[batchIndex].geometry.dispose();
     meshes[batchIndex].geometry = geometry;
   } else {
-    const mesh = new THREE.Mesh(geometry, colormapMaterial.value);
+    const mesh = createWrappedProjectionMesh(
+      geometry,
+      colormapMaterial.value,
+      projectionHelper.value.type
+    );
     mesh.frustumCulled = false;
     meshes.push(mesh);
     getScene()?.add(mesh);
@@ -183,7 +194,7 @@ function createBatchGeometry(
   latLonValues: Float32Array,
   indices: Uint32Array
 ) {
-  const geometry = new THREE.BufferGeometry();
+  const geometry = new THREE.InstancedBufferGeometry();
 
   geometry.setAttribute(
     "position",
