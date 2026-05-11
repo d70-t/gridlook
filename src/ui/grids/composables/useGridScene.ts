@@ -1,5 +1,6 @@
 import { useEventListener } from "@vueuse/core";
 import * as d3 from "d3-geo";
+import debounce from "lodash.debounce";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import {
@@ -70,6 +71,7 @@ export function useGridScene(options: UseGridSceneOptions) {
   let baseSurface: THREE.Mesh | undefined = undefined;
   let pickSurface: THREE.Mesh | undefined = undefined;
   let mouseDown = false;
+  let wheelActive = false;
   const raycaster = new THREE.Raycaster();
   const hoveredGeoPoint = shallowRef<THoverGeoPoint | null>(null);
   let lastPointerPosition: { clientX: number; clientY: number } | null = null;
@@ -88,6 +90,11 @@ export function useGridScene(options: UseGridSceneOptions) {
   // the next time anything triggers a render (click, bounds change, etc.).
   let idleFrameCount = 0;
   const IDLE_FRAMES_BEFORE_STOP = 30; // ~500 ms at 60 fps – outlasts any realistic damping
+  const WHEEL_END_DELAY_MS = 120;
+  const debouncedEndWheelInteraction = debounce(() => {
+    wheelActive = false;
+    animationLoop();
+  }, WHEEL_END_DELAY_MS);
   const FLAT_CROP_RENDER_ORDER = 5;
   const FLAT_CROP_Z_OFFSET = 0.06;
   const FLAT_BOUNDARY_STEP_DEGREES = 0.25;
@@ -835,12 +842,15 @@ export function useGridScene(options: UseGridSceneOptions) {
     }
 
     const controlsUpdated = render();
-    setMotionState(mouseDown || store.isRotating || controlsUpdated);
+    const userInteractionActive = mouseDown || wheelActive;
+    setMotionState(
+      userInteractionActive || store.isRotating || controlsUpdated
+    );
     if (lastPointerPosition) {
       refreshHover();
     }
     const cam = getCamera();
-    if (!mouseDown && !store.isRotating) {
+    if (!userInteractionActive && !store.isRotating) {
       if (controlsUpdated) {
         // Controls are still moving (damping draining) – reset idle counter.
         idleFrameCount = 0;
@@ -861,7 +871,7 @@ export function useGridScene(options: UseGridSceneOptions) {
       }
     } else {
       idleFrameCount = 0;
-      if (isPresenterActive.value && cam && mouseDown) {
+      if (isPresenterActive.value && cam && userInteractionActive) {
         cameraState.encodeCameraToURL(cam);
       }
     }
@@ -877,6 +887,13 @@ export function useGridScene(options: UseGridSceneOptions) {
 
   function onInteractionEnd() {
     mouseDown = false;
+    animationLoop();
+  }
+
+  function onWheelInteraction() {
+    wheelActive = true;
+    idleFrameCount = 0;
+    debouncedEndWheelInteraction();
     animationLoop();
   }
 
@@ -911,15 +928,9 @@ export function useGridScene(options: UseGridSceneOptions) {
   function setupInteractionListeners() {
     setupHoverListeners();
 
-    useEventListener(
-      canvas.value,
-      "wheel",
-      () => {
-        onInteractionStart();
-        onInteractionEnd();
-      },
-      { passive: true }
-    );
+    useEventListener(canvas.value, "wheel", onWheelInteraction, {
+      passive: true,
+    });
 
     useEventListener(canvas.value, "mouseup", onInteractionEnd, {
       passive: true,
@@ -1052,6 +1063,7 @@ export function useGridScene(options: UseGridSceneOptions) {
     scene?.clear();
     camera?.clear();
     renderer?.dispose();
+    debouncedEndWheelInteraction.cancel();
     if (box.value) {
       getResizeObserver()?.unobserve(box.value!);
     }
