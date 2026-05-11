@@ -9,6 +9,13 @@ import {
   useGridHoverLookup,
   type TGridHoverLookupResult,
 } from "./composables/gridHoverUtils.ts";
+import {
+  createTriangleWrapProjectionGeometry,
+  createWrappedProjectionMesh,
+  setupProjectionGeometryWrap,
+  updateProjectionMeshes,
+  watchProjectionEdgeQuality,
+} from "./composables/useProjectionEdgeQuality.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
@@ -78,6 +85,7 @@ const {
   updateColormap,
   updateHistogram,
   projectionHelper,
+  isSceneInMotion,
   canvas,
   box,
   hoveredGeoPoint,
@@ -94,11 +102,7 @@ const hoverNside = ref<number | null>(null);
 
 const HEALPIX_NUMCHUNKS = 12;
 
-let mainMeshes: THREE.Mesh<
-  THREE.BufferGeometry<THREE.NormalBufferAttributes>,
-  THREE.Material,
-  THREE.Object3DEventMap
->[] = new Array(HEALPIX_NUMCHUNKS);
+let mainMeshes: Array<THREE.Mesh | undefined> = new Array(HEALPIX_NUMCHUNKS);
 
 watch(
   () => varnameSelector.value,
@@ -144,29 +148,23 @@ watch(
   }
 );
 
-// GPU projection: update shader uniforms instead of rebuilding geometry
-watch(
-  [() => projectionMode.value, () => projectionCenter.value],
-  () => {
-    updateMeshProjectionUniforms();
-  },
-  { deep: true }
-);
+watchProjectionEdgeQuality({
+  projectionMode,
+  projectionCenter,
+  isSceneInMotion,
+  onUpdate: updateMeshProjectionUniforms,
+});
 
 /**
  * Update projection uniforms on all mesh materials.
  * This is the fast path - no geometry rebuild needed.
  */
 function updateMeshProjectionUniforms() {
-  const helper = projectionHelper.value;
-
-  for (const mesh of mainMeshes) {
-    const material = mesh.material as THREE.ShaderMaterial;
-    if (material.uniforms?.projectionType) {
-      updateProjectionUniforms(material, helper);
-    }
-  }
-  redraw();
+  updateProjectionMeshes(mainMeshes, {
+    redraw,
+    projectionHelper: projectionHelper.value,
+    isSceneInMotion: isSceneInMotion.value,
+  });
 }
 
 async function datasourceUpdate() {
@@ -189,8 +187,13 @@ function fetchGrid() {
         gridStep,
         projectionHelper.value
       );
-      mainMeshes[ipix].geometry.dispose();
-      mainMeshes[ipix].geometry = geometry;
+      const mesh = mainMeshes[ipix];
+      if (!mesh) {
+        continue;
+      }
+      mesh.geometry.dispose();
+      setupProjectionGeometryWrap(geometry);
+      mesh.geometry = geometry;
     }
     // Update projection uniforms after geometry change
     updateMeshProjectionUniforms();
@@ -414,7 +417,7 @@ function createGeometry(
   latLonValues: Float32Array,
   indices: number[]
 ) {
-  const geometry = new THREE.BufferGeometry();
+  const geometry = new THREE.InstancedBufferGeometry();
   geometry.setIndex(indices);
   geometry.setAttribute(
     "position",
@@ -426,7 +429,7 @@ function createGeometry(
     "latLon",
     new THREE.Float32BufferAttribute(latLonValues, 2)
   );
-  return geometry;
+  return createTriangleWrapProjectionGeometry(geometry);
 }
 
 function generateHealpixIndices(positionValues: Float32Array, steps: number) {
@@ -652,7 +655,11 @@ async function processHealpixChunks(
         indices
       );
       if (texData === undefined) {
-        const material = mainMeshes[ipix].material as THREE.ShaderMaterial;
+        const mesh = mainMeshes[ipix];
+        if (!mesh) {
+          return;
+        }
+        const material = mesh.material as THREE.ShaderMaterial;
         material.uniforms.data.value.dispose();
         return;
       }
@@ -661,7 +668,11 @@ async function processHealpixChunks(
       dataMin = dataMin > texData.min ? texData.min : dataMin;
       dataMax = dataMax < texData.max ? texData.max : dataMax;
 
-      const material = mainMeshes[ipix].material as THREE.ShaderMaterial;
+      const mesh = mainMeshes[ipix];
+      if (!mesh) {
+        return;
+      }
+      const material = mesh.material as THREE.ShaderMaterial;
       material.uniforms.data.value.dispose();
       material.uniforms.data.value = texData.texture;
 
@@ -772,7 +783,10 @@ async function fetchAndRenderData(
 
 onMounted(() => {
   for (let ipix = 0; ipix < HEALPIX_NUMCHUNKS; ++ipix) {
-    getScene()!.add(mainMeshes[ipix]);
+    const mesh = mainMeshes[ipix];
+    if (mesh) {
+      getScene()!.add(mesh);
+    }
   }
 });
 
@@ -794,6 +808,7 @@ onBeforeMount(async () => {
       addOffset,
       scaleFactor
     );
+    material.uniforms.useTriangleWrapCull.value = 1;
     // Set initial projection uniforms
     const helper = projectionHelper.value;
     updateProjectionUniforms(material, helper);
@@ -804,9 +819,14 @@ onBeforeMount(async () => {
       gridStep,
       projectionHelper.value
     );
-    mainMeshes[ipix] = new THREE.Mesh(geometry, material);
+    const mesh = createWrappedProjectionMesh(
+      geometry,
+      material,
+      projectionHelper.value.type
+    );
+    mainMeshes[ipix] = mesh;
     // Disable frustum culling - GPU projection changes actual positions
-    mainMeshes[ipix].frustumCulled = false;
+    mesh.frustumCulled = false;
   }
   await datasourceUpdate();
 });

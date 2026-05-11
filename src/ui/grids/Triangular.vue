@@ -8,6 +8,11 @@ import {
   createGeoSampleIndex,
   useGridHoverLookup,
 } from "./composables/gridHoverUtils.ts";
+import {
+  createWrappedProjectionMesh,
+  updateProjectionMeshes,
+  watchProjectionEdgeQuality,
+} from "./composables/useProjectionEdgeQuality.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
@@ -18,10 +23,7 @@ import {
   mapMissingAndFillToNaN,
 } from "@/lib/data/zarrUtils.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
-import {
-  makeGpuProjectedMeshMaterial,
-  updateProjectionUniforms,
-} from "@/lib/shaders/gridShaders.ts";
+import { makeGpuProjectedMeshMaterial } from "@/lib/shaders/gridShaders.ts";
 import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import {
@@ -71,6 +73,7 @@ const {
   updateLandSeaMask,
   updateColormap,
   projectionHelper,
+  isSceneInMotion,
   canvas,
   box,
   updateHistogram,
@@ -124,29 +127,23 @@ watch(
   }
 );
 
-// GPU projection: update shader uniforms instead of rebuilding geometry
-watch(
-  [() => projectionMode.value, () => projectionCenter.value],
-  () => {
-    updateMeshProjectionUniforms();
-  },
-  { deep: true }
-);
+watchProjectionEdgeQuality({
+  projectionMode,
+  projectionCenter,
+  isSceneInMotion,
+  onUpdate: updateMeshProjectionUniforms,
+});
 
 /**
  * Update projection uniforms on all mesh materials.
  * This is the fast path - no geometry rebuild needed.
  */
 function updateMeshProjectionUniforms() {
-  const helper = projectionHelper.value;
-
-  for (const mesh of meshes) {
-    const material = mesh.material as THREE.ShaderMaterial;
-    if (material.uniforms?.projectionType) {
-      updateProjectionUniforms(material, helper);
-    }
-  }
-  redraw();
+  updateProjectionMeshes(meshes, {
+    redraw,
+    projectionHelper: projectionHelper.value,
+    isSceneInMotion: isSceneInMotion.value,
+  });
 }
 
 const colormapMaterial = computed(() => {
@@ -190,6 +187,16 @@ function cleanupMeshes() {
 // Split triangles into batches for multiple meshes
 const BATCH_SIZE = 3000000; // number of triangles per mesh (tune as needed)
 
+function createTriangleMesh(geometry: THREE.InstancedBufferGeometry) {
+  const mesh = createWrappedProjectionMesh(
+    geometry,
+    colormapMaterial.value,
+    projectionHelper.value.type
+  );
+  mesh.frustumCulled = false;
+  return mesh;
+}
+
 async function fetchGrid() {
   try {
     const verts = await grid2buffer(gridsource.value!);
@@ -199,7 +206,7 @@ async function fetchGrid() {
     const nTriangles = verts.length / 9;
     for (let i = 0; i < nTriangles; i += BATCH_SIZE) {
       const count = Math.min(BATCH_SIZE, nTriangles - i);
-      const geometry = new THREE.BufferGeometry();
+      const geometry = new THREE.InstancedBufferGeometry();
       // Each triangle has 9 values (3 vertices * 3 coords)
       const batchVerts = verts.subarray(i * 9, (i + count) * 9);
       const positionValues = new Float32Array(batchVerts.length);
@@ -232,9 +239,7 @@ async function fetchGrid() {
         new THREE.BufferAttribute(latLonValues, 2)
       );
       geometry.computeBoundingSphere();
-      const mesh = new THREE.Mesh(geometry, colormapMaterial.value);
-      // Disable frustum culling - GPU projection changes actual positions
-      mesh.frustumCulled = false;
+      const mesh = createTriangleMesh(geometry);
       meshes.push(mesh);
       getScene()?.add(mesh);
     }
