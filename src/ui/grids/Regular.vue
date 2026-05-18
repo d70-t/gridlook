@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { storeToRefs } from "pinia";
 import * as THREE from "three";
-import { onBeforeMount, ref, watch } from "vue";
+import { onBeforeMount, onBeforeUnmount, ref, watch } from "vue";
 import type * as zarr from "zarrita";
 
 import {
@@ -388,12 +388,23 @@ async function getGaussianGrid() {
   };
 }
 
+function disposeMeshMaterial(mesh: THREE.Mesh) {
+  const mat = mesh.material as THREE.ShaderMaterial;
+  if (mat && mat.dispose) {
+    if (mat.uniforms?.data?.value?.dispose) {
+      mat.uniforms.data.value.dispose();
+    }
+    mat.dispose();
+  }
+}
+
 function cleanupMeshes(totalBatches: number) {
   if (meshes.length <= totalBatches) {
     return;
   }
   for (const mesh of meshes) {
     mesh.geometry.dispose();
+    disposeMeshMaterial(mesh);
     getScene()?.remove(mesh);
   }
   meshes.length = 0;
@@ -646,6 +657,7 @@ async function fetchAndRenderData(
   updateHistogram(rawData, min, max, missingValue, fillValue);
 
   for (const mesh of meshes) {
+    disposeMeshMaterial(mesh);
     mesh.material = material;
     mesh.material.needsUpdate = true;
   }
@@ -696,6 +708,15 @@ async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
 
 onBeforeMount(async () => {
   await datasourceUpdate();
+});
+
+onBeforeUnmount(() => {
+  for (const mesh of meshes) {
+    mesh.geometry.dispose();
+    disposeMeshMaterial(mesh);
+    getScene()?.remove(mesh);
+  }
+  meshes.length = 0;
 });
 
 defineExpose({

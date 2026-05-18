@@ -2,7 +2,7 @@
 import * as healpix from "@hscmap/healpix";
 import { storeToRefs } from "pinia";
 import * as THREE from "three";
-import { onBeforeMount, onMounted, ref, watch } from "vue";
+import { onBeforeMount, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import * as zarr from "zarrita";
 
 import {
@@ -808,6 +808,25 @@ onBeforeMount(async () => {
     mesh.frustumCulled = false;
   }
   await datasourceUpdate();
+});
+
+onBeforeUnmount(() => {
+  for (let ipix = 0; ipix < HEALPIX_NUMCHUNKS; ++ipix) {
+    const mesh = mainMeshes[ipix];
+    if (!mesh) {
+      continue;
+    }
+    mesh.geometry.dispose();
+    const mat = mesh.material as THREE.ShaderMaterial;
+    if (mat) {
+      if (mat.uniforms?.data?.value?.dispose) {
+        mat.uniforms.data.value.dispose();
+      }
+      mat.dispose();
+    }
+    getScene()?.remove(mesh);
+    mainMeshes[ipix] = undefined;
+  }
 });
 
 defineExpose({

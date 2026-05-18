@@ -1048,6 +1048,16 @@ export function useGridScene(options: UseGridSceneOptions) {
   useResizeObserver(box, onCanvasResize);
 
   onBeforeUnmount(() => {
+    if (frameId.value) {
+      cancelAnimationFrame(frameId.value);
+      frameId.value = 0;
+    }
+    orbitControls?.dispose();
+    orbitControls = undefined;
+    cleanupSurface(baseSurface);
+    cleanupSurface(pickSurface);
+    baseSurface = undefined;
+    pickSurface = undefined;
     scene?.clear();
     camera?.clear();
     renderer?.dispose();
