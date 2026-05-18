@@ -730,7 +730,6 @@ export function useGridScene(options: UseGridSceneOptions) {
     if (!box.value) {
       return;
     }
-    console.log("Canvas resize detected, updating camera and renderer...");
     const { width: boxWidth, height: boxHeight } =
       box.value.getBoundingClientRect();
 
