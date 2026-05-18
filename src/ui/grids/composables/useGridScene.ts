@@ -1,4 +1,8 @@
-import { useDebounceFn, useEventListener } from "@vueuse/core";
+import {
+  useDebounceFn,
+  useEventListener,
+  useResizeObserver,
+} from "@vueuse/core";
 import * as d3 from "d3-geo";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
@@ -65,7 +69,6 @@ export function useGridScene(options: UseGridSceneOptions) {
   let camera: THREE.PerspectiveCamera | undefined = undefined;
   let renderer: THREE.WebGLRenderer | undefined = undefined;
   let orbitControls: OrbitControls | undefined = undefined;
-  let resizeObserver: ResizeObserver | undefined = undefined;
   let updateLOD: (() => void) | undefined = undefined;
   let baseSurface: THREE.Mesh | undefined = undefined;
   let pickSurface: THREE.Mesh | undefined = undefined;
@@ -125,20 +128,12 @@ export function useGridScene(options: UseGridSceneOptions) {
     return orbitControls;
   }
 
-  function getResizeObserver() {
-    return resizeObserver;
-  }
-
   function getBaseSurface() {
     return baseSurface;
   }
 
   function registerUpdateLOD(func: () => void) {
     updateLOD = func;
-  }
-
-  function setResizeObserver(observer: ResizeObserver) {
-    resizeObserver = observer;
   }
 
   function redraw() {
@@ -735,12 +730,11 @@ export function useGridScene(options: UseGridSceneOptions) {
     if (!box.value) {
       return;
     }
+    console.log("Canvas resize detected, updating camera and renderer...");
     const { width: boxWidth, height: boxHeight } =
       box.value.getBoundingClientRect();
 
     if (boxWidth !== width.value || boxHeight !== height.value) {
-      getResizeObserver()?.unobserve(box.value);
-
       const aspect = boxWidth / boxHeight;
       getCamera()!.aspect = aspect;
       getCamera()!.updateProjectionMatrix();
@@ -755,10 +749,6 @@ export function useGridScene(options: UseGridSceneOptions) {
 
       updateCameraForPanel();
       redraw();
-
-      if (box.value) {
-        getResizeObserver()!.observe(box.value);
-      }
     }
   }
 
@@ -1053,18 +1043,15 @@ export function useGridScene(options: UseGridSceneOptions) {
     setupKeyboardListeners();
 
     initEssentials();
-    setResizeObserver(new ResizeObserver(onCanvasResize));
-    getResizeObserver()?.observe(box.value!);
     void onReady?.();
   });
+
+  useResizeObserver(box, onCanvasResize);
 
   onBeforeUnmount(() => {
     scene?.clear();
     camera?.clear();
     renderer?.dispose();
-    if (box.value) {
-      getResizeObserver()?.unobserve(box.value!);
-    }
     scene = undefined;
     renderer = undefined;
     camera = undefined;
@@ -1154,7 +1141,6 @@ export function useGridScene(options: UseGridSceneOptions) {
     box,
     getScene,
     getCamera,
-    getResizeObserver,
     redraw,
     toggleRotate,
     makeSnapshot,
