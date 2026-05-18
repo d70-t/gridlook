@@ -2,7 +2,7 @@
 import * as healpix from "@hscmap/healpix";
 import { storeToRefs } from "pinia";
 import * as THREE from "three";
-import { computed, onBeforeMount, onMounted, ref, watch } from "vue";
+import { onBeforeMount, onMounted, ref, watch } from "vue";
 import * as zarr from "zarrita";
 
 import {
@@ -14,7 +14,6 @@ import {
   createWrappedProjectionMesh,
   setupProjectionGeometryWrap,
   updateProjectionMeshes,
-  watchProjectionEdgeQuality,
 } from "./composables/useProjectionEdgeQuality.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
@@ -59,13 +58,9 @@ const {
   varnameSelector,
   colormap,
   invertColormap,
-  posterizeLevels,
-  selection,
   dimSlidersValues,
   isInitializingVariable,
   varinfo,
-  projectionMode,
-  projectionCenter,
 } = storeToRefs(store);
 
 const urlParameterStore = useUrlParameterStore();
@@ -86,6 +81,9 @@ const {
   updateHistogram,
   projectionHelper,
   isSceneInMotion,
+  onProjectionChange,
+  onMotionStateChange,
+  onColormapChange,
   canvas,
   box,
   hoveredGeoPoint,
@@ -131,29 +129,10 @@ watch(
   }
 );
 
-const bounds = computed(() => {
-  return selection.value;
-});
+onColormapChange(() => updateColormap(mainMeshes));
 
-watch(
-  [
-    () => bounds.value,
-    () => invertColormap.value,
-    () => colormap.value,
-    () => posterizeLevels.value,
-    () => store.hideLowerBound,
-  ],
-  () => {
-    updateColormap(mainMeshes);
-  }
-);
-
-watchProjectionEdgeQuality({
-  projectionMode,
-  projectionCenter,
-  isSceneInMotion,
-  onUpdate: updateMeshProjectionUniforms,
-});
+onProjectionChange(updateMeshProjectionUniforms);
+onMotionStateChange(updateMeshProjectionUniforms);
 
 /**
  * Update projection uniforms on all mesh materials.
@@ -791,8 +770,8 @@ onMounted(() => {
 });
 
 onBeforeMount(async () => {
-  const low = bounds.value?.low as number;
-  const high = bounds.value?.high as number;
+  const low = store.selection?.low as number;
+  const high = store.selection?.high as number;
   const { addOffset, scaleFactor } = getColormapScaleOffset(
     low,
     high,

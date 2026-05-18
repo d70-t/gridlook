@@ -521,6 +521,15 @@ export function makeGpuProjectedMeshMaterial(
   return material;
 }
 
+export function makeInvertableGpuMeshMaterial(
+  colormap: TColorMap,
+  invert: boolean
+) {
+  return invert
+    ? makeGpuProjectedMeshMaterial(colormap, 1.0, -1.0)
+    : makeGpuProjectedMeshMaterial(colormap, 0.0, 1.0);
+}
+
 /**
  * Create a GPU-projected point material for irregular grids.
  * Projection is done on the GPU, allowing instant center changes.

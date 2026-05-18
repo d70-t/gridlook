@@ -11,7 +11,6 @@ import {
 import {
   createWrappedProjectionMesh,
   updateProjectionMeshes,
-  watchProjectionEdgeQuality,
 } from "./composables/useProjectionEdgeQuality.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
@@ -23,7 +22,7 @@ import {
   mapMissingAndFillToNaN,
 } from "@/lib/data/zarrUtils.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
-import { makeGpuProjectedMeshMaterial } from "@/lib/shaders/gridShaders.ts";
+import { makeInvertableGpuMeshMaterial } from "@/lib/shaders/gridShaders.ts";
 import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import {
@@ -44,12 +43,8 @@ const {
   varnameSelector,
   colormap,
   invertColormap,
-  posterizeLevels,
-  selection,
   isInitializingVariable,
   varinfo,
-  projectionMode,
-  projectionCenter,
 } = storeToRefs(store);
 
 const urlParameterStore = useUrlParameterStore();
@@ -74,6 +69,9 @@ const {
   updateColormap,
   projectionHelper,
   isSceneInMotion,
+  onProjectionChange,
+  onMotionStateChange,
+  onColormapChange,
   canvas,
   box,
   updateHistogram,
@@ -110,29 +108,10 @@ watch(
   }
 );
 
-const bounds = computed(() => {
-  return selection.value;
-});
+onColormapChange(() => updateColormap(meshes));
 
-watch(
-  [
-    () => bounds.value,
-    () => invertColormap.value,
-    () => colormap.value,
-    () => posterizeLevels.value,
-    () => store.hideLowerBound,
-  ],
-  () => {
-    updateColormap(meshes);
-  }
-);
-
-watchProjectionEdgeQuality({
-  projectionMode,
-  projectionCenter,
-  isSceneInMotion,
-  onUpdate: updateMeshProjectionUniforms,
-});
+onProjectionChange(updateMeshProjectionUniforms);
+onMotionStateChange(updateMeshProjectionUniforms);
 
 /**
  * Update projection uniforms on all mesh materials.
@@ -147,12 +126,7 @@ function updateMeshProjectionUniforms() {
 }
 
 const colormapMaterial = computed(() => {
-  // Use GPU-projected material
-  const material = invertColormap.value
-    ? makeGpuProjectedMeshMaterial(colormap.value, 1.0, -1.0)
-    : makeGpuProjectedMeshMaterial(colormap.value, 0.0, 1.0);
-
-  return material;
+  return makeInvertableGpuMeshMaterial(colormap.value, invertColormap.value);
 });
 
 const gridsource = computed(() => {

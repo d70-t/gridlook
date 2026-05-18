@@ -1,6 +1,6 @@
-import type { FeatureCollection } from "geojson";
+import { storeToRefs } from "pinia";
 import * as THREE from "three";
-import type { ComputedRef, Ref } from "vue";
+import { watch, type ComputedRef, type Ref } from "vue";
 
 import { geojson2gpuLineSegmentsGeometry } from "@/lib/layers/geojson.ts";
 import {
@@ -15,6 +15,7 @@ import {
 } from "@/lib/layers/landSeaMask.ts";
 import { ResourceCache } from "@/lib/layers/ResourceCache.ts";
 import type { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
+import { useGlobeControlStore } from "@/store/store";
 
 type UseGridOverlaysOptions = {
   projectionHelper: ComputedRef<ProjectionHelper>;
@@ -32,12 +33,25 @@ type TOverlayLineStyle = {
   zOffset: number;
 };
 
+const coastStyle: TOverlayLineStyle = {
+  color: "#ffffff",
+  radius: 1.002,
+  zOffset: 0.01,
+} as const;
+
+const graticuleStyle: TOverlayLineStyle = {
+  color: "#888888",
+  radius: 1.002,
+  zOffset: 0.01,
+} as const;
+
 /* eslint-disable-next-line max-lines-per-function */
 export function useGridOverlays(options: UseGridOverlaysOptions) {
+  const store = useGlobeControlStore();
+  const { showCoastLines, showGraticules } = storeToRefs(store);
+
   const {
     projectionHelper,
-    showCoastLines,
-    showGraticules,
     landSeaMaskChoice,
     landSeaMaskUseTexture,
     getScene,
@@ -47,19 +61,20 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
   let coast: THREE.LineSegments | undefined = undefined;
   let graticules: THREE.LineSegments | undefined = undefined;
   let landSeaMask: THREE.Object3D | undefined = undefined;
-  let coastlineData: FeatureCollection | undefined;
-  let graticulesData: FeatureCollection | undefined;
 
-  const coastStyle: TOverlayLineStyle = {
-    color: "#ffffff",
-    radius: 1.002,
-    zOffset: 0.01,
-  };
-  const graticuleStyle: TOverlayLineStyle = {
-    color: "#888888",
-    radius: 1.002,
-    zOffset: 0.01,
-  };
+  watch(
+    () => showCoastLines.value,
+    () => {
+      updateCoastlines();
+    }
+  );
+
+  watch(
+    () => showGraticules.value,
+    () => {
+      updateGraticules();
+    }
+  );
 
   function getLineProjectionOptions(style: TOverlayLineStyle) {
     return {
@@ -84,29 +99,50 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
   }
 
   async function getCoastlines() {
-    if (!coastlineData) {
-      coastlineData = await ResourceCache.loadGeoJSON(
-        "static/ne_50m_coastline.geojson"
-      );
-    }
-
     if (!coast) {
-      const geometry = geojson2gpuLineSegmentsGeometry(
-        coastlineData,
-        projectionHelper.value,
-        getLineProjectionOptions(coastStyle)
+      coast = await createLineSegments(
+        "static/ne_50m_coastline.geojson",
+        coastStyle,
+        "coastlines"
       );
-      const material = makeGpuProjectedLineMaterial({
-        color: coastStyle.color,
-        ...getLineProjectionOptions(coastStyle),
-      });
-      coast = new THREE.LineSegments(geometry, material);
-      coast.name = "coastlines";
-      coast.renderOrder = 20;
-      coast.frustumCulled = false;
     }
     updateLineProjection(coast, coastStyle);
     return coast;
+  }
+
+  async function getGraticulesLayer() {
+    if (!graticules) {
+      graticules = await createLineSegments(
+        "static/ne_50m_graticules_30.geojson",
+        graticuleStyle,
+        "graticules"
+      );
+    }
+    updateLineProjection(graticules, graticuleStyle);
+    return graticules;
+  }
+
+  async function createLineSegments(
+    geojsonPath: string,
+    style: TOverlayLineStyle,
+    name: string
+  ) {
+    const coastlineData = await ResourceCache.loadGeoJSON(geojsonPath);
+    const geometry = geojson2gpuLineSegmentsGeometry(
+      coastlineData,
+      projectionHelper.value,
+      getLineProjectionOptions(style)
+    );
+    const material = makeGpuProjectedLineMaterial({
+      color: style.color,
+      ...getLineProjectionOptions(style),
+    });
+    const lineSegments = new THREE.LineSegments(geometry, material);
+    lineSegments.name = name;
+    lineSegments.renderOrder = 20;
+    lineSegments.frustumCulled = false;
+    updateLineProjection(lineSegments, style);
+    return lineSegments;
   }
 
   async function updateCoastlines() {
@@ -122,32 +158,6 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
       scene.add(await getCoastlines());
     }
     redraw();
-  }
-
-  async function getGraticulesLayer() {
-    if (!graticulesData) {
-      graticulesData = await ResourceCache.loadGeoJSON(
-        "static/ne_50m_graticules_30.geojson"
-      );
-    }
-
-    if (!graticules) {
-      const geometry = geojson2gpuLineSegmentsGeometry(
-        graticulesData,
-        projectionHelper.value,
-        getLineProjectionOptions(graticuleStyle)
-      );
-      const material = makeGpuProjectedLineMaterial({
-        color: graticuleStyle.color,
-        ...getLineProjectionOptions(graticuleStyle),
-      });
-      graticules = new THREE.LineSegments(geometry, material);
-      graticules.name = "graticules";
-      graticules.renderOrder = 20;
-      graticules.frustumCulled = false;
-    }
-    updateLineProjection(graticules, graticuleStyle);
-    return graticules;
   }
 
   async function updateGraticules() {

@@ -1,6 +1,4 @@
 import * as THREE from "three";
-import type { Ref } from "vue";
-import { watch } from "vue";
 
 import { type ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import {
@@ -18,26 +16,11 @@ type ProjectionSyncOptions = {
   radius?: number;
 };
 
-type ProjectionWatchOptions = {
-  projectionMode: Ref<unknown>;
-  projectionCenter: Ref<unknown>;
-  isSceneInMotion: Ref<boolean>;
-  onUpdate: () => void;
-};
-
 const TRIANGLE_WRAP_ATTRIBUTE_NAMES = [
   "triangleLatLon0",
   "triangleLatLon1",
   "triangleLatLon2",
 ] as const;
-
-export function watchProjectionEdgeQuality(options: ProjectionWatchOptions) {
-  const { projectionMode, projectionCenter, isSceneInMotion, onUpdate } =
-    options;
-
-  watch([projectionMode, projectionCenter], onUpdate, { deep: true });
-  watch(isSceneInMotion, onUpdate);
-}
 
 export function updateProjectionMeshes(
   meshes: ProjectionMesh[],

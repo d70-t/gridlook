@@ -43,12 +43,8 @@ const {
   colormap,
   varnameSelector,
   invertColormap,
-  posterizeLevels,
-  selection,
   isInitializingVariable,
   varinfo,
-  projectionMode,
-  projectionCenter,
 } = storeToRefs(store);
 
 const urlParameterStore = useUrlParameterStore();
@@ -75,6 +71,8 @@ const {
   updateLandSeaMask,
   updateColormap,
   projectionHelper,
+  onProjectionChange,
+  onColormapChange,
   redraw,
   canvas,
   box,
@@ -112,31 +110,9 @@ watch(
   }
 );
 
-const bounds = computed(() => {
-  return selection.value;
-});
+onColormapChange(() => updateColormap(points));
 
-watch(
-  [
-    () => bounds.value,
-    () => invertColormap.value,
-    () => colormap.value,
-    () => posterizeLevels.value,
-    () => store.hideLowerBound,
-  ],
-  () => {
-    updateColormap(points);
-  }
-);
-
-// GPU projection: update shader uniforms instead of rebuilding geometry
-watch(
-  [() => projectionMode.value, () => projectionCenter.value],
-  () => {
-    updatePointsProjectionUniforms();
-  },
-  { deep: true }
-);
+onProjectionChange(updatePointsProjectionUniforms);
 
 /**
  * Update projection uniforms on the points material.
