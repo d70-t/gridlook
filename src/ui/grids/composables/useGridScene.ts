@@ -1,6 +1,5 @@
-import { useEventListener } from "@vueuse/core";
+import { useDebounceFn, useEventListener } from "@vueuse/core";
 import * as d3 from "d3-geo";
-import debounce from "lodash.debounce";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import {
@@ -91,7 +90,7 @@ export function useGridScene(options: UseGridSceneOptions) {
   let idleFrameCount = 0;
   const IDLE_FRAMES_BEFORE_STOP = 30; // ~500 ms at 60 fps – outlasts any realistic damping
   const WHEEL_END_DELAY_MS = 120;
-  const debouncedEndWheelInteraction = debounce(() => {
+  const debouncedEndWheelInteraction = useDebounceFn(() => {
     wheelActive = false;
     animationLoop();
   }, WHEEL_END_DELAY_MS);
@@ -1063,7 +1062,6 @@ export function useGridScene(options: UseGridSceneOptions) {
     scene?.clear();
     camera?.clear();
     renderer?.dispose();
-    debouncedEndWheelInteraction.cancel();
     if (box.value) {
       getResizeObserver()?.unobserve(box.value!);
     }

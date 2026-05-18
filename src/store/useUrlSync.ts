@@ -1,4 +1,4 @@
-import debounce from "lodash.debounce";
+import { watchDebounced } from "@vueuse/core";
 import { storeToRefs } from "pinia";
 import { watch } from "vue";
 
@@ -72,10 +72,6 @@ export function useUrlSync() {
     }
   }
 
-  const debouncedUserBoundsSync = debounce(() => {
-    handleUserBounds();
-  }, 200);
-
   watch(
     () => varnameSelector.value,
     () => {
@@ -86,18 +82,12 @@ export function useUrlSync() {
     }
   );
 
-  watch(
-    () => userBoundsLow.value,
+  watchDebounced(
+    () => [userBoundsLow.value, userBoundsHigh.value],
     () => {
-      debouncedUserBoundsSync();
-    }
-  );
-
-  watch(
-    () => userBoundsHigh.value,
-    () => {
-      debouncedUserBoundsSync();
-    }
+      handleUserBounds();
+    },
+    { debounce: 200 }
   );
 
   watch(
@@ -190,22 +180,19 @@ export function useUrlSync() {
     }
   );
 
-  const debouncedProjectionCenterSync = debounce((lat: number, lon: number) => {
-    changeURLHash({
-      [URL_PARAMETERS.PROJECTION_CENTER_LAT]: lat,
-      [URL_PARAMETERS.PROJECTION_CENTER_LON]: lon,
-    });
-  }, 200);
-
-  watch(
+  watchDebounced(
     () => [projectionCenter.value?.lat, projectionCenter.value?.lon],
     () => {
       const center = projectionCenter.value;
       if (!center) {
         return;
       }
-      debouncedProjectionCenterSync(center.lat, center.lon);
-    }
+      changeURLHash({
+        [URL_PARAMETERS.PROJECTION_CENTER_LAT]: center.lat,
+        [URL_PARAMETERS.PROJECTION_CENTER_LON]: center.lon,
+      });
+    },
+    { debounce: 200 }
   );
 
   watch(
