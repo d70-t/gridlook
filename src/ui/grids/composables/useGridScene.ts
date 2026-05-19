@@ -549,6 +549,9 @@ export function useGridScene(options: UseGridSceneOptions) {
     const targetDistance = 1.05 / Math.sin(minHalfFov);
 
     cam.up.set(0, 0, 1);
+    cam.near = 0.1;
+    cam.far = 1000;
+    cam.updateProjectionMatrix();
     controls.enablePan = false;
     controls.enableRotate = true;
     controls.enableDamping = true;
