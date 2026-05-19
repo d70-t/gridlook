@@ -44,7 +44,11 @@ async function checkTriangularGrid(
 ): Promise<boolean> {
   try {
     const gridsource = datasources!.levels[0].grid;
-    await ZarrDataManager.getVariableInfo(gridsource, "vertex_of_cell");
+    await ZarrDataManager.getVariableInfo(
+      gridsource,
+      "vertex_of_cell",
+      datasources?.zarr_format
+    );
     return true;
   } catch {
     return false;
@@ -159,7 +163,8 @@ export async function getGridType(
   try {
     const datavar = await ZarrDataManager.getVariableInfo(
       ZarrDataManager.getDatasetSource(datasources!, varnameSelector),
-      varnameSelector
+      varnameSelector,
+      datasources?.zarr_format
     );
 
     // Check CRS-based grid types
