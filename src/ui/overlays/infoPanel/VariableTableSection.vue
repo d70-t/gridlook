@@ -2,13 +2,7 @@
 import VueJsonPretty from "vue-json-pretty";
 import * as zarr from "zarrita";
 
-type TVariableTableRow = {
-  name: string;
-  dimensions: string[];
-  dtype: string | null;
-  attrs: zarr.Attributes | null;
-  error: string | null;
-};
+import type { TVariableTableRow } from "./types";
 
 withDefaults(
   defineProps<{

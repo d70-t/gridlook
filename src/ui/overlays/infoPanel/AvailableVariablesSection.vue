@@ -1,19 +1,12 @@
 <script lang="ts" setup>
 import { storeToRefs } from "pinia";
 import { computed, ref, watch } from "vue";
-import * as zarr from "zarrita";
 
+import type { TVariableMetadata } from "./types";
 import VariableTableSection from "./VariableTableSection.vue";
 
 import type { TDataSource, TSources } from "@/lib/types/GlobeTypes.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
-
-type TVariableMetadata = {
-  attrs: zarr.Attributes | null;
-  dimensions: string[];
-  dtype: string | null;
-  error: string | null;
-};
 
 const props = defineProps<{
   datasources?: TSources;

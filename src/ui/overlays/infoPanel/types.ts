@@ -1,3 +1,5 @@
+import * as zarr from "zarrita";
+
 export type TInfoDimension = {
   name: string;
   size: number;
@@ -16,3 +18,14 @@ export type TTimeInfo = {
   timestep: string | null;
   numTimesteps: number;
 };
+
+export type TVariableMetadata = {
+  attrs: zarr.Attributes | null;
+  dimensions: string[];
+  dtype: string | null;
+  error: string | null;
+};
+
+export type TVariableTableRow = {
+  name: string;
+} & TVariableMetadata;
