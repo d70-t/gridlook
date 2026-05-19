@@ -8,6 +8,12 @@ import {
   createGeoSampleIndex,
   useGridHoverLookup,
 } from "./composables/gridHoverUtils.ts";
+import {
+  createWrappedProjectionMesh,
+  setupProjectionGeometryWrap,
+  updateProjectionMeshes,
+  watchProjectionEdgeQuality,
+} from "./composables/useProjectionEdgeQuality.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
@@ -19,10 +25,7 @@ import {
   getLatLonData,
   mapMissingAndFillToNaN,
 } from "@/lib/data/zarrUtils.ts";
-import {
-  makeGpuProjectedMeshMaterial,
-  updateProjectionUniforms,
-} from "@/lib/shaders/gridShaders.ts";
+import { makeGpuProjectedMeshMaterial } from "@/lib/shaders/gridShaders.ts";
 import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import {
@@ -72,6 +75,7 @@ const {
   updateLandSeaMask,
   updateColormap,
   projectionHelper,
+  isSceneInMotion,
   canvas,
   box,
   updateHistogram,
@@ -118,29 +122,23 @@ watch(
   }
 );
 
-// GPU projection: update shader uniforms instead of rebuilding geometry
-watch(
-  [() => projectionMode.value, () => projectionCenter.value],
-  () => {
-    updateMeshProjectionUniforms();
-  },
-  { deep: true }
-);
+watchProjectionEdgeQuality({
+  projectionMode,
+  projectionCenter,
+  isSceneInMotion,
+  onUpdate: updateMeshProjectionUniforms,
+});
 
 /**
  * Update projection uniforms on all mesh materials.
  * This is the fast path - no geometry rebuild needed.
  */
 function updateMeshProjectionUniforms() {
-  const helper = projectionHelper.value;
-
-  for (const mesh of meshes) {
-    const material = mesh.material as THREE.ShaderMaterial;
-    if (material.uniforms?.projectionType) {
-      updateProjectionUniforms(material, helper);
-    }
-  }
-  redraw();
+  updateProjectionMeshes(meshes, {
+    redraw,
+    projectionHelper: projectionHelper.value,
+    isSceneInMotion: isSceneInMotion.value,
+  });
 }
 
 const colormapMaterial = computed(() => {
@@ -326,7 +324,7 @@ function createBatchGeometry(
   latLonValues: Float32Array,
   indices: Uint32Array
 ) {
-  const geometry = new THREE.BufferGeometry();
+  const geometry = new THREE.InstancedBufferGeometry();
 
   geometry.setAttribute(
     "position",
@@ -341,14 +339,19 @@ function createBatchGeometry(
 
 function updateBatchMesh(
   batchIndex: number,
-  geometry: THREE.BufferGeometry,
+  geometry: THREE.InstancedBufferGeometry,
   meshes: THREE.Mesh[]
 ) {
+  setupProjectionGeometryWrap(geometry);
   if (meshes[batchIndex]) {
     meshes[batchIndex].geometry.dispose();
     meshes[batchIndex].geometry = geometry;
   } else {
-    const mesh = new THREE.Mesh(geometry, colormapMaterial.value);
+    const mesh = createWrappedProjectionMesh(
+      geometry,
+      colormapMaterial.value,
+      projectionHelper.value.type
+    );
     mesh.frustumCulled = false;
     meshes.push(mesh);
     getScene()?.add(mesh);

@@ -52,6 +52,7 @@ export function useSharedGridLogic() {
   });
 
   const cameraState = useGridCameraState();
+  const isSceneInMotion = ref(false);
   let updateCoastlines: () => Promise<void> = async () => {};
   let updateGraticules: () => Promise<void> = async () => {};
 
@@ -74,6 +75,9 @@ export function useSharedGridLogic() {
     projectionCenter,
     controlPanelVisible,
     cameraState,
+    onMotionStateChange: (isInMotion) => {
+      isSceneInMotion.value = isInMotion;
+    },
     onReady: () => {
       updateCoastlines();
       updateGraticules();
@@ -347,6 +351,7 @@ export function useSharedGridLogic() {
     updateColormap,
     updateHistogram,
     projectionHelper,
+    isSceneInMotion,
     canvas,
     box,
     hoveredGeoPoint,

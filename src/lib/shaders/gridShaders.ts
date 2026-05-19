@@ -37,7 +37,70 @@ float posterize(float value, float levels) {
 }
 `;
 
+const projectionWrapVertexGLSL = `
+bool projectionUsesWrappedInstances(int projType) {
+  return
+    projType != PROJ_GLOBE &&
+    projType != PROJ_AZIMUTHAL_EQUIDISTANT &&
+    projType != PROJ_AZIMUTHAL_HYBRID;
+}
+
+bool shouldCullTriangleWrapInstance(
+  vec2 triLatLon0,
+  vec2 triLatLon1,
+  vec2 triLatLon2,
+  int projType,
+  float cLon,
+  float cLat,
+  float wrapDir,
+  int edgeQuality,
+  int useTriangleWrapCull
+) {
+  if (
+    edgeQuality <= 0 ||
+    useTriangleWrapCull <= 0 ||
+    !projectionUsesWrappedInstances(projType)
+  ) {
+    return false;
+  }
+
+  float lon0 = rotateCoords(triLatLon0.x, triLatLon0.y, cLon, cLat).y;
+  float lon1 = rotateCoords(triLatLon1.x, triLatLon1.y, cLon, cLat).y;
+  float lon2 = rotateCoords(triLatLon2.x, triLatLon2.y, cLon, cLat).y;
+  float minLon = min(lon0, min(lon1, lon2));
+  float maxLon = max(lon0, max(lon1, lon2));
+  bool crossesWrap = maxLon - minLon > 180.0;
+  bool isBaseInstance = abs(wrapDir) < 0.5;
+
+  return crossesWrap ? isBaseInstance : !isBaseInstance;
+}
+
+vec3 projectWithWrap(
+  vec2 latLon,
+  int projType,
+  float cLon,
+  float cLat,
+  float radius,
+  float wrapDir,
+  int edgeQuality
+) {
+  // Globe projection is oriented by the camera; projection center must not rotate it.
+  if (projType == PROJ_GLOBE) {
+    return projectGlobe(latLon.x, latLon.y, radius);
+  }
+  vec2 rotated = rotateCoords(latLon.x, latLon.y, cLon, cLat);
+  if (edgeQuality > 0 && wrapDir > 0.5 && rotated.y < 0.0) {
+    rotated.y += 360.0;
+  } else if (edgeQuality > 0 && wrapDir < -0.5 && rotated.y > 0.0) {
+    rotated.y -= 360.0;
+  }
+  return projectRotatedLatLon(rotated, projType, radius);
+}
+`;
+
 const textureColormapFragmentShader = `
+${projectionShaderFunctions}
+
 ${colormapShaders}
 
 ${isNaNGLSL}
@@ -50,10 +113,17 @@ uniform int colormap;
 uniform float posterizeLevels;
 uniform float hideBelowValue;
 uniform sampler2D data;
+uniform int projectionType;
+uniform float projectionRadius;
+uniform int edgeQuality;
 
 varying vec2 vUv;
+varying vec2 vProjectedXY;
 
 void main() {
+  if (edgeQuality > 0 && !isInsideProjectionDomain(vProjectedXY, projectionType, projectionRadius)) {
+        discard;
+    }
     gl_FragColor.a = 1.0;
     float v_value = texture(data, vUv).r;
     if (is_nan(v_value) || v_value <= hideBelowValue) {
@@ -69,6 +139,8 @@ void main() {
 // credits: https://www.shadertoy.com/view/3lBXR3
 //          https://github.com/mzucker/fit_colormaps
 const scalarColormapFragmentShader = `
+${projectionShaderFunctions}
+
 ${colormapShaders}
 
 ${isNaNGLSL}
@@ -81,9 +153,18 @@ uniform float scaleFactor;
 uniform int colormap;
 uniform float posterizeLevels;
 uniform float hideBelowValue;
+uniform int projectionType;
+uniform float projectionRadius;
+uniform int edgeQuality;
+
+varying vec2 vProjectedXY;
 
 void main() {
-    if (is_nan(v_value) || v_value <= hideBelowValue) {
+    if (
+    (edgeQuality > 0 && !isInsideProjectionDomain(vProjectedXY, projectionType, projectionRadius)) ||
+        is_nan(v_value) ||
+        v_value <= hideBelowValue
+    ) {
         gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
         return;
     }
@@ -230,25 +311,53 @@ export function getColormapScaleOffset(
 const gpuProjectedTextureVertexShader = `
 ${projectionShaderFunctions}
 
+${projectionWrapVertexGLSL}
+
 uniform int projectionType;
 uniform float centerLon;
 uniform float centerLat;
 uniform float projectionRadius;
+uniform int edgeQuality;
+uniform int useTriangleWrapCull;
 
 attribute vec2 latLon;  // lat, lon in degrees
+attribute float wrapDirection;
+attribute vec2 triangleLatLon0;
+attribute vec2 triangleLatLon1;
+attribute vec2 triangleLatLon2;
 
 varying vec2 vUv;
+varying vec2 vProjectedXY;
 
 void main() {
   vUv = uv;
-  vec3 projected = projectLatLon(
-    latLon.x,
-    latLon.y,
+  if (
+    shouldCullTriangleWrapInstance(
+      triangleLatLon0,
+      triangleLatLon1,
+      triangleLatLon2,
+      projectionType,
+      centerLon,
+      centerLat,
+      wrapDirection,
+      edgeQuality,
+      useTriangleWrapCull
+    )
+  ) {
+    vProjectedXY = vec2(1000000.0);
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    return;
+  }
+  vec3 projected = projectWithWrap(
+    latLon,
     projectionType,
     centerLon,
     centerLat,
-    projectionRadius
+    projectionRadius,
+    wrapDirection,
+    edgeQuality
   );
+  vProjectedXY = projected.xy;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(projected, 1.0);
 }
 `;
@@ -260,27 +369,34 @@ void main() {
 const gpuProjectedMeshVertexShader = `
 ${projectionShaderFunctions}
 
+${projectionWrapVertexGLSL}
+
 uniform int projectionType;
 uniform float centerLon;
 uniform float centerLat;
 uniform float projectionRadius;
 uniform float pointSize;
+uniform int edgeQuality;
 
 attribute vec2 latLon;  // lat, lon in degrees
 attribute float data_value;
+attribute float wrapDirection;
 
 varying float v_value;
+varying vec2 vProjectedXY;
 
 void main() {
   v_value = data_value;
-  vec3 projected = projectLatLon(
-    latLon.x,
-    latLon.y,
+  vec3 projected = projectWithWrap(
+    latLon,
     projectionType,
     centerLon,
     centerLat,
-    projectionRadius
+    projectionRadius,
+    wrapDirection,
+    edgeQuality
   );
+  vProjectedXY = projected.xy;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(projected, 1.0);
   if (pointSize > 0.0) {
     gl_PointSize = pointSize;
@@ -350,11 +466,22 @@ export function makeGpuProjectedTextureMaterial(
       centerLon: { value: 0.0 },
       centerLat: { value: 0.0 },
       projectionRadius: { value: 1.0 },
+      edgeQuality: { value: 1 },
+      useTriangleWrapCull: { value: 0 },
     },
     transparent: true,
     vertexShader: gpuProjectedTextureVertexShader,
     fragmentShader: textureColormapFragmentShader,
   });
+  (material.defaultAttributeValues as Record<string, unknown>).wrapDirection = [
+    0,
+  ];
+  (material.defaultAttributeValues as Record<string, unknown>).triangleLatLon0 =
+    [0, 0];
+  (material.defaultAttributeValues as Record<string, unknown>).triangleLatLon1 =
+    [0, 0];
+  (material.defaultAttributeValues as Record<string, unknown>).triangleLatLon2 =
+    [0, 0];
   return material;
 }
 
@@ -382,11 +509,15 @@ export function makeGpuProjectedMeshMaterial(
       centerLon: { value: 0.0 },
       centerLat: { value: 0.0 },
       projectionRadius: { value: 1.0 },
+      edgeQuality: { value: 1 },
     },
     transparent: true,
     vertexShader: gpuProjectedMeshVertexShader,
     fragmentShader: scalarColormapFragmentShader,
   });
+  (material.defaultAttributeValues as Record<string, unknown>).wrapDirection = [
+    0,
+  ];
   return material;
 }
 
@@ -433,7 +564,9 @@ export function makeGpuProjectedPointMaterial(
 export function updateProjectionUniforms(
   material: THREE.ShaderMaterial,
   projectionHelper: Pick<ProjectionHelper, "type" | "center">,
-  radius: number = 1.0
+  radius: number = 1.0,
+  mesh?: THREE.Mesh,
+  useAccurateEdges = true
 ) {
   const projectionTypeId = getProjectionTypeFromMode(projectionHelper.type);
   if (material.uniforms.projectionType) {
@@ -448,6 +581,92 @@ export function updateProjectionUniforms(
   if (material.uniforms.projectionRadius) {
     material.uniforms.projectionRadius.value = radius;
   }
+  if (material.uniforms.edgeQuality) {
+    material.uniforms.edgeQuality.value = useAccurateEdges ? 1 : 0;
+  }
   material.depthTest =
     projectionHelper.type === PROJECTION_TYPES.NEARSIDE_PERSPECTIVE;
+
+  if (mesh) {
+    setProjectionGeometryInstanceCount(
+      mesh.geometry,
+      getProjectionInstanceCount(projectionHelper.type, useAccurateEdges)
+    );
+  }
+}
+
+function getProjectionInstanceCount(
+  projectionType: Pick<ProjectionHelper, "type">["type"],
+  useAccurateEdges: boolean
+) {
+  return useAccurateEdges && shouldUseProjectionWrapInstances(projectionType)
+    ? 3
+    : 1;
+}
+
+function shouldUseProjectionWrapInstances(
+  projectionType: Pick<ProjectionHelper, "type">["type"]
+) {
+  return (
+    projectionType !== PROJECTION_TYPES.NEARSIDE_PERSPECTIVE &&
+    projectionType !== PROJECTION_TYPES.AZIMUTHAL_EQUIDISTANT &&
+    projectionType !== PROJECTION_TYPES.AZIMUTHAL_HYBRID
+  );
+}
+
+function setProjectionGeometryInstanceCount(
+  geometry: THREE.BufferGeometry,
+  count: number
+) {
+  const instancedGeometry = geometry as THREE.InstancedBufferGeometry;
+  if (instancedGeometry.isInstancedBufferGeometry) {
+    if (instancedGeometry.instanceCount === count) {
+      return;
+    }
+    instancedGeometry.instanceCount = count;
+  }
+}
+
+/**
+ * Add the instanced wrapDirection attribute to a geometry.
+ * Must be called on every new geometry before it is used in a projection mesh.
+ */
+export function addWrapDirectionAttribute(
+  geometry: THREE.InstancedBufferGeometry
+): void {
+  setProjectionGeometryInstanceCount(geometry, 1);
+
+  const wrapDirs = new Float32Array([0, 1, -1]);
+  geometry.setAttribute(
+    "wrapDirection",
+    new THREE.InstancedBufferAttribute(wrapDirs, 1)
+  );
+}
+
+/**
+ * Create the most efficient projection mesh for the current projection mode.
+ * Uses a plain Mesh with InstancedBufferGeometry instead of InstancedMesh,
+ * avoiding instanceMatrix/program overhead because wrapDirection is the only
+ * per-instance value we need.
+ *
+ * The geometry renders up to 3 wrap instances:
+ * Instance 0: wrapDirection=0 (normal rendering)
+ * Instance 1: wrapDirection=+1 (shift negative rotatedLon by +360)
+ * Instance 2: wrapDirection=-1 (shift positive rotatedLon by -360)
+ * Call addWrapDirectionAttribute(geometry) before calling this.
+ */
+export function createProjectionInstancedMesh(
+  geometry: THREE.InstancedBufferGeometry,
+  material: THREE.Material,
+  projectionType?: Pick<ProjectionHelper, "type">["type"],
+  useAccurateEdges = true
+): THREE.Mesh {
+  setProjectionGeometryInstanceCount(
+    geometry,
+    projectionType
+      ? getProjectionInstanceCount(projectionType, useAccurateEdges)
+      : 1
+  );
+  const mesh = new THREE.Mesh(geometry, material);
+  return mesh;
 }

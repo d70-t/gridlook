@@ -141,16 +141,14 @@ export const projectionShaderFunctions = `
   }
 
   // Equirectangular projection (Plate Carrée)
-  vec3 projectEquirectangular(float lat, float lon, float centerLon, float centerLat) {
-    vec2 rotated = rotateCoords(lat, lon, centerLon, centerLat);
+  vec3 projectEquirectangularRotated(vec2 rotated) {
     float x = rotated.y * DEG_TO_RAD;  // lon in radians
     float y = rotated.x * DEG_TO_RAD;  // lat in radians
     return vec3(x, y, 0.0);
   }
 
   // Mercator projection
-  vec3 projectMercator(float lat, float lon, float centerLon, float centerLat) {
-    vec2 rotated = rotateCoords(lat, lon, centerLon, centerLat);
+  vec3 projectMercatorRotated(vec2 rotated) {
     float safeLat = clamp(rotated.x, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
     float latRad = safeLat * DEG_TO_RAD;
     float x = rotated.y * DEG_TO_RAD;
@@ -160,8 +158,7 @@ export const projectionShaderFunctions = `
 
   // Robinson projection (using quadratic interpolation to match d3-geo-projection)
   // Uses the same 3-point interpolation formula as d3's robinsonRaw function
-  vec3 projectRobinson(float lat, float lon, float centerLon, float centerLat) {
-    vec2 rotated = rotateCoords(lat, lon, centerLon, centerLat);
+  vec3 projectRobinsonRotated(vec2 rotated) {
     float latRad = rotated.x * DEG_TO_RAD;
 
     // d3 formula: i = min(18, abs(phi) * 36 / pi)
@@ -193,8 +190,7 @@ export const projectionShaderFunctions = `
   }
 
   // Mollweide projection (using Newton-Raphson iteration)
-  vec3 projectMollweide(float lat, float lon, float centerLon, float centerLat) {
-    vec2 rotated = rotateCoords(lat, lon, centerLon, centerLat);
+  vec3 projectMollweideRotated(vec2 rotated) {
     float latRad = rotated.x * DEG_TO_RAD;
 
     // Newton-Raphson to solve 2*theta + sin(2*theta) = PI * sin(lat)
@@ -220,8 +216,7 @@ export const projectionShaderFunctions = `
   // Cylindrical Equal Area projection (Lambert)
   // Matches d3-geo-projection's geoCylindricalEqualArea output with scale(1)
   // D3 uses: x = λ / k, y = sin(φ) * k where k ≈ 1.2792 (derived from default scale)
-  vec3 projectCylindricalEqualArea(float lat, float lon, float centerLon, float centerLat) {
-    vec2 rotated = rotateCoords(lat, lon, centerLon, centerLat);
+  vec3 projectCylindricalEqualAreaRotated(vec2 rotated) {
     float x = rotated.y * DEG_TO_RAD / CYLINDRICAL_EQUAL_AREA_SCALE;
     float y = sin(rotated.x * DEG_TO_RAD) * CYLINDRICAL_EQUAL_AREA_SCALE;
     return vec3(x, y, 0.0);
@@ -229,13 +224,7 @@ export const projectionShaderFunctions = `
 
   // Azimuthal blend between equal-area (0.0) and equidistant (1.0)
   // This keeps the same azimuthal direction and interpolates the radial distance.
-  vec3 projectAzimuthalHybrid(
-    float lat,
-    float lon,
-    float centerLon,
-    float centerLat
-  ) {
-    vec2 rotated = rotateCoords(lat, lon, centerLon, centerLat);
+  vec3 projectAzimuthalHybridRotated(vec2 rotated) {
     float latRad = rotated.x * DEG_TO_RAD;
     float lonRad = rotated.y * DEG_TO_RAD;
 
@@ -250,7 +239,6 @@ export const projectionShaderFunctions = `
       float nan = sqrt(-1.0);
       return vec3(nan, nan, nan);
     }
-
     if (c < 0.0001) {
       return vec3(0.0, 0.0, 0.0);
     }
@@ -277,28 +265,21 @@ export const projectionShaderFunctions = `
 
   // Azimuthal Equidistant projection
   // Distances from center point are preserved
-  vec3 projectAzimuthalEquidistant(float lat, float lon, float centerLon, float centerLat) {
-    vec2 rotated = rotateCoords(lat, lon, centerLon, centerLat);
+  vec3 projectAzimuthalEquidistantRotated(vec2 rotated) {
     float latRad = rotated.x * DEG_TO_RAD;
     float lonRad = rotated.y * DEG_TO_RAD;
 
-    // Angular distance from center (which is now at 0,0 after rotation)
     float cosC = cos(latRad) * cos(lonRad);
     float c = acos(clamp(cosC, -1.0, 1.0));
 
-    // Clip points beyond the configured clip angle to avoid antipodal singularity
-    // Return NaN to cause GPU to discard the geometry entirely
     if (c > AZIMUTHAL_CLIP_ANGLE_RAD) {
-      float nan = sqrt(-1.0);  // Generate NaN
+      float nan = sqrt(-1.0);
       return vec3(nan, nan, nan);
     }
-
-    // Handle the center point (c = 0)
     if (c < 0.0001) {
       return vec3(0.0, 0.0, 0.0);
     }
 
-    // Compute k = c / sin(c)
     float sinC = sin(c);
     float k = c / sinC;
 
@@ -306,6 +287,99 @@ export const projectionShaderFunctions = `
     float y = k * sin(latRad);
 
     return vec3(x, y, 0.0);
+  }
+
+  vec3 projectRotatedLatLon(vec2 rotated, int projectionType, float radius) {
+    if (projectionType == PROJ_EQUIRECTANGULAR) {
+      return projectEquirectangularRotated(rotated) * radius;
+    } else if (projectionType == PROJ_MERCATOR) {
+      return projectMercatorRotated(rotated) * radius;
+    } else if (projectionType == PROJ_ROBINSON) {
+      return projectRobinsonRotated(rotated) * radius;
+    } else if (projectionType == PROJ_MOLLWEIDE) {
+      return projectMollweideRotated(rotated) * radius;
+    } else if (projectionType == PROJ_CYLINDRICAL_EQUAL_AREA) {
+      return projectCylindricalEqualAreaRotated(rotated) * radius;
+    } else if (projectionType == PROJ_AZIMUTHAL_HYBRID) {
+      return projectAzimuthalHybridRotated(rotated) * radius;
+    } else if (projectionType == PROJ_AZIMUTHAL_EQUIDISTANT) {
+      return projectAzimuthalEquidistantRotated(rotated) * radius;
+    } else {
+      return projectGlobe(rotated.x, rotated.y, radius);
+    }
+  }
+
+  float robinsonXLimit(float y) {
+    float absY = abs(y);
+    if (absY > robinsonK[39]) return -1.0;
+
+    int i0 = 0;
+    for (int i = 0; i <= 17; i++) {
+      if (absY <= robinsonK[(i + 2) * 2 + 1]) {
+        i0 = i;
+        break;
+      }
+      i0 = i;
+    }
+
+    float ax = robinsonK[i0 * 2];
+    float ay = robinsonK[i0 * 2 + 1];
+    float bx = robinsonK[(i0 + 1) * 2];
+    float by = robinsonK[(i0 + 1) * 2 + 1];
+    float cx = robinsonK[(i0 + 2) * 2];
+    float cy = robinsonK[(i0 + 2) * 2 + 1];
+
+    float di = (abs(cy - by) > 0.0001) ? (absY - by) / (cy - by) : 0.0;
+    di = clamp(di, 0.0, 1.0);
+    for (int iter = 0; iter < 5; iter++) {
+      float yCoeff = by + di * (cy - ay) / 2.0 + di * di * (cy - 2.0 * by + ay) / 2.0;
+      float dyCoeff = (cy - ay) / 2.0 + di * (cy - 2.0 * by + ay);
+      if (abs(dyCoeff) < 0.0001) break;
+      di = clamp(di - (yCoeff - absY) / dyCoeff, 0.0, 1.0);
+    }
+
+    float xCoeff = bx + di * (cx - ax) / 2.0 + di * di * (cx - 2.0 * bx + ax) / 2.0;
+    return xCoeff * PI;
+  }
+
+  bool isInsideProjectionDomain(vec2 projected, int projectionType, float radius) {
+    float safeRadius = max(abs(radius), 0.0001);
+    vec2 p = projected / safeRadius;
+    float epsilon = 0.0005;
+
+    if (projectionType == PROJ_EQUIRECTANGULAR) {
+      return abs(p.x) <= PI + epsilon && abs(p.y) <= PI * 0.5 + epsilon;
+    } else if (projectionType == PROJ_MERCATOR) {
+      float latLimitRad = MERCATOR_LAT_LIMIT * DEG_TO_RAD;
+      float yLimit = log(tan(PI / 4.0 + latLimitRad / 2.0));
+      return abs(p.x) <= PI + epsilon && abs(p.y) <= yLimit + epsilon;
+    } else if (projectionType == PROJ_ROBINSON) {
+      float xLimit = robinsonXLimit(p.y);
+      return xLimit >= 0.0 && abs(p.x) <= xLimit + epsilon;
+    } else if (projectionType == PROJ_MOLLWEIDE) {
+      float yLimit = sqrt(2.0);
+      float xLimit = 2.0 * sqrt(2.0) * sqrt(max(0.0, 1.0 - (p.y * p.y) / 2.0));
+      return abs(p.y) <= yLimit + epsilon && abs(p.x) <= xLimit + epsilon;
+    } else if (projectionType == PROJ_CYLINDRICAL_EQUAL_AREA) {
+      return
+        abs(p.x) <= PI / CYLINDRICAL_EQUAL_AREA_SCALE + epsilon &&
+        abs(p.y) <= CYLINDRICAL_EQUAL_AREA_SCALE + epsilon;
+    } else if (projectionType == PROJ_AZIMUTHAL_EQUIDISTANT || projectionType == PROJ_AZIMUTHAL_HYBRID) {
+      return length(p) <= AZIMUTHAL_CLIP_ANGLE_RAD + epsilon;
+    }
+
+    return true;
+  }
+
+  // Kept as a direct helper for inverse-projection validation in land/sea-mask shaders.
+  vec3 projectAzimuthalHybrid(
+    float lat,
+    float lon,
+    float centerLon,
+    float centerLat
+  ) {
+    vec2 rotated = rotateCoords(lat, lon, centerLon, centerLat);
+    return projectAzimuthalHybridRotated(rotated);
   }
 
   // Main projection function that dispatches to the appropriate projection
@@ -317,23 +391,12 @@ export const projectionShaderFunctions = `
     float centerLat,
     float radius
   ) {
-    if (projectionType == PROJ_AZIMUTHAL_HYBRID) {
-      return projectAzimuthalHybrid(lat, lon, centerLon, centerLat) * radius;
-    } else if (projectionType == PROJ_AZIMUTHAL_EQUIDISTANT) {
-      return projectAzimuthalEquidistant(lat, lon, centerLon, centerLat) * radius;
-    } else if (projectionType == PROJ_EQUIRECTANGULAR) {
-      return projectEquirectangular(lat, lon, centerLon, centerLat) * radius;
-    } else if (projectionType == PROJ_MERCATOR) {
-      return projectMercator(lat, lon, centerLon, centerLat) * radius;
-    } else if (projectionType == PROJ_ROBINSON) {
-      return projectRobinson(lat, lon, centerLon, centerLat) * radius;
-    } else if (projectionType == PROJ_MOLLWEIDE) {
-      return projectMollweide(lat, lon, centerLon, centerLat) * radius;
-    } else if (projectionType == PROJ_CYLINDRICAL_EQUAL_AREA) {
-      return projectCylindricalEqualArea(lat, lon, centerLon, centerLat) * radius;
-    } else {
+    if (projectionType == PROJ_GLOBE) {
       return projectGlobe(lat, lon, radius);
     }
+
+    vec2 rotated = rotateCoords(lat, lon, centerLon, centerLat);
+    return projectRotatedLatLon(rotated, projectionType, radius);
   }
 `;
 
