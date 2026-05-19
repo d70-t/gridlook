@@ -21,8 +21,7 @@ void main() {
         is_nan(v_value) ||
         v_value <= hideBelowValue
     ) {
-        gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
-        return;
+        discard;
     }
     float normalized_value = clamp(addOffset + scaleFactor * v_value, 0.0, 1.0);
     normalized_value = posterize(normalized_value, posterizeLevels);

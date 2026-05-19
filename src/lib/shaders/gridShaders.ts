@@ -98,7 +98,6 @@ export function makeGpuProjectedTextureMaterial(
       edgeQuality: { value: 1 },
       useTriangleWrapCull: { value: 0 },
     },
-    transparent: true,
     vertexShader: gpuProjectedTextureVertexShader,
     fragmentShader: textureColormapFragmentShader,
   });
@@ -139,7 +138,6 @@ export function makeGpuProjectedMeshMaterial(
       projectionRadius: { value: 1.0 },
       edgeQuality: { value: 1 },
     },
-    transparent: true,
     vertexShader: gpuProjectedMeshVertexShader,
     fragmentShader: scalarColormapFragmentShader,
   });
