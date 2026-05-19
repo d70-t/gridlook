@@ -5,16 +5,13 @@ import * as zarr from "zarrita";
 
 import VariableTableSection from "./VariableTableSection.vue";
 
-import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import type { TDataSource, TSources } from "@/lib/types/GlobeTypes.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
-import { useLog } from "@/utils/logging.ts";
 
 type TVariableMetadata = {
   attrs: zarr.Attributes | null;
   dimensions: string[];
   dtype: string | null;
-  loading: boolean;
   error: string | null;
 };
 
@@ -25,11 +22,9 @@ const props = defineProps<{
 
 const store = useGlobeControlStore();
 const { varnameSelector } = storeToRefs(store);
-const { logError } = useLog();
 
 const metadataByName = ref<Record<string, TVariableMetadata>>({});
 const selectedAttributesVariableName = ref<string | null>(null);
-let metadataLoadId = 0;
 
 function normalizeDimensionNames(
   dimensionNames: unknown,
@@ -42,27 +37,6 @@ function normalizeDimensionNames(
     return shape.map((_, idx) => `dim_${idx}`);
   }
   return [];
-}
-
-function getSourceDimensionNames(source: TDataSource) {
-  return normalizeDimensionNames(source.attrs?.dimensionNames);
-}
-
-function getInitialMetadata(source: TDataSource): TVariableMetadata {
-  return {
-    attrs: source.attrs ?? null,
-    dimensions: getSourceDimensionNames(source),
-    dtype: null,
-    loading: true,
-    error: null,
-  };
-}
-
-function updateMetadata(name: string, metadata: TVariableMetadata) {
-  metadataByName.value = {
-    ...metadataByName.value,
-    [name]: metadata,
-  };
 }
 
 function getDefaultAttributesVariableName(datasources?: TSources) {
@@ -78,41 +52,29 @@ function getDefaultAttributesVariableName(datasources?: TSources) {
   return variableName;
 }
 
-async function loadVariableMetadata(
-  loadId: number,
+function loadVariableMetadata(
   name: string,
   source: TDataSource
-) {
-  try {
-    const variable = await ZarrDataManager.getVariableInfo(source, name);
-    if (loadId !== metadataLoadId) {
-      return;
-    }
-    updateMetadata(name, {
-      attrs: variable.attrs,
-      dimensions: normalizeDimensionNames(
-        variable.dimensionNames,
-        variable.shape
-      ),
-      dtype: String(variable.dtype),
-      loading: false,
-      error: null,
-    });
-  } catch (err) {
-    logError(err);
-    if (loadId !== metadataLoadId) {
-      return;
-    }
-    updateMetadata(name, {
-      ...metadataByName.value[name],
-      loading: false,
-      error: `Could not load metadata for ${name}`,
-    });
-  }
+): TVariableMetadata {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { _ARRAY_DIMENSIONS, dimensionNames, ...attributsWithoutDims } =
+    (source.attrs ?? {}) as {
+      _ARRAY_DIMENSIONS?: string[];
+      dimensionNames?: string[];
+      [key: string]: unknown;
+    };
+  return {
+    attrs: attributsWithoutDims,
+    dimensions: normalizeDimensionNames(dimensionNames, source.shape),
+    dtype: String(source.dtype),
+    error:
+      !source.dtype && !dimensionNames
+        ? `Could not load variable ${name}`
+        : null,
+  };
 }
 
 async function loadAllVariableMetadata(datasources?: TSources) {
-  const loadId = ++metadataLoadId;
   selectedAttributesVariableName.value =
     getDefaultAttributesVariableName(datasources);
   if (!datasources) {
@@ -122,10 +84,7 @@ async function loadAllVariableMetadata(datasources?: TSources) {
 
   const entries = Object.entries(datasources.levels[0].datasources);
   metadataByName.value = Object.fromEntries(
-    entries.map(([name, source]) => [name, getInitialMetadata(source)])
-  );
-  await Promise.all(
-    entries.map(([name, source]) => loadVariableMetadata(loadId, name, source))
+    entries.map(([name, source]) => [name, loadVariableMetadata(name, source)])
   );
 }
 
@@ -138,7 +97,7 @@ const datasourceEntries = computed(() => {
 
 const allVariables = computed(() =>
   datasourceEntries.value.map(([name, source]) => {
-    const metadata = metadataByName.value[name] ?? getInitialMetadata(source);
+    const metadata = metadataByName.value[name];
     return {
       name,
       hidden: source.hidden ?? false,
