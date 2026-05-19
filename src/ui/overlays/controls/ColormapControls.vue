@@ -207,7 +207,7 @@ function handleOptionHover(option: TColorMap) {
             v-model="hideLowerBound"
             type="checkbox"
           />
-          hide min
+          hide low
         </label>
       </div>
     </div>

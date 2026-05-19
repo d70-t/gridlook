@@ -72,7 +72,7 @@ const { landSeaMaskChoice, landSeaMaskUseTexture } = storeToRefs(store);
             :checked="store.showGraticules"
             @change="store.toggleGraticules"
           />
-          <label for="enable_graticules">Graticules</label>
+          <label for="enable_graticules">Lat/Lon Grid</label>
         </div>
       </div>
     </div>
