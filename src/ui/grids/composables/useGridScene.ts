@@ -137,7 +137,7 @@ export function useGridScene(options: UseGridSceneOptions) {
   }
 
   function redraw() {
-    if (store.isRotating || projectionDragActive) {
+    if (store.isRotating || projectionDragActive || mouseDown || wheelActive) {
       return;
     }
     render();
@@ -884,6 +884,7 @@ export function useGridScene(options: UseGridSceneOptions) {
   function onWheelInteraction() {
     wheelActive = true;
     idleFrameCount = 0;
+    setMotionState(true);
     debouncedEndWheelInteraction();
     animationLoop();
   }
