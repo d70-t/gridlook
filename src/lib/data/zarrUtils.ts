@@ -383,15 +383,8 @@ export function castDataVarToFloat32(
     | zarr.ByteStringArray
     | zarr.Chunk<zarr.DataType>
 ) {
-  if (
-    rawData instanceof Float64Array ||
-    rawData instanceof Int32Array ||
-    rawData instanceof Int16Array ||
-    rawData instanceof Int8Array ||
-    rawData instanceof Uint16Array ||
-    rawData instanceof Uint8Array
-  ) {
-    return Float32Array.from(rawData);
+  if (rawData instanceof Float32Array) {
+    return rawData;
   }
-  return rawData as Float32Array;
+  return Float32Array.from(rawData as ArrayLike<number>);
 }
