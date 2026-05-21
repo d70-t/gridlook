@@ -253,7 +253,7 @@ function isLongitudeGlobal(longitudes: Float64Array): boolean {
 
 /**
  * Generates vertices, UVs, and lat/lon for a single 2D tile (lat band × lon band).
- * UVs are local to the tile's texture (both u and v go from 0 to 1).
+ * UVs are local to the tile's texture and point at texel centers.
  */
 function generateTileVerticesAndUVs(
   latitudes: Float64Array,
@@ -298,7 +298,7 @@ function generateTileVerticesAndUVs(
       );
 
       const u = (lj + 0.5) / tileLonCount;
-      const v = li / Math.max(batchLatCount - 1, 1);
+      const v = (li + 0.5) / batchLatCount;
       uvs[vertexIdx * 2] = u;
       uvs[vertexIdx * 2 + 1] = v;
     }
