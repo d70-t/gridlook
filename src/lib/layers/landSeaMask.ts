@@ -163,6 +163,7 @@ class GpuProjectedMaskRenderer {
         getProjectionTypeFromMode(projectionHelper.type),
         projectionHelper.center
       );
+      material.transparent = !isGlobeMaskMode(mode);
     } else {
       geometry = this.createGlobeGeometry();
       material = this.createGlobeMaterial(texture);
@@ -324,7 +325,7 @@ class GpuProjectedMaskRenderer {
       },
       vertexShader: gpuProjectedMaskVertexShader,
       fragmentShader: gpuProjectedMaskFragmentShader,
-      transparent: true,
+      transparent: false,
       side: THREE.FrontSide,
       depthWrite: false,
       // depthTest: false so rendering order is controlled solely by renderOrder.
