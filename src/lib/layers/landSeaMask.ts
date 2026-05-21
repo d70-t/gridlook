@@ -167,6 +167,7 @@ class GpuProjectedMaskRenderer {
     } else {
       geometry = this.createGlobeGeometry();
       material = this.createGlobeMaterial(texture);
+      material.transparent = !isGlobeMaskMode(mode);
     }
 
     const mesh = new THREE.Mesh(geometry, material);
