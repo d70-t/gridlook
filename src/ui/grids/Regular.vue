@@ -148,7 +148,8 @@ async function datasourceUpdate() {
   clearHoverLookup();
   if (props.datasources !== undefined) {
     await getDims();
-    await Promise.all([makeGeometry(), getData()]);
+    await makeGeometry();
+    await getData();
     updateLandSeaMask();
     updateColormap(meshes);
   }

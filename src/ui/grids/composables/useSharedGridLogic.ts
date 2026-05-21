@@ -65,6 +65,7 @@ export function useSharedGridLogic() {
   function onColormapChange(callback: TVoidFunction) {
     colormapChangeCallbacks.push(callback);
   }
+
   let updateCoastlines: TAsyncVoidFunction = async () => {};
   let updateGraticules: TAsyncVoidFunction = async () => {};
 
