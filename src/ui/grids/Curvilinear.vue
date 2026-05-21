@@ -20,9 +20,8 @@ import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   castDataVarToFloat32,
   createMissingOrFillPredicate,
-  getDataBounds,
+  getDataBoundsAndMapMissingToNaN,
   getLatLonData,
-  mapMissingAndFillToNaN,
 } from "@/lib/data/zarrUtils.ts";
 import { makeInvertableGpuMeshMaterial } from "@/lib/shaders/gridShaders.ts";
 import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
@@ -660,11 +659,13 @@ async function fetchAndRenderData(
     false
   );
 
-  let rawData = castDataVarToFloat32(
+  const rawData = castDataVarToFloat32(
     (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
   );
-  const { min, max, missingValue, fillValue } = getDataBounds(datavar, rawData);
-  rawData = mapMissingAndFillToNaN(rawData, missingValue, fillValue);
+  const { min, max, missingValue, fillValue } = getDataBoundsAndMapMissingToNaN(
+    datavar,
+    rawData
+  );
 
   await renderGridAndHover(datavar, rawData, fillValue, missingValue);
 

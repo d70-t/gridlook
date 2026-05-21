@@ -21,7 +21,9 @@ import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts"
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   castDataVarToFloat32,
-  getDataBounds,
+  getDataBoundsAndMapMissingToNaN,
+  getFillValue,
+  getMissingValue,
   mapMissingAndFillToNaN,
 } from "@/lib/data/zarrUtils.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
@@ -51,6 +53,20 @@ const props = defineProps<{
 
 // By convention, HEALPIX uses -1.6375e+30 to mark invalid or unseen pixels.
 const HEALPIX_UNSEEN = -1.6375e30;
+
+function getHealpixMissingAndFillValues(
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
+) {
+  const missingValue = getMissingValue(datavar);
+  const fillValue = getFillValue(datavar);
+  if (Number.isNaN(missingValue)) {
+    return { missingValue: HEALPIX_UNSEEN, fillValue };
+  }
+  if (Number.isNaN(fillValue)) {
+    return { missingValue, fillValue: HEALPIX_UNSEEN };
+  }
+  return { missingValue, fillValue };
+}
 
 const store = useGlobeControlStore();
 const { logError } = useLog();
@@ -352,14 +368,13 @@ async function getHealpixData(
     dataSlice
   );
 
-  let { min, max, missingValue, fillValue } = getDataBounds(datavar, dataSlice);
-  if (isNaN(missingValue)) {
-    missingValue = HEALPIX_UNSEEN;
-  } else if (isNaN(fillValue)) {
-    fillValue = HEALPIX_UNSEEN;
-  }
-  mapMissingAndFillToNaN(dataSlice, missingValue, fillValue);
-  ({ min, max } = getDataBounds(datavar, dataSlice));
+  const { missingValue, fillValue } = getHealpixMissingAndFillValues(datavar);
+  const { min, max } = getDataBoundsAndMapMissingToNaN(
+    datavar,
+    dataSlice,
+    missingValue,
+    fillValue
+  );
 
   // Filter out missing and fill values before building histogram
   return {
@@ -720,12 +735,7 @@ async function fetchAndRenderData(
   hoverData.value = castDataVarToFloat32(
     (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
   );
-  let { missingValue, fillValue } = getDataBounds(datavar, hoverData.value);
-  if (isNaN(missingValue)) {
-    missingValue = HEALPIX_UNSEEN;
-  } else if (isNaN(fillValue)) {
-    fillValue = HEALPIX_UNSEEN;
-  }
+  const { missingValue, fillValue } = getHealpixMissingAndFillValues(datavar);
   mapMissingAndFillToNaN(hoverData.value, missingValue, fillValue);
   if (cellCoord) {
     const cellIndexMap = new Map<number, number>();

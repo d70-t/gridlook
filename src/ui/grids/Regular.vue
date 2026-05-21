@@ -20,10 +20,9 @@ import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts"
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   castDataVarToFloat32,
-  getDataBounds,
+  getDataBoundsAndMapMissingToNaN,
   isLatitudeName,
   isLongitudeName,
-  mapMissingAndFillToNaN,
 } from "@/lib/data/zarrUtils.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import {
@@ -731,12 +730,14 @@ async function fetchAndRenderData(
     updateMode
   );
 
-  let rawData = castDataVarToFloat32(
+  const rawData = castDataVarToFloat32(
     (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
   );
 
-  const { min, max, missingValue, fillValue } = getDataBounds(datavar, rawData);
-  rawData = mapMissingAndFillToNaN(rawData, missingValue, fillValue);
+  const { min, max, missingValue, fillValue } = getDataBoundsAndMapMissingToNaN(
+    datavar,
+    rawData
+  );
 
   updateTileMaterials(rawData);
 

@@ -19,9 +19,8 @@ import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts"
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   castDataVarToFloat32,
-  getDataBounds,
+  getDataBoundsAndMapMissingToNaN,
   getLatLonData,
-  mapMissingAndFillToNaN,
 } from "@/lib/data/zarrUtils.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import { makeInvertableGpuMeshMaterial } from "@/lib/shaders/gridShaders.ts";
@@ -429,7 +428,7 @@ async function fetchAndRenderData(
     updateMode
   );
 
-  let rawData = castDataVarToFloat32(
+  const rawData = castDataVarToFloat32(
     (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
   );
 
@@ -440,8 +439,10 @@ async function fetchAndRenderData(
   const latitudesData = latitudes.data as Float64Array;
   const longitudesData = longitudes!.data as Float64Array;
 
-  let { min, max, missingValue, fillValue } = getDataBounds(datavar, rawData);
-  rawData = mapMissingAndFillToNaN(rawData, missingValue, fillValue);
+  const { min, max, missingValue, fillValue } = getDataBoundsAndMapMissingToNaN(
+    datavar,
+    rawData
+  );
 
   buildGaussianReducedGeometry(latitudesData, longitudesData, rawData);
 

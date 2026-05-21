@@ -15,9 +15,8 @@ import { reconcileCoordinates } from "@/lib/data/irregularGridHelpers.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   castDataVarToFloat32,
-  getDataBounds,
+  getDataBoundsAndMapMissingToNaN,
   getLatLonData,
-  mapMissingAndFillToNaN,
 } from "@/lib/data/zarrUtils.ts";
 import {
   makeGpuProjectedPointMaterial,
@@ -428,12 +427,14 @@ async function fetchAndRenderData(
   const { latitudes, longitudes, dimensionRanges, indices } =
     await buildDimensionConfig(datavar, updateMode);
 
-  let rawData = castDataVarToFloat32(
+  const rawData = castDataVarToFloat32(
     (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
   );
 
-  let { min, max, fillValue, missingValue } = getDataBounds(datavar, rawData);
-  rawData = mapMissingAndFillToNaN(rawData, missingValue, fillValue);
+  const { min, max, fillValue, missingValue } = getDataBoundsAndMapMissingToNaN(
+    datavar,
+    rawData
+  );
   getGrid(latitudes, longitudes!, rawData);
 
   // Update hover lookup

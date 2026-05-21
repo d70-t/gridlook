@@ -18,8 +18,7 @@ import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts"
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   castDataVarToFloat32,
-  getDataBounds,
-  mapMissingAndFillToNaN,
+  getDataBoundsAndMapMissingToNaN,
 } from "@/lib/data/zarrUtils.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import { makeInvertableGpuMeshMaterial } from "@/lib/shaders/gridShaders.ts";
@@ -331,11 +330,10 @@ function data2valueBuffer(
   const ncells = awaitedData.shape[0];
   const plotdata = castDataVarToFloat32(awaitedData.data);
 
-  const { min, max, missingValue, fillValue } = getDataBounds(
+  const { min, max, missingValue, fillValue } = getDataBoundsAndMapMissingToNaN(
     datavar,
     plotdata
   );
-  mapMissingAndFillToNaN(plotdata, missingValue, fillValue);
   const dataValues = new Float32Array(ncells * 3);
 
   for (let i = 0; i < ncells; i++) {
