@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useResizeObserver } from "@vueuse/core";
 import { storeToRefs } from "pinia";
 import * as THREE from "three";
 import {
@@ -75,7 +76,6 @@ let scene: THREE.Scene | undefined;
 let renderer: THREE.WebGLRenderer | undefined;
 let camera: THREE.PerspectiveCamera | undefined;
 let lutMesh: THREE.Mesh | undefined;
-let resizeObserver: ResizeObserver | undefined;
 let frameId = 0;
 
 const store = useGlobeControlStore();
@@ -634,21 +634,15 @@ watch(() => props.histogram, drawSelectionHistogram);
 // Lifecycle
 // ---------------------------------------------------------------------------
 
+useResizeObserver(widgetRef, onResize);
+
 onMounted(() => {
   initThreeJs();
-  resizeObserver = new ResizeObserver(onResize);
-  if (widgetRef.value) {
-    resizeObserver.observe(widgetRef.value);
-  }
   onResize();
 });
 
 onBeforeUnmount(() => {
   cancelAnimationFrame(frameId);
-  if (widgetRef.value) {
-    resizeObserver?.unobserve(widgetRef.value);
-  }
-  resizeObserver?.disconnect();
   lutMesh?.geometry.dispose();
   (lutMesh?.material as THREE.ShaderMaterial)?.dispose();
   scene?.clear();

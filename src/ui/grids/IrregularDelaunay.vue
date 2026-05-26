@@ -2,17 +2,17 @@
 import { Delaunay } from "d3-delaunay";
 import { storeToRefs } from "pinia";
 import * as THREE from "three";
-import { computed, onBeforeMount, ref, watch } from "vue";
+import { computed, onBeforeMount } from "vue";
 import * as zarr from "zarrita";
 
 import {
   createGeoSampleIndex,
   useGridHoverLookup,
 } from "./composables/gridHoverUtils.ts";
+import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import {
   createWrappedProjectionMesh,
   updateProjectionMeshes,
-  watchProjectionEdgeQuality,
 } from "./composables/useProjectionEdgeQuality.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
@@ -21,15 +21,14 @@ import { reconcileCoordinates } from "@/lib/data/irregularGridHelpers.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   castDataVarToFloat32,
-  getDataBounds,
+  getDataBoundsAndMapMissingToNaN,
   getLatLonData,
-  mapMissingAndFillToNaN,
 } from "@/lib/data/zarrUtils.ts";
 import {
   PROJECTION_TYPES,
   ProjectionHelper,
 } from "@/lib/projection/projectionUtils.ts";
-import { makeGpuProjectedMeshMaterial } from "@/lib/shaders/gridShaders.ts";
+import { makeInvertableGpuMeshMaterial } from "@/lib/shaders/gridShaders.ts";
 import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import {
@@ -37,33 +36,18 @@ import {
   useGlobeControlStore,
   type TUpdateMode,
 } from "@/store/store.ts";
-import { useLog } from "@/utils/logging.ts";
 
 const props = defineProps<{
   datasources?: TSources;
 }>();
 
 const store = useGlobeControlStore();
-const { logError } = useLog();
-const {
-  dimSlidersValues,
-  colormap,
-  varnameSelector,
-  invertColormap,
-  posterizeLevels,
-  selection,
-  isInitializingVariable,
-  varinfo,
-  projectionMode,
-  projectionCenter,
-} = storeToRefs(store);
+const { dimSlidersValues, colormap, varnameSelector, invertColormap, varinfo } =
+  storeToRefs(store);
 
 const urlParameterStore = useUrlParameterStore();
 const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
   storeToRefs(urlParameterStore);
-
-const pendingUpdate = ref(false);
-const updatingData = ref(false);
 
 // For mesh-based rendering
 const BATCH_SIZE = 1000000; // triangles per mesh
@@ -84,6 +68,9 @@ const {
   updateColormap,
   projectionHelper,
   isSceneInMotion,
+  onProjectionChange,
+  onMotionStateChange,
+  onColormapChange,
   redraw,
   canvas,
   box,
@@ -94,59 +81,10 @@ const {
 const { setHoverLookupFromIndex, clearHoverLookup } =
   useGridHoverLookup(hoveredGeoPoint);
 
-watch(
-  () => varnameSelector.value,
-  () => {
-    // Clear triangulation cache when variable changes (coordinates may differ)
-    cachedTriangleIndices = null;
-    getData();
-  }
-);
+onColormapChange(() => updateColormap(meshes));
 
-watch(
-  () => dimSlidersValues.value,
-  async () => {
-    if (isInitializingVariable.value) {
-      isInitializingVariable.value = false;
-      return;
-    }
-    await getData(UPDATE_MODE.SLIDER_TOGGLE);
-    updateColormap(meshes);
-  },
-  { deep: true }
-);
-
-watch(
-  () => props.datasources,
-  () => {
-    cachedTriangleIndices = null;
-    datasourceUpdate();
-  }
-);
-
-const bounds = computed(() => {
-  return selection.value;
-});
-
-watch(
-  [
-    () => bounds.value,
-    () => invertColormap.value,
-    () => colormap.value,
-    () => posterizeLevels.value,
-    () => store.hideLowerBound,
-  ],
-  () => {
-    updateColormap(meshes);
-  }
-);
-
-watchProjectionEdgeQuality({
-  projectionMode,
-  projectionCenter,
-  isSceneInMotion,
-  onUpdate: updateMeshProjectionUniforms,
-});
+onProjectionChange(updateMeshProjectionUniforms);
+onMotionStateChange(updateMeshProjectionUniforms);
 
 /**
  * Update projection uniforms on all mesh materials.
@@ -161,22 +99,23 @@ function updateMeshProjectionUniforms() {
 }
 
 const colormapMaterial = computed(() => {
-  // Use GPU-projected mesh material (same as Triangular)
-  const material = invertColormap.value
-    ? makeGpuProjectedMeshMaterial(colormap.value, 1.0, -1.0)
-    : makeGpuProjectedMeshMaterial(colormap.value, 0.0, 1.0);
-
-  return material;
+  return makeInvertableGpuMeshMaterial(colormap.value, invertColormap.value);
 });
 
-async function datasourceUpdate() {
-  clearHoverLookup();
-  if (props.datasources !== undefined) {
-    await getData();
-    updateLandSeaMask();
-    updateColormap(meshes);
-  }
+function clearTriangulationCache() {
+  cachedTriangleIndices = null;
 }
+
+const { datasourceUpdate } = useGridDataLoader({
+  getDatasources: () => props.datasources,
+  getDataVar,
+  fetchAndRenderData,
+  clearHoverLookup,
+  updateLandSeaMask,
+  updateColormap: () => updateColormap(meshes),
+  onVariableChange: clearTriangulationCache,
+  onDatasourceChange: clearTriangulationCache,
+});
 
 /**
  * Create extended point set with duplicates for wrap-around at the antimeridian.
@@ -730,12 +669,14 @@ async function fetchAndRenderData(
   const { latitudes, longitudes, dimensionRanges, indices } =
     await buildDimensionConfig(datavar, updateMode);
 
-  let rawData = castDataVarToFloat32(
+  const rawData = castDataVarToFloat32(
     (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
   );
 
-  let { min, max, fillValue, missingValue } = getDataBounds(datavar, rawData);
-  rawData = mapMissingAndFillToNaN(rawData, missingValue, fillValue);
+  const { min, max, fillValue, missingValue } = getDataBoundsAndMapMissingToNaN(
+    datavar,
+    rawData
+  );
   getGrid(latitudes, longitudes!, rawData);
 
   updateHoverLookup(rawData, latitudes, longitudes!, fillValue, missingValue);
@@ -753,31 +694,6 @@ async function fetchAndRenderData(
     indices as number[],
     updateMode
   );
-}
-
-async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
-  store.startLoading();
-  try {
-    if (updatingData.value) {
-      pendingUpdate.value = true;
-      return;
-    }
-    updatingData.value = true;
-    do {
-      pendingUpdate.value = false;
-      const localVarname = varnameSelector.value;
-      const datavar = await getDataVar(localVarname, props.datasources!);
-      if (datavar !== undefined) {
-        await fetchAndRenderData(datavar, updateMode);
-      }
-      updatingData.value = false;
-    } while (pendingUpdate.value);
-  } catch (error) {
-    logError(error, "Could not fetch data");
-    updatingData.value = false;
-  } finally {
-    store.stopLoading();
-  }
 }
 
 onBeforeMount(async () => {

@@ -173,3 +173,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
     },
   },
 });
+
+export type TGlobeControlStoreKeys = keyof ReturnType<
+  typeof useGlobeControlStore
+>["$state"];

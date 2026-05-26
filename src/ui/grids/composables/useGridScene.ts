@@ -1,6 +1,9 @@
-import { useEventListener } from "@vueuse/core";
+import {
+  useDebounceFn,
+  useEventListener,
+  useResizeObserver,
+} from "@vueuse/core";
 import * as d3 from "d3-geo";
-import debounce from "lodash.debounce";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import {
@@ -66,7 +69,6 @@ export function useGridScene(options: UseGridSceneOptions) {
   let camera: THREE.PerspectiveCamera | undefined = undefined;
   let renderer: THREE.WebGLRenderer | undefined = undefined;
   let orbitControls: OrbitControls | undefined = undefined;
-  let resizeObserver: ResizeObserver | undefined = undefined;
   let updateLOD: (() => void) | undefined = undefined;
   let baseSurface: THREE.Mesh | undefined = undefined;
   let pickSurface: THREE.Mesh | undefined = undefined;
@@ -91,7 +93,7 @@ export function useGridScene(options: UseGridSceneOptions) {
   let idleFrameCount = 0;
   const IDLE_FRAMES_BEFORE_STOP = 30; // ~500 ms at 60 fps – outlasts any realistic damping
   const WHEEL_END_DELAY_MS = 120;
-  const debouncedEndWheelInteraction = debounce(() => {
+  const debouncedEndWheelInteraction = useDebounceFn(() => {
     wheelActive = false;
     animationLoop();
   }, WHEEL_END_DELAY_MS);
@@ -126,10 +128,6 @@ export function useGridScene(options: UseGridSceneOptions) {
     return orbitControls;
   }
 
-  function getResizeObserver() {
-    return resizeObserver;
-  }
-
   function getBaseSurface() {
     return baseSurface;
   }
@@ -138,12 +136,8 @@ export function useGridScene(options: UseGridSceneOptions) {
     updateLOD = func;
   }
 
-  function setResizeObserver(observer: ResizeObserver) {
-    resizeObserver = observer;
-  }
-
   function redraw() {
-    if (store.isRotating || projectionDragActive) {
+    if (store.isRotating || projectionDragActive || mouseDown || wheelActive) {
       return;
     }
     render();
@@ -555,6 +549,9 @@ export function useGridScene(options: UseGridSceneOptions) {
     const targetDistance = 1.05 / Math.sin(minHalfFov);
 
     cam.up.set(0, 0, 1);
+    cam.near = 0.1;
+    cam.far = 1000;
+    cam.updateProjectionMatrix();
     controls.enablePan = false;
     controls.enableRotate = true;
     controls.enableDamping = true;
@@ -740,8 +737,6 @@ export function useGridScene(options: UseGridSceneOptions) {
       box.value.getBoundingClientRect();
 
     if (boxWidth !== width.value || boxHeight !== height.value) {
-      getResizeObserver()?.unobserve(box.value);
-
       const aspect = boxWidth / boxHeight;
       getCamera()!.aspect = aspect;
       getCamera()!.updateProjectionMatrix();
@@ -756,10 +751,6 @@ export function useGridScene(options: UseGridSceneOptions) {
 
       updateCameraForPanel();
       redraw();
-
-      if (box.value) {
-        getResizeObserver()!.observe(box.value);
-      }
     }
   }
 
@@ -893,6 +884,7 @@ export function useGridScene(options: UseGridSceneOptions) {
   function onWheelInteraction() {
     wheelActive = true;
     idleFrameCount = 0;
+    setMotionState(true);
     debouncedEndWheelInteraction();
     animationLoop();
   }
@@ -1054,19 +1046,25 @@ export function useGridScene(options: UseGridSceneOptions) {
     setupKeyboardListeners();
 
     initEssentials();
-    setResizeObserver(new ResizeObserver(onCanvasResize));
-    getResizeObserver()?.observe(box.value!);
     void onReady?.();
   });
 
+  useResizeObserver(box, onCanvasResize);
+
   onBeforeUnmount(() => {
+    if (frameId.value) {
+      cancelAnimationFrame(frameId.value);
+      frameId.value = 0;
+    }
+    orbitControls?.dispose();
+    orbitControls = undefined;
+    cleanupSurface(baseSurface);
+    cleanupSurface(pickSurface);
+    baseSurface = undefined;
+    pickSurface = undefined;
     scene?.clear();
     camera?.clear();
     renderer?.dispose();
-    debouncedEndWheelInteraction.cancel();
-    if (box.value) {
-      getResizeObserver()?.unobserve(box.value!);
-    }
     scene = undefined;
     renderer = undefined;
     camera = undefined;
@@ -1156,7 +1154,6 @@ export function useGridScene(options: UseGridSceneOptions) {
     box,
     getScene,
     getCamera,
-    getResizeObserver,
     redraw,
     toggleRotate,
     makeSnapshot,

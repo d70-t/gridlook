@@ -4,6 +4,13 @@ import { ZarrDataManager } from "./ZarrDataManager.ts";
 
 import { type TSources } from "@/lib/types/GlobeTypes.ts";
 
+export type TDataBounds = {
+  min: number;
+  max: number;
+  fillValue: number;
+  missingValue: number;
+};
+
 export function getMissingValue(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
@@ -307,19 +314,19 @@ export async function getLatLonData(
   return returnObject;
 }
 
-export function getDataBounds(
+export function getDataBoundsAndMapMissingToNaN(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
-  data: Float32Array<ArrayBufferLike>
-) {
+  data: Float32Array<ArrayBufferLike>,
+  missingValue = getMissingValue(datavar),
+  fillValue = getFillValue(datavar)
+): TDataBounds {
   let min = Number.POSITIVE_INFINITY;
   let max = Number.NEGATIVE_INFINITY;
-
-  const missingValue = getMissingValue(datavar);
-  const fillValue = getFillValue(datavar);
 
   for (let i = 0; i < data.length; i++) {
     const v = data[i];
     if (v === missingValue || v === fillValue || !Number.isFinite(v)) {
+      data[i] = NaN;
       continue;
     }
     if (v < min) {
@@ -336,12 +343,7 @@ export function getDataBounds(
   if (max === Number.NEGATIVE_INFINITY) {
     max = NaN;
   }
-  return {
-    min: min,
-    max: max,
-    fillValue: fillValue,
-    missingValue: missingValue,
-  };
+  return { min, max, fillValue, missingValue };
 }
 
 export function mapMissingAndFillToNaN(
@@ -383,15 +385,8 @@ export function castDataVarToFloat32(
     | zarr.ByteStringArray
     | zarr.Chunk<zarr.DataType>
 ) {
-  if (
-    rawData instanceof Float64Array ||
-    rawData instanceof Int32Array ||
-    rawData instanceof Int16Array ||
-    rawData instanceof Int8Array ||
-    rawData instanceof Uint16Array ||
-    rawData instanceof Uint8Array
-  ) {
-    return Float32Array.from(rawData);
+  if (rawData instanceof Float32Array) {
+    return rawData;
   }
-  return rawData as Float32Array;
+  return Float32Array.from(rawData as ArrayLike<number>);
 }

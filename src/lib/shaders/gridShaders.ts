@@ -1,7 +1,6 @@
 import * as THREE from "three";
 
 import {
-  projectionShaderFunctions,
   PROJECTION_TYPE_BY_MODE,
   getProjectionTypeFromMode,
 } from "../projection/projectionShaders.ts";
@@ -10,248 +9,15 @@ import {
   type ProjectionHelper,
 } from "../projection/projectionUtils.ts";
 
-import {
-  applyColormapShaders,
-  availableColormaps,
-  colormapShaders,
-  type TColorMap,
-} from "./colormapShaders.ts";
-
-const isNaNGLSL = `
-bool is_nan(float val) {
-    uint bits = floatBitsToUint(val);
-    // exponent all 1s (0x7F800000) AND non-zero mantissa = NaN
-    // exponent all 1s AND zero mantissa = Infinity (not NaN)
-    return (bits & 0x7F800000u) == 0x7F800000u && (bits & 0x007FFFFFu) != 0u;
-}
-`;
-
-const posterizeGLSL = `
-float posterize(float value, float levels) {
-    if (levels > 1.0) {
-        float step = floor(value * levels);
-        step = min(step, levels - 1.0);  // Prevent overflow at max value
-        return step / (levels - 1.0);
-    }
-    return value;
-}
-`;
-
-const projectionWrapVertexGLSL = `
-bool projectionUsesWrappedInstances(int projType) {
-  return
-    projType != PROJ_GLOBE &&
-    projType != PROJ_AZIMUTHAL_EQUIDISTANT &&
-    projType != PROJ_AZIMUTHAL_HYBRID;
-}
-
-bool shouldCullTriangleWrapInstance(
-  vec2 triLatLon0,
-  vec2 triLatLon1,
-  vec2 triLatLon2,
-  int projType,
-  float cLon,
-  float cLat,
-  float wrapDir,
-  int edgeQuality,
-  int useTriangleWrapCull
-) {
-  if (
-    edgeQuality <= 0 ||
-    useTriangleWrapCull <= 0 ||
-    !projectionUsesWrappedInstances(projType)
-  ) {
-    return false;
-  }
-
-  float lon0 = rotateCoords(triLatLon0.x, triLatLon0.y, cLon, cLat).y;
-  float lon1 = rotateCoords(triLatLon1.x, triLatLon1.y, cLon, cLat).y;
-  float lon2 = rotateCoords(triLatLon2.x, triLatLon2.y, cLon, cLat).y;
-  float minLon = min(lon0, min(lon1, lon2));
-  float maxLon = max(lon0, max(lon1, lon2));
-  bool crossesWrap = maxLon - minLon > 180.0;
-  bool isBaseInstance = abs(wrapDir) < 0.5;
-
-  return crossesWrap ? isBaseInstance : !isBaseInstance;
-}
-
-vec3 projectWithWrap(
-  vec2 latLon,
-  int projType,
-  float cLon,
-  float cLat,
-  float radius,
-  float wrapDir,
-  int edgeQuality
-) {
-  // Globe projection is oriented by the camera; projection center must not rotate it.
-  if (projType == PROJ_GLOBE) {
-    return projectGlobe(latLon.x, latLon.y, radius);
-  }
-  vec2 rotated = rotateCoords(latLon.x, latLon.y, cLon, cLat);
-  if (edgeQuality > 0 && wrapDir > 0.5 && rotated.y < 0.0) {
-    rotated.y += 360.0;
-  } else if (edgeQuality > 0 && wrapDir < -0.5 && rotated.y > 0.0) {
-    rotated.y -= 360.0;
-  }
-  return projectRotatedLatLon(rotated, projType, radius);
-}
-`;
-
-const textureColormapFragmentShader = `
-${projectionShaderFunctions}
-
-${colormapShaders}
-
-${isNaNGLSL}
-
-${posterizeGLSL}
-
-uniform float addOffset;
-uniform float scaleFactor;
-uniform int colormap;
-uniform float posterizeLevels;
-uniform float hideBelowValue;
-uniform sampler2D data;
-uniform int projectionType;
-uniform float projectionRadius;
-uniform int edgeQuality;
-
-varying vec2 vUv;
-varying vec2 vProjectedXY;
-
-void main() {
-  if (edgeQuality > 0 && !isInsideProjectionDomain(vProjectedXY, projectionType, projectionRadius)) {
-        discard;
-    }
-    gl_FragColor.a = 1.0;
-    float v_value = texture(data, vUv).r;
-    if (is_nan(v_value) || v_value <= hideBelowValue) {
-        gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
-        return;
-    }
-    float normalized_value = clamp(addOffset + scaleFactor * v_value, 0.0, 1.0);
-    normalized_value = posterize(normalized_value, posterizeLevels);
-
-    ${applyColormapShaders}
-}`;
-
-// credits: https://www.shadertoy.com/view/3lBXR3
-//          https://github.com/mzucker/fit_colormaps
-const scalarColormapFragmentShader = `
-${projectionShaderFunctions}
-
-${colormapShaders}
-
-${isNaNGLSL}
-
-${posterizeGLSL}
-
-varying float v_value;
-uniform float addOffset;
-uniform float scaleFactor;
-uniform int colormap;
-uniform float posterizeLevels;
-uniform float hideBelowValue;
-uniform int projectionType;
-uniform float projectionRadius;
-uniform int edgeQuality;
-
-varying vec2 vProjectedXY;
-
-void main() {
-    if (
-    (edgeQuality > 0 && !isInsideProjectionDomain(vProjectedXY, projectionType, projectionRadius)) ||
-        is_nan(v_value) ||
-        v_value <= hideBelowValue
-    ) {
-        gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
-        return;
-    }
-    float normalized_value = clamp(addOffset + scaleFactor * v_value, 0.0, 1.0);
-    normalized_value = posterize(normalized_value, posterizeLevels);
-    ${applyColormapShaders}
-    gl_FragColor.a = 1.0;
-}`;
-
-const screenQuadValueVertexShader = `
-    attribute float data_value;
-
-    varying float v_value;
-
-    void main() {
-      v_value = data_value;
-      gl_Position = vec4(position,1.0);
-    }
-    `;
-
-const pointFalloffFragmentShader = `
-${colormapShaders}
-
-${isNaNGLSL}
-
-${posterizeGLSL}
-
-varying float v_value;
-uniform float addOffset;
-uniform float scaleFactor;
-uniform int colormap;
-uniform float posterizeLevels;
-uniform float hideBelowValue;
-
-void main() {
-    vec2 uv = gl_PointCoord * 2.0 - 1.0;
-
-    // Normalize scalar value for color mapping
-    float normalized_value = clamp(addOffset + scaleFactor * v_value, 0.0, 1.0);
-    normalized_value = posterize(normalized_value, posterizeLevels);
-    float r2 = dot(uv, uv);
-    // Soft circular splat using Gaussian falloff
-    float falloff = exp(-r2 * 2.0); // Adjust the 4.0 as needed (sharpness)
-    if (falloff < 0.01) discard; // Optional: discard transparent fragments
-
-
-    if (is_nan(v_value) || v_value <= hideBelowValue) {
-        gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
-        return;
-    }
-
-    ${applyColormapShaders}
-    gl_FragColor.a = falloff;
-}`;
-
-const compressedLutFragmentShader = `
-${colormapShaders}
-
-${isNaNGLSL}
-
-${posterizeGLSL}
-
-varying float v_value;
-uniform float addOffset;
-uniform float scaleFactor;
-uniform int colormap;
-uniform float posterizeLevels;
-uniform float selLow;
-uniform float selHigh;
-
-void main() {
-    if (v_value < selLow || v_value > selHigh) {
-        // Sample the colormap at its minimum or maximum edge color
-        float t_edge = v_value < selLow ? 0.0 : 1.0;
-        float normalized_value = clamp(addOffset + scaleFactor * t_edge, 0.0, 1.0);
-        normalized_value = posterize(normalized_value, posterizeLevels);
-        ${applyColormapShaders}
-        gl_FragColor.a = 1.0;
-        return;
-    }
-    float range = max(selHigh - selLow, 0.0001);
-    float t = (v_value - selLow) / range;
-    float normalized_value = clamp(addOffset + scaleFactor * t, 0.0, 1.0);
-    normalized_value = posterize(normalized_value, posterizeLevels);
-    ${applyColormapShaders}
-    gl_FragColor.a = 1.0;
-}`;
+import { availableColormaps, type TColorMap } from "./colormapShaders.ts";
+import compressedLutFragmentShader from "./glsl/compressedLut.frag.glsl";
+import gpuProjectedMeshVertexShader from "./glsl/gpuProjectedMesh.vert.glsl";
+import gpuProjectedPointVertexShader from "./glsl/gpuProjectedPoint.vert.glsl";
+import gpuProjectedTextureVertexShader from "./glsl/gpuProjectedTexture.vert.glsl";
+import pointFalloffFragmentShader from "./glsl/pointFalloff.frag.glsl";
+import scalarColormapFragmentShader from "./glsl/scalarColormap.frag.glsl";
+import screenQuadValueVertexShader from "./glsl/screenQuadValue.vert.glsl";
+import textureColormapFragmentShader from "./glsl/textureColormap.frag.glsl";
 
 export function makeCompressedColormapLutMaterial(
   colormap: TColorMap = "turbo",
@@ -305,143 +71,6 @@ export function getColormapScaleOffset(
 // changes without geometry rebuilds.
 
 /**
- * Vertex shader for GPU-projected texture-based rendering (Regular/HEALPix grids).
- * Takes lat/lon as attributes and projects them on the GPU.
- */
-const gpuProjectedTextureVertexShader = `
-${projectionShaderFunctions}
-
-${projectionWrapVertexGLSL}
-
-uniform int projectionType;
-uniform float centerLon;
-uniform float centerLat;
-uniform float projectionRadius;
-uniform int edgeQuality;
-uniform int useTriangleWrapCull;
-
-attribute vec2 latLon;  // lat, lon in degrees
-attribute float wrapDirection;
-attribute vec2 triangleLatLon0;
-attribute vec2 triangleLatLon1;
-attribute vec2 triangleLatLon2;
-
-varying vec2 vUv;
-varying vec2 vProjectedXY;
-
-void main() {
-  vUv = uv;
-  if (
-    shouldCullTriangleWrapInstance(
-      triangleLatLon0,
-      triangleLatLon1,
-      triangleLatLon2,
-      projectionType,
-      centerLon,
-      centerLat,
-      wrapDirection,
-      edgeQuality,
-      useTriangleWrapCull
-    )
-  ) {
-    vProjectedXY = vec2(1000000.0);
-    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
-    return;
-  }
-  vec3 projected = projectWithWrap(
-    latLon,
-    projectionType,
-    centerLon,
-    centerLat,
-    projectionRadius,
-    wrapDirection,
-    edgeQuality
-  );
-  vProjectedXY = projected.xy;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(projected, 1.0);
-}
-`;
-
-/**
- * Vertex shader for GPU-projected mesh-based rendering (Triangular/Curvilinear/Gaussian grids).
- * Takes lat/lon as attributes and projects them on the GPU.
- */
-const gpuProjectedMeshVertexShader = `
-${projectionShaderFunctions}
-
-${projectionWrapVertexGLSL}
-
-uniform int projectionType;
-uniform float centerLon;
-uniform float centerLat;
-uniform float projectionRadius;
-uniform float pointSize;
-uniform int edgeQuality;
-
-attribute vec2 latLon;  // lat, lon in degrees
-attribute float data_value;
-attribute float wrapDirection;
-
-varying float v_value;
-varying vec2 vProjectedXY;
-
-void main() {
-  v_value = data_value;
-  vec3 projected = projectWithWrap(
-    latLon,
-    projectionType,
-    centerLon,
-    centerLat,
-    projectionRadius,
-    wrapDirection,
-    edgeQuality
-  );
-  vProjectedXY = projected.xy;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(projected, 1.0);
-  if (pointSize > 0.0) {
-    gl_PointSize = pointSize;
-  }
-}
-`;
-
-/**
- * Vertex shader for GPU-projected point clouds (Irregular grids).
- */
-const gpuProjectedPointVertexShader = `
-${projectionShaderFunctions}
-
-uniform int projectionType;
-uniform float centerLon;
-uniform float centerLat;
-uniform float projectionRadius;
-uniform float basePointSize;
-uniform float minPointSize;
-uniform float maxPointSize;
-
-attribute vec2 latLon;  // lat, lon in degrees
-attribute float data_value;
-
-varying float v_value;
-
-void main() {
-  v_value = data_value;
-  vec3 projected = projectLatLon(
-    latLon.x,
-    latLon.y,
-    projectionType,
-    centerLon,
-    centerLat,
-    projectionRadius
-  );
-  vec4 mvPosition = modelViewMatrix * vec4(projected, 1.0);
-  gl_Position = projectionMatrix * mvPosition;
-
-  float sizeFactor = basePointSize;
-  gl_PointSize = clamp(sizeFactor, minPointSize, maxPointSize);
-}
-`;
-
-/**
  * Create a GPU-projected texture material for Regular/HEALPix grids.
  * Projection is done on the GPU, allowing instant center changes.
  */
@@ -469,7 +98,6 @@ export function makeGpuProjectedTextureMaterial(
       edgeQuality: { value: 1 },
       useTriangleWrapCull: { value: 0 },
     },
-    transparent: true,
     vertexShader: gpuProjectedTextureVertexShader,
     fragmentShader: textureColormapFragmentShader,
   });
@@ -498,7 +126,6 @@ export function makeGpuProjectedMeshMaterial(
     uniforms: {
       addOffset: { value: addOffset },
       scaleFactor: { value: scaleFactor },
-      pointSize: { value: 0.0 },
       colormap: { value: availableColormaps[colormap] },
       posterizeLevels: { value: 0.0 },
       hideBelowValue: { value: -1e38 },
@@ -511,7 +138,6 @@ export function makeGpuProjectedMeshMaterial(
       projectionRadius: { value: 1.0 },
       edgeQuality: { value: 1 },
     },
-    transparent: true,
     vertexShader: gpuProjectedMeshVertexShader,
     fragmentShader: scalarColormapFragmentShader,
   });
@@ -519,6 +145,15 @@ export function makeGpuProjectedMeshMaterial(
     0,
   ];
   return material;
+}
+
+export function makeInvertableGpuMeshMaterial(
+  colormap: TColorMap,
+  invert: boolean
+) {
+  return invert
+    ? makeGpuProjectedMeshMaterial(colormap, 1.0, -1.0)
+    : makeGpuProjectedMeshMaterial(colormap, 0.0, 1.0);
 }
 
 /**

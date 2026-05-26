@@ -1,6 +1,11 @@
-import { useBroadcastChannel, useEventListener } from "@vueuse/core";
+import {
+  useBroadcastChannel,
+  useEventListener,
+  useIntervalFn,
+  useTimeoutFn,
+} from "@vueuse/core";
 import { storeToRefs } from "pinia";
-import { ref, watch, computed, onScopeDispose, type Ref } from "vue";
+import { ref, watch, computed, type Ref } from "vue";
 
 import {
   PRESENTER_CHANNEL,
@@ -15,7 +20,6 @@ import { useGlobeControlStore } from "@/store/store.ts";
 const presenterRole: Ref<TPresenterRole | null> = ref(null);
 const presenterWindowOpen = ref(false);
 let presenterWindow: Window | null = null;
-let presenterWindowMonitorId: number | null = null;
 
 /** Whether the current window is in "display" mode (no controls, receives state). */
 export const isDisplayMode = computed(
@@ -65,36 +69,35 @@ export function usePresenterSync() {
     name: PRESENTER_CHANNEL,
   });
 
-  function stopMonitoringPresenterWindow() {
-    if (presenterWindowMonitorId === null) {
-      return;
-    }
-    window.clearInterval(presenterWindowMonitorId);
-    presenterWindowMonitorId = null;
-  }
+  const {
+    pause: stopMonitoringPresenterWindow,
+    resume: startMonitoringPresenterWindow,
+  } = useIntervalFn(
+    () => {
+      const isOpen = presenterWindow !== null && !presenterWindow.closed;
+      presenterWindowOpen.value = isOpen;
+      if (isOpen) {
+        return;
+      }
+      presenterWindow = null;
+      if (presenterRole.value === PresenterRole.CONTROLLER) {
+        presenterRole.value = null;
+      }
+      stopMonitoringPresenterWindow();
+    },
+    500,
+    { immediate: false }
+  );
 
-  function syncPresenterWindowState() {
-    const isOpen = presenterWindow !== null && !presenterWindow.closed;
-    presenterWindowOpen.value = isOpen;
-    if (isOpen) {
-      return;
-    }
-    presenterWindow = null;
-    if (presenterRole.value === PresenterRole.CONTROLLER) {
-      presenterRole.value = null;
-    }
-    stopMonitoringPresenterWindow();
-  }
-
-  function startMonitoringPresenterWindow() {
-    if (presenterWindowMonitorId !== null) {
-      return;
-    }
-    presenterWindowMonitorId = window.setInterval(
-      syncPresenterWindowState,
-      500
-    );
-  }
+  const { start: scheduleInitialSync } = useTimeoutFn(
+    () => {
+      if (isPresenterActive.value) {
+        sendFullState();
+      }
+    },
+    1500,
+    { immediate: false }
+  );
 
   /** Gather the full current state for broadcasting. */
   function gatherState(opts?: {
@@ -407,11 +410,7 @@ export function usePresenterSync() {
     startMonitoringPresenterWindow();
 
     // Send full state so the display window starts in sync
-    setTimeout(() => {
-      if (isPresenterActive.value) {
-        sendFullState();
-      }
-    }, 1500);
+    scheduleInitialSync();
   }
 
   function closeDisplayWindow() {
@@ -433,10 +432,6 @@ export function usePresenterSync() {
     }
     openDisplayWindow();
   }
-
-  onScopeDispose(() => {
-    stopMonitoringPresenterWindow();
-  });
 
   /** Activate display mode (called when ?mode=display is detected). */
   function enterDisplayMode() {

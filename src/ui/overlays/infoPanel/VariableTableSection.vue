@@ -2,14 +2,7 @@
 import VueJsonPretty from "vue-json-pretty";
 import * as zarr from "zarrita";
 
-type TVariableTableRow = {
-  name: string;
-  dimensions: string[];
-  dtype: string | null;
-  attrs: zarr.Attributes | null;
-  loading: boolean;
-  error: string | null;
-};
+import type { TVariableTableRow } from "./types";
 
 withDefaults(
   defineProps<{
@@ -69,21 +62,23 @@ function hasAttributes(attrs: zarr.Attributes | null) {
                 <code>{{ row.name }}</code>
               </td>
               <td class="variable-dimensions">
-                <code>{{ formatDimensions(row.dimensions) }}</code>
-              </td>
-              <td>
-                <span v-if="row.loading" class="has-text-grey-light">
-                  Loading
-                </span>
                 <span
-                  v-else-if="row.error"
+                  v-if="row.error"
                   class="has-text-danger"
                   :title="row.error"
                 >
                   Unavailable
                 </span>
+                <code v-else>{{ formatDimensions(row.dimensions) }}</code>
+              </td>
+              <td>
+                <span
+                  v-if="row.error || !row.dtype"
+                  class="has-text-grey-light"
+                >
+                  -
+                </span>
                 <code v-else-if="row.dtype">{{ row.dtype }}</code>
-                <span v-else class="has-text-grey-light">-</span>
               </td>
               <td class="variable-actions has-text-right">
                 <button
@@ -112,6 +107,7 @@ function hasAttributes(attrs: zarr.Attributes | null) {
                   :aria-label="'Visualize ' + row.name"
                   :title="'Visualize ' + row.name"
                   type="button"
+                  :disabled="!!row.error"
                   @click="emit('visualize', row.name)"
                 >
                   <span class="icon is-small">
@@ -126,11 +122,8 @@ function hasAttributes(attrs: zarr.Attributes | null) {
             >
               <td colspan="4">
                 <div class="variable-attributes">
-                  <p v-if="row.loading" class="has-text-grey-light">
-                    Loading metadata...
-                  </p>
                   <div
-                    v-else-if="row.error"
+                    v-if="row.error"
                     class="notification is-danger is-light is-size-7"
                   >
                     {{ row.error }}

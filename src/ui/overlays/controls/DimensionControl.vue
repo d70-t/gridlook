@@ -1,6 +1,6 @@
 <script lang="ts" setup>
+import { useDebounceFn } from "@vueuse/core";
 import type { Dayjs } from "dayjs";
-import debounce from "lodash.debounce";
 import { storeToRefs } from "pinia";
 import { computed, ref, watch } from "vue";
 
@@ -45,7 +45,7 @@ watch(
 
       // Create stable debounced functions for dimensions
       debouncedUpdaters.value = newRanges.map((_, index) => {
-        return debounce((value: number) => {
+        return useDebounceFn((value: number) => {
           if (dimSlidersValues.value[index] !== undefined) {
             dimSlidersValues.value[index] = value;
           }

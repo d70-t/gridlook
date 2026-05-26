@@ -1,5 +1,3 @@
-import type { ShallowRef } from "vue";
-import { shallowRef } from "vue";
 import * as zarr from "zarrita";
 
 import { decodeTime } from "@/lib/data/timeHandling.ts";
@@ -15,13 +13,6 @@ import { useLog } from "@/utils/logging.ts";
 /* eslint-disable-next-line max-lines-per-function */
 export function useGridDataAccess() {
   const { logError } = useLog();
-  const datavars: ShallowRef<
-    Record<string, zarr.Array<zarr.DataType, zarr.FetchStore>>
-  > = shallowRef({});
-
-  function resetDataVars() {
-    datavars.value = {};
-  }
 
   async function getDataVar(myVarname: string, datasources: TSources) {
     const myDatasource = datasources?.levels[0]?.datasources[myVarname];
@@ -125,10 +116,37 @@ export function useGridDataAccess() {
     }
   }
 
+  async function fetchDimensionDetails(
+    currentVariable: string,
+    datasources: TSources,
+    dimensionRanges: TDimensionRange[],
+    dimSlidersValues: (number | zarr.Slice | null)[]
+  ): Promise<TDimInfo[]> {
+    const array: TDimInfo[] = [];
+    for (let i = 0; i < dimensionRanges.length; i++) {
+      const dim = dimensionRanges[i];
+      if (dim?.name === "time") {
+        const timeInfo = await getTimeInfo(
+          datasources,
+          dimensionRanges,
+          i,
+          dimSlidersValues[i] as number
+        );
+        array.push(timeInfo);
+      } else {
+        const dimInfo = await getDimensionInfo(
+          datasources.levels[0].datasources[currentVariable],
+          dim!,
+          dimSlidersValues[i] as number
+        );
+        array.push(dimInfo);
+      }
+    }
+    return array;
+  }
+
   return {
-    resetDataVars,
     getDataVar,
-    getTimeInfo,
-    getDimensionInfo,
+    fetchDimensionDetails,
   };
 }

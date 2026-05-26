@@ -2,19 +2,19 @@
 import * as healpix from "@hscmap/healpix";
 import { storeToRefs } from "pinia";
 import * as THREE from "three";
-import { computed, onBeforeMount, onMounted, ref, watch } from "vue";
+import { onBeforeMount, onBeforeUnmount, onMounted, ref } from "vue";
 import * as zarr from "zarrita";
 
 import {
   useGridHoverLookup,
   type TGridHoverLookupResult,
 } from "./composables/gridHoverUtils.ts";
+import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import {
   createTriangleWrapProjectionGeometry,
   createWrappedProjectionMesh,
   setupProjectionGeometryWrap,
   updateProjectionMeshes,
-  watchProjectionEdgeQuality,
 } from "./composables/useProjectionEdgeQuality.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
@@ -22,7 +22,9 @@ import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts"
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   castDataVarToFloat32,
-  getDataBounds,
+  getDataBoundsAndMapMissingToNaN,
+  getFillValue,
+  getMissingValue,
   mapMissingAndFillToNaN,
 } from "@/lib/data/zarrUtils.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
@@ -53,20 +55,24 @@ const props = defineProps<{
 // By convention, HEALPIX uses -1.6375e+30 to mark invalid or unseen pixels.
 const HEALPIX_UNSEEN = -1.6375e30;
 
+function getHealpixMissingAndFillValues(
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
+) {
+  const missingValue = getMissingValue(datavar);
+  const fillValue = getFillValue(datavar);
+  if (Number.isNaN(missingValue)) {
+    return { missingValue: HEALPIX_UNSEEN, fillValue };
+  }
+  if (Number.isNaN(fillValue)) {
+    return { missingValue, fillValue: HEALPIX_UNSEEN };
+  }
+  return { missingValue, fillValue };
+}
+
 const store = useGlobeControlStore();
 const { logError } = useLog();
-const {
-  varnameSelector,
-  colormap,
-  invertColormap,
-  posterizeLevels,
-  selection,
-  dimSlidersValues,
-  isInitializingVariable,
-  varinfo,
-  projectionMode,
-  projectionCenter,
-} = storeToRefs(store);
+const { varnameSelector, colormap, invertColormap, dimSlidersValues, varinfo } =
+  storeToRefs(store);
 
 const urlParameterStore = useUrlParameterStore();
 const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
@@ -78,7 +84,6 @@ const {
   makeSnapshot,
   toggleRotate,
   applyCameraPreset,
-  resetDataVars,
   getDataVar,
   fetchDimensionDetails,
   updateLandSeaMask,
@@ -86,6 +91,9 @@ const {
   updateHistogram,
   projectionHelper,
   isSceneInMotion,
+  onProjectionChange,
+  onMotionStateChange,
+  onColormapChange,
   canvas,
   box,
   hoveredGeoPoint,
@@ -94,8 +102,6 @@ const {
 const { setHoverLookup, clearHoverLookup } =
   useGridHoverLookup(hoveredGeoPoint);
 
-const pendingUpdate = ref(false);
-const updatingData = ref(false);
 const hoverData = ref<Float32Array | null>(null);
 const hoverCellIndexMap = ref<Map<number, number> | null>(null);
 const hoverNside = ref<number | null>(null);
@@ -104,56 +110,10 @@ const HEALPIX_NUMCHUNKS = 12;
 
 let mainMeshes: Array<THREE.Mesh | undefined> = new Array(HEALPIX_NUMCHUNKS);
 
-watch(
-  () => varnameSelector.value,
-  () => {
-    getData();
-  }
-);
+onColormapChange(() => updateColormap(mainMeshes));
 
-watch(
-  () => dimSlidersValues.value,
-  async () => {
-    if (isInitializingVariable.value) {
-      isInitializingVariable.value = false;
-      return;
-    }
-    await getData(UPDATE_MODE.SLIDER_TOGGLE);
-    updateColormap(mainMeshes);
-  },
-  { deep: true }
-);
-
-watch(
-  () => props.datasources,
-  () => {
-    datasourceUpdate();
-  }
-);
-
-const bounds = computed(() => {
-  return selection.value;
-});
-
-watch(
-  [
-    () => bounds.value,
-    () => invertColormap.value,
-    () => colormap.value,
-    () => posterizeLevels.value,
-    () => store.hideLowerBound,
-  ],
-  () => {
-    updateColormap(mainMeshes);
-  }
-);
-
-watchProjectionEdgeQuality({
-  projectionMode,
-  projectionCenter,
-  isSceneInMotion,
-  onUpdate: updateMeshProjectionUniforms,
-});
+onProjectionChange(updateMeshProjectionUniforms);
+onMotionStateChange(updateMeshProjectionUniforms);
 
 /**
  * Update projection uniforms on all mesh materials.
@@ -167,15 +127,15 @@ function updateMeshProjectionUniforms() {
   });
 }
 
-async function datasourceUpdate() {
-  resetDataVars();
-  clearHoverLookup();
-  if (props.datasources !== undefined) {
-    await Promise.all([fetchGrid(), getData()]);
-    updateLandSeaMask();
-    updateColormap(mainMeshes);
-  }
-}
+const { datasourceUpdate } = useGridDataLoader({
+  getDatasources: () => props.datasources,
+  getDataVar,
+  fetchAndRenderData,
+  clearHoverLookup,
+  prepareDatasource: fetchGrid,
+  updateLandSeaMask,
+  updateColormap: () => updateColormap(mainMeshes),
+});
 
 function fetchGrid() {
   const gridStep = 64 + 1;
@@ -373,14 +333,13 @@ async function getHealpixData(
     dataSlice
   );
 
-  let { min, max, missingValue, fillValue } = getDataBounds(datavar, dataSlice);
-  if (isNaN(missingValue)) {
-    missingValue = HEALPIX_UNSEEN;
-  } else if (isNaN(fillValue)) {
-    fillValue = HEALPIX_UNSEEN;
-  }
-  mapMissingAndFillToNaN(dataSlice, missingValue, fillValue);
-  ({ min, max } = getDataBounds(datavar, dataSlice));
+  const { missingValue, fillValue } = getHealpixMissingAndFillValues(datavar);
+  const { min, max } = getDataBoundsAndMapMissingToNaN(
+    datavar,
+    dataSlice,
+    missingValue,
+    fillValue
+  );
 
   // Filter out missing and fill values before building histogram
   return {
@@ -566,34 +525,6 @@ function data2texture(
   return texture;
 }
 
-async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
-  store.startLoading();
-  if (updatingData.value) {
-    pendingUpdate.value = true;
-    return;
-  }
-
-  updatingData.value = true;
-  try {
-    do {
-      pendingUpdate.value = false;
-      const datavar = await getDataVar(
-        varnameSelector.value,
-        props.datasources!
-      );
-      if (datavar) {
-        await fetchAndRenderData(datavar, updateMode);
-      }
-      updatingData.value = false;
-    } while (pendingUpdate.value);
-  } catch (error) {
-    logError(error, "Could not fetch data");
-    updatingData.value = false;
-  } finally {
-    store.stopLoading();
-  }
-}
-
 async function prepareDimensionData(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   updateMode: TUpdateMode
@@ -741,12 +672,7 @@ async function fetchAndRenderData(
   hoverData.value = castDataVarToFloat32(
     (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
   );
-  let { missingValue, fillValue } = getDataBounds(datavar, hoverData.value);
-  if (isNaN(missingValue)) {
-    missingValue = HEALPIX_UNSEEN;
-  } else if (isNaN(fillValue)) {
-    fillValue = HEALPIX_UNSEEN;
-  }
+  const { missingValue, fillValue } = getHealpixMissingAndFillValues(datavar);
   mapMissingAndFillToNaN(hoverData.value, missingValue, fillValue);
   if (cellCoord) {
     const cellIndexMap = new Map<number, number>();
@@ -791,8 +717,8 @@ onMounted(() => {
 });
 
 onBeforeMount(async () => {
-  const low = bounds.value?.low as number;
-  const high = bounds.value?.high as number;
+  const low = store.selection?.low as number;
+  const high = store.selection?.high as number;
   const { addOffset, scaleFactor } = getColormapScaleOffset(
     low,
     high,
@@ -829,6 +755,25 @@ onBeforeMount(async () => {
     mesh.frustumCulled = false;
   }
   await datasourceUpdate();
+});
+
+onBeforeUnmount(() => {
+  for (let ipix = 0; ipix < HEALPIX_NUMCHUNKS; ++ipix) {
+    const mesh = mainMeshes[ipix];
+    if (!mesh) {
+      continue;
+    }
+    mesh.geometry.dispose();
+    const mat = mesh.material as THREE.ShaderMaterial;
+    if (mat) {
+      if (mat.uniforms?.data?.value?.dispose) {
+        mat.uniforms.data.value.dispose();
+      }
+      mat.dispose();
+    }
+    getScene()?.remove(mesh);
+    mainMeshes[ipix] = undefined;
+  }
 });
 
 defineExpose({

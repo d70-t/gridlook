@@ -99,6 +99,8 @@ async function collectVariables(
                 ...variable.attrs,
                 dimensionNames: variable.dimensionNames,
               },
+              shape: variable.shape,
+              dtype: String(variable.dtype),
             },
           };
         }
@@ -231,6 +233,8 @@ async function enrichMetadata(
           kind: "array",
         });
         const arrayDimensions = variable.dimensionNames ?? [];
+        datasources[varname].dtype = String(variable.dtype);
+        datasources[varname].shape = variable.shape;
         datasources[varname].attrs = {
           ...datasources[varname].attrs,
           ...variable.attrs,

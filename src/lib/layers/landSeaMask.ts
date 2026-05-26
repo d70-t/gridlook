@@ -4,10 +4,11 @@ import * as THREE from "three";
 import { ResourceCache } from "./ResourceCache.ts";
 
 import albedo from "@/assets/earth.jpg";
-import {
-  projectionShaderFunctions,
-  getProjectionTypeFromMode,
-} from "@/lib/projection/projectionShaders.ts";
+import flatInverseFragmentShader from "@/lib/layers/glsl/flatInverse.frag.glsl";
+import flatInverseVertexShader from "@/lib/layers/glsl/flatInverse.vert.glsl";
+import gpuProjectedMaskFragmentShader from "@/lib/layers/glsl/gpuProjectedMask.frag.glsl";
+import gpuProjectedMaskVertexShader from "@/lib/layers/glsl/gpuProjectedMask.vert.glsl";
+import { getProjectionTypeFromMode } from "@/lib/projection/projectionShaders.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 
 export const LAND_SEA_MASK_MODES = {
@@ -128,269 +129,6 @@ function thresholdAlpha(
   ctx.putImageData(imageData, 0, 0);
 }
 
-/**
- * Vertex shader for GPU-projected mask rendering (globe mode).
- * Projects lat/lon coordinates on the GPU.
- */
-const gpuProjectedMaskVertexShader = `
-uniform float projectionRadius;
-
-varying vec3 vSpherePosition;
-
-void main() {
-  vSpherePosition = normalize(position);
-  vec3 projected = position * projectionRadius;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(projected, 1.0);
-}
-`;
-
-/**
- * Fragment shader for globe mask rendering.
- * Computes UV from interpolated lat/lon rather than from a UV attribute,
- * so there is no 0/1 discontinuity at the antimeridian.
- */
-const gpuProjectedMaskFragmentShader = `
-#define PI 3.141592653589793
-
-uniform sampler2D maskTexture;
-uniform float opacity;
-
-varying vec3 vSpherePosition;
-
-void main() {
-  vec3 spherePosition = normalize(vSpherePosition);
-  float lon = atan(spherePosition.y, spherePosition.x);
-  float lat = asin(clamp(spherePosition.z, -1.0, 1.0));
-  float u = (lon + PI) / (2.0 * PI);
-  float v = (lat + PI * 0.5) / PI;
-  vec4 texColor = texture2D(maskTexture, vec2(u, v));
-  if (texColor.a < 0.01) {
-    discard;
-  }
-  gl_FragColor = vec4(texColor.rgb, texColor.a * opacity);
-}
-`;
-
-/**
- * Vertex shader for flat mask: passes projected coordinates to fragment shader.
- */
-const flatInverseVertexShader = `
-varying vec2 vProjectedCoord;
-
-void main() {
-  vProjectedCoord = position.xy;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-}
-`;
-
-/**
- * Fragment shader for flat mask: inverse-projects screen coordinates to lat/lon
- * and samples the equirectangular mask texture. Eliminates geometry rebuilds
- * when the projection center changes (rotation).
- */
-const flatInverseFragmentShader = `
-${projectionShaderFunctions}
-
-// Unrotate: inverse of rotateCoords. Recovers geographic (lat, lon) from
-// the rotated frame produced by the forward projection.
-vec2 unrotateCoords(float rotatedLat, float rotatedLon, float cLon, float cLat) {
-  float latRad = rotatedLat * DEG_TO_RAD;
-  float lonRad = rotatedLon * DEG_TO_RAD;
-  float cLatRad = cLat * DEG_TO_RAD;
-
-  float cosLat = cos(latRad);
-  float sinLat = sin(latRad);
-  float cosLon = cos(lonRad);
-  float sinLon = sin(lonRad);
-  float cosCLat = cos(cLatRad);
-  float sinCLat = sin(cLatRad);
-
-  float newSinLat = sinLat * cosCLat + cosLat * cosLon * sinCLat;
-  float newLat = asin(clamp(newSinLat, -1.0, 1.0));
-
-  float y = cosLat * sinLon;
-  float x = cosLat * cosLon * cosCLat - sinLat * sinCLat;
-  float newLon = atan(y, x) + cLon * DEG_TO_RAD;
-
-  return vec2(newLat * RAD_TO_DEG, newLon * RAD_TO_DEG);
-}
-
-// --- Inverse projection functions ---
-// Each returns vec3(rotatedLat, rotatedLon, valid).
-// valid < 0 means the point is outside the projection domain.
-
-vec3 inverseEquirectangular(float x, float y) {
-  float rLon = x * RAD_TO_DEG;
-  float rLat = y * RAD_TO_DEG;
-  if (abs(rLat) > 90.0 || abs(rLon) > 180.0) return vec3(0.0, 0.0, -1.0);
-  return vec3(rLat, rLon, 1.0);
-}
-
-vec3 inverseMercator(float x, float y) {
-  float rLon = x * RAD_TO_DEG;
-  float rLat = (2.0 * atan(exp(y)) - PI * 0.5) * RAD_TO_DEG;
-  if (abs(rLat) > MERCATOR_LAT_LIMIT || abs(rLon) > 180.0) return vec3(0.0, 0.0, -1.0);
-  return vec3(rLat, rLon, 1.0);
-}
-
-vec3 inverseCylindricalEqualArea(float x, float y) {
-  float sinLat = y / CYLINDRICAL_EQUAL_AREA_SCALE;
-  if (abs(sinLat) > 1.0) return vec3(0.0, 0.0, -1.0);
-  float rLon = x * CYLINDRICAL_EQUAL_AREA_SCALE * RAD_TO_DEG;
-  if (abs(rLon) > 180.0) return vec3(0.0, 0.0, -1.0);
-  return vec3(asin(sinLat) * RAD_TO_DEG, rLon, 1.0);
-}
-
-vec3 inverseMollweide(float x, float y) {
-  float sinTheta = y / sqrt(2.0);
-  if (abs(sinTheta) > 1.0) return vec3(0.0, 0.0, -1.0);
-  float theta = asin(sinTheta);
-  float cosTheta = cos(theta);
-
-  float rLon;
-  if (abs(cosTheta) < 0.0001) {
-    rLon = 0.0;
-  } else {
-    rLon = (PI * x / (2.0 * sqrt(2.0) * cosTheta)) * RAD_TO_DEG;
-  }
-  if (abs(rLon) > 180.0) return vec3(0.0, 0.0, -1.0);
-
-  float sinLatVal = (2.0 * theta + sin(2.0 * theta)) / PI;
-  if (abs(sinLatVal) > 1.0) return vec3(0.0, 0.0, -1.0);
-  return vec3(asin(sinLatVal) * RAD_TO_DEG, rLon, 1.0);
-}
-
-vec3 inverseRobinson(float x, float y) {
-  float absY = abs(y);
-  if (absY > robinsonK[39]) return vec3(0.0, 0.0, -1.0);
-
-  int i0 = 0;
-  for (int i = 0; i <= 17; i++) {
-    if (absY <= robinsonK[(i + 2) * 2 + 1]) {
-      i0 = i;
-      break;
-    }
-    i0 = i;
-  }
-
-  float ax = robinsonK[i0 * 2];
-  float ay = robinsonK[i0 * 2 + 1];
-  float bx = robinsonK[(i0 + 1) * 2];
-  float by = robinsonK[(i0 + 1) * 2 + 1];
-  float cx = robinsonK[(i0 + 2) * 2];
-  float cy = robinsonK[(i0 + 2) * 2 + 1];
-
-  float di = (abs(cy - by) > 0.0001) ? (absY - by) / (cy - by) : 0.0;
-  di = clamp(di, 0.0, 1.0);
-  for (int iter = 0; iter < 5; iter++) {
-    float yCoeff = by + di * (cy - ay) / 2.0 + di * di * (cy - 2.0 * by + ay) / 2.0;
-    float dyCoeff = (cy - ay) / 2.0 + di * (cy - 2.0 * by + ay);
-    if (abs(dyCoeff) < 0.0001) break;
-    di = clamp(di - (yCoeff - absY) / dyCoeff, 0.0, 1.0);
-  }
-
-  float latDeg = (float(i0) + di) * 5.0;
-  if (y < 0.0) latDeg = -latDeg;
-
-  float xCoeff = bx + di * (cx - ax) / 2.0 + di * di * (cx - 2.0 * bx + ax) / 2.0;
-  if (abs(xCoeff) < 0.0001) return vec3(0.0, 0.0, -1.0);
-  float rLon = (x / xCoeff) * RAD_TO_DEG;
-  if (abs(rLon) > 180.0) return vec3(0.0, 0.0, -1.0);
-  return vec3(latDeg, rLon, 1.0);
-}
-
-vec3 inverseAzimuthalEquidistant(float x, float y) {
-  float rho = sqrt(x * x + y * y);
-  if (rho > AZIMUTHAL_CLIP_ANGLE_RAD) return vec3(0.0, 0.0, -1.0);
-  if (rho < 0.0001) return vec3(0.0, 0.0, 1.0);
-
-  float c = rho;
-  float sinC = sin(c);
-  float cosC = cos(c);
-  float rLat = asin(clamp(y * sinC / rho, -1.0, 1.0)) * RAD_TO_DEG;
-  float rLon = atan(x * sinC, rho * cosC) * RAD_TO_DEG;
-  return vec3(rLat, rLon, 1.0);
-}
-
-vec3 inverseAzimuthalHybrid(float x, float y) {
-  float rho = sqrt(x * x + y * y);
-  if (rho > AZIMUTHAL_CLIP_ANGLE_RAD) return vec3(0.0, 0.0, -1.0);
-  if (rho < 0.0001) return vec3(0.0, 0.0, 1.0);
-
-  // Newton-Raphson: solve mix(rhoEA(c), rhoED(c), blend(c)) = rho for c
-  float c = rho;
-  for (int iter = 0; iter < 8; iter++) {
-    float sinC = sin(c);
-    float cosC = cos(c);
-    float rhoEA = sqrt(max(0.0, 2.0 - 2.0 * clamp(cosC, -1.0, 1.0)));
-    float rhoED = c;
-    float blend = getAzimuthalEffectiveBlend(
-      AZIMUTHAL_HYBRID_BLEND, AZIMUTHAL_HYBRID_RIM_BLEND,
-      AZIMUTHAL_HYBRID_FAR_BLEND, c
-    );
-    float f = mix(rhoEA, rhoED, blend) - rho;
-    if (abs(f) < 0.0001) break;
-    float drhoEA = (rhoEA > 0.0001) ? sinC / rhoEA : 1.0;
-    float df = mix(drhoEA, 1.0, blend);
-    if (abs(df) < 0.0001) break;
-    c -= f / df;
-    c = max(0.0001, c);
-  }
-
-  if (c > AZIMUTHAL_CLIP_ANGLE_RAD) return vec3(0.0, 0.0, -1.0);
-  float sinC = sin(c);
-  float cosC = cos(c);
-  float rLat = asin(clamp(y * sinC / rho, -1.0, 1.0)) * RAD_TO_DEG;
-  float rLon = atan(x * sinC, rho * cosC) * RAD_TO_DEG;
-
-  // Round-trip validation: forward-project the result and verify it matches.
-  // The blended forward mapping is non-monotonic near the clip boundary,
-  // so the Newton-Raphson solver can converge to ghost solutions.
-  vec3 fwd = projectAzimuthalHybrid(rLat, rLon, 0.0, 0.0);
-  float errSq = (fwd.x - x) * (fwd.x - x) + (fwd.y - y) * (fwd.y - y);
-  if (errSq > 0.001) return vec3(0.0, 0.0, -1.0);
-
-  return vec3(rLat, rLon, 1.0);
-}
-
-vec3 inverseProjectLatLon(float x, float y, int projType) {
-  if (projType == PROJ_EQUIRECTANGULAR) return inverseEquirectangular(x, y);
-  if (projType == PROJ_MERCATOR) return inverseMercator(x, y);
-  if (projType == PROJ_ROBINSON) return inverseRobinson(x, y);
-  if (projType == PROJ_MOLLWEIDE) return inverseMollweide(x, y);
-  if (projType == PROJ_CYLINDRICAL_EQUAL_AREA) return inverseCylindricalEqualArea(x, y);
-  if (projType == PROJ_AZIMUTHAL_EQUIDISTANT) return inverseAzimuthalEquidistant(x, y);
-  if (projType == PROJ_AZIMUTHAL_HYBRID) return inverseAzimuthalHybrid(x, y);
-  return vec3(0.0, 0.0, -1.0);
-}
-
-uniform sampler2D maskTexture;
-uniform float opacity;
-uniform int projectionType;
-uniform float centerLon;
-uniform float centerLat;
-
-varying vec2 vProjectedCoord;
-
-void main() {
-  vec3 result = inverseProjectLatLon(vProjectedCoord.x, vProjectedCoord.y, projectionType);
-  if (result.z < 0.0) discard;
-
-  vec2 geo = unrotateCoords(result.x, result.y, centerLon, centerLat);
-
-  // Normalize longitude to [-180, 180]
-  float lon = mod(geo.y + 180.0, 360.0) - 180.0;
-
-  // Convert to equirectangular texture UV
-  float u = (lon + 180.0) / 360.0;
-  float v = (geo.x + 90.0) / 180.0;
-
-  vec4 texColor = texture2D(maskTexture, vec2(u, v));
-  if (texColor.a < 0.01) discard;
-  gl_FragColor = vec4(texColor.rgb, texColor.a * opacity);
-}
-`;
-
 class GpuProjectedMaskRenderer {
   private static readonly GRID_RESOLUTION = {
     latSegments: 180,
@@ -425,9 +163,11 @@ class GpuProjectedMaskRenderer {
         getProjectionTypeFromMode(projectionHelper.type),
         projectionHelper.center
       );
+      material.transparent = !isGlobeMaskMode(mode);
     } else {
       geometry = this.createGlobeGeometry();
       material = this.createGlobeMaterial(texture);
+      material.transparent = !isGlobeMaskMode(mode);
     }
 
     const mesh = new THREE.Mesh(geometry, material);
@@ -586,7 +326,7 @@ class GpuProjectedMaskRenderer {
       },
       vertexShader: gpuProjectedMaskVertexShader,
       fragmentShader: gpuProjectedMaskFragmentShader,
-      transparent: true,
+      transparent: false,
       side: THREE.FrontSide,
       depthWrite: false,
       // depthTest: false so rendering order is controlled solely by renderOrder.

@@ -1,5 +1,5 @@
+import { useDebounceFn } from "@vueuse/core";
 import { inflateSync, strFromU8, deflate } from "fflate";
-import debounce from "lodash.debounce";
 import { storeToRefs } from "pinia";
 import type * as THREE from "three";
 
@@ -97,7 +97,7 @@ export function useGridCameraState(): GridCameraState {
     camera.updateProjectionMatrix();
   }
 
-  const debouncedEncodeCameraToURL = debounce(
+  const debouncedEncodeCameraToURL = useDebounceFn(
     (camera: THREE.PerspectiveCamera) => {
       encodeCameraToURL(camera);
     },
