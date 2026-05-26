@@ -54,7 +54,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
       histogram: undefined as number[] | undefined, // selection-range histogram bins
       fullHistogram: undefined as number[] | undefined, // fixed histogram over full data range
       colormap: "turbo" as TColorMap,
-      invertColormap: true,
+      invertColormap: false,
       posterizeLevels: 0 as number,
       hideLowerBound: false,
       userBoundsLow: undefined as number | undefined,
