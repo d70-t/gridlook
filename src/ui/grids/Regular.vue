@@ -60,7 +60,6 @@ const {
   makeSnapshot,
   toggleRotate,
   applyCameraPreset,
-  resetDataVars,
   getDataVar,
   fetchDimensionDetails,
   updateLandSeaMask,
@@ -114,7 +113,6 @@ const { datasourceUpdate } = useGridDataLoader({
   getDataVar,
   fetchAndRenderData,
   clearHoverLookup,
-  resetDataVars,
   prepareDatasource: async () => {
     await getDims();
     await makeGeometry();

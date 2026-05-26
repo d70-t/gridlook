@@ -196,8 +196,7 @@ export function useSharedGridLogic() {
   );
 
   const { updateHistogram } = useGridHistogram();
-  const { resetDataVars, getDataVar, fetchDimensionDetails } =
-    useGridDataAccess();
+  const { getDataVar, fetchDimensionDetails } = useGridDataAccess();
 
   return {
     getScene,
@@ -206,7 +205,6 @@ export function useSharedGridLogic() {
     toggleRotate,
     makeSnapshot,
     applyCameraPreset,
-    resetDataVars,
     getDataVar,
     fetchDimensionDetails,
     registerUpdateLOD,

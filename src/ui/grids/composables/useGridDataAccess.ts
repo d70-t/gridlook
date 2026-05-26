@@ -1,5 +1,3 @@
-import type { ShallowRef } from "vue";
-import { shallowRef } from "vue";
 import * as zarr from "zarrita";
 
 import { decodeTime } from "@/lib/data/timeHandling.ts";
@@ -15,13 +13,6 @@ import { useLog } from "@/utils/logging.ts";
 /* eslint-disable-next-line max-lines-per-function */
 export function useGridDataAccess() {
   const { logError } = useLog();
-  const datavars: ShallowRef<
-    Record<string, zarr.Array<zarr.DataType, zarr.FetchStore>>
-  > = shallowRef({});
-
-  function resetDataVars() {
-    datavars.value = {};
-  }
 
   async function getDataVar(myVarname: string, datasources: TSources) {
     const myDatasource = datasources?.levels[0]?.datasources[myVarname];
@@ -155,7 +146,6 @@ export function useGridDataAccess() {
   }
 
   return {
-    resetDataVars,
     getDataVar,
     fetchDimensionDetails,
   };
