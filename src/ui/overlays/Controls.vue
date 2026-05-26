@@ -59,7 +59,6 @@ const {
 
 // Bounds logic state
 const pickedBoundsMode = ref<TBoundModes>(BOUND_MODES.DATA);
-const defaultBounds = ref<TBounds>({});
 // True until the varnameSelector watcher fires for the first time.
 // Used to preserve URL-provided bounds on first load.
 const isInitialVarLoad = ref(true);
