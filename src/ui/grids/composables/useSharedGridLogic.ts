@@ -1,7 +1,6 @@
 import { storeToRefs } from "pinia";
 import type * as THREE from "three";
 import { computed, ref, watch } from "vue";
-import type * as zarr from "zarrita";
 
 import { useGridCameraState } from "./useGridCameraState.ts";
 import { useGridDataAccess } from "./useGridDataAccess.ts";
@@ -12,11 +11,6 @@ import { useGridScene } from "./useGridScene.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import { availableColormaps } from "@/lib/shaders/colormapShaders.ts";
 import { getColormapScaleOffset } from "@/lib/shaders/gridShaders.ts";
-import type {
-  TDimensionRange,
-  TSources,
-  TDimInfo,
-} from "@/lib/types/GlobeTypes.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 
 type TVoidFunction = () => void;
@@ -118,9 +112,6 @@ export function useSharedGridLogic() {
   updateCoastlines = updateCoastlinesInternal;
   updateGraticules = updateGraticulesInternal;
 
-  const { resetDataVars, getDataVar, getTimeInfo, getDimensionInfo } =
-    useGridDataAccess();
-
   watch(
     [() => landSeaMaskChoice.value, () => landSeaMaskUseTexture.value],
     () => {
@@ -204,36 +195,9 @@ export function useSharedGridLogic() {
     }
   );
 
-  async function fetchDimensionDetails(
-    currentVariable: string,
-    datasources: TSources,
-    dimensionRanges: TDimensionRange[],
-    dimSlidersValues: (number | zarr.Slice | null)[]
-  ): Promise<TDimInfo[]> {
-    const array: TDimInfo[] = [];
-    for (let i = 0; i < dimensionRanges.length; i++) {
-      const dim = dimensionRanges[i];
-      if (dim?.name === "time") {
-        const timeInfo = await getTimeInfo(
-          datasources,
-          dimensionRanges,
-          i,
-          dimSlidersValues[i] as number
-        );
-        array.push(timeInfo);
-      } else {
-        const dimInfo = await getDimensionInfo(
-          datasources.levels[0].datasources[currentVariable],
-          dim!,
-          dimSlidersValues[i] as number
-        );
-        array.push(dimInfo);
-      }
-    }
-    return array;
-  }
-
-  const { updateHistogram } = useGridHistogram(selection, posterizeLevels);
+  const { updateHistogram } = useGridHistogram();
+  const { resetDataVars, getDataVar, fetchDimensionDetails } =
+    useGridDataAccess();
 
   return {
     getScene,

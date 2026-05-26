@@ -1,7 +1,6 @@
+import { storeToRefs } from "pinia";
 import { ref, watch } from "vue";
-import type { Ref } from "vue";
 
-import type { TBounds } from "@/lib/types/GlobeTypes.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 import {
   HISTOGRAM_SUMMARY_BINS,
@@ -15,11 +14,10 @@ import {
 const DISPLAY_BIN_COUNT = 50;
 
 /* eslint-disable-next-line max-lines-per-function */
-export function useGridHistogram(
-  selection: Ref<TBounds>,
-  posterizeLevels: Ref<number>
-) {
+export function useGridHistogram() {
   const store = useGlobeControlStore();
+
+  const { selection, posterizeLevels } = storeToRefs(store);
   const lastHistogramSummary = ref<THistogramSummary | null>(null);
 
   function getSelectionBinCount() {

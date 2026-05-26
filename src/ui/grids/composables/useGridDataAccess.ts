@@ -125,10 +125,38 @@ export function useGridDataAccess() {
     }
   }
 
+  async function fetchDimensionDetails(
+    currentVariable: string,
+    datasources: TSources,
+    dimensionRanges: TDimensionRange[],
+    dimSlidersValues: (number | zarr.Slice | null)[]
+  ): Promise<TDimInfo[]> {
+    const array: TDimInfo[] = [];
+    for (let i = 0; i < dimensionRanges.length; i++) {
+      const dim = dimensionRanges[i];
+      if (dim?.name === "time") {
+        const timeInfo = await getTimeInfo(
+          datasources,
+          dimensionRanges,
+          i,
+          dimSlidersValues[i] as number
+        );
+        array.push(timeInfo);
+      } else {
+        const dimInfo = await getDimensionInfo(
+          datasources.levels[0].datasources[currentVariable],
+          dim!,
+          dimSlidersValues[i] as number
+        );
+        array.push(dimInfo);
+      }
+    }
+    return array;
+  }
+
   return {
     resetDataVars,
     getDataVar,
-    getTimeInfo,
-    getDimensionInfo,
+    fetchDimensionDetails,
   };
 }
