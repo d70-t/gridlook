@@ -181,3 +181,17 @@ input[type="range"]:focus-visible {
   outline-offset: 2px;
   border-radius: var(--bulma-radius);
 }
+
+.section-title {
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  font-size: 0.75rem !important;
+  padding-right: 0.5rem !important;
+  padding-left: 0.5rem !important;
+  color: var(--bulma-grey) !important;
+}
+
+.borderless-btn {
+  border: none !important;
+  box-shadow: none !important;
+}
