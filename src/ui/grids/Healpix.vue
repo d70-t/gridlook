@@ -2,13 +2,14 @@
 import * as healpix from "@hscmap/healpix";
 import { storeToRefs } from "pinia";
 import * as THREE from "three";
-import { onBeforeMount, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { onBeforeMount, onBeforeUnmount, onMounted, ref } from "vue";
 import * as zarr from "zarrita";
 
 import {
   useGridHoverLookup,
   type TGridHoverLookupResult,
 } from "./composables/gridHoverUtils.ts";
+import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import {
   createTriangleWrapProjectionGeometry,
   createWrappedProjectionMesh,
@@ -70,14 +71,8 @@ function getHealpixMissingAndFillValues(
 
 const store = useGlobeControlStore();
 const { logError } = useLog();
-const {
-  varnameSelector,
-  colormap,
-  invertColormap,
-  dimSlidersValues,
-  isInitializingVariable,
-  varinfo,
-} = storeToRefs(store);
+const { varnameSelector, colormap, invertColormap, dimSlidersValues, varinfo } =
+  storeToRefs(store);
 
 const urlParameterStore = useUrlParameterStore();
 const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
@@ -108,8 +103,6 @@ const {
 const { setHoverLookup, clearHoverLookup } =
   useGridHoverLookup(hoveredGeoPoint);
 
-const pendingUpdate = ref(false);
-const updatingData = ref(false);
 const hoverData = ref<Float32Array | null>(null);
 const hoverCellIndexMap = ref<Map<number, number> | null>(null);
 const hoverNside = ref<number | null>(null);
@@ -117,33 +110,6 @@ const hoverNside = ref<number | null>(null);
 const HEALPIX_NUMCHUNKS = 12;
 
 let mainMeshes: Array<THREE.Mesh | undefined> = new Array(HEALPIX_NUMCHUNKS);
-
-watch(
-  () => varnameSelector.value,
-  () => {
-    getData();
-  }
-);
-
-watch(
-  () => dimSlidersValues.value,
-  async () => {
-    if (isInitializingVariable.value) {
-      isInitializingVariable.value = false;
-      return;
-    }
-    await getData(UPDATE_MODE.SLIDER_TOGGLE);
-    updateColormap(mainMeshes);
-  },
-  { deep: true }
-);
-
-watch(
-  () => props.datasources,
-  () => {
-    datasourceUpdate();
-  }
-);
 
 onColormapChange(() => updateColormap(mainMeshes));
 
@@ -162,15 +128,16 @@ function updateMeshProjectionUniforms() {
   });
 }
 
-async function datasourceUpdate() {
-  resetDataVars();
-  clearHoverLookup();
-  if (props.datasources !== undefined) {
-    await Promise.all([fetchGrid(), getData()]);
-    updateLandSeaMask();
-    updateColormap(mainMeshes);
-  }
-}
+const { datasourceUpdate } = useGridDataLoader({
+  getDatasources: () => props.datasources,
+  getDataVar,
+  fetchAndRenderData,
+  clearHoverLookup,
+  resetDataVars,
+  prepareDatasource: fetchGrid,
+  updateLandSeaMask,
+  updateColormap: () => updateColormap(mainMeshes),
+});
 
 function fetchGrid() {
   const gridStep = 64 + 1;
@@ -558,34 +525,6 @@ function data2texture(
   );
   texture.needsUpdate = true;
   return texture;
-}
-
-async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
-  store.startLoading();
-  if (updatingData.value) {
-    pendingUpdate.value = true;
-    return;
-  }
-
-  updatingData.value = true;
-  try {
-    do {
-      pendingUpdate.value = false;
-      const datavar = await getDataVar(
-        varnameSelector.value,
-        props.datasources!
-      );
-      if (datavar) {
-        await fetchAndRenderData(datavar, updateMode);
-      }
-      updatingData.value = false;
-    } while (pendingUpdate.value);
-  } catch (error) {
-    logError(error, "Could not fetch data");
-    updatingData.value = false;
-  } finally {
-    store.stopLoading();
-  }
 }
 
 async function prepareDimensionData(

@@ -1,13 +1,14 @@
 <script lang="ts" setup>
 import { storeToRefs } from "pinia";
 import * as THREE from "three";
-import { computed, onBeforeMount, ref, watch } from "vue";
+import { computed, onBeforeMount, ref } from "vue";
 import * as zarr from "zarrita";
 
 import {
   createGeoSampleIndex,
   useGridHoverLookup,
 } from "./composables/gridHoverUtils.ts";
+import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
@@ -29,29 +30,18 @@ import {
   useGlobeControlStore,
   type TUpdateMode,
 } from "@/store/store.ts";
-import { useLog } from "@/utils/logging.ts";
 
 const props = defineProps<{
   datasources?: TSources;
 }>();
 
 const store = useGlobeControlStore();
-const { logError } = useLog();
-const {
-  dimSlidersValues,
-  colormap,
-  varnameSelector,
-  invertColormap,
-  isInitializingVariable,
-  varinfo,
-} = storeToRefs(store);
+const { dimSlidersValues, colormap, varnameSelector, invertColormap, varinfo } =
+  storeToRefs(store);
 
 const urlParameterStore = useUrlParameterStore();
 const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
   storeToRefs(urlParameterStore);
-
-const pendingUpdate = ref(false);
-const updatingData = ref(false);
 
 const estimatedSpacing = ref(0);
 
@@ -82,33 +72,6 @@ const {
 const { setHoverLookupFromIndex, clearHoverLookup } =
   useGridHoverLookup(hoveredGeoPoint);
 
-watch(
-  () => varnameSelector.value,
-  () => {
-    getData();
-  }
-);
-
-watch(
-  () => dimSlidersValues.value,
-  async () => {
-    if (isInitializingVariable.value) {
-      isInitializingVariable.value = false;
-      return;
-    }
-    await getData(UPDATE_MODE.SLIDER_TOGGLE);
-    updateColormap(points);
-  },
-  { deep: true }
-);
-
-watch(
-  () => props.datasources,
-  () => {
-    datasourceUpdate();
-  }
-);
-
 onColormapChange(() => updateColormap(points));
 
 onProjectionChange(updatePointsProjectionUniforms);
@@ -138,14 +101,14 @@ const colormapMaterial = computed(() => {
   return material;
 });
 
-async function datasourceUpdate() {
-  clearHoverLookup();
-  if (props.datasources !== undefined) {
-    await Promise.all([getData()]);
-    updateLandSeaMask();
-    updateColormap(points);
-  }
-}
+const { datasourceUpdate } = useGridDataLoader({
+  getDatasources: () => props.datasources,
+  getDataVar,
+  fetchAndRenderData,
+  clearHoverLookup,
+  updateLandSeaMask,
+  updateColormap: () => updateColormap(points),
+});
 
 function estimateAverageSpacing(
   positions: Float32Array,
@@ -453,31 +416,6 @@ async function fetchAndRenderData(
     indices as number[],
     updateMode
   );
-}
-
-async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
-  store.startLoading();
-  try {
-    if (updatingData.value) {
-      pendingUpdate.value = true;
-      return;
-    }
-    updatingData.value = true;
-    do {
-      pendingUpdate.value = false;
-      const localVarname = varnameSelector.value;
-      const datavar = await getDataVar(localVarname, props.datasources!);
-      if (datavar !== undefined) {
-        await fetchAndRenderData(datavar, updateMode);
-      }
-      updatingData.value = false;
-    } while (pendingUpdate.value);
-  } catch (error) {
-    logError(error, "Could not fetch data");
-    updatingData.value = false;
-  } finally {
-    store.stopLoading();
-  }
 }
 
 onBeforeMount(async () => {

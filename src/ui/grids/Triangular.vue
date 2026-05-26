@@ -1,13 +1,14 @@
 <script lang="ts" setup>
 import { storeToRefs } from "pinia";
 import * as THREE from "three";
-import { computed, onBeforeMount, ref, watch } from "vue";
+import { computed, onBeforeMount, ref } from "vue";
 import * as zarr from "zarrita";
 
 import {
   createGeoSampleIndex,
   useGridHoverLookup,
 } from "./composables/gridHoverUtils.ts";
+import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import {
   createWrappedProjectionMesh,
   updateProjectionMeshes,
@@ -37,21 +38,13 @@ const props = defineProps<{
 
 const store = useGlobeControlStore();
 const { logError } = useLog();
-const {
-  dimSlidersValues,
-  varnameSelector,
-  colormap,
-  invertColormap,
-  isInitializingVariable,
-  varinfo,
-} = storeToRefs(store);
+const { dimSlidersValues, varnameSelector, colormap, invertColormap, varinfo } =
+  storeToRefs(store);
 
 const urlParameterStore = useUrlParameterStore();
 const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
   storeToRefs(urlParameterStore);
 
-const pendingUpdate = ref(false);
-const updatingData = ref(false);
 const hoverTriangleVertices = ref<Float32Array | null>(null);
 
 let meshes: THREE.Mesh[] = [];
@@ -79,33 +72,6 @@ const {
 
 const { setHoverLookupFromIndex, clearHoverLookup } =
   useGridHoverLookup(hoveredGeoPoint);
-
-watch(
-  () => varnameSelector.value,
-  () => {
-    getData();
-  }
-);
-
-watch(
-  () => dimSlidersValues.value,
-  async () => {
-    if (isInitializingVariable.value) {
-      isInitializingVariable.value = false;
-      return;
-    }
-    await getData(UPDATE_MODE.SLIDER_TOGGLE);
-    updateColormap(meshes);
-  },
-  { deep: true }
-);
-
-watch(
-  () => props.datasources,
-  () => {
-    datasourceUpdate();
-  }
-);
 
 onColormapChange(() => updateColormap(meshes));
 
@@ -136,15 +102,15 @@ const gridsource = computed(() => {
   }
 });
 
-async function datasourceUpdate() {
-  clearHoverLookup();
-  if (props.datasources !== undefined) {
-    await fetchGrid();
-    await getData();
-    updateLandSeaMask();
-    updateColormap(meshes);
-  }
-}
+const { datasourceUpdate } = useGridDataLoader({
+  getDatasources: () => props.datasources,
+  getDataVar,
+  fetchAndRenderData,
+  clearHoverLookup,
+  prepareDatasource: fetchGrid,
+  updateLandSeaMask,
+  updateColormap: () => updateColormap(meshes),
+});
 
 function cleanupMeshes() {
   for (const mesh of meshes) {
@@ -459,32 +425,6 @@ async function fetchAndRenderData(
     updateMode
   );
   redraw();
-}
-
-async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
-  store.startLoading();
-  if (updatingData.value) {
-    return;
-  }
-  updatingData.value = true;
-
-  try {
-    do {
-      pendingUpdate.value = false;
-      const localVarname = varnameSelector.value;
-      const datavar = await getDataVar(localVarname, props.datasources!);
-
-      if (datavar !== undefined) {
-        await fetchAndRenderData(datavar, updateMode);
-      }
-      updatingData.value = false;
-    } while (pendingUpdate.value);
-  } catch (error) {
-    logError(error, "Could not fetch data");
-    updatingData.value = false;
-  } finally {
-    store.stopLoading();
-  }
 }
 
 // Maybe for later use
