@@ -5,6 +5,7 @@ import {
   HOVERED_GRID_POINT_STATUS,
   useGlobeControlStore,
 } from "@/store/store.ts";
+import { formatValue } from "@/utils/formatValue";
 
 const store = useGlobeControlStore();
 const { hoveredGridPoint } = storeToRefs(store);
@@ -28,9 +29,11 @@ function formatCoordinate(value: number) {
     <span class="grid-hover-separator">&bull;</span>
     <span class="grid-hover-label">Value</span>
     <span class="grid-hover-value">{{
-      hoveredGridPoint.status === HOVERED_GRID_POINT_STATUS.MISSING
+      hoveredGridPoint.status === HOVERED_GRID_POINT_STATUS.MISSING ||
+      hoveredGridPoint.value === undefined ||
+      hoveredGridPoint.value === null
         ? "No data"
-        : hoveredGridPoint.value?.toFixed(5)
+        : formatValue(hoveredGridPoint.value)
     }}</span>
   </div>
   <div v-else />

@@ -1,5 +1,7 @@
 // Shared formatting and tooltip utilities for ColorBar and DistributionPlot.
 
+import { formatValue } from "@/utils/formatValue";
+
 /**
  * Returns the step size for a data range: two orders of magnitude below the
  * range itself. Used by BoundsControls (input step) and ColormapControls
@@ -35,17 +37,6 @@ export function roundToDataPrecision(
   }
   const decimals = Math.max(0, 2 - Math.floor(Math.log10(range)));
   return parseFloat(value.toFixed(decimals));
-}
-
-export function formatValue(value: number): string {
-  const abs = Math.abs(value);
-  if (abs === 0) {
-    return "0";
-  }
-  if (abs >= 1e6 || abs < 1e-4) {
-    return value.toExponential(1);
-  }
-  return String(parseFloat(value.toPrecision(3)));
 }
 
 export interface BinTooltip {
