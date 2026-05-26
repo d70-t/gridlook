@@ -130,7 +130,9 @@ function handleOptionHover(option: TColorMap) {
     <!-- Posterize control -->
     <div class="columns is-mobile is-vcentered compact-row mt-2 mb-4 px-1">
       <div class="column is-one-third">
-        <label for="posterize_levels" class="label is-small">Posterize</label>
+        <label for="posterize_levels" class="label is-small"
+          >Discrete Colors</label
+        >
       </div>
       <div class="column slider-column">
         <input

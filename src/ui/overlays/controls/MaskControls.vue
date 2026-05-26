@@ -15,7 +15,7 @@ const { landSeaMaskChoice, landSeaMaskUseTexture } = storeToRefs(store);
           <div class="control has-icons-left">
             <div class="select">
               <select id="land_sea_mask" v-model="landSeaMaskChoice">
-                <option value="off">-- Land/Sea Mask --</option>
+                <option value="off">-- Mask: Off --</option>
                 <option value="land">Land</option>
                 <option value="sea">Sea</option>
                 <option value="globe">Globe</option>
