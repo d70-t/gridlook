@@ -49,7 +49,11 @@ function getOptionLabel(varname: string): string {
   <div class="column">
     <div class="control">
       <div class="select is-fullwidth mb-2" :class="{ 'is-loading': loading }">
-        <select v-model="model" class="form-control">
+        <select
+          v-model="model"
+          class="form-control"
+          @change="store.signifyVariableChange()"
+        >
           <option
             v-for="varname in variableOptions"
             :key="varname"

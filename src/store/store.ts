@@ -71,9 +71,35 @@ export const useGlobeControlStore = defineStore("globeControl", {
       hoveredGridPoint: undefined as THoveredGridPoint | undefined,
       catalogUrl: undefined as string | undefined,
       catalogData: undefined as TCatalog | undefined,
+      // will get incremented each time a new dataset OR a new variable in the
+      // same dataset is loaded; used to trigger reactivity in child components
+      // that need to reload data when the variable changes
+      // if the value is even, the change is a new dataset; if odd, it's a
+      // variable change within the same dataset
+      newDatasetSignifier: 0 as number,
     };
   },
   actions: {
+    signifyDatasetChange() {
+      if (this.newDatasetSignifier % 2 === 0) {
+        this.newDatasetSignifier += 2;
+      } else {
+        this.newDatasetSignifier += 1;
+      }
+    },
+    signifyVariableChange() {
+      if (this.newDatasetSignifier % 2 === 0) {
+        this.newDatasetSignifier += 1;
+      } else {
+        this.newDatasetSignifier += 2;
+      }
+    },
+    isNewDataset(): boolean {
+      return this.newDatasetSignifier % 2 === 0;
+    },
+    isVariableChange(): boolean {
+      return this.newDatasetSignifier % 2 === 1;
+    },
     toggleRotating() {
       this.isRotating = !this.isRotating;
     },

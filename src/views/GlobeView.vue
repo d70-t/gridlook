@@ -109,7 +109,6 @@ const distractionFree = ref(false);
 const hyperglobeModeActive = ref(false);
 const panelVisibleBeforeDistractionFree = ref(true);
 const globeKey = ref(0);
-const globeControlKey = ref(0);
 const isInitialized = ref(false);
 const sourceValid = ref(false);
 const datasources: Ref<TSources | undefined> = ref(undefined);
@@ -186,7 +185,6 @@ watch(
     // if new data is provided
     detectedGridType.value = undefined;
     globeKey.value += 1;
-    globeControlKey.value += 1;
     if (isDisplayMode.value || isPresenterActive.value) {
       // In display/presenter mode we want to preserve some state across source changes
       store.resetExcept([
@@ -268,6 +266,7 @@ const updateSrc = async () => {
       lastError = index.reason;
     }
   }
+  store.signifyDatasetChange();
   if (!sourceValid.value && lastError) {
     store.stopLoading();
     logError(lastError, "Failed to fetch data");
@@ -404,7 +403,6 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
     <Toast />
     <div v-show="!distractionFree && !isDisplayMode">
       <GlobeControls
-        :key="globeControlKey"
         :model-info="modelInfo"
         :current-source="props.src"
         @on-snapshot="makeSnapshot"

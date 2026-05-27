@@ -1,15 +1,7 @@
 <script lang="ts" setup>
 import { useEventListener } from "@vueuse/core";
 import { storeToRefs } from "pinia";
-import {
-  computed,
-  onBeforeMount,
-  onMounted,
-  onUnmounted,
-  ref,
-  watch,
-  type Ref,
-} from "vue";
+import { computed, onBeforeMount, ref, watch, type Ref } from "vue";
 
 import CollapsibleCard from "../common/CollapsibleCard.vue";
 
@@ -37,7 +29,10 @@ import { useUrlParameterStore } from "@/store/paramStore.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 import { MOBILE_BREAKPOINT } from "@/ui/common/viewConstants.ts";
 
-const props = defineProps<{ modelInfo?: TModelInfo; currentSource: string }>();
+const props = defineProps<{
+  modelInfo?: TModelInfo;
+  currentSource: string;
+}>();
 
 defineEmits<{
   onSnapshot: [options: TSnapshotOptions];
@@ -69,9 +64,6 @@ const {
 
 // Bounds logic state
 const pickedBoundsMode = ref<TBoundModes>(BOUND_MODES.DATA);
-// True until the varnameSelector watcher fires for the first time.
-// Used to preserve URL-provided bounds on first load.
-const isInitialVarLoad = ref(true);
 
 // Colormap logic state
 const userHasSelectedColormap = ref<boolean>(false);
@@ -103,17 +95,17 @@ const currentBounds = computed(() => {
   if (pickedBoundsMode.value === BOUND_MODES.DATA) {
     return dataBounds.value;
   } else if (pickedBoundsMode.value === BOUND_MODES.USER) {
-    const lowEmpty =
+    const isLowEmpty =
       userBoundsLow.value === undefined ||
       (userBoundsLow.value as unknown as string) === "";
-    const highEmpty =
+    const isHighEmpty =
       userBoundsHigh.value === undefined ||
       (userBoundsHigh.value as unknown as string) === "";
     const lo = (
-      lowEmpty ? dataBounds.value.low : userBoundsLow.value
+      isLowEmpty ? dataBounds.value.low : userBoundsLow.value
     ) as number;
     const hi = (
-      highEmpty ? dataBounds.value.high : userBoundsHigh.value
+      isHighEmpty ? dataBounds.value.high : userBoundsHigh.value
     ) as number;
     // Always deliver a normalised (non-inverted) range downstream so that
     // nothing breaks when the user types high < low.  The BoundsControls
@@ -158,10 +150,9 @@ watch(
     // default_range config.  On subsequent variable changes we always want to
     // reset to the new variable's defaults.
     const preserveUrlBounds =
-      isInitialVarLoad.value &&
+      store.isNewDataset() &&
       userBoundsLow.value !== undefined &&
       userBoundsHigh.value !== undefined;
-    isInitialVarLoad.value = false;
 
     if (!preserveUrlBounds) {
       store.resetUserBounds();
@@ -186,6 +177,15 @@ watch(
     store.updateBounds(currentBounds.value as TBounds);
   },
   { deep: true }
+);
+
+watch(
+  () => store.newDatasetSignifier,
+  () => {
+    if (store.isNewDataset()) {
+      init();
+    }
+  }
 );
 
 function onPickedBoundsModeChange(newMode: TBoundModes) {
@@ -223,54 +223,25 @@ onBeforeMount(() => {
   });
 });
 
-// INITIALIZATION
-if (paramMaskingUseTexture.value) {
-  if (paramMaskingUseTexture.value === "false") {
-    landSeaMaskUseTexture.value = false;
-  } else if (paramMaskingUseTexture.value === "true") {
-    landSeaMaskUseTexture.value = true;
-  }
-}
-
-if (paramMaskMode.value) {
-  landSeaMaskChoice.value =
-    paramMaskMode.value as typeof landSeaMaskChoice.value;
-}
-
-if (paramProjection.value) {
-  const projection = paramProjection.value as TProjectionType;
-  if (Object.values(PROJECTION_TYPES).includes(projection)) {
-    store.projectionMode = projection;
-  }
-}
-
-if (paramProjectionCenterLat.value || paramProjectionCenterLon.value) {
-  const lat = parseFloat(paramProjectionCenterLat.value ?? "0");
-  const lon = parseFloat(paramProjectionCenterLon.value ?? "0");
-  projectionCenter.value = {
-    lat: clamp(lat, -90, 90),
-    lon: clamp(lon, -180, 180),
-  };
-}
-
-if (paramBoundHigh.value && paramBoundLow.value) {
-  const low = parseFloat(paramBoundLow.value);
-  const high = parseFloat(paramBoundHigh.value);
-  userBoundsLow.value = low;
-  userBoundsHigh.value = high;
-  pickedBoundsMode.value = BOUND_MODES.USER;
-}
-
-// Initialize bounds and colormap when component mounts
-onMounted(() => {
+function init() {
   setDefaultBounds();
   store.updateBounds(currentBounds.value as TBounds);
 
+  // Initialize control panel visibility
+  const initiallyVisible = isMobileView.value
+    ? !mobileMenuCollapsed.value
+    : !menuCollapsed.value;
+  store.setControlPanelVisible(initiallyVisible);
+
+  initFromParams();
+}
+
+// eslint-disable-next-line max-lines-per-function
+function initFromParams() {
   if (paramColormap.value) {
     colormap.value = paramColormap.value;
     userHasSelectedColormap.value = true;
   }
-
   if (paramInvertColormap.value) {
     // explicitely check for string values "true" and "false"
     if (paramInvertColormap.value === "false") {
@@ -279,24 +250,48 @@ onMounted(() => {
       invertColormap.value = true;
     }
   }
-
   if (paramPosterizeLevels.value) {
     const levels = Number(paramPosterizeLevels.value);
     if (!isNaN(levels) && levels >= 0 && levels <= 32) {
       posterizeLevels.value = levels;
     }
   }
-
   if (paramHideLowerBound.value === "true") {
     store.hideLowerBound = true;
   }
-
-  // Initialize control panel visibility
-  const initiallyVisible = isMobileView.value
-    ? !mobileMenuCollapsed.value
-    : !menuCollapsed.value;
-  store.setControlPanelVisible(initiallyVisible);
-});
+  if (paramMaskingUseTexture.value) {
+    if (paramMaskingUseTexture.value === "false") {
+      landSeaMaskUseTexture.value = false;
+    } else if (paramMaskingUseTexture.value === "true") {
+      landSeaMaskUseTexture.value = true;
+    }
+  }
+  if (paramMaskMode.value) {
+    landSeaMaskChoice.value =
+      paramMaskMode.value as typeof landSeaMaskChoice.value;
+  }
+  if (paramProjection.value) {
+    const projection = paramProjection.value as TProjectionType;
+    if (Object.values(PROJECTION_TYPES).includes(projection)) {
+      store.projectionMode = projection;
+    }
+  }
+  if (paramProjectionCenterLat.value || paramProjectionCenterLon.value) {
+    const lat = parseFloat(paramProjectionCenterLat.value ?? "0");
+    const lon = parseFloat(paramProjectionCenterLon.value ?? "0");
+    projectionCenter.value = {
+      lat: clamp(lat, -90, 90),
+      lon: clamp(lon, -180, 180),
+    };
+  }
+  if (paramBoundHigh.value && paramBoundLow.value) {
+    const low = parseFloat(paramBoundLow.value);
+    const high = parseFloat(paramBoundHigh.value);
+    userBoundsLow.value = low;
+    userBoundsHigh.value = high;
+    pickedBoundsMode.value = BOUND_MODES.USER;
+  }
+}
 </script>
 
 <template>
