@@ -7,7 +7,121 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
-    <title>Gridlook</title>
+    <title>Gridlook - Earth System Model Data Viewer</title>
+    <meta
+      name="description"
+      content="Gridlook is a WebGL-based viewer for Earth system model output, supporting interactive exploration of cloud-hosted Zarr datasets on native grids."
+    />
+    <meta
+      name="keywords"
+      content="Gridlook, Earth system model, ESM, climate data, Zarr, WebGL, native grid, data visualization, climate visualization"
+    />
+    <meta name="application-name" content="Gridlook" />
+    <meta
+      name="author"
+      content="German Climate Computing Center, Max-Planck-Institut for Meteorology"
+    />
+    <meta name="robots" content="index,follow" />
+    <link rel="canonical" href="https://gridlook.pages.dev/" />
+
+    <meta
+      property="og:title"
+      content="Gridlook - WebGL Earth System Model Data Viewer"
+    />
+    <meta
+      property="og:description"
+      content="Interactively explore cloud-hosted Zarr datasets and native-grid Earth system model output directly in the browser."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://gridlook.pages.dev/" />
+    <meta property="og:site_name" content="Gridlook" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@id": "https://gridlook.pages.dev/#app",
+            "@type": "WebApplication",
+            "name": "Gridlook",
+            "url": "https://gridlook.pages.dev/",
+            "description": "Gridlook is a WebGL-based viewer for Earth system model output, supporting interactive exploration of cloud-hosted Zarr datasets on native grids.",
+            "applicationCategory": "Scientific visualization",
+            "operatingSystem": "Any",
+            "browserRequirements": "Requires JavaScript and WebGL.",
+            "isAccessibleForFree": true,
+            "license": "https://opensource.org/license/mit",
+            "screenshot": {
+              "@type": "ImageObject",
+              "url": "https://raw.githubusercontent.com/d70-t/gridlook/refs/heads/main/docs/assets/showcase.webp",
+              "contentUrl": "https://raw.githubusercontent.com/d70-t/gridlook/refs/heads/main/docs/assets/showcase.webp",
+              "encodingFormat": "image/webp",
+              "width": {
+                "@type": "QuantitativeValue",
+                "value": 600,
+                "unitText": "px"
+              },
+              "height": {
+                "@type": "QuantitativeValue",
+                "value": 426,
+                "unitText": "px"
+              },
+              "caption": "Gridlook showing Earth system model output on a globe"
+            },
+            "isBasedOn": {
+              "@id": "https://gridlook.pages.dev/#source-code"
+            },
+            "creator": [
+              {
+                "@type": "Organization",
+                "name": "German Climate Computing Center",
+                "alternateName": "DKRZ",
+                "url": "https://www.dkrz.de/"
+              },
+              {
+                "@type": "Organization",
+                "name": "Max-Planck-Institut for Meteorology",
+                "alternateName": "MPI-M",
+                "url": "https://mpimet.mpg.de/"
+              }
+            ],
+            "keywords": [
+              "Earth system model",
+              "ESM",
+              "climate data",
+              "Zarr",
+              "WebGL",
+              "native grid",
+              "data visualization",
+              "climate visualization"
+            ]
+          },
+          {
+            "@id": "https://gridlook.pages.dev/#source-code",
+            "@type": "SoftwareSourceCode",
+            "name": "Gridlook source code",
+            "url": "https://github.com/d70-t/gridlook",
+            "codeRepository": "https://github.com/d70-t/gridlook",
+            "license": "https://opensource.org/license/mit",
+            "programmingLanguage": ["TypeScript", "Vue"],
+            "runtimePlatform": "Web browser",
+            "creator": [
+              {
+                "@type": "Organization",
+                "name": "German Climate Computing Center",
+                "alternateName": "DKRZ",
+                "url": "https://www.dkrz.de/"
+              },
+              {
+                "@type": "Organization",
+                "name": "Max-Planck-Institut for Meteorology",
+                "alternateName": "MPI-M",
+                "url": "https://mpimet.mpg.de/"
+              }
+            ]
+          }
+        ]
+      }
+    </script>
   </head>
   <body>
     <div id="app"></div>
