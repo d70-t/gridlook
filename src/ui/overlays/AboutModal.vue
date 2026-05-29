@@ -1,9 +1,26 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import QRCode from "qrcode";
+import { nextTick, ref, watch } from "vue";
 
 import Modal from "@/ui/common/Modal.vue";
 
 const visible = ref(false);
+const repoQrCanvas = ref<HTMLCanvasElement | null>(null);
+const pageQrCanvas = ref<HTMLCanvasElement | null>(null);
+
+function generateQR(canvas: HTMLCanvasElement | null, url: string) {
+  if (canvas) {
+    void QRCode.toCanvas(canvas, url, { width: 150 });
+  }
+}
+
+watch(visible, async (newVal) => {
+  if (newVal) {
+    await nextTick();
+    generateQR(repoQrCanvas.value, "https://github.com/d70-t/gridlook");
+    generateQR(pageQrCanvas.value, "https://gridlook.pages.dev");
+  }
+});
 </script>
 
 <template>
@@ -13,6 +30,28 @@ const visible = ref(false);
       supports cloud-hosted Zarr datasets and provides interactive grid
       visualization tools.
     </p>
+    <div class="columns is-mobile mt-3">
+      <div class="column has-text-centered">
+        <p class="has-text-weight-semibold">Application</p>
+        <canvas
+          ref="pageQrCanvas"
+          role="img"
+          aria-label="QR code for the Gridlook application"
+        >
+          QR code for the Gridlook application.
+        </canvas>
+      </div>
+      <div class="column has-text-centered">
+        <p class="has-text-weight-semibold">GitHub</p>
+        <canvas
+          ref="repoQrCanvas"
+          role="img"
+          aria-label="QR code for the Gridlook GitHub repository"
+        >
+          QR code for the Gridlook GitHub repository.
+        </canvas>
+      </div>
+    </div>
     <br />
     <p>
       Developed by Max-Planck-Institute for Meteorology (MPI-M) and the German
