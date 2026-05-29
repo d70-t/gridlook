@@ -27,7 +27,7 @@ import {
 import { makeInvertableGpuMeshMaterial } from "@/lib/shaders/gridShaders.ts";
 import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
-import { useGlobeControlStore, type TUpdateMode } from "@/store/store.ts";
+import { useGlobeControlStore } from "@/store/store.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -668,8 +668,7 @@ async function renderGridAndHover(
 }
 
 async function fetchAndRenderData(
-  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
-  updateMode: TUpdateMode
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
   const dimensionNames = await ZarrDataManager.getDimensionNames(
     props.datasources!,
@@ -683,8 +682,7 @@ async function fetchAndRenderData(
     paramDimMaxBounds.value,
     dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
     [datavar.shape.length - 2, datavar.shape.length - 1],
-    varinfo.value?.dimRanges,
-    false
+    varinfo.value?.dimRanges
   );
 
   const rawData = castDataVarToFloat32(
@@ -708,8 +706,7 @@ async function fetchAndRenderData(
       bounds: { low: min, high: max },
       dimRanges: dimensionRanges,
     },
-    indices as number[],
-    updateMode
+    indices as number[]
   );
 
   redraw();

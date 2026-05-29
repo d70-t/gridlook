@@ -27,11 +27,7 @@ import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import { makeInvertableGpuMeshMaterial } from "@/lib/shaders/gridShaders.ts";
 import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
-import {
-  UPDATE_MODE,
-  useGlobeControlStore,
-  type TUpdateMode,
-} from "@/store/store.ts";
+import { useGlobeControlStore } from "@/store/store.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -369,8 +365,7 @@ async function getDimensionValues(
 }
 
 async function buildDimensionConfig(
-  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
-  updateMode: TUpdateMode
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
   const dimensionNames = await ZarrDataManager.getDimensionNames(
     props.datasources!,
@@ -384,19 +379,14 @@ async function buildDimensionConfig(
     paramDimMaxBounds.value,
     dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
     [datavar.shape.length - 1],
-    varinfo.value?.dimRanges,
-    updateMode === UPDATE_MODE.SLIDER_TOGGLE
+    varinfo.value?.dimRanges
   );
 }
 
 async function fetchAndRenderData(
-  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
-  updateMode: TUpdateMode
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
-  const { dimensionRanges, indices } = await buildDimensionConfig(
-    datavar,
-    updateMode
-  );
+  const { dimensionRanges, indices } = await buildDimensionConfig(datavar);
 
   const rawData = castDataVarToFloat32(
     (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
@@ -436,8 +426,7 @@ async function fetchAndRenderData(
       bounds: { low: min, high: max },
       dimRanges: dimensionRanges,
     },
-    indices as number[],
-    updateMode
+    indices as number[]
   );
   redraw();
 }

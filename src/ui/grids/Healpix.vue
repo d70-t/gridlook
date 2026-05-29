@@ -37,9 +37,7 @@ import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import {
   HOVERED_GRID_POINT_STATUS,
-  UPDATE_MODE,
   useGlobeControlStore,
-  type TUpdateMode,
 } from "@/store/store.ts";
 import {
   HISTOGRAM_SUMMARY_BINS,
@@ -526,8 +524,7 @@ function data2texture(
 }
 
 async function prepareDimensionData(
-  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
-  updateMode: TUpdateMode
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
   const dimensionNames = await ZarrDataManager.getDimensionNames(
     props.datasources!,
@@ -541,8 +538,7 @@ async function prepareDimensionData(
     paramDimMaxBounds.value,
     dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
     [datavar.shape.length - 1],
-    varinfo.value?.dimRanges,
-    updateMode === UPDATE_MODE.SLIDER_TOGGLE
+    varinfo.value?.dimRanges
   );
 
   return { dimensionRanges, indices };
@@ -658,13 +654,9 @@ function healpixHoverLookup(
 }
 
 async function fetchAndRenderData(
-  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
-  updateMode: TUpdateMode
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
-  const { dimensionRanges, indices } = await prepareDimensionData(
-    datavar,
-    updateMode
-  );
+  const { dimensionRanges, indices } = await prepareDimensionData(datavar);
 
   const cellCoord = await getCells();
   const nside = await getNside();
@@ -702,8 +694,7 @@ async function fetchAndRenderData(
       bounds: { low: dataMin, high: dataMax },
       dimRanges: dimensionRanges,
     },
-    indices as number[],
-    updateMode
+    indices as number[]
   );
 }
 

@@ -13,13 +13,6 @@ import type { TColorMap } from "@/lib/shaders/colormapShaders.ts";
 import type { TVarInfo, TBounds } from "@/lib/types/GlobeTypes.ts";
 import type { TCatalog } from "@/utils/catalog.ts";
 
-export const UPDATE_MODE = {
-  INITIAL_LOAD: "initialLoad",
-  SLIDER_TOGGLE: "sliderToggle",
-} as const;
-
-export type TUpdateMode = (typeof UPDATE_MODE)[keyof typeof UPDATE_MODE];
-
 export const HOVERED_GRID_POINT_STATUS = {
   VALUE: "value",
   MISSING: "missing",
@@ -126,12 +119,17 @@ export const useGlobeControlStore = defineStore("globeControl", {
         this.dimSlidersDisplay[i] = this.dimSlidersValues[i];
       }
     },
-    updateVarInfo(
-      varinfo: TVarInfo,
-      indices: number[],
-      updateMode: TUpdateMode
-    ) {
-      if (updateMode === UPDATE_MODE.INITIAL_LOAD) {
+    updateVarInfo(varinfo: TVarInfo, indices: number[]) {
+      const sliderValuesChanged =
+        indices.length !== this.dimSlidersValues.length ||
+        indices.some((index, i) => index !== this.dimSlidersValues[i]);
+      console.log(
+        "updateVarInfo",
+        this.dimSlidersValues,
+        indices,
+        sliderValuesChanged
+      );
+      if (sliderValuesChanged) {
         this.isInitializingVariable = true;
         this.dimSlidersValues = indices;
         this.dimSlidersDisplay = indices;
