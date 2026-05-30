@@ -245,7 +245,7 @@ function openPicker() {
   </Modal>
 </template>
 
-<style scoped>
+<style>
 .preview-content {
   min-height: 65px;
 }
