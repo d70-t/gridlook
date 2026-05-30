@@ -1,7 +1,8 @@
 <script lang="ts" setup>
+import { VueDatePicker } from "@vuepic/vue-datepicker";
 import dayjs, { Dayjs } from "dayjs";
 import utc from "dayjs/plugin/utc.js";
-import DatePicker from "primevue/datepicker";
+import "@vuepic/vue-datepicker/dist/main.css";
 import { computed, ref, watch } from "vue";
 
 import { findTimeIndex, decodeTime } from "@/lib/data/timeHandling.ts";
@@ -144,11 +145,11 @@ function openPicker() {
   >
     <!-- Range info -->
     <div v-if="minDatetime && maxDatetime" class="mb-2">
-      <p class="has-text-grey">Available range</p>
+      <p class="label mb-1">Available range</p>
       <p>
-        <strong>{{ minDatetime.format("YYYY-MM-DD HH:mm:ss") }}</strong>
+        {{ minDatetime.format("YYYY-MM-DD HH:mm:ss") }}
         to
-        <strong>{{ maxDatetime.format("YYYY-MM-DD HH:mm:ss") }}</strong>
+        {{ maxDatetime.format("YYYY-MM-DD HH:mm:ss") }}
       </p>
     </div>
 
@@ -156,27 +157,39 @@ function openPicker() {
     <div class="field mb-2">
       <label class="label mb-1">Enter datetime</label>
       <div class="control">
-        <DatePicker
+        <VueDatePicker
           v-model="inputDatetime"
-          show-time
-          show-seconds
+          :formats="{ input: 'yyyy-MM-dd HH:mm:ss' }"
           :min-date="minDatetime?.toDate()"
           :max-date="maxDatetime?.toDate()"
-          date-format="yy-m-d"
-          hour-format="24"
-          show-icon
-          :show-on-focus="false"
-          fluid
-          :invalid="!inputDatetime"
+          teleport
+          text-input
           @update:model-value="onInputChange"
-          @blur="onInputChange"
+          @text-input="onInputChange"
         >
-          <template #footer>
-            <span v-if="previewIndex !== null" class="tag is-info is-light">
-              New Index: {{ previewIndex }}
+          <template #action-row="{ selectDate, closePicker, modelValue }">
+            <span class="ml-2 mr-4" :class="[!modelValue && 'has-text-danger']">
+              {{
+                modelValue
+                  ? dayjs(modelValue as Date).format("YYYY-MM-DD HH:mm")
+                  : "Invalid date"
+              }}
             </span>
+            <div class="buttons ml-auto">
+              <button class="button" type="button" @click="closePicker">
+                Cancel
+              </button>
+              <button
+                class="button is-success"
+                type="button"
+                :disabled="!modelValue"
+                @click="selectDate"
+              >
+                Select
+              </button>
+            </div>
           </template>
-        </DatePicker>
+        </VueDatePicker>
       </div>
       <p class="help">Format: YYYY-MM-DD HH:mm:ss</p>
     </div>
@@ -185,7 +198,6 @@ function openPicker() {
     <div
       class="is-flex is-justify-content-space-between is-align-items-center mb-2"
     >
-      <span class="has-text-grey">Selection Preview</span>
       <span v-if="errorMessage" class="is-size-7 has-text-danger">
         <i class="fas fa-exclamation-circle"></i>
         {{ errorMessage }}
@@ -193,22 +205,19 @@ function openPicker() {
     </div>
     <div class="preview-content">
       <template v-if="previewIndex !== null && previewDatetime">
-        <p class="mb-1">
-          <span class="has-text-grey">New Index:</span>
-          <strong class="ml-2">{{ previewIndex }}</strong>
-          <span class="has-text-grey-light ml-2"
-            >(of {{ minIndex }}–{{ maxIndex }})</span
-          >
-        </p>
-        <p class="mb-1">
-          <span class="has-text-grey">Datetime:</span>
-          <strong class="ml-2"
-            >{{ previewDatetime.format("YYYY-MM-DD HH:mm:ss") }}
-          </strong>
-        </p>
-        <p class="has-text-grey mt-2 pt-2 current-hint">
-          Old Index: {{ currentIndex }}
-        </p>
+        <dl>
+          <dt class="label">
+            New Index
+            <span class="has-text-grey-light"
+              >(of {{ minIndex }}–{{ maxIndex }})</span
+            >
+          </dt>
+          <dd>{{ previewIndex }}</dd>
+          <dt class="label">Datetime at new index</dt>
+          <dd>{{ previewDatetime.format("YYYY-MM-DD HH:mm:ss") }}</dd>
+          <dt class="label has-text-grey-light">Current Index</dt>
+          <dd>{{ currentIndex }}</dd>
+        </dl>
       </template>
       <template v-else>
         <p class="has-text-grey-light has-text-centered py-4">
@@ -241,14 +250,41 @@ function openPicker() {
   min-height: 65px;
 }
 
-.current-hint {
-  border-top: 1px dashed #dbdbdb;
+.preview-content dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25em 0.5em;
 }
-</style>
 
-<style>
-.p-datepicker-input:focus {
+:root {
+  --dp-border-radius: var(--bulma-control-radius);
+  --dp-cell-border-radius: var(--bulma-control-radius);
+  --dp-cell-size: 45px; /*Width and height of calendar cell*/
+}
+
+.dp--theme-light {
+  --dp-primary-color: var(--bulma-success);
+  --dp-primary-disabled-color: var(--bulma-button-disabled-background-color);
+  --dp-primary-text-color: var(--bulma-text);
+}
+
+.dp--input {
+  box-shadow: var(
+    --bulma-input-shadow,
+    inset 0 0.0625em 0.125em rgba(10, 10, 10, 0.05)
+  );
+  height: var(--bulma-control-height, 2.5em);
+}
+
+.dp--input-focus {
   border-color: #485fc7 !important;
-  box-shadow: 0 0 0 0.125em rgba(72, 95, 199, 0.25) !important;
+  box-shadow: 0 0 0 0.125em
+    color-mix(in srgb, var(--bulma-link) 25%, transparent);
+}
+
+.dp--overlay-cell-disabled {
+  background-color: var(--bulma-background);
+  color: var(--bulma-text);
+  opacity: 0.5;
 }
 </style>
