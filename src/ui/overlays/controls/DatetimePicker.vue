@@ -163,6 +163,11 @@ function openPicker() {
           :min-date="minDatetime?.toDate()"
           :max-date="maxDatetime?.toDate()"
           teleport
+          :year-range="
+            minDatetime && maxDatetime
+              ? [minDatetime.year(), maxDatetime.year()]
+              : [0, 9999]
+          "
           text-input
           @update:model-value="onInputChange"
           @text-input="onInputChange"
