@@ -23,6 +23,115 @@ type UseGridSnapshotOptions = {
   render: () => boolean;
 };
 
+type TSnapshotRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+const FLAT_BACKGROUND_SCALE = 1.05;
+const GLOBE_SNAPSHOT_RADIUS = 1;
+
+function getFullSnapshotRect(w: number, h: number): TSnapshotRect {
+  return { x: 0, y: 0, width: w, height: h };
+}
+
+function clampSnapshotRect(
+  rect: TSnapshotRect,
+  w: number,
+  h: number
+): TSnapshotRect {
+  const x1 = Math.max(0, Math.min(w, Math.floor(rect.x)));
+  const y1 = Math.max(0, Math.min(h, Math.floor(rect.y)));
+  const x2 = Math.max(0, Math.min(w, Math.ceil(rect.x + rect.width)));
+  const y2 = Math.max(0, Math.min(h, Math.ceil(rect.y + rect.height)));
+
+  if (x2 <= x1 || y2 <= y1) {
+    return getFullSnapshotRect(w, h);
+  }
+
+  return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
+}
+
+function getProjectedPointsRect(
+  points: THREE.Vector3[],
+  camera: THREE.PerspectiveCamera,
+  w: number,
+  h: number
+) {
+  const projectedPoints = points.map((point) => point.clone().project(camera));
+  const xs = projectedPoints.map((point) => ((point.x + 1) / 2) * w);
+  const ys = projectedPoints.map((point) => ((1 - point.y) / 2) * h);
+
+  return clampSnapshotRect(
+    {
+      x: Math.min(...xs),
+      y: Math.min(...ys),
+      width: Math.max(...xs) - Math.min(...xs),
+      height: Math.max(...ys) - Math.min(...ys),
+    },
+    w,
+    h
+  );
+}
+
+function getSnapshotContentRect(
+  camera: THREE.PerspectiveCamera,
+  baseSurface: THREE.Mesh | undefined,
+  w: number,
+  h: number
+): TSnapshotRect {
+  if (!baseSurface) {
+    return getFullSnapshotRect(w, h);
+  }
+
+  camera.updateMatrixWorld(true);
+  baseSurface.updateWorldMatrix(true, false);
+
+  const plane = baseSurface.geometry as THREE.PlaneGeometry;
+  if (plane.parameters?.width && plane.parameters?.height) {
+    const halfWidth = plane.parameters.width / (2 * FLAT_BACKGROUND_SCALE);
+    const halfHeight = plane.parameters.height / (2 * FLAT_BACKGROUND_SCALE);
+    const points = [
+      new THREE.Vector3(-halfWidth, -halfHeight, 0),
+      new THREE.Vector3(halfWidth, -halfHeight, 0),
+      new THREE.Vector3(halfWidth, halfHeight, 0),
+      new THREE.Vector3(-halfWidth, halfHeight, 0),
+    ].map((point) => point.applyMatrix4(baseSurface.matrixWorld));
+
+    return getProjectedPointsRect(points, camera, w, h);
+  }
+
+  const center = new THREE.Vector3().setFromMatrixPosition(
+    baseSurface.matrixWorld
+  );
+  const distance = camera.position.distanceTo(center);
+  if (distance <= GLOBE_SNAPSHOT_RADIUS) {
+    return getFullSnapshotRect(w, h);
+  }
+
+  const centerProjected = center.clone().project(camera);
+  const angularRadius = Math.asin(GLOBE_SNAPSHOT_RADIUS / distance);
+  const vHalfFov = THREE.MathUtils.degToRad(camera.fov / 2);
+  const hHalfFov = Math.atan(Math.tan(vHalfFov) * camera.aspect);
+  const halfWidth = (Math.tan(angularRadius) / Math.tan(hHalfFov)) * (w / 2);
+  const halfHeight = (Math.tan(angularRadius) / Math.tan(vHalfFov)) * (h / 2);
+  const centerX = ((centerProjected.x + 1) / 2) * w;
+  const centerY = ((1 - centerProjected.y) / 2) * h;
+
+  return clampSnapshotRect(
+    {
+      x: centerX - halfWidth,
+      y: centerY - halfHeight,
+      width: halfWidth * 2,
+      height: halfHeight * 2,
+    },
+    w,
+    h
+  );
+}
+
 /* eslint-disable-next-line max-lines-per-function */
 export function useGridSnapshot(deps: UseGridSnapshotOptions) {
   const { canvas, getRenderer, getScene, getCamera, getBaseSurface, render } =
@@ -233,24 +342,23 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
   /** Draw colormap gradient bar + value labels onto the composite canvas. */
   function drawColormapSection(
     ctx: CanvasRenderingContext2D,
-    w: number,
+    x: number,
+    width: number,
     y: number,
-    margin: number,
     barHeight: number,
     labelFontSize: number,
     textColor: string
   ) {
-    const cmWidth = w - 2 * margin;
     const cmCanvas = renderColormapGradient(
       store.colormap,
       store.invertColormap ? 1 : 0,
       store.invertColormap ? -1 : 1,
       store.posterizeLevels,
-      cmWidth,
+      width,
       barHeight
     );
     if (cmCanvas) {
-      ctx.drawImage(cmCanvas, margin, y, cmWidth, barHeight);
+      ctx.drawImage(cmCanvas, x, y, width, barHeight);
     }
     ctx.fillStyle = textColor;
     ctx.font = `${labelFontSize}px sans-serif`;
@@ -258,10 +366,24 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
     const sel = store.selection as { low?: number; high?: number };
     if (sel.low !== undefined && sel.high !== undefined) {
       ctx.textAlign = "left";
-      ctx.fillText(formatSnapValue(sel.low), margin, y + barHeight + 3);
+      ctx.fillText(formatSnapValue(sel.low), x, y + barHeight + 3);
       ctx.textAlign = "right";
-      ctx.fillText(formatSnapValue(sel.high), w - margin, y + barHeight + 3);
+      ctx.fillText(formatSnapValue(sel.high), x + width, y + barHeight + 3);
     }
+  }
+
+  function downloadSnapshot(composite: HTMLCanvasElement) {
+    composite.toBlob((blob) => {
+      if (!blob) {
+        logError("Failed to create snapshot blob");
+        return;
+      }
+      const link = document.createElement("a");
+      link.download = "gridlook.png";
+      link.href = URL.createObjectURL(blob!);
+      link.click();
+      URL.revokeObjectURL(link.href);
+    }, "image/png");
   }
 
   /** Draw overlays (colormap bar + info text) onto the composite canvas, then trigger download. */
@@ -269,8 +391,8 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
   function drawOverlaysAndDownload(
     composite: HTMLCanvasElement,
     ctx: CanvasRenderingContext2D,
-    w: number,
-    h: number,
+    imageHeight: number,
+    overlayRect: TSnapshotRect,
     showColormap: boolean,
     datasetTitle: string | null,
     infoLines: string[],
@@ -281,13 +403,13 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
     fontSize: number,
     textColor: string
   ) {
-    let currentY = h + margin;
+    let currentY = imageHeight + margin;
     if (showColormap) {
       drawColormapSection(
         ctx,
-        w,
+        overlayRect.x,
+        overlayRect.width,
         currentY,
-        margin,
         cmBarH,
         Math.round(fontSize * 0.85),
         textColor
@@ -295,11 +417,10 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
       currentY += cmBarH + cmLabelH;
     }
     if (datasetTitle !== null) {
-      const maxWidth = w - 2 * margin;
       const { height: titleHeight } = canvasTxtDrawText(ctx, datasetTitle, {
-        x: margin,
+        x: overlayRect.x,
         y: currentY,
-        width: maxWidth,
+        width: overlayRect.width,
         height: infoLineH * 10,
         fontSize,
         align: "left",
@@ -314,21 +435,11 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
       ctx.textBaseline = "top";
       ctx.textAlign = "left";
       for (const line of infoLines) {
-        ctx.fillText(line, margin, currentY);
+        ctx.fillText(line, overlayRect.x, currentY);
         currentY += infoLineH;
       }
     }
-    composite.toBlob((blob) => {
-      if (!blob) {
-        logError("Failed to create snapshot blob");
-        return;
-      }
-      const link = document.createElement("a");
-      link.download = "gridlook.png";
-      link.href = URL.createObjectURL(blob!);
-      link.click();
-      URL.revokeObjectURL(link.href);
-    }, "image/png");
+    downloadSnapshot(composite);
   }
 
   function fillBackground(
@@ -357,6 +468,40 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
       options.resolutionScale
     );
     const { background, showDatasetInfo, showColormap } = options;
+    const contentRect = getSnapshotContentRect(
+      getCamera()!,
+      getBaseSurface(),
+      w,
+      h
+    );
+    const noOverlays = !showColormap && !showDatasetInfo;
+
+    if (noOverlays) {
+      const composite = document.createElement("canvas");
+      composite.width = contentRect.width;
+      composite.height = contentRect.height;
+      const ctx = composite.getContext("2d")!;
+      const imageCanvas = document.createElement("canvas");
+      imageCanvas.width = w;
+      imageCanvas.height = h;
+      const imageCtx = imageCanvas.getContext("2d")!;
+
+      fillBackground(imageCtx, w, h, background);
+      renderGlobeToCtx(imageCtx, w, h, background);
+      ctx.drawImage(
+        imageCanvas,
+        contentRect.x,
+        contentRect.y,
+        contentRect.width,
+        contentRect.height,
+        0,
+        0,
+        contentRect.width,
+        contentRect.height
+      );
+      downloadSnapshot(composite);
+      return;
+    }
 
     const fontSize = Math.round(Math.max(13, h * 0.022));
     const MARGIN = Math.round(Math.max(10, h * 0.018));
@@ -369,7 +514,7 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
       buildSnapshotInfoLines(showDatasetInfo);
 
     // Estimate wrapped title height to size the composite canvas correctly.
-    const maxTextWidth = w - 2 * MARGIN;
+    const maxTextWidth = contentRect.width;
     let titleLines = 1;
     if (datasetTitle) {
       const measCanvas = document.createElement("canvas");
@@ -399,8 +544,8 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
     drawOverlaysAndDownload(
       composite,
       ctx,
-      w,
       h,
+      contentRect,
       showColormap,
       datasetTitle,
       infoLines,
