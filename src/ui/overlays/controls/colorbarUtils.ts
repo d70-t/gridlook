@@ -83,3 +83,34 @@ export function computeBinTooltip(
     beyond,
   };
 }
+
+/**
+ * Compute the value at a given percentile from a histogram array.
+ * `bins` covers the range [min, max] uniformly.
+ */
+export function percentileFromBins(
+  bins: ArrayLike<number>,
+  min: number,
+  max: number,
+  percentile: number
+): number {
+  let total = 0;
+  for (let i = 0; i < bins.length; i++) {
+    total += bins[i];
+  }
+  if (total === 0) {
+    return min;
+  }
+  const target = total * (percentile / 100);
+  const binSize = (max - min) / bins.length;
+  let cumulative = 0;
+  for (let i = 0; i < bins.length; i++) {
+    cumulative += bins[i];
+    if (cumulative >= target) {
+      const overshoot = cumulative - target;
+      const fraction = 1 - overshoot / bins[i];
+      return min + (i + fraction) * binSize;
+    }
+  }
+  return max;
+}

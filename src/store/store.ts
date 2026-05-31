@@ -12,6 +12,7 @@ import {
 import type { TColorMap } from "@/lib/shaders/colormapShaders.ts";
 import type { TVarInfo, TBounds } from "@/lib/types/GlobeTypes.ts";
 import type { TCatalog } from "@/utils/catalog.ts";
+import type { THistogramSummary } from "@/utils/histogram.ts";
 
 export const HOVERED_GRID_POINT_STATUS = {
   VALUE: "value",
@@ -46,6 +47,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
       selection: { low: 0, high: 0 } as TBounds, // all the knobs and buttons in GlobeControl which do not require a reload
       histogram: undefined as number[] | undefined, // selection-range histogram bins
       fullHistogram: undefined as number[] | undefined, // fixed histogram over full data range
+      histogramSummary: undefined as THistogramSummary | undefined, // full-resolution (4096-bin) summary
       colormap: "turbo" as TColorMap,
       invertColormap: false,
       posterizeLevels: 0 as number,
@@ -169,6 +171,9 @@ export const useGlobeControlStore = defineStore("globeControl", {
     },
     updateFullHistogram(histogram: number[] | undefined) {
       this.fullHistogram = histogram;
+    },
+    updateHistogramSummary(summary: THistogramSummary | undefined) {
+      this.histogramSummary = summary;
     },
     setControlPanelVisible(visible: boolean) {
       this.controlPanelVisible = visible;

@@ -77,6 +77,7 @@ export function useGridHistogram() {
     if (!data || data.length === 0 || !isFinite(min) || !isFinite(max)) {
       store.updateHistogram(undefined);
       store.updateFullHistogram(undefined);
+      store.updateHistogramSummary(undefined);
       lastHistogramSummary.value = null;
       return;
     }
@@ -107,6 +108,7 @@ export function useGridHistogram() {
       max
     );
     store.updateFullHistogram(fullHist);
+    store.updateHistogramSummary(summary);
 
     recomputeHistogramFromSummary(
       summary,
