@@ -171,7 +171,7 @@ function handleAutoContrast() {
     </div>
 
     <!-- Row: Colormap selector + options -->
-    <div class="column colormap-column">
+    <div class="w-100 colormap-column mb-4">
       <Select
         v-model="colormap"
         :options="modelInfo.colormaps"
@@ -206,7 +206,7 @@ function handleAutoContrast() {
       </Select>
     </div>
     <div class="columns is-mobile is-vcentered compact-row px-1">
-      <div class="column is-narrow">
+      <div class="column">
         <label class="checkbox">
           <input
             id="invert_colormap"
@@ -216,7 +216,7 @@ function handleAutoContrast() {
           invert
         </label>
       </div>
-      <div class="column is-narrow">
+      <div class="column">
         <label
           class="checkbox"
           title="Hide values at or below the lower bound (useful with globe mask, e.g. for precipitation)"
@@ -229,7 +229,7 @@ function handleAutoContrast() {
           hide low
         </label>
       </div>
-      <div class="column is-narrow">
+      <div class="column">
         <button
           type="button"
           class="button is-small"
