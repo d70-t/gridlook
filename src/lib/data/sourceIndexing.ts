@@ -161,6 +161,18 @@ function createIndex(
   };
 }
 
+export async function indexFromIcechunk(src: string): Promise<TSources> {
+  const store = await ZarrDataManager.createListableIcechunkStore(src);
+  const root = await zarr.open.v3(store, { kind: "group" });
+  const datasources = await processZarrVariables(store, root, src);
+  return createIndex(
+    root.attrs?.title as string,
+    datasources,
+    src,
+    ZARR_FORMAT.V3
+  );
+}
+
 export async function indexFromZarr(src: string): Promise<TSources> {
   try {
     const store = await zarr.withConsolidatedMetadata(

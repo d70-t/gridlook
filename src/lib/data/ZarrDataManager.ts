@@ -1,3 +1,4 @@
+import { IcechunkStore } from "icechunk-js";
 import QuickLRU from "quick-lru";
 import * as zarr from "zarrita";
 
@@ -24,6 +25,8 @@ export type TZarrVariableMetadata = {
 };
 
 type TDatasetSource = Pick<TDataSource, "dataset" | "store">;
+type TIcechunkStore = zarr.AsyncReadable & Pick<IcechunkStore, "listNodes">;
+
 export class ZarrDataManager {
   private static pendingStore: Promise<
     zarr.Location<zarr.AsyncReadable>
@@ -38,12 +41,40 @@ export class ZarrDataManager {
     return dataset.replace(/^\/+/, "").replace(/\/+$/, "");
   }
 
+  static isIcechunkStorePath(storePath: string) {
+    return this.normalizeStorePath(storePath.split(/[?#]/)[0]).endsWith(
+      ".icechunk"
+    );
+  }
+
+  private static async createIcechunkStore(
+    storePath: string
+  ): Promise<TIcechunkStore> {
+    return await IcechunkStore.open(this.normalizeStorePath(storePath));
+  }
+
+  static async createListableIcechunkStore(storePath: string) {
+    const store = await this.createIcechunkStore(storePath);
+    const contents = store.listNodes().map((node) => ({
+      path: node.path as zarr.AbsolutePath,
+      kind: node.nodeData.type,
+    }));
+    return Object.assign(store, { contents: () => contents });
+  }
+
   public static async createNewStore(storePath: string) {
+    let store: zarr.AsyncReadable | undefined = undefined;
+    if (this.isIcechunkStorePath(storePath)) {
+      store = await this.createIcechunkStore(storePath);
+    } else {
+      store = new zarr.FetchStore(storePath, { useSuffixRequest: true });
+    }
+
     const cache = new QuickLRU<string, Uint8Array | undefined>({
       maxSize: 512,
     });
     const fetchStore = zarr.extendStore(
-      new zarr.FetchStore(storePath, { useSuffixRequest: true }),
+      store,
       (s) => zarr.withRangeCoalescing(s, { coalesceSize: 32768 }),
       (s) => zarr.withByteCaching(s, { cache: cache })
     );

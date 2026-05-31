@@ -43,6 +43,7 @@
     "fflate": "^0.8.3",
     "geokdbush": "2.1.0",
     "humanize-duration": "^3.33.2",
+    "icechunk-js": "^0.4.0",
     "kdbush": "4.0.2",
     "pinia": "^3.0.4",
     "primevue": "^4.5.5",

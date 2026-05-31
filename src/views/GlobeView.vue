@@ -14,7 +14,11 @@ import {
   GRID_TYPES,
   type T_GRID_TYPES,
 } from "@/lib/data/gridTypeDetector.ts";
-import { indexFromIndex, indexFromZarr } from "@/lib/data/sourceIndexing.ts";
+import {
+  indexFromIcechunk,
+  indexFromIndex,
+  indexFromZarr,
+} from "@/lib/data/sourceIndexing.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { PROJECTION_TYPES, clamp } from "@/lib/projection/projectionUtils.ts";
 import {
@@ -250,10 +254,10 @@ const updateSrc = async () => {
   // works. If both fail, we log the last error which is from the json-index.
   // This leads to confusing error messages if the zarr source is supposed to
   // work but fails for some reason.
-  const indices = await Promise.allSettled([
-    indexFromZarr(src),
-    indexFromIndex(src),
-  ]);
+  const indexPromises = ZarrDataManager.isIcechunkStorePath(src)
+    ? [indexFromIcechunk(src), indexFromZarr(src), indexFromIndex(src)]
+    : [indexFromZarr(src), indexFromIndex(src)];
+  const indices = await Promise.allSettled(indexPromises);
   let lastError = null;
   store.isInitializingVariable = true;
   sourceValid.value = false;
