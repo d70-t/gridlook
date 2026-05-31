@@ -129,7 +129,7 @@ function handleAutoContrast() {
 </script>
 
 <template>
-  <div class="column">
+  <div class="column mb-5">
     <ColorBar
       :colormap="colormap"
       :invert-colormap="invertColormap"
@@ -207,32 +207,41 @@ function handleAutoContrast() {
     </div>
     <div class="columns is-mobile is-vcentered compact-row px-1">
       <div class="column">
-        <label class="checkbox">
-          <input
-            id="invert_colormap"
-            v-model="invertColormap"
-            type="checkbox"
-          />
-          invert
-        </label>
+        <button
+          id="invert_colormap"
+          type="button"
+          class="button is-small w-100"
+          :class="{ 'is-info': invertColormap }"
+          :aria-pressed="invertColormap"
+          title="Invert colormap"
+          @click="invertColormap = !invertColormap"
+        >
+          <span class="icon">
+            <i class="fa-solid fa-arrow-right-arrow-left"></i>
+          </span>
+          <span>Invert</span>
+        </button>
       </div>
       <div class="column">
-        <label
-          class="checkbox"
+        <button
+          id="hide_lower_bound"
+          type="button"
+          class="button is-small w-100"
+          :class="{ 'is-info': hideLowerBound }"
+          :aria-pressed="hideLowerBound"
           title="Hide values at or below the lower bound (useful with globe mask, e.g. for precipitation)"
+          @click="hideLowerBound = !hideLowerBound"
         >
-          <input
-            id="hide_lower_bound"
-            v-model="hideLowerBound"
-            type="checkbox"
-          />
-          hide low
-        </label>
+          <span class="icon">
+            <i class="fa-solid fa-eye-slash"></i>
+          </span>
+          <span>Hide low</span>
+        </button>
       </div>
       <div class="column">
         <button
           type="button"
-          class="button is-small"
+          class="button is-small w-100"
           title="Set bounds to the 2nd - 98th percentile of the data"
           :disabled="!histogramSummary || !dataBounds"
           @click="handleAutoContrast"
