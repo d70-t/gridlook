@@ -17,6 +17,7 @@ import {
 } from "./composables/useProjectionEdgeQuality.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
+import { downsampleDataTexture } from "@/lib/data/dataTexture.ts";
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
@@ -52,6 +53,7 @@ const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
 
 const {
   getScene,
+  getRenderer,
   redraw,
   makeSnapshot,
   toggleRotate,
@@ -76,20 +78,11 @@ const { setHoverLookupFromIndex, clearHoverLookup } =
 
 const longitudes = ref(new Float64Array());
 const latitudes = ref(new Float64Array());
-const isLatReversed = ref(false);
 
 const BATCH_SIZE = 60;
-const MAX_TILE_SIZE = 4096;
-
-type TTileInfo = {
-  latStart: number;
-  latEnd: number;
-  lonStart: number;
-  lonEnd: number;
-};
+const MAX_GEO_RESOLUTION = 512;
 
 let meshes: THREE.Mesh[] = [];
-let tileInfos: TTileInfo[] = [];
 
 onColormapChange(() => updateColormap(meshes));
 
@@ -213,43 +206,43 @@ function isLongitudeGlobal(longitudes: Float64Array): boolean {
   return span + avgDelta > 359.5;
 }
 
-/**
- * Generates vertices, UVs, and lat/lon for a single 2D tile (lat band × lon band).
- * UVs are local to the tile's texture and point at texel centers.
- */
-function generateTileVerticesAndUVs(
+function generateBatchVerticesAndUVs(
   latitudes: Float64Array,
   longitudes: Float64Array,
+  latOrigIndices: Int32Array,
+  lonOrigIndices: Int32Array,
+  originalLatCount: number,
+  textureLonCount: number,
   latStart: number,
   latEnd: number,
-  lonStart: number,
-  lonEnd: number,
+  isLatReversed: boolean,
+  isRotated: boolean,
   poleLat?: number,
   poleLon?: number
 ) {
   const batchLatCount = latEnd - latStart + 1;
-  const tileLonCount = lonEnd - lonStart + 1;
-  const vertexCount = batchLatCount * tileLonCount;
+  const lonCount = longitudes.length;
+  const vertexCount = batchLatCount * lonCount;
 
   const positionValues = new Float32Array(vertexCount * 3);
   const uvs = new Float32Array(vertexCount * 2);
   const latLonValues = new Float32Array(vertexCount * 2);
+  const latDenominator = Math.max(originalLatCount - 1, 1);
 
   const helper = projectionHelper.value;
 
   for (let li = 0; li < batchLatCount; li++) {
     const globalLatIdx = latStart + li;
     const rawLat = latitudes[globalLatIdx];
-    for (let lj = 0; lj < tileLonCount; lj++) {
-      const globalLonIdx = lonStart + lj;
-      const rawLon = longitudes[globalLonIdx];
+    const latOrigIdx = latOrigIndices[globalLatIdx];
+    for (let lj = 0; lj < lonCount; lj++) {
+      const rawLon = longitudes[lj];
 
-      const { lat, lon } =
-        poleLat !== undefined
-          ? rotatedToGeographic(rawLat, rawLon, poleLat, poleLon!)
-          : { lat: rawLat, lon: rawLon };
+      const { lat, lon } = isRotated
+        ? rotatedToGeographic(rawLat, rawLon, poleLat!, poleLon!)
+        : { lat: rawLat, lon: rawLon };
 
-      const vertexIdx = li * tileLonCount + lj;
+      const vertexIdx = li * lonCount + lj;
       helper.projectLatLonToArrays(
         lat,
         lon,
@@ -259,8 +252,10 @@ function generateTileVerticesAndUVs(
         vertexIdx * 2
       );
 
-      const u = (lj + 0.5) / tileLonCount;
-      const v = (li + 0.5) / batchLatCount;
+      const u = (lonOrigIndices[lj] + 0.5) / textureLonCount;
+      const v = isLatReversed
+        ? (originalLatCount - 1 - latOrigIdx) / latDenominator
+        : latOrigIdx / latDenominator;
       uvs[vertexIdx * 2] = u;
       uvs[vertexIdx * 2 + 1] = v;
     }
@@ -270,9 +265,10 @@ function generateTileVerticesAndUVs(
 }
 
 function generateGridIndices(latCount: number, lonCount: number) {
-  const indices: number[] = [];
   const latIterationEnd = latCount - 1;
   const lonIterationEnd = lonCount - 1;
+  const indices = new Uint32Array(latIterationEnd * lonIterationEnd * 6);
+  let indexOffset = 0;
 
   for (let latIt = 0; latIt < latIterationEnd; latIt++) {
     for (let lonIt = 0; lonIt < lonIterationEnd; lonIt++) {
@@ -281,8 +277,12 @@ function generateGridIndices(latCount: number, lonCount: number) {
       const topLeft = (latIt + 1) * lonCount + lonIt;
       const topRight = (latIt + 1) * lonCount + lonIt + 1;
 
-      indices.push(lowLeft, topRight, topLeft);
-      indices.push(lowLeft, lowRight, topRight);
+      indices[indexOffset++] = lowLeft;
+      indices[indexOffset++] = topRight;
+      indices[indexOffset++] = topLeft;
+      indices[indexOffset++] = lowLeft;
+      indices[indexOffset++] = lowRight;
+      indices[indexOffset++] = topRight;
     }
   }
 
@@ -294,55 +294,119 @@ function normalizeLongitudes(longitudes: Float64Array): Float64Array {
   return Float64Array.from(longitudes, (lon) => ((lon % 360) + 360) % 360);
 }
 
-async function getGridParams() {
+function subsampleCoords(
+  values: Float64Array,
+  maxCount: number
+): { coords: Float64Array; origIndices: Int32Array } {
+  if (values.length <= maxCount) {
+    const origIndices = new Int32Array(values.length);
+    for (let i = 0; i < values.length; i++) {
+      origIndices[i] = i;
+    }
+    return { coords: values, origIndices };
+  }
+
+  const coords = new Float64Array(maxCount);
+  const origIndices = new Int32Array(maxCount);
+  for (let i = 0; i < maxCount; i++) {
+    const sourceIdx = Math.round((i * (values.length - 1)) / (maxCount - 1));
+    coords[i] = values[sourceIdx];
+    origIndices[i] = sourceIdx;
+  }
+  return { coords, origIndices };
+}
+
+async function getRegularGridParameters() {
   const isRotated = props.isRotated;
   let longitudeValues = normalizeLongitudes(longitudes.value);
   let latitudeValues = latitudes.value;
 
   // Check if latitudes are descending and reverse if necessary
-  const latReversed =
+  const isLatReversed =
     latitudeValues[0] > latitudeValues[latitudeValues.length - 1];
-  isLatReversed.value = latReversed;
-  if (latReversed) {
+  if (isLatReversed) {
     latitudeValues = Float64Array.from(latitudeValues).reverse();
   }
 
   const isGlobal = isLongitudeGlobal(longitudes.value);
+  const textureLonCount = longitudeValues.length;
+  const originalLatCount = latitudeValues.length;
 
+  const { coords: geoLatitudes, origIndices: latOrigIndices } = subsampleCoords(
+    latitudeValues,
+    MAX_GEO_RESOLUTION
+  );
+  const { coords: geoLongitudesBase, origIndices: lonOrigIndicesBase } =
+    subsampleCoords(longitudeValues, MAX_GEO_RESOLUTION);
+
+  let geoLongitudes = geoLongitudesBase;
+  let lonOrigIndices = lonOrigIndicesBase;
   if (isGlobal) {
-    // Add a duplicate of the first longitude + 360 to close the globe
-    const firstLon = longitudeValues[0];
-    longitudeValues = new Float64Array([...longitudeValues, firstLon + 360]);
+    geoLongitudes = new Float64Array([
+      ...geoLongitudesBase,
+      geoLongitudesBase[0] + 360,
+    ]);
+    lonOrigIndices = new Int32Array(lonOrigIndicesBase.length + 1);
+    lonOrigIndices.set(lonOrigIndicesBase);
+    lonOrigIndices[lonOrigIndicesBase.length] = textureLonCount;
   }
 
-  let poleLat, poleLon;
+  let poleLat: number | undefined, poleLon: number | undefined;
   if (isRotated) {
     const rotatedNorthPole = await getRotatedNorthPole();
     poleLat = rotatedNorthPole.lat;
     poleLon = rotatedNorthPole.lon;
   }
 
-  const latCount = latitudeValues.length;
-  const lonCount = longitudeValues.length;
-
   return {
-    latitudeValues,
-    longitudeValues,
-    latCount,
-    lonCount,
+    geoLatitudes,
+    geoLongitudes,
+    latOrigIndices,
+    lonOrigIndices,
+    originalLatCount,
+    textureLonCount,
+    isLatReversed,
+    isRotated,
     poleLat,
     poleLon,
+    geoLatCount: geoLatitudes.length,
+    geoLonCount: geoLongitudes.length,
   };
 }
 
-function disposeMeshMaterial(mesh: THREE.Mesh) {
-  const mat = mesh.material as THREE.ShaderMaterial;
-  if (mat && mat.dispose) {
-    if (mat.uniforms?.data?.value?.dispose) {
-      mat.uniforms.data.value.dispose();
-    }
-    mat.dispose();
+function disposeMaterial(material: THREE.Material) {
+  const shaderMaterial = material as THREE.ShaderMaterial;
+  if (shaderMaterial.uniforms?.data?.value?.dispose) {
+    shaderMaterial.uniforms.data.value.dispose();
   }
+  material.dispose();
+}
+
+function collectMeshMaterials(
+  mesh: THREE.Mesh,
+  materials: Set<THREE.Material>
+) {
+  if (Array.isArray(mesh.material)) {
+    for (const material of mesh.material) {
+      materials.add(material);
+    }
+    return;
+  }
+  materials.add(mesh.material);
+}
+
+function disposeMaterials(materials: Set<THREE.Material>) {
+  for (const material of materials) {
+    disposeMaterial(material);
+  }
+}
+
+function disposeMeshMaterials(targetMeshes: THREE.Mesh[]) {
+  const materials = new Set<THREE.Material>();
+  for (const mesh of targetMeshes) {
+    collectMeshMaterials(mesh, materials);
+  }
+  disposeMaterials(materials);
 }
 
 function cleanupMeshes(totalBatches: number) {
@@ -351,32 +415,33 @@ function cleanupMeshes(totalBatches: number) {
   }
   for (const mesh of meshes) {
     mesh.geometry.dispose();
-    disposeMeshMaterial(mesh);
     getScene()?.remove(mesh);
   }
+  disposeMeshMaterials(meshes);
   meshes.length = 0;
 }
 
-function createTileGeometry(
-  latitudeValues: Float64Array,
-  longitudeValues: Float64Array,
-  tile: TTileInfo,
-  poleLat?: number,
-  poleLon?: number
+function createBatchGeometry(
+  gridParams: Awaited<ReturnType<typeof getRegularGridParameters>>,
+  latStart: number,
+  latEnd: number
 ) {
   const geometry = new THREE.InstancedBufferGeometry();
-  const batchLatCount = tile.latEnd - tile.latStart + 1;
-  const tileLonCount = tile.lonEnd - tile.lonStart + 1;
+  const batchLatCount = latEnd - latStart + 1;
 
-  const { positionValues, uvs, latLonValues } = generateTileVerticesAndUVs(
-    latitudeValues,
-    longitudeValues,
-    tile.latStart,
-    tile.latEnd,
-    tile.lonStart,
-    tile.lonEnd,
-    poleLat,
-    poleLon
+  const { positionValues, uvs, latLonValues } = generateBatchVerticesAndUVs(
+    gridParams.geoLatitudes,
+    gridParams.geoLongitudes,
+    gridParams.latOrigIndices,
+    gridParams.lonOrigIndices,
+    gridParams.originalLatCount,
+    gridParams.textureLonCount,
+    latStart,
+    latEnd,
+    gridParams.isLatReversed,
+    gridParams.isRotated,
+    gridParams.poleLat,
+    gridParams.poleLon
   );
 
   geometry.setAttribute(
@@ -389,19 +454,19 @@ function createTileGeometry(
     new THREE.Float32BufferAttribute(latLonValues, 2)
   );
 
-  const indices = generateGridIndices(batchLatCount, tileLonCount);
-  geometry.setIndex(indices);
+  const indices = generateGridIndices(batchLatCount, gridParams.geoLonCount);
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   return geometry;
 }
 
-function applyTileGeometry(
-  tileIndex: number,
+function applyBatchGeometry(
+  batchIndex: number,
   geometry: THREE.InstancedBufferGeometry
 ) {
-  if (meshes[tileIndex]) {
+  if (meshes[batchIndex]) {
     setupProjectionGeometryWrap(geometry);
-    meshes[tileIndex].geometry.dispose();
-    meshes[tileIndex].geometry = geometry;
+    meshes[batchIndex].geometry.dispose();
+    meshes[batchIndex].geometry = geometry;
   } else {
     const mesh = createWrappedProjectionMesh(
       geometry,
@@ -414,49 +479,20 @@ function applyTileGeometry(
   }
 }
 
-function computeTileLayout(latCount: number, geometryLonCount: number) {
-  const latBatchCount = Math.ceil((latCount - 1) / BATCH_SIZE);
-  const lonStep = MAX_TILE_SIZE - 1;
-  const lonTileCount = Math.max(1, Math.ceil((geometryLonCount - 1) / lonStep));
-  const actualLonStep = Math.ceil((geometryLonCount - 1) / lonTileCount);
-
-  const tiles: TTileInfo[] = [];
-  for (let latBatch = 0; latBatch < latBatchCount; latBatch++) {
-    const latStart = latBatch * BATCH_SIZE;
-    const latEnd = Math.min(latStart + BATCH_SIZE, latCount - 1);
-    for (let lonTile = 0; lonTile < lonTileCount; lonTile++) {
-      const lonStart = lonTile * actualLonStep;
-      const lonEnd = Math.min(lonStart + actualLonStep, geometryLonCount - 1);
-      tiles.push({ latStart, latEnd, lonStart, lonEnd });
-    }
-  }
-  return tiles;
-}
-
 async function makeGeometry() {
   try {
-    const {
-      latitudeValues,
-      longitudeValues,
-      latCount,
-      lonCount,
-      poleLat,
-      poleLon,
-    } = await getGridParams();
+    const gridParams = await getRegularGridParameters();
+    const totalBatches = Math.ceil((gridParams.geoLatCount - 1) / BATCH_SIZE);
+    cleanupMeshes(totalBatches);
 
-    const tiles = computeTileLayout(latCount, lonCount);
-    tileInfos = tiles;
-    cleanupMeshes(tiles.length);
-
-    for (let i = 0; i < tiles.length; i++) {
-      const geometry = createTileGeometry(
-        latitudeValues,
-        longitudeValues,
-        tiles[i],
-        poleLat,
-        poleLon
+    for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+      const latStart = batchIndex * BATCH_SIZE;
+      const latEnd = Math.min(
+        latStart + BATCH_SIZE,
+        gridParams.geoLatCount - 1
       );
-      applyTileGeometry(i, geometry);
+      const geometry = createBatchGeometry(gridParams, latStart, latEnd);
+      applyBatchGeometry(batchIndex, geometry);
     }
     updateMeshProjectionUniforms();
   } catch (error) {
@@ -464,44 +500,68 @@ async function makeGeometry() {
   }
 }
 
-function createTileTexture(
-  rawData: Float32Array,
-  tile: TTileInfo,
-  textureLonCount: number,
-  totalLatCount: number,
-  isReversed: boolean,
-  latOnly: boolean
+function fitDataToMaxTextureSize(
+  data: Float32Array<ArrayBufferLike>,
+  sourceWidth: number,
+  sourceHeight: number
 ) {
-  const tileLatCount = tile.latEnd - tile.latStart + 1;
-  const tileLonCount = tile.lonEnd - tile.lonStart + 1;
-  const tileData = new Float32Array(tileLatCount * tileLonCount);
-
-  for (let li = 0; li < tileLatCount; li++) {
-    const fileLatIdx = isReversed
-      ? totalLatCount - 1 - (tile.latStart + li)
-      : tile.latStart + li;
-    if (latOnly) {
-      const val = rawData[fileLatIdx];
-      for (let lj = 0; lj < tileLonCount; lj++) {
-        tileData[li * tileLonCount + lj] = val;
-      }
-    } else {
-      for (let lj = 0; lj < tileLonCount; lj++) {
-        const globalLonIdx = (tile.lonStart + lj) % textureLonCount;
-        tileData[li * tileLonCount + lj] =
-          rawData[fileLatIdx * textureLonCount + globalLonIdx];
-      }
-    }
+  let texWidth = sourceWidth;
+  let texHeight = sourceHeight;
+  let textureData = data;
+  const maxTexSize = getRenderer()?.capabilities.maxTextureSize ?? 4096;
+  if (texWidth > maxTexSize || texHeight > maxTexSize) {
+    texWidth = Math.min(sourceWidth, maxTexSize);
+    texHeight = Math.min(sourceHeight, maxTexSize);
+    textureData = downsampleDataTexture(
+      data,
+      sourceWidth,
+      sourceHeight,
+      texWidth,
+      texHeight
+    );
   }
 
+  return { data: textureData, texWidth, texHeight };
+}
+
+function createLatOnlyTextureData(
+  rawData: Float32Array,
+  latCount: number,
+  lonCount: number
+) {
+  const data = new Float32Array(latCount * lonCount);
+  for (let latIdx = 0; latIdx < latCount; latIdx++) {
+    const value = rawData[latIdx];
+    for (let lonIdx = 0; lonIdx < lonCount; lonIdx++) {
+      data[latIdx * lonCount + lonIdx] = value;
+    }
+  }
+  return data;
+}
+
+function createRegularTexture(rawData: Float32Array, wrapRepeat: boolean) {
+  const latCount = latitudes.value.length;
+  const lonCount = longitudes.value.length;
+  const textureData = isLatOnly.value
+    ? createLatOnlyTextureData(rawData, latCount, lonCount)
+    : rawData;
+  const { data, texWidth, texHeight } = fitDataToMaxTextureSize(
+    textureData,
+    lonCount,
+    latCount
+  );
+
   const texture = new THREE.DataTexture(
-    tileData,
-    tileLonCount,
-    tileLatCount,
+    data,
+    texWidth,
+    texHeight,
     THREE.RedFormat,
     THREE.FloatType,
     THREE.UVMapping
   );
+  if (wrapRepeat) {
+    texture.wrapS = THREE.RepeatWrapping;
+  }
   texture.needsUpdate = true;
   return texture;
 }
@@ -516,7 +576,11 @@ async function getRotatedNorthPole(): Promise<{ lat: number; lon: number }> {
   return { lat, lon };
 }
 
-function makeTileMaterial(texture: THREE.DataTexture) {
+function makeMaterial(rawData: Float32Array) {
+  const texture = createRegularTexture(
+    rawData,
+    isLongitudeGlobal(longitudes.value)
+  );
   const low = store.selection?.low as number;
   const high = store.selection?.high as number;
   const { addOffset, scaleFactor } = getColormapScaleOffset(
@@ -658,28 +722,26 @@ async function buildDimensionConfig(
   );
 }
 
-function updateTileMaterials(rawData: Float32Array) {
-  const helper = projectionHelper.value;
-  const textureLonCount = longitudes.value.length;
-  const totalLatCount = latitudes.value.length;
-  const isReversed = isLatReversed.value;
-
-  for (let i = 0; i < meshes.length; i++) {
-    const tile = tileInfos[i];
-    const texture = createTileTexture(
-      rawData,
-      tile,
-      textureLonCount,
-      totalLatCount,
-      isReversed,
-      isLatOnly.value
-    );
-    const material = makeTileMaterial(texture);
-    updateProjectionUniforms(material, helper);
-    disposeMeshMaterial(meshes[i]);
-    meshes[i].material = material;
-    material.needsUpdate = true;
+function setMeshMaterials(material: THREE.ShaderMaterial) {
+  if (meshes.length === 0) {
+    disposeMaterial(material);
+    return;
   }
+
+  const previousMaterials = new Set<THREE.Material>();
+  for (const mesh of meshes) {
+    collectMeshMaterials(mesh, previousMaterials);
+    mesh.material = material;
+  }
+  previousMaterials.delete(material);
+  disposeMaterials(previousMaterials);
+  material.needsUpdate = true;
+}
+
+function updateMeshMaterials(rawData: Float32Array) {
+  const material = makeMaterial(rawData);
+  updateProjectionUniforms(material, projectionHelper.value);
+  setMeshMaterials(material);
 }
 
 async function fetchAndRenderData(
@@ -696,7 +758,7 @@ async function fetchAndRenderData(
     rawData
   );
 
-  updateTileMaterials(rawData);
+  updateMeshMaterials(rawData);
 
   const hoverIndex = await buildHoverSamples(rawData);
   setHoverLookupFromIndex(hoverIndex, fillValue, missingValue);
@@ -729,11 +791,10 @@ onBeforeMount(async () => {
 onBeforeUnmount(() => {
   for (const mesh of meshes) {
     mesh.geometry.dispose();
-    disposeMeshMaterial(mesh);
     getScene()?.remove(mesh);
   }
+  disposeMeshMaterials(meshes);
   meshes.length = 0;
-  tileInfos.length = 0;
 });
 
 defineExpose({

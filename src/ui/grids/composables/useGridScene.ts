@@ -1154,6 +1154,7 @@ export function useGridScene(options: UseGridSceneOptions) {
     box,
     getScene,
     getCamera,
+    getRenderer,
     redraw,
     toggleRotate,
     makeSnapshot,
