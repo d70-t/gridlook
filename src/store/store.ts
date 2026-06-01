@@ -12,13 +12,7 @@ import {
 import type { TColorMap } from "@/lib/shaders/colormapShaders.ts";
 import type { TVarInfo, TBounds } from "@/lib/types/GlobeTypes.ts";
 import type { TCatalog } from "@/utils/catalog.ts";
-
-export const UPDATE_MODE = {
-  INITIAL_LOAD: "initialLoad",
-  SLIDER_TOGGLE: "sliderToggle",
-} as const;
-
-export type TUpdateMode = (typeof UPDATE_MODE)[keyof typeof UPDATE_MODE];
+import type { THistogramSummary } from "@/utils/histogram.ts";
 
 export const HOVERED_GRID_POINT_STATUS = {
   VALUE: "value",
@@ -53,8 +47,9 @@ export const useGlobeControlStore = defineStore("globeControl", {
       selection: { low: 0, high: 0 } as TBounds, // all the knobs and buttons in GlobeControl which do not require a reload
       histogram: undefined as number[] | undefined, // selection-range histogram bins
       fullHistogram: undefined as number[] | undefined, // fixed histogram over full data range
+      histogramSummary: undefined as THistogramSummary | undefined, // full-resolution (4096-bin) summary
       colormap: "turbo" as TColorMap,
-      invertColormap: true,
+      invertColormap: false,
       posterizeLevels: 0 as number,
       hideLowerBound: false,
       userBoundsLow: undefined as number | undefined,
@@ -71,9 +66,35 @@ export const useGlobeControlStore = defineStore("globeControl", {
       hoveredGridPoint: undefined as THoveredGridPoint | undefined,
       catalogUrl: undefined as string | undefined,
       catalogData: undefined as TCatalog | undefined,
+      // will get incremented each time a new dataset OR a new variable in the
+      // same dataset is loaded; used to trigger reactivity in child components
+      // that need to reload data when the variable changes
+      // if the value is even, the change is a new dataset; if odd, it's a
+      // variable change within the same dataset
+      newDatasetSignifier: 0 as number,
     };
   },
   actions: {
+    signifyDatasetChange() {
+      if (this.newDatasetSignifier % 2 === 0) {
+        this.newDatasetSignifier += 2;
+      } else {
+        this.newDatasetSignifier += 1;
+      }
+    },
+    signifyVariableChange() {
+      if (this.newDatasetSignifier % 2 === 0) {
+        this.newDatasetSignifier += 1;
+      } else {
+        this.newDatasetSignifier += 2;
+      }
+    },
+    isNewDataset(): boolean {
+      return this.newDatasetSignifier % 2 === 0;
+    },
+    isVariableChange(): boolean {
+      return this.newDatasetSignifier % 2 === 1;
+    },
     toggleRotating() {
       this.isRotating = !this.isRotating;
     },
@@ -100,12 +121,11 @@ export const useGlobeControlStore = defineStore("globeControl", {
         this.dimSlidersDisplay[i] = this.dimSlidersValues[i];
       }
     },
-    updateVarInfo(
-      varinfo: TVarInfo,
-      indices: number[],
-      updateMode: TUpdateMode
-    ) {
-      if (updateMode === UPDATE_MODE.INITIAL_LOAD) {
+    updateVarInfo(varinfo: TVarInfo, indices: number[]) {
+      const sliderValuesChanged =
+        indices.length !== this.dimSlidersValues.length ||
+        indices.some((index, i) => index !== this.dimSlidersValues[i]);
+      if (sliderValuesChanged) {
         this.isInitializingVariable = true;
         this.dimSlidersValues = indices;
         this.dimSlidersDisplay = indices;
@@ -145,6 +165,9 @@ export const useGlobeControlStore = defineStore("globeControl", {
     },
     updateFullHistogram(histogram: number[] | undefined) {
       this.fullHistogram = histogram;
+    },
+    updateHistogramSummary(summary: THistogramSummary | undefined) {
+      this.histogramSummary = summary;
     },
     setControlPanelVisible(visible: boolean) {
       this.controlPanelVisible = visible;

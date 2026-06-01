@@ -41,6 +41,7 @@ import GridIrregularDelaunay from "@/ui/grids/IrregularDelaunay.vue";
 import GridRegular from "@/ui/grids/Regular.vue";
 import GridTriangular from "@/ui/grids/Triangular.vue";
 import AboutView from "@/ui/overlays/AboutModal.vue";
+import { toggleTimeAnimation } from "@/ui/overlays/controls/useTimeAnimation.ts";
 import GlobeControls from "@/ui/overlays/Controls.vue";
 import HoverReadout from "@/ui/overlays/HoverReadout.vue";
 import InfoPanel from "@/ui/overlays/InfoPanel.vue";
@@ -109,7 +110,6 @@ const distractionFree = ref(false);
 const hyperglobeModeActive = ref(false);
 const panelVisibleBeforeDistractionFree = ref(true);
 const globeKey = ref(0);
-const globeControlKey = ref(0);
 const isInitialized = ref(false);
 const sourceValid = ref(false);
 const datasources: Ref<TSources | undefined> = ref(undefined);
@@ -186,7 +186,6 @@ watch(
     // if new data is provided
     detectedGridType.value = undefined;
     globeKey.value += 1;
-    globeControlKey.value += 1;
     if (isDisplayMode.value || isPresenterActive.value) {
       // In display/presenter mode we want to preserve some state across source changes
       store.resetExcept([
@@ -252,10 +251,8 @@ const updateSrc = async () => {
   // works. If both fail, we log the last error which is from the json-index.
   // This leads to confusing error messages if the zarr source is supposed to
   // work but fails for some reason.
-  const indices = await Promise.allSettled([
-    indexFromZarr(src),
-    indexFromIndex(src),
-  ]);
+  const indexPromises = [indexFromZarr(src), indexFromIndex(src)];
+  const indices = await Promise.allSettled(indexPromises);
   let lastError = null;
   store.isInitializingVariable = true;
   sourceValid.value = false;
@@ -268,6 +265,7 @@ const updateSrc = async () => {
       lastError = index.reason;
     }
   }
+  store.signifyDatasetChange();
   if (!sourceValid.value && lastError) {
     store.stopLoading();
     logError(lastError, "Failed to fetch data");
@@ -387,6 +385,9 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
     return;
   }
   const key = e.key.toLowerCase();
+  if (key === " " && tag === "button") {
+    return;
+  }
   if (key === "r") {
     toggleRotate();
   } else if (key === "d") {
@@ -395,6 +396,9 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
     applyHyperglobePreset();
   } else if (key === "h" && !isMobileDevice()) {
     applyHyperglobePresenter();
+  } else if (key === " ") {
+    e.preventDefault();
+    toggleTimeAnimation();
   }
 });
 </script>
@@ -404,7 +408,6 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
     <Toast />
     <div v-show="!distractionFree && !isDisplayMode">
       <GlobeControls
-        :key="globeControlKey"
         :model-info="modelInfo"
         :current-source="props.src"
         @on-snapshot="makeSnapshot"

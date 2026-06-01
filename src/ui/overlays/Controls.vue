@@ -1,7 +1,9 @@
 <script lang="ts" setup>
 import { useEventListener } from "@vueuse/core";
 import { storeToRefs } from "pinia";
-import { computed, onBeforeMount, onMounted, ref, watch, type Ref } from "vue";
+import { computed, onBeforeMount, ref, watch, type Ref } from "vue";
+
+import CollapsibleCard from "../common/CollapsibleCard.vue";
 
 import ActionControls from "./controls/ActionControls.vue";
 import BoundsControls from "./controls/BoundsControls.vue";
@@ -27,7 +29,10 @@ import { useUrlParameterStore } from "@/store/paramStore.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 import { MOBILE_BREAKPOINT } from "@/ui/common/viewConstants.ts";
 
-const props = defineProps<{ modelInfo?: TModelInfo; currentSource: string }>();
+const props = defineProps<{
+  modelInfo?: TModelInfo;
+  currentSource: string;
+}>();
 
 defineEmits<{
   onSnapshot: [options: TSnapshotOptions];
@@ -59,10 +64,6 @@ const {
 
 // Bounds logic state
 const pickedBoundsMode = ref<TBoundModes>(BOUND_MODES.DATA);
-const defaultBounds = ref<TBounds>({});
-// True until the varnameSelector watcher fires for the first time.
-// Used to preserve URL-provided bounds on first load.
-const isInitialVarLoad = ref(true);
 
 // Colormap logic state
 const userHasSelectedColormap = ref<boolean>(false);
@@ -94,17 +95,17 @@ const currentBounds = computed(() => {
   if (pickedBoundsMode.value === BOUND_MODES.DATA) {
     return dataBounds.value;
   } else if (pickedBoundsMode.value === BOUND_MODES.USER) {
-    const lowEmpty =
+    const isLowEmpty =
       userBoundsLow.value === undefined ||
       (userBoundsLow.value as unknown as string) === "";
-    const highEmpty =
+    const isHighEmpty =
       userBoundsHigh.value === undefined ||
       (userBoundsHigh.value as unknown as string) === "";
     const lo = (
-      lowEmpty ? dataBounds.value.low : userBoundsLow.value
+      isLowEmpty ? dataBounds.value.low : userBoundsLow.value
     ) as number;
     const hi = (
-      highEmpty ? dataBounds.value.high : userBoundsHigh.value
+      isHighEmpty ? dataBounds.value.high : userBoundsHigh.value
     ) as number;
     // Always deliver a normalised (non-inverted) range downstream so that
     // nothing breaks when the user types high < low.  The BoundsControls
@@ -149,10 +150,9 @@ watch(
     // default_range config.  On subsequent variable changes we always want to
     // reset to the new variable's defaults.
     const preserveUrlBounds =
-      isInitialVarLoad.value &&
+      store.isNewDataset() &&
       userBoundsLow.value !== undefined &&
       userBoundsHigh.value !== undefined;
-    isInitialVarLoad.value = false;
 
     if (!preserveUrlBounds) {
       store.resetUserBounds();
@@ -177,6 +177,15 @@ watch(
     store.updateBounds(currentBounds.value as TBounds);
   },
   { deep: true }
+);
+
+watch(
+  () => store.newDatasetSignifier,
+  () => {
+    if (store.isNewDataset()) {
+      init();
+    }
+  }
 );
 
 function onPickedBoundsModeChange(newMode: TBoundModes) {
@@ -214,54 +223,25 @@ onBeforeMount(() => {
   });
 });
 
-// INITIALIZATION
-if (paramMaskingUseTexture.value) {
-  if (paramMaskingUseTexture.value === "false") {
-    landSeaMaskUseTexture.value = false;
-  } else if (paramMaskingUseTexture.value === "true") {
-    landSeaMaskUseTexture.value = true;
-  }
-}
-
-if (paramMaskMode.value) {
-  landSeaMaskChoice.value =
-    paramMaskMode.value as typeof landSeaMaskChoice.value;
-}
-
-if (paramProjection.value) {
-  const projection = paramProjection.value as TProjectionType;
-  if (Object.values(PROJECTION_TYPES).includes(projection)) {
-    store.projectionMode = projection;
-  }
-}
-
-if (paramProjectionCenterLat.value || paramProjectionCenterLon.value) {
-  const lat = parseFloat(paramProjectionCenterLat.value ?? "0");
-  const lon = parseFloat(paramProjectionCenterLon.value ?? "0");
-  projectionCenter.value = {
-    lat: clamp(lat, -90, 90),
-    lon: clamp(lon, -180, 180),
-  };
-}
-
-if (paramBoundHigh.value && paramBoundLow.value) {
-  const low = parseFloat(paramBoundLow.value);
-  const high = parseFloat(paramBoundHigh.value);
-  userBoundsLow.value = low;
-  userBoundsHigh.value = high;
-  pickedBoundsMode.value = BOUND_MODES.USER;
-}
-
-// Initialize bounds and colormap when component mounts
-onMounted(() => {
+function init() {
   setDefaultBounds();
   store.updateBounds(currentBounds.value as TBounds);
 
+  // Initialize control panel visibility
+  const initiallyVisible = isMobileView.value
+    ? !mobileMenuCollapsed.value
+    : !menuCollapsed.value;
+  store.setControlPanelVisible(initiallyVisible);
+
+  initFromParams();
+}
+
+// eslint-disable-next-line max-lines-per-function
+function initFromParams() {
   if (paramColormap.value) {
     colormap.value = paramColormap.value;
     userHasSelectedColormap.value = true;
   }
-
   if (paramInvertColormap.value) {
     // explicitely check for string values "true" and "false"
     if (paramInvertColormap.value === "false") {
@@ -270,24 +250,48 @@ onMounted(() => {
       invertColormap.value = true;
     }
   }
-
   if (paramPosterizeLevels.value) {
     const levels = Number(paramPosterizeLevels.value);
     if (!isNaN(levels) && levels >= 0 && levels <= 32) {
       posterizeLevels.value = levels;
     }
   }
-
   if (paramHideLowerBound.value === "true") {
     store.hideLowerBound = true;
   }
-
-  // Initialize control panel visibility
-  const initiallyVisible = isMobileView.value
-    ? !mobileMenuCollapsed.value
-    : !menuCollapsed.value;
-  store.setControlPanelVisible(initiallyVisible);
-});
+  if (paramMaskingUseTexture.value) {
+    if (paramMaskingUseTexture.value === "false") {
+      landSeaMaskUseTexture.value = false;
+    } else if (paramMaskingUseTexture.value === "true") {
+      landSeaMaskUseTexture.value = true;
+    }
+  }
+  if (paramMaskMode.value) {
+    landSeaMaskChoice.value =
+      paramMaskMode.value as typeof landSeaMaskChoice.value;
+  }
+  if (paramProjection.value) {
+    const projection = paramProjection.value as TProjectionType;
+    if (Object.values(PROJECTION_TYPES).includes(projection)) {
+      store.projectionMode = projection;
+    }
+  }
+  if (paramProjectionCenterLat.value || paramProjectionCenterLon.value) {
+    const lat = parseFloat(paramProjectionCenterLat.value ?? "0");
+    const lon = parseFloat(paramProjectionCenterLon.value ?? "0");
+    projectionCenter.value = {
+      lat: clamp(lat, -90, 90),
+      lon: clamp(lon, -180, 180),
+    };
+  }
+  if (paramBoundHigh.value && paramBoundLow.value) {
+    const low = parseFloat(paramBoundLow.value);
+    const high = parseFloat(paramBoundHigh.value);
+    userBoundsLow.value = low;
+    userBoundsHigh.value = high;
+    pickedBoundsMode.value = BOUND_MODES.USER;
+  }
+}
 </script>
 
 <template>
@@ -323,53 +327,50 @@ onMounted(() => {
     </div>
   </div>
 
-  <template v-if="modelInfo">
-    <Transition name="slide">
-      <nav v-show="!isHidden" id="main_controls" class="gl_controls">
-        <div class="full-panel">
-          <div class="box m-2 p-2">
-            <div class="section-title">Variable</div>
-            <VariableSelector
-              v-model="varnameSelector"
-              :model-info="modelInfo"
-            />
-            <DimensionControl />
-          </div>
-          <div class="box m-2 p-2">
-            <div class="section-title">Colormap</div>
-            <BoundsControls
-              :picked-bounds-mode="pickedBoundsMode"
-              :data-bounds="dataBounds"
-              :default-bounds="defaultBounds"
-              :current-bounds="currentBounds"
-              :bound-modes="BOUND_MODES"
-              @update:picked-bounds-mode="
-                onPickedBoundsModeChange($event as TBoundModes)
-              "
-            />
-            <ColormapControls
-              :model-info="modelInfo"
-              :data-bounds="dataBounds"
-              @colormap-user-selected="userHasSelectedColormap = true"
-              @force-user-bounds="pickedBoundsMode = BOUND_MODES.USER"
-            />
-            <div class="section-title mt-2">Projections</div>
-            <ProjectionControls />
-            <div class="section-title">Masks</div>
-            <MaskControls />
-          </div>
-          <div class="box m-2 p-2">
-            <div class="section-title">Actions</div>
-            <ActionControls
-              @on-snapshot="(opts) => $emit('onSnapshot', opts)"
-              @on-rotate="() => $emit('onRotate')"
-              @toggle-display="() => $emit('toggleDisplay')"
-            />
-          </div>
-        </div>
-      </nav>
-    </Transition>
-  </template>
+  <Transition name="slide">
+    <nav v-show="!isHidden && modelInfo" id="main_controls" class="gl_controls">
+      <div class="full-panel">
+        <CollapsibleCard title="Variable">
+          <VariableSelector
+            v-if="modelInfo"
+            v-model="varnameSelector"
+            :model-info="modelInfo"
+          />
+          <DimensionControl />
+        </CollapsibleCard>
+
+        <CollapsibleCard title="Appearance">
+          <div class="section-title">Colormap</div>
+          <BoundsControls
+            :picked-bounds-mode="pickedBoundsMode"
+            :data-bounds="dataBounds"
+            :bound-modes="BOUND_MODES"
+            @update:picked-bounds-mode="
+              onPickedBoundsModeChange($event as TBoundModes)
+            "
+          />
+          <ColormapControls
+            v-if="modelInfo"
+            :model-info="modelInfo"
+            :data-bounds="dataBounds"
+            @colormap-user-selected="userHasSelectedColormap = true"
+            @force-user-bounds="pickedBoundsMode = BOUND_MODES.USER"
+          />
+          <div class="section-title mt-2">Projections</div>
+          <ProjectionControls />
+          <div class="section-title">Masks</div>
+          <MaskControls />
+        </CollapsibleCard>
+        <CollapsibleCard title="Actions">
+          <ActionControls
+            @on-snapshot="(opts) => $emit('onSnapshot', opts)"
+            @on-rotate="() => $emit('onRotate')"
+            @toggle-display="() => $emit('toggleDisplay')"
+          />
+        </CollapsibleCard>
+      </div>
+    </nav>
+  </Transition>
 </template>
 
 <style lang="scss">
@@ -385,16 +386,6 @@ onMounted(() => {
 
 .panel-toggle {
   order: 2;
-}
-
-.section-title {
-  font-weight: 700 !important;
-  text-transform: uppercase !important;
-  font-size: 0.75rem !important;
-  padding-right: 0.5rem !important;
-  padding-left: 0.5rem !important;
-  padding-top: 0.5rem !important;
-  color: var(--bulma-grey) !important;
 }
 
 .header-container {

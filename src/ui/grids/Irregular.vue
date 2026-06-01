@@ -25,11 +25,7 @@ import {
 } from "@/lib/shaders/gridShaders.ts";
 import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
-import {
-  UPDATE_MODE,
-  useGlobeControlStore,
-  type TUpdateMode,
-} from "@/store/store.ts";
+import { useGlobeControlStore } from "@/store/store.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -355,8 +351,7 @@ function updateHoverLookup(
 }
 
 async function buildDimensionConfig(
-  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
-  updateMode: TUpdateMode
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
   const { latitudes, longitudes, latitudesAttrs, longitudesAttrs } =
     await getLatLonData(datavar, props.datasources);
@@ -377,18 +372,16 @@ async function buildDimensionConfig(
     paramDimMaxBounds.value,
     dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
     geoDims,
-    varinfo.value?.dimRanges,
-    updateMode === UPDATE_MODE.SLIDER_TOGGLE
+    varinfo.value?.dimRanges
   );
   return { latitudes, longitudes, dimensionRanges, indices };
 }
 
 async function fetchAndRenderData(
-  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
-  updateMode: TUpdateMode
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
   const { latitudes, longitudes, dimensionRanges, indices } =
-    await buildDimensionConfig(datavar, updateMode);
+    await buildDimensionConfig(datavar);
 
   const rawData = castDataVarToFloat32(
     (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
@@ -413,8 +406,7 @@ async function fetchAndRenderData(
       bounds: { low: min, high: max },
       dimRanges: dimensionRanges,
     },
-    indices as number[],
-    updateMode
+    indices as number[]
   );
 }
 

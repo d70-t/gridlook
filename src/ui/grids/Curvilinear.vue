@@ -27,7 +27,7 @@ import {
 import { makeInvertableGpuMeshMaterial } from "@/lib/shaders/gridShaders.ts";
 import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
-import { useGlobeControlStore, type TUpdateMode } from "@/store/store.ts";
+import { useGlobeControlStore } from "@/store/store.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -219,6 +219,17 @@ function getNextColumnIndex(
   return (i + 1) % ni;
 }
 
+function getPreviousColumnIndex(
+  i: number,
+  ni: number,
+  flipLongitude: boolean
+): number {
+  if (flipLongitude) {
+    return (i + 1) % ni;
+  }
+  return i === 0 ? ni - 1 : i - 1;
+}
+
 // Calculate the four corner indices for a grid cell
 function getCellCornerIndices(
   j: number,
@@ -235,25 +246,92 @@ function getCellCornerIndices(
   };
 }
 
-// Extract corner coordinates for a cell
-function extractCellCorners(
-  indices: { idx00: number; idx01: number; idx10: number; idx11: number },
+function mirrorBoundaryPoint(
+  center: { lat: number; lon: number },
+  innerBoundary: { lat: number; lon: number }
+) {
+  const longitudeOffset = ((innerBoundary.lon - center.lon + 540) % 360) - 180;
+
+  return {
+    lat: 2 * center.lat - innerBoundary.lat,
+    lon: center.lon - longitudeOffset,
+  };
+}
+
+function getBoundaryPoint(
+  row: number,
+  fromColumn: number,
+  toColumn: number,
+  ni: number,
   latitudes: Float64Array,
   longitudes: Float64Array
 ) {
-  const { idx00, idx01, idx11, idx10 } = indices;
+  return getCellCenter(
+    latitudes,
+    longitudes,
+    row * ni + fromColumn,
+    row * ni + toColumn,
+    (row + 1) * ni + fromColumn,
+    (row + 1) * ni + toColumn
+  );
+}
+
+function getRowMidpoint(
+  row: number,
+  fromColumn: number,
+  toColumn: number,
+  ni: number,
+  latitudes: Float64Array,
+  longitudes: Float64Array
+) {
+  return getCellCenter(
+    latitudes,
+    longitudes,
+    row * ni + fromColumn,
+    row * ni + toColumn,
+    row * ni + fromColumn,
+    row * ni + toColumn
+  );
+}
+
+// Derive shared midpoint boundaries around the cell's source coordinate.
+function getCenteredCellCorners(
+  j: number,
+  i: number,
+  ni: number,
+  flipLongitude: boolean,
+  latitudes: Float64Array,
+  longitudes: Float64Array
+) {
+  const iPrevious = getPreviousColumnIndex(i, ni, flipLongitude);
+  const iNext = getNextColumnIndex(i, ni, flipLongitude);
+  const boundary = (row: number, fromColumn: number, toColumn: number) =>
+    getBoundaryPoint(row, fromColumn, toColumn, ni, latitudes, longitudes);
+  const midpoint = (fromColumn: number, toColumn: number) =>
+    getRowMidpoint(j, fromColumn, toColumn, ni, latitudes, longitudes);
+  const forwardPrevious = boundary(j, iPrevious, i);
+  const forwardNext = boundary(j, i, iNext);
+  const backwardPrevious =
+    j === 0
+      ? mirrorBoundaryPoint(midpoint(iPrevious, i), forwardPrevious)
+      : boundary(j - 1, iPrevious, i);
+  const backwardNext =
+    j === 0
+      ? mirrorBoundaryPoint(midpoint(i, iNext), forwardNext)
+      : boundary(j - 1, i, iNext);
+
   return {
     latPoints: [
-      latitudes[idx00],
-      latitudes[idx01],
-      latitudes[idx11],
-      latitudes[idx10],
+      backwardPrevious.lat,
+      backwardNext.lat,
+      forwardNext.lat,
+      forwardPrevious.lat,
     ],
     lonPoints: [
-      longitudes[idx00],
-      longitudes[idx01],
-      longitudes[idx11],
-      longitudes[idx10],
+      backwardPrevious.lon,
+      backwardNext.lon,
+      forwardNext.lon,
+      forwardPrevious.lon,
     ],
   };
 }
@@ -397,14 +475,12 @@ function buildBatchGeometryData(
 
   for (let j = jStart; j < jEnd; j++) {
     for (let i = 0; i < ni; i++) {
-      const { idx00, idx01, idx10, idx11 } = getCellCornerIndices(
+      const { idx00 } = getCellCornerIndices(j, i, ni, flipLongitude);
+      const { latPoints, lonPoints } = getCenteredCellCorners(
         j,
         i,
         ni,
-        flipLongitude
-      );
-      const { latPoints, lonPoints } = extractCellCorners(
-        { idx00, idx01, idx10, idx11 },
+        flipLongitude,
         latitudes,
         longitudes
       );
@@ -532,25 +608,11 @@ function buildCurvilinearHoverSamples(
 
   for (let j = 0; j < nj - 1; j++) {
     for (let i = 0; i < ni; i++) {
-      const { idx00, idx01, idx10, idx11 } = getCellCornerIndices(
-        j,
-        i,
-        ni,
-        flipLongitude
-      );
-      // Keep hover sampling colocated with rendered quads by using a cell center.
-      const { lat, lon } = getCellCenter(
-        latitudes,
-        longitudes,
-        idx00,
-        idx01,
-        idx10,
-        idx11
-      );
+      const { idx00 } = getCellCornerIndices(j, i, ni, flipLongitude);
 
       samples.push({
-        lat,
-        lon,
+        lat: latitudes[idx00],
+        lon: longitudes[idx00],
         value: rawData[idx00],
       });
     }
@@ -606,8 +668,7 @@ async function renderGridAndHover(
 }
 
 async function fetchAndRenderData(
-  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
-  updateMode: TUpdateMode
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
   const dimensionNames = await ZarrDataManager.getDimensionNames(
     props.datasources!,
@@ -621,8 +682,7 @@ async function fetchAndRenderData(
     paramDimMaxBounds.value,
     dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
     [datavar.shape.length - 2, datavar.shape.length - 1],
-    varinfo.value?.dimRanges,
-    false
+    varinfo.value?.dimRanges
   );
 
   const rawData = castDataVarToFloat32(
@@ -646,8 +706,7 @@ async function fetchAndRenderData(
       bounds: { low: min, high: max },
       dimRanges: dimensionRanges,
     },
-    indices as number[],
-    updateMode
+    indices as number[]
   );
 
   redraw();

@@ -3,6 +3,8 @@ import { computed } from "vue";
 
 import type { TInfoDimension } from "./types.ts";
 
+import { ZARR_FORMAT } from "@/lib/types/GlobeTypes.ts";
+
 const props = defineProps<{
   dimensions: TInfoDimension[];
   variableDtype: string | null;
@@ -59,7 +61,13 @@ const estimatedSizeMB = computed(() => {
           <tbody>
             <tr v-if="zarrFormat">
               <td><strong>Zarr format version</strong></td>
-              <td>{{ zarrFormat }}</td>
+              <td>
+                {{
+                  zarrFormat === ZARR_FORMAT.ICECHUNK
+                    ? "3 (icechunk)"
+                    : zarrFormat
+                }}
+              </td>
             </tr>
 
             <tr>

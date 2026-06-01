@@ -161,7 +161,22 @@ function createIndex(
   };
 }
 
+export async function indexFromIcechunk(src: string): Promise<TSources> {
+  const store = await ZarrDataManager.createListableIcechunkStore(src);
+  const root = await zarr.open.v3(store, { kind: "group" });
+  const datasources = await processZarrVariables(store, root, src);
+  return createIndex(
+    root.attrs?.title as string,
+    datasources,
+    src,
+    ZARR_FORMAT.ICECHUNK
+  );
+}
+
 export async function indexFromZarr(src: string): Promise<TSources> {
+  if (ZarrDataManager.isIcechunkStorePath(src)) {
+    return indexFromIcechunk(src);
+  }
   try {
     const store = await zarr.withConsolidatedMetadata(
       await ZarrDataManager.createNewStore(src),
@@ -176,18 +191,25 @@ export async function indexFromZarr(src: string): Promise<TSources> {
       ZARR_FORMAT.V2
     );
   } catch {
-    const store = await zarr.withConsolidatedMetadata(
-      await ZarrDataManager.createNewStore(src),
-      { format: "v3" }
-    );
-    const root = await zarr.open(store, { kind: "group" });
-    const datasources = await processZarrVariables(store, root, src);
-    return createIndex(
-      root.attrs?.title as string,
-      datasources,
-      src,
-      ZARR_FORMAT.V3
-    );
+    try {
+      const store = await zarr.withConsolidatedMetadata(
+        await ZarrDataManager.createNewStore(src),
+        { format: "v3" }
+      );
+      const root = await zarr.open(store, { kind: "group" });
+      const datasources = await processZarrVariables(store, root, src);
+      return createIndex(
+        root.attrs?.title as string,
+        datasources,
+        src,
+        ZARR_FORMAT.V3
+      );
+    } catch {
+      // Some icechunk datasets do not use `.icechunk` suffix, so we try to detect
+      // and read them with the icechunk reader as a fallback before giving up and
+      // trying the JSON index.
+      return indexFromIcechunk(src);
+    }
   }
 }
 

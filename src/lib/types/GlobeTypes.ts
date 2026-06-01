@@ -6,6 +6,7 @@ import type { TColorMap } from "@/lib/shaders/colormapShaders.ts";
 export const ZARR_FORMAT = {
   V2: 2,
   V3: 3,
+  ICECHUNK: -1, // Not a standard Zarr format, but used internally to indicate icechunk stores
 } as const;
 
 export type TZarrFormat = (typeof ZARR_FORMAT)[keyof typeof ZARR_FORMAT];

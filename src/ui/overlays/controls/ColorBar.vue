@@ -11,11 +11,7 @@ import {
   nextTick,
 } from "vue";
 
-import {
-  formatValue,
-  computeBinTooltip,
-  type BinTooltip,
-} from "./colorbarUtils.ts";
+import { computeBinTooltip, type BinTooltip } from "./colorbarUtils.ts";
 
 import {
   availableColormaps,
@@ -25,6 +21,7 @@ import { makeCompressedColormapLutMaterial } from "@/lib/shaders/gridShaders.ts"
 import { useGlobeControlStore } from "@/store/store.ts";
 import RangeSlider from "@/ui/common/RangeSlider.vue";
 import DistributionPlot from "@/ui/overlays/controls/DistributionPlot.vue";
+import { formatValue } from "@/utils/formatValue.ts";
 
 const props = withDefaults(
   defineProps<{
@@ -254,7 +251,7 @@ const hoveredValueLabel = computed(() => {
   if (!point) {
     return null;
   }
-  return point.value === null ? "No data" : point.value.toFixed(5);
+  return point.value === null ? "No data" : formatValue(point.value);
 });
 
 const hoveredMarkerStyle = computed(() => {

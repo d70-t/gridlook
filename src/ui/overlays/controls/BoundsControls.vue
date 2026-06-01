@@ -8,11 +8,6 @@ import { useGlobeControlStore } from "@/store/store.ts";
 const props = defineProps<{
   pickedBoundsMode: string;
   dataBounds: TBounds;
-  defaultBounds: TBounds;
-  currentBounds:
-    | TBounds
-    | { low: number | undefined; high: number | undefined }
-    | undefined;
   boundModes: Record<string, string>;
 }>();
 

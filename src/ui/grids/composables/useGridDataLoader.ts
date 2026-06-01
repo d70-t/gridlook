@@ -2,11 +2,7 @@ import { ref, watch, type Ref } from "vue";
 import type * as zarr from "zarrita";
 
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
-import {
-  UPDATE_MODE,
-  useGlobeControlStore,
-  type TUpdateMode,
-} from "@/store/store.ts";
+import { useGlobeControlStore } from "@/store/store.ts";
 import { useLog } from "@/utils/logging.ts";
 
 type TDataVar = zarr.Array<zarr.DataType, zarr.AsyncReadable>;
@@ -24,10 +20,7 @@ type TGridDataLoaderOptions = {
     varname: string,
     datasources: TSources
   ) => Promise<TDataVar | undefined>;
-  fetchAndRenderData: (
-    datavar: TDataVar,
-    updateMode: TUpdateMode
-  ) => Promise<void>;
+  fetchAndRenderData: (datavar: TDataVar) => Promise<void>;
   clearHoverLookup: () => void;
   updateLandSeaMask: () => void | Promise<void>;
   updateColormap: () => void;
@@ -43,9 +36,7 @@ function createGetData(
   state: TLoaderState,
   logError: TLogError
 ) {
-  return async function getData(
-    updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD
-  ) {
+  return async function getData() {
     const datasources = options.getDatasources();
     if (!datasources) {
       return;
@@ -66,7 +57,7 @@ function createGetData(
           datasources
         );
         if (datavar !== undefined) {
-          await options.fetchAndRenderData(datavar, updateMode);
+          await options.fetchAndRenderData(datavar);
         }
       } while (state.pendingUpdate.value);
     } catch (error) {
@@ -80,7 +71,7 @@ function createGetData(
 
 function createDatasourceUpdate(
   options: TGridDataLoaderOptions,
-  getData: (updateMode?: TUpdateMode) => Promise<void>
+  getData: () => Promise<void>
 ) {
   return async function datasourceUpdate() {
     options.resetDataVars?.();
@@ -100,7 +91,7 @@ function createDatasourceUpdate(
 function registerGridDataLoaderWatches(
   options: TGridDataLoaderOptions,
   store: TGlobeControlStore,
-  getData: (updateMode?: TUpdateMode) => Promise<void>,
+  getData: () => Promise<void>,
   datasourceUpdate: () => Promise<void>
 ) {
   watch(
@@ -115,10 +106,12 @@ function registerGridDataLoaderWatches(
     () => store.dimSlidersValues,
     async () => {
       if (store.isInitializingVariable) {
+        // when variable changes, we fetch data in the varnameSelector watcher,
+        // and we don't want to fetch data twice
         store.isInitializingVariable = false;
         return;
       }
-      await getData(UPDATE_MODE.SLIDER_TOGGLE);
+      await getData();
       options.updateColormap();
     },
     { deep: true }
