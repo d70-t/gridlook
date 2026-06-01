@@ -23,7 +23,7 @@ function toggleTexture() {
   <div class="column">
     <div class="grid">
       <div class="cell control has-icons-left">
-        <div class="select">
+        <div class="select w-100">
           <select id="land_sea_mask" v-model="landSeaMaskChoice" class="w-100">
             <option value="off">Mask: Off</option>
             <option value="land">Land</option>
