@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { onUnmounted, ref } from "vue";
+import { ref } from "vue";
 
 const props = withDefaults(
   defineProps<{
@@ -11,9 +11,6 @@ const props = withDefaults(
 );
 
 const isCollapsed = ref(false);
-onUnmounted(() => {
-  console.log("UNMOUnT");
-});
 </script>
 
 <template>

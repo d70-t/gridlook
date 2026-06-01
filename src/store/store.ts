@@ -125,12 +125,6 @@ export const useGlobeControlStore = defineStore("globeControl", {
       const sliderValuesChanged =
         indices.length !== this.dimSlidersValues.length ||
         indices.some((index, i) => index !== this.dimSlidersValues[i]);
-      console.log(
-        "updateVarInfo",
-        this.dimSlidersValues,
-        indices,
-        sliderValuesChanged
-      );
       if (sliderValuesChanged) {
         this.isInitializingVariable = true;
         this.dimSlidersValues = indices;
