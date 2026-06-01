@@ -91,9 +91,3 @@ function toggleTexture() {
     </div>
   </div>
 </template>
-
-<style lang="scss" scoped>
-.gap {
-  gap: 0.5em;
-}
-</style>
