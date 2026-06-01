@@ -2,10 +2,11 @@ import { IcechunkStore } from "icechunk-js";
 import QuickLRU from "quick-lru";
 import * as zarr from "zarrita";
 
-import type {
-  TDataSource,
-  TSources,
-  TZarrFormat,
+import {
+  ZARR_FORMAT,
+  type TDataSource,
+  type TSources,
+  type TZarrFormat,
 } from "@/lib/types/GlobeTypes.ts";
 
 export type TZarrDatasetMetadata = {
@@ -62,9 +63,9 @@ export class ZarrDataManager {
     return Object.assign(store, { contents: () => contents });
   }
 
-  public static async createNewStore(storePath: string) {
+  public static async createNewStore(storePath: string, isIcechunk = false) {
     let store: zarr.AsyncReadable | undefined = undefined;
-    if (this.isIcechunkStorePath(storePath)) {
+    if (isIcechunk || this.isIcechunkStorePath(storePath)) {
       store = await this.createIcechunkStore(storePath);
     } else {
       store = new zarr.FetchStore(storePath, { useSuffixRequest: true });
@@ -88,7 +89,10 @@ export class ZarrDataManager {
     const storePath = this.normalizeStorePath(datasource.store);
     if (!this.pendingStore || this.fetchStorePath !== storePath) {
       this.fetchStorePath = storePath;
-      this.pendingStore = this.createNewStore(storePath)
+      this.pendingStore = this.createNewStore(
+        storePath,
+        format === ZARR_FORMAT.ICECHUNK
+      )
         .then((s) => zarr.root(s))
         .catch((e) => {
           // Clear the cache on failure so callers can retry.
@@ -103,9 +107,9 @@ export class ZarrDataManager {
     const datasetPath = this.normalizeDatasetPath(datasource.dataset);
     const target = datasetPath ? root.resolve(datasetPath) : root;
     let dataset: zarr.Group<zarr.AsyncReadable>;
-    if (format === 2) {
+    if (format === ZARR_FORMAT.V2) {
       dataset = await zarr.open.v2(target, { kind: "group" });
-    } else if (format === 3) {
+    } else if (format === ZARR_FORMAT.V3) {
       dataset = await zarr.open.v3(target, { kind: "group" });
     } else {
       dataset = await zarr.open(target, { kind: "group" });
@@ -119,9 +123,9 @@ export class ZarrDataManager {
     format?: TZarrFormat
   ): Promise<zarr.Array<zarr.DataType, zarr.AsyncReadable>> {
     const fetchPromise = (async () => {
-      if (format === 2) {
+      if (format === ZARR_FORMAT.V2) {
         return await zarr.open.v2(store.resolve(variable), { kind: "array" });
-      } else if (format === 3) {
+      } else if (format === ZARR_FORMAT.V3) {
         return await zarr.open.v3(store.resolve(variable), { kind: "array" });
       }
       return await zarr.open(store.resolve(variable), {
