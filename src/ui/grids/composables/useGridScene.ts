@@ -77,6 +77,8 @@ export function useGridScene(options: UseGridSceneOptions) {
   const raycaster = new THREE.Raycaster();
   const hoveredGeoPoint = shallowRef<THoverGeoPoint | null>(null);
   let lastPointerPosition: { clientX: number; clientY: number } | null = null;
+  let touchPickStart: { clientX: number; clientY: number } | null = null;
+  let touchPickMoved = false;
 
   let projectionDragActive = false;
   let dragStartX = 0;
@@ -100,6 +102,7 @@ export function useGridScene(options: UseGridSceneOptions) {
   const FLAT_CROP_RENDER_ORDER = 5;
   const FLAT_CROP_Z_OFFSET = 0.06;
   const FLAT_BOUNDARY_STEP_DEGREES = 0.25;
+  const TOUCH_PICK_TAP_MAX_DISTANCE_PX = 10;
   let targetOffset = 0;
   let isInitialLoad = true;
   let isInMotion = false;
@@ -889,22 +892,70 @@ export function useGridScene(options: UseGridSceneOptions) {
     animationLoop();
   }
 
+  function updateHoverPosition(clientX: number, clientY: number) {
+    if (!isHoverActive()) {
+      return;
+    }
+    lastPointerPosition = { clientX, clientY };
+    refreshHover();
+  }
+
+  function onTouchPickStart(event: TouchEvent) {
+    const touch = event.touches[0];
+    touchPickStart =
+      event.touches.length === 1 && touch
+        ? { clientX: touch.clientX, clientY: touch.clientY }
+        : null;
+    touchPickMoved = false;
+  }
+
+  function onTouchPickMove(event: TouchEvent) {
+    const touch = event.touches[0];
+    if (!touchPickStart || !touch) {
+      return;
+    }
+    const deltaX = touch.clientX - touchPickStart.clientX;
+    const deltaY = touch.clientY - touchPickStart.clientY;
+    if (
+      deltaX * deltaX + deltaY * deltaY >
+      TOUCH_PICK_TAP_MAX_DISTANCE_PX * TOUCH_PICK_TAP_MAX_DISTANCE_PX
+    ) {
+      touchPickMoved = true;
+    }
+  }
+
+  function onTouchPickEnd(event: TouchEvent) {
+    const touch = event.changedTouches[0];
+    if (!touchPickStart || touchPickMoved || !touch) {
+      touchPickStart = null;
+      return;
+    }
+    updateHoverPosition(touch.clientX, touch.clientY);
+    touchPickStart = null;
+  }
+
   function setupHoverListeners() {
     useEventListener(
       canvas.value,
       "mousemove",
       (event: MouseEvent) => {
-        if (!isHoverActive()) {
-          return;
-        }
-        lastPointerPosition = {
-          clientX: event.clientX,
-          clientY: event.clientY,
-        };
-        refreshHover();
+        updateHoverPosition(event.clientX, event.clientY);
       },
       { passive: true }
     );
+
+    useEventListener(canvas.value, "touchstart", onTouchPickStart, {
+      passive: true,
+    });
+    useEventListener(canvas.value, "touchmove", onTouchPickMove, {
+      passive: true,
+    });
+    useEventListener(canvas.value, "touchend", onTouchPickEnd, {
+      passive: true,
+    });
+    useEventListener(canvas.value, "touchcancel", () => {
+      touchPickStart = null;
+    });
 
     useEventListener(
       canvas.value,
