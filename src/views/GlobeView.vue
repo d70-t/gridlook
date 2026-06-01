@@ -45,6 +45,7 @@ import GridIrregularDelaunay from "@/ui/grids/IrregularDelaunay.vue";
 import GridRegular from "@/ui/grids/Regular.vue";
 import GridTriangular from "@/ui/grids/Triangular.vue";
 import AboutView from "@/ui/overlays/AboutModal.vue";
+import { toggleTimeAnimation } from "@/ui/overlays/controls/useTimeAnimation.ts";
 import GlobeControls from "@/ui/overlays/Controls.vue";
 import HoverReadout from "@/ui/overlays/HoverReadout.vue";
 import InfoPanel from "@/ui/overlays/InfoPanel.vue";
@@ -390,6 +391,9 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
     return;
   }
   const key = e.key.toLowerCase();
+  if (key === " " && tag === "button") {
+    return;
+  }
   if (key === "r") {
     toggleRotate();
   } else if (key === "d") {
@@ -398,6 +402,9 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
     applyHyperglobePreset();
   } else if (key === "h" && !isMobileDevice()) {
     applyHyperglobePresenter();
+  } else if (key === " ") {
+    e.preventDefault();
+    toggleTimeAnimation();
   }
 });
 </script>

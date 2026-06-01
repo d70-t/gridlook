@@ -4,12 +4,16 @@ import { storeToRefs } from "pinia";
 import { computed, ref, watch } from "vue";
 
 import DatetimePicker from "./DatetimePicker.vue";
+import { useTimeAnimation } from "./useTimeAnimation.ts";
 
 import { decodeTime, isTimeUnits } from "@/lib/data/timeHandling.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 
 const store = useGlobeControlStore();
 const { varinfo, dimSlidersValues } = storeToRefs(store);
+
+const { isPlaying, canAnimate, toggle, cycleSpeed, speedLabel } =
+  useTimeAnimation();
 
 // Local copies for debounced updates (excluding time dimension)
 const localSliders = ref<(number | null)[]>([]);
@@ -158,6 +162,34 @@ function capitalize(str: string): string {
           :min="range.minBound"
           :max="range.maxBound"
         />
+
+        <div
+          v-if="isTimeDimension(index) && canAnimate"
+          class="is-flex is-align-items-center mt-2"
+          style="gap: 0.5rem"
+        >
+          <button
+            class="button is-small"
+            :class="{ 'is-info': isPlaying }"
+            type="button"
+            :title="
+              isPlaying ? 'Pause animation (Space)' : 'Play animation (Space)'
+            "
+            @click="toggle"
+          >
+            <span class="icon">
+              <i :class="isPlaying ? 'fas fa-pause' : 'fas fa-play'"></i>
+            </span>
+          </button>
+          <button
+            class="button is-small"
+            type="button"
+            title="Playback speed"
+            @click="cycleSpeed"
+          >
+            {{ speedLabel }}
+          </button>
+        </div>
 
         <div class="w-100 is-flex is-justify-content-space-between">
           <div>Current value</div>
