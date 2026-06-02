@@ -10,7 +10,7 @@
 * **ui:** add auto-contrast button to colormap ([0aa9225](https://github.com/d70-t/gridlook/commit/0aa9225479861900fff4a65c0ab9c7aea7dd73f5))
 * **ui:** added play-button for time dimension ([a8b4cab](https://github.com/d70-t/gridlook/commit/a8b4cabb82d4fe7a8560d4f0c08e315a2a84fec7))
 * **ui:** added QR-Codes to the about-pages for easy mobile access ([ea8208a](https://github.com/d70-t/gridlook/commit/ea8208ae45626a4b54478ec4edf8a7a09d996555))
-* **ui:** HoverReadout follows cursor and shows color ([4787ee6](https://github.com/d70-t/gridlook/commit/4787ee64939d2f90e3497924701fa6c81ef2c022))
+* **ui:** data picker follows cursor and shows color ([4787ee6](https://github.com/d70-t/gridlook/commit/4787ee64939d2f90e3497924701fa6c81ef2c022))
 * **ui:** made control sections collapsible ([86a0ab3](https://github.com/d70-t/gridlook/commit/86a0ab39b9b862529b430c3ef1f8d5a756d60975))
 
 
@@ -18,19 +18,18 @@
 
 * **lib:** Center-Based Alignment for Curvilinear Grids ([0a00e2f](https://github.com/d70-t/gridlook/commit/0a00e2f204a845febf3894e00c14d9744abd00c0))
 * **lib:** fixed choppy edges on flat projections for still images ([3c93a4c](https://github.com/d70-t/gridlook/commit/3c93a4cbe88d12a8be53c5db51685d5283f464e1))
-* **lib:** fixed choppy edges on flat projections for still images ([d4d438e](https://github.com/d70-t/gridlook/commit/d4d438e434f7584349fbd0f2575c8d549ea75593))
 * **lib:** fixed disappearing Healpix-Globe when zooming out ([8ed27ca](https://github.com/d70-t/gridlook/commit/8ed27caddd52c14f2ab7ee4d6b5c714754515739))
 * **lib:** fixed several healpix glitches ([0d3b957](https://github.com/d70-t/gridlook/commit/0d3b9574489a6a49e4f73555d309332786500abc))
 * **lib:** improved snapshot-functionality ([7f9c3f3](https://github.com/d70-t/gridlook/commit/7f9c3f38f247d7555e1eb614a75fb4e842001b4b))
-* **ui:** 2D hover readout works on touch devices now ([c6ed6f3](https://github.com/d70-t/gridlook/commit/c6ed6f3b8017751ba05d9007e5af09111b571982))
+* **lib:** much faster regular grid ([251be1b](https://github.com/d70-t/gridlook/commit/251be1b3d7e90c7a4491c6704719e4e74137c263))
+* **ui:** data picker works for 2D-projections on touch devices now ([c6ed6f3](https://github.com/d70-t/gridlook/commit/c6ed6f3b8017751ba05d9007e5af09111b571982))
 * **ui:** better naming ([95c07c8](https://github.com/d70-t/gridlook/commit/95c07c82b6bb3e7d491ef97609ffad0135f56230))
 * **ui:** better recognition of time dimension ([e52eb26](https://github.com/d70-t/gridlook/commit/e52eb263f576168337ddadb05a24ecc2dfa5c6c6))
-* **ui:** consistent use of formatValue for colorbar and hover readout ([9f4d810](https://github.com/d70-t/gridlook/commit/9f4d8104df4b22fcf8ad7d483b13b2f9a7697764))
+* **ui:** data picker shows very low values correctly now ([9f4d810](https://github.com/d70-t/gridlook/commit/9f4d8104df4b22fcf8ad7d483b13b2f9a7697764))
 * **ui:** Dataset info no longer executes unnecessary var-lookups, when consolidated metadata exists ([d3606b7](https://github.com/d70-t/gridlook/commit/d3606b73f58d1f312b722cce1c63ccd5c4b4589d))
 * **ui:** invert is no longer enabled by default ([eaa9b57](https://github.com/d70-t/gridlook/commit/eaa9b571fbb6a72e2f76b12a244a470a14a82931))
-* **ui:** less renders during zoom ([97fe8de](https://github.com/d70-t/gridlook/commit/97fe8de9e0abbfcb9fbd9e4d5836bbc457386833))
 * **ui:** prevent globe from disappearing when zooming out after switching projections ([c2e95b9](https://github.com/d70-t/gridlook/commit/c2e95b9904430696515afaa62c07a859930ea85d))
-* **ui:** replaced PrimeVue-Datepicker by vue-datepicker ([e22c127](https://github.com/d70-t/gridlook/commit/e22c1279c4ea4df397d502649ade3b19a7cce0a1))
+* **ui:** Fixed date-picker issues by replacing PrimeVue-Datepicker by vue-datepicker ([e22c127](https://github.com/d70-t/gridlook/commit/e22c1279c4ea4df397d502649ade3b19a7cce0a1))
 
 ## 1.0.0 (2026-04-30)
 
