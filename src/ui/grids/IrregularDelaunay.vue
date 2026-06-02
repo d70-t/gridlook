@@ -16,14 +16,14 @@ import {
 } from "./composables/useProjectionEdgeQuality.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
+import { getLatLonData } from "@/lib/data/coordinateVariables.ts";
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
 import { reconcileCoordinates } from "@/lib/data/irregularGridHelpers.ts";
-import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   castDataVarToFloat32,
-  getDataBoundsAndMapMissingToNaN,
-  getLatLonData,
-} from "@/lib/data/zarrUtils.ts";
+  decodeVariableDataAndGetBounds,
+} from "@/lib/data/variableDecoding.ts";
+import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   PROJECTION_TYPES,
   ProjectionHelper,
@@ -666,7 +666,7 @@ async function fetchAndRenderData(
     (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
   );
 
-  const { min, max, fillValue, missingValue } = getDataBoundsAndMapMissingToNaN(
+  const { min, max, fillValue, missingValue } = decodeVariableDataAndGetBounds(
     datavar,
     rawData
   );

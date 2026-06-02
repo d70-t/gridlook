@@ -16,11 +16,11 @@ import {
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
-import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   castDataVarToFloat32,
-  getDataBoundsAndMapMissingToNaN,
-} from "@/lib/data/zarrUtils.ts";
+  decodeVariableDataAndGetBounds,
+} from "@/lib/data/variableDecoding.ts";
+import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import { makeInvertableGpuMeshMaterial } from "@/lib/shaders/gridShaders.ts";
 import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
@@ -292,7 +292,7 @@ function data2valueBuffer(
   const ncells = awaitedData.shape[0];
   const plotdata = castDataVarToFloat32(awaitedData.data);
 
-  const { min, max, missingValue, fillValue } = getDataBoundsAndMapMissingToNaN(
+  const { min, max, missingValue, fillValue } = decodeVariableDataAndGetBounds(
     datavar,
     plotdata
   );

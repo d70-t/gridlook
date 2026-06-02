@@ -3,15 +3,21 @@ import type * as THREE from "three";
 import { computed, ref, watch } from "vue";
 
 import { useGridCameraState } from "./useGridCameraState.ts";
-import { useGridDataAccess } from "./useGridDataAccess.ts";
 import { useGridHistogram } from "./useGridHistogram.ts";
 import { useGridOverlays } from "./useGridOverlays.ts";
 import { useGridScene } from "./useGridScene.ts";
 
+import { fetchDimensionDetails } from "@/lib/data/dimensionData.ts";
+import {
+  fetchDataVariable,
+  getVariableDatasource,
+} from "@/lib/data/variableData.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import { availableColormaps } from "@/lib/shaders/colormapShaders.ts";
 import { getColormapScaleOffset } from "@/lib/shaders/gridShaders.ts";
+import type { TSources } from "@/lib/types/GlobeTypes.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
+import { useLog } from "@/utils/logging.ts";
 
 type TVoidFunction = () => void;
 type TAsyncVoidFunction = () => Promise<void>;
@@ -19,6 +25,7 @@ type TAsyncVoidFunction = () => Promise<void>;
 /* eslint-disable-next-line max-lines-per-function */
 export function useSharedGridLogic() {
   const store = useGlobeControlStore();
+  const { logError } = useLog();
   const {
     showCoastLines,
     showGraticules,
@@ -196,8 +203,23 @@ export function useSharedGridLogic() {
     }
   );
 
+  async function getDataVar(myVarname: string, datasources: TSources) {
+    const myDatasource = getVariableDatasource(datasources, myVarname);
+    if (!myDatasource) {
+      return undefined;
+    }
+    try {
+      return await fetchDataVariable(myVarname, datasources);
+    } catch (error) {
+      logError(
+        error,
+        `Couldn't fetch variable ${myVarname} from store: ${myDatasource.store} and dataset: ${myDatasource.dataset}`
+      );
+      return undefined;
+    }
+  }
+
   const { updateHistogram } = useGridHistogram();
-  const { getDataVar, fetchDimensionDetails } = useGridDataAccess();
 
   return {
     getScene,

@@ -1,7 +1,11 @@
 import * as zarr from "zarrita";
 
+import {
+  getLatLonData,
+  isLatitudeName,
+  isLongitudeName,
+} from "./coordinateVariables.ts";
 import { ZarrDataManager } from "./ZarrDataManager.ts";
-import { getLatLonData, isLatitudeName, isLongitudeName } from "./zarrUtils.ts";
 
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
 
@@ -79,6 +83,12 @@ function checkCurvilinear(
 }
 
 function checkGaussianGrid(latitudes: Float64Array, longitudes: Float64Array) {
+  // Quick O(1) check: a Gaussian-reduced grid stores all cells for a given
+  // latitude row consecutively, so the first two entries share the same lat.
+  // If they differ, this is definitely not a Gaussian-reduced grid.
+  if (latitudes.length < 2 || latitudes[0] !== latitudes[1]) {
+    return false;
+  }
   const uniqueLatsNum = new Set(latitudes).size;
   const uniqueLonsNum = new Set(longitudes).size;
 
@@ -113,6 +123,11 @@ async function determineGridTypeFromCRS(
     }
     if (checkRegularRotatedGrid(crs)) {
       return GRID_TYPES.REGULAR_ROTATED;
+    }
+    // Polar stereographic datasets are routed to CURVILINEAR so that
+    // computePolarStereoLatLon2D can produce proper 2-D lat/lon arrays.
+    if (crs.attrs?.grid_mapping_name === "polar_stereographic") {
+      return GRID_TYPES.CURVILINEAR;
     }
   } catch {
     // CRS check failed, return null to continue with other checks

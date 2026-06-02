@@ -16,13 +16,13 @@ import {
 } from "./composables/useProjectionEdgeQuality.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
+import { getLatLonData } from "@/lib/data/coordinateVariables.ts";
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
-import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   castDataVarToFloat32,
-  getDataBoundsAndMapMissingToNaN,
-  getLatLonData,
-} from "@/lib/data/zarrUtils.ts";
+  decodeVariableDataAndGetBounds,
+} from "@/lib/data/variableDecoding.ts";
+import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import { makeInvertableGpuMeshMaterial } from "@/lib/shaders/gridShaders.ts";
 import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
@@ -399,7 +399,7 @@ async function fetchAndRenderData(
   const latitudesData = latitudes.data as Float64Array;
   const longitudesData = longitudes!.data as Float64Array;
 
-  const { min, max, missingValue, fillValue } = getDataBoundsAndMapMissingToNaN(
+  const { min, max, missingValue, fillValue } = decodeVariableDataAndGetBounds(
     datavar,
     rawData
   );

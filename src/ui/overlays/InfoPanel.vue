@@ -21,14 +21,11 @@ import type {
   TTimeInfo,
 } from "./infoPanel/types.ts";
 
+import { getLatLonData } from "@/lib/data/coordinateVariables.ts";
 import { GRID_TYPES, type T_GRID_TYPES } from "@/lib/data/gridTypeDetector.ts";
 import { decodeTime } from "@/lib/data/timeHandling.ts";
+import { getMissingValue, getFillValue } from "@/lib/data/variableDecoding.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
-import {
-  getLatLonData,
-  getMissingValue,
-  getFillValue,
-} from "@/lib/data/zarrUtils.ts";
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 import { useLog } from "@/utils/logging.ts";

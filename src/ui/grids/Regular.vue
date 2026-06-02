@@ -17,15 +17,17 @@ import {
 } from "./composables/useProjectionEdgeQuality.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
-import { downsampleDataTexture } from "@/lib/data/dataTexture.ts";
-import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
-import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
-  castDataVarToFloat32,
-  getDataBoundsAndMapMissingToNaN,
   isLatitudeName,
   isLongitudeName,
-} from "@/lib/data/zarrUtils.ts";
+} from "@/lib/data/coordinateVariables.ts";
+import { downsampleDataTexture } from "@/lib/data/dataTexture.ts";
+import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
+import {
+  castDataVarToFloat32,
+  decodeVariableDataAndGetBounds,
+} from "@/lib/data/variableDecoding.ts";
+import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import {
   getColormapScaleOffset,
@@ -116,7 +118,7 @@ async function getDims() {
   // Assumptions: the last two dimensions of the data array are
   // latitude and longitude (in this order), or lat-only for zonally averaged data
   // FIXME: this may not always be true and probably it would be cleaner
-  // to use the implemented ZarrUtils.getLatLonData function
+  // to use the implemented getLatLonData function
 
   // We had, however, cases where we could not determine wether the grid is
   // rotated or not, which lead to failure in getLatLonData.
@@ -753,7 +755,7 @@ async function fetchAndRenderData(
     (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
   );
 
-  const { min, max, missingValue, fillValue } = getDataBoundsAndMapMissingToNaN(
+  const { min, max, missingValue, fillValue } = decodeVariableDataAndGetBounds(
     datavar,
     rawData
   );

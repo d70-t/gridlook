@@ -19,14 +19,14 @@ import {
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
-import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   castDataVarToFloat32,
-  getDataBoundsAndMapMissingToNaN,
+  decodeVariableDataAndGetBounds,
+  decodeVariableDataInPlace,
   getFillValue,
   getMissingValue,
-  mapMissingAndFillToNaN,
-} from "@/lib/data/zarrUtils.ts";
+} from "@/lib/data/variableDecoding.ts";
+import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import {
   getColormapScaleOffset,
@@ -332,7 +332,7 @@ async function getHealpixData(
   );
 
   const { missingValue, fillValue } = getHealpixMissingAndFillValues(datavar);
-  const { min, max } = getDataBoundsAndMapMissingToNaN(
+  const { min, max } = decodeVariableDataAndGetBounds(
     datavar,
     dataSlice,
     missingValue,
@@ -665,7 +665,13 @@ async function fetchAndRenderData(
     (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
   );
   const { missingValue, fillValue } = getHealpixMissingAndFillValues(datavar);
-  mapMissingAndFillToNaN(hoverData.value, missingValue, fillValue);
+  decodeVariableDataInPlace(
+    hoverData.value,
+    datavar.attrs,
+    missingValue,
+    fillValue
+  );
+
   if (cellCoord) {
     const cellIndexMap = new Map<number, number>();
     for (let index = 0; index < cellCoord.length; index++) {
