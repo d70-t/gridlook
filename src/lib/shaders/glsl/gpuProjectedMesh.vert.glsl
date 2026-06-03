@@ -6,16 +6,37 @@ uniform float centerLon;
 uniform float centerLat;
 uniform float projectionRadius;
 uniform int edgeQuality;
+uniform int useTriangleWrapCull;
 
 attribute vec2 latLon;  // lat, lon in degrees
 attribute float data_value;
 attribute float wrapDirection;
+attribute vec2 triangleLatLon0;
+attribute vec2 triangleLatLon1;
+attribute vec2 triangleLatLon2;
 
 varying float v_value;
 varying vec2 vProjectedXY;
 
 void main() {
   v_value = data_value;
+  if (
+    shouldCullTriangleWrapInstance(
+      triangleLatLon0,
+      triangleLatLon1,
+      triangleLatLon2,
+      projectionType,
+      centerLon,
+      centerLat,
+      wrapDirection,
+      edgeQuality,
+      useTriangleWrapCull
+    )
+  ) {
+    vProjectedXY = vec2(1000000.0);
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    return;
+  }
   vec3 projected = projectWithWrap(
     latLon,
     projectionType,
