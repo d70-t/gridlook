@@ -13,8 +13,13 @@ import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
 import {
+  getCRSWkt,
   isLatitudeName,
   isLongitudeName,
+  isProjectedXName,
+  isProjectedYName,
+  isWebMercatorCRS,
+  webMercatorToLonLat,
 } from "@/lib/data/coordinateVariables.ts";
 import { downsampleDataTexture } from "@/lib/data/dataTexture.ts";
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
@@ -118,16 +123,36 @@ const { datasourceUpdate } = useGridDataLoader({
 
 const isLatOnly = ref(false);
 
-async function getDims() {
-  // Assumptions: the last two dimensions of the data array are
-  // latitude and longitude (in this order), or lat-only for zonally averaged data
-  // FIXME: this may not always be true and probably it would be cleaner
-  // to use the implemented getLatLonData function
+async function fetchProjectedXYDims(
+  grid: TSources["levels"][0]["grid"],
+  xDim: string,
+  yDim: string
+) {
+  const [xData, yData] = await Promise.all([
+    ZarrDataManager.getVariableData(
+      grid,
+      ZarrDataManager.resolveVariablePath(varnameSelector.value, xDim)
+    ),
+    ZarrDataManager.getVariableData(
+      grid,
+      ZarrDataManager.resolveVariablePath(varnameSelector.value, yDim)
+    ),
+  ]);
+  const crsWkt = await getCRSWkt(props.datasources!, varnameSelector.value);
+  if (crsWkt && isWebMercatorCRS(crsWkt)) {
+    const converted = webMercatorToLonLat(
+      new Float64Array(xData.data as Float64Array),
+      new Float64Array(yData.data as Float64Array)
+    );
+    longitudes.value = converted.longitudes;
+    latitudes.value = converted.latitudes;
+  } else {
+    longitudes.value = new Float64Array(xData.data as Float64Array);
+    latitudes.value = new Float64Array(yData.data as Float64Array);
+  }
+}
 
-  // We had, however, cases where we could not determine wether the grid is
-  // rotated or not, which lead to failure in getLatLonData.
-  // On the other hand, I didn't find any case where latitudes and longitudes were not
-  // the two last dimensions of the data variable.
+async function getDims() {
   const dimensions = await ZarrDataManager.getDimensionNames(
     props.datasources!,
     varnameSelector.value
@@ -136,19 +161,24 @@ async function getDims() {
   const lastDim = dimensions[dimensions.length - 1];
   const secondLastDim = dimensions[dimensions.length - 2];
 
-  // Check if this is a lat-only dataset (zonally averaged)
+  const isProjectedXY =
+    isProjectedXName(lastDim) && isProjectedYName(secondLastDim);
+
   const latOnlyCheck =
-    isLatitudeName(lastDim) && !isLongitudeName(secondLastDim);
+    !isProjectedXY &&
+    isLatitudeName(lastDim) &&
+    !isLongitudeName(secondLastDim);
   isLatOnly.value = latOnlyCheck;
 
   const grid = props.datasources!.levels[0].grid;
-  if (latOnlyCheck) {
+  if (isProjectedXY) {
+    await fetchProjectedXYDims(grid, lastDim, secondLastDim);
+  } else if (latOnlyCheck) {
     const latitudesData = await ZarrDataManager.getVariableData(
       grid,
       ZarrDataManager.resolveVariablePath(varnameSelector.value, lastDim)
     );
     latitudes.value = new Float64Array(latitudesData.data as Float64Array);
-    // Create synthetic global longitudes for visualization
     longitudes.value = Float64Array.from({ length: 360 }, (_, i) => i - 179.5);
   } else {
     const latName = secondLastDim;

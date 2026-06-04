@@ -257,8 +257,8 @@ async function getLatLonInfo(
     if (longitudes) {
       processLonData(longitudes, longitudesAttrs);
     }
-  } catch (err) {
-    logError(err);
+  } catch {
+    return;
   }
 }
 

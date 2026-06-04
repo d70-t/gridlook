@@ -5,6 +5,58 @@ import { ZarrDataManager } from "./ZarrDataManager.ts";
 
 import { type TSources } from "@/lib/types/GlobeTypes.ts";
 
+const EARTH_RADIUS = 6378137;
+
+export function isWebMercatorCRS(crsWkt: string): boolean {
+  return (
+    crsWkt.includes('AUTHORITY["EPSG","3857"]') ||
+    crsWkt.includes("AUTHORITY['EPSG','3857']") ||
+    crsWkt.toLowerCase().includes("pseudo-mercator") ||
+    crsWkt.includes("+proj=merc")
+  );
+}
+
+export function isProjectedXName(name: string): boolean {
+  return name === "x";
+}
+
+export function isProjectedYName(name: string): boolean {
+  return name === "y";
+}
+
+export function webMercatorToLonLat(
+  x: Float64Array,
+  y: Float64Array
+): {
+  longitudes: Float64Array<ArrayBuffer>;
+  latitudes: Float64Array<ArrayBuffer>;
+} {
+  const longitudes = new Float64Array(x.length);
+  const latitudes = new Float64Array(y.length);
+  for (let i = 0; i < x.length; i++) {
+    longitudes[i] = (x[i] / EARTH_RADIUS) * (180 / Math.PI);
+  }
+  for (let i = 0; i < y.length; i++) {
+    latitudes[i] =
+      (Math.atan(Math.exp(y[i] / EARTH_RADIUS)) * 2 - Math.PI / 2) *
+      (180 / Math.PI);
+  }
+  return { longitudes, latitudes };
+}
+
+export async function getCRSWkt(
+  datasources: TSources,
+  variable: string
+): Promise<string | null> {
+  try {
+    const crs = await ZarrDataManager.getCRSInfo(datasources, variable);
+    const wkt = crs.attrs["crs_wkt"] ?? crs.attrs["spatial_ref"];
+    return typeof wkt === "string" ? wkt : null;
+  } catch {
+    return null;
+  }
+}
+
 type TLatLonNames = {
   latitudeName: string | null;
   longitudeName: string | null;

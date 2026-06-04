@@ -4,6 +4,8 @@ import {
   getLatLonData,
   isLatitudeName,
   isLongitudeName,
+  isProjectedXName,
+  isProjectedYName,
 } from "./coordinateVariables.ts";
 import { ZarrDataManager } from "./ZarrDataManager.ts";
 
@@ -106,13 +108,16 @@ function checkGaussianGrid(latitudes: Float64Array, longitudes: Float64Array) {
 // Check if grid is regular based on dimension names
 // Also accepts lat-only grids (e.g., zonally averaged data)
 function checkRegularGridFromDimensions(dimensions: string[]): boolean {
-  const hasLatLon =
-    dimensions.length >= 2 &&
-    isLatitudeName(dimensions[dimensions.length - 2]) &&
-    isLongitudeName(dimensions[dimensions.length - 1]);
-  const hasLatOnly =
-    dimensions.length >= 1 && isLatitudeName(dimensions[dimensions.length - 1]);
+  const latitudeIndex = dimensions.findIndex((dim) => isLatitudeName(dim));
+  const longitudeIndex = dimensions.findIndex((dim) => isLongitudeName(dim));
+  const hasLatLon = latitudeIndex !== -1 && longitudeIndex !== -1;
+  const hasLatOnly = latitudeIndex !== -1 && longitudeIndex === -1;
   return hasLatLon || hasLatOnly;
+}
+
+// Check if grid uses projected x/y coordinates (e.g. EPSG:3857 with spatial_ref)
+function checkProjectedXYDimensions(dimensions: string[]): boolean {
+  return dimensions.some(isProjectedXName) && dimensions.some(isProjectedYName);
 }
 
 // Attempt to determine grid type from CRS information
@@ -145,28 +150,36 @@ async function determineGridTypeFromCRS(
 async function determineGridTypeFromData(
   variable: string,
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
-  datasources: TSources | undefined
+  datasources: TSources | undefined,
+  dimensions: string[]
 ): Promise<T_GRID_TYPES | null> {
-  const { latitudes, longitudes } = await getLatLonData(
-    variable,
-    datavar,
-    datasources
-  );
-  if (latitudes === null || longitudes === null) {
-    return null; // Cannot determine grid type without lat/lon data
-  }
-  const latitudesData = latitudes.data as Float64Array;
-  const longitudesData = longitudes.data as Float64Array;
+  try {
+    const { latitudes, longitudes } = await getLatLonData(
+      variable,
+      datavar,
+      datasources
+    );
+    if (latitudes === null || longitudes === null) {
+      return null; // Cannot determine grid type without lat/lon data
+    }
+    const latitudesData = latitudes.data as Float64Array;
+    const longitudesData = longitudes.data as Float64Array;
 
-  if (checkCurvilinear(latitudes, longitudes)) {
-    return GRID_TYPES.CURVILINEAR;
+    if (checkCurvilinear(latitudes, longitudes)) {
+      return GRID_TYPES.CURVILINEAR;
+    }
+    if (checkGaussianGrid(latitudesData, longitudesData)) {
+      return GRID_TYPES.GAUSSIAN_REDUCED;
+    }
+    // as long as we have lat/lon pairs, we can very likely display something as
+    // an irregular grid
+    return GRID_TYPES.IRREGULAR;
+  } catch {
+    if (checkProjectedXYDimensions(dimensions)) {
+      return GRID_TYPES.REGULAR;
+    }
+    return null;
   }
-  if (checkGaussianGrid(latitudesData, longitudesData)) {
-    return GRID_TYPES.GAUSSIAN_REDUCED;
-  }
-  // as long as we have lat/lon pairs, we can very likely display something as
-  // an irregular grid
-  return GRID_TYPES.IRREGULAR;
 }
 
 export async function getGridType(
@@ -212,11 +225,13 @@ export async function getGridType(
     const dataGridType = await determineGridTypeFromData(
       varnameSelector,
       datavar,
-      datasources
+      datasources,
+      dimensions
     );
     if (dataGridType) {
       return dataGridType;
     }
+
     logError("No matching grid type found", "Could not determine grid type");
     return GRID_TYPES.ERROR;
   } catch (error) {
