@@ -215,6 +215,25 @@ function shouldFlipTriangle(
   return ab.cross(ac).dot(centroid) < 0;
 }
 
+function writeTriangleVertices(
+  verts: Float32Array,
+  index: number,
+  v0: { x: number; y: number; z: number },
+  v1: { x: number; y: number; z: number },
+  v2: { x: number; y: number; z: number }
+) {
+  const baseIndex = 9 * index;
+  verts[baseIndex + 0] = v0.x;
+  verts[baseIndex + 1] = v0.y;
+  verts[baseIndex + 2] = v0.z;
+  verts[baseIndex + 3] = v1.x;
+  verts[baseIndex + 4] = v1.y;
+  verts[baseIndex + 5] = v1.z;
+  verts[baseIndex + 6] = v2.x;
+  verts[baseIndex + 7] = v2.y;
+  verts[baseIndex + 8] = v2.z;
+}
+
 async function grid2buffer(grid: { store: string; dataset: string }) {
   const [voc, vx, vy, vz] = await Promise.all([
     ZarrDataManager.getVariableData(
@@ -269,17 +288,7 @@ async function grid2buffer(grid: { store: string; dataset: string }) {
       [v1, v2] = [v2, v1];
     }
 
-    // Set verts array values
-    const baseIndex = 9 * i;
-    verts[baseIndex + 0] = v0.x;
-    verts[baseIndex + 1] = v0.y;
-    verts[baseIndex + 2] = v0.z;
-    verts[baseIndex + 3] = v1.x;
-    verts[baseIndex + 4] = v1.y;
-    verts[baseIndex + 5] = v1.z;
-    verts[baseIndex + 6] = v2.x;
-    verts[baseIndex + 7] = v2.y;
-    verts[baseIndex + 8] = v2.z;
+    writeTriangleVertices(verts, i, v0, v1, v2);
   }
 
   return verts;
