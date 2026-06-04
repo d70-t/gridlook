@@ -104,6 +104,7 @@ const { datasourceUpdate } = useGridDataLoader({
   fetchAndRenderData,
   clearHoverLookup,
   prepareDatasource: fetchGrid,
+  onVariableChange: fetchGrid,
   updateLandSeaMask,
   updateColormap: () => updateColormap(meshes),
 });
