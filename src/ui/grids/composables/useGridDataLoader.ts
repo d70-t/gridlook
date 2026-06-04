@@ -26,7 +26,7 @@ type TGridDataLoaderOptions = {
   updateColormap: () => void;
   prepareDatasource?: () => void | Promise<void>;
   resetDataVars?: () => void;
-  onVariableChange?: () => void;
+  onVariableChange?: () => void | Promise<void>;
   onDatasourceChange?: () => void;
 };
 
@@ -96,8 +96,8 @@ function registerGridDataLoaderWatches(
 ) {
   watch(
     () => store.varnameSelector,
-    () => {
-      options.onVariableChange?.();
+    async () => {
+      await options.onVariableChange?.();
       void getData();
     }
   );

@@ -108,6 +108,10 @@ const { datasourceUpdate } = useGridDataLoader({
     await getDims();
     await makeGeometry();
   },
+  onVariableChange: async () => {
+    await getDims();
+    await makeGeometry();
+  },
   updateLandSeaMask,
   updateColormap: () => updateColormap(meshes),
 });
