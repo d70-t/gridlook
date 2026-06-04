@@ -87,7 +87,10 @@ async function fetchTimeData(
   varSource: { store: string; dataset: string },
   timeDimName: string
 ) {
-  const timeVar = await ZarrDataManager.getVariableInfo(varSource, timeDimName);
+  const timeVar = await ZarrDataManager.getVariableInfo(
+    varSource,
+    ZarrDataManager.resolveVariablePath(varnameSelector.value, timeDimName)
+  );
 
   const units = (timeVar.attrs?.units as string) || "unknown";
   const calendar = (timeVar.attrs?.calendar as string) || "standard";
@@ -221,6 +224,7 @@ async function getLatLonInfo(
   try {
     const { latitudes, latitudesAttrs, longitudes, longitudesAttrs } =
       await getLatLonData(
+        varnameSelector.value,
         variable,
         props.datasources,
         props.gridType === GRID_TYPES.REGULAR_ROTATED

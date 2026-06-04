@@ -111,6 +111,7 @@ async function getGrid(
   data: Float32Array
 ) {
   const { latitudes, longitudes } = await getLatLonData(
+    varnameSelector.value,
     datavar,
     props.datasources
   );

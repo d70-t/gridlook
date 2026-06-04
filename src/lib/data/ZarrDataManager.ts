@@ -192,7 +192,7 @@ export class ZarrDataManager {
     const variableSource = this.getDatasetSource(datasource, variable);
     return await this.getVariableInfo(
       variableSource,
-      crsVar,
+      ZarrDataManager.resolveVariablePath(variable, crsVar),
       datasource.zarr_format
     );
   }
@@ -233,6 +233,17 @@ export class ZarrDataManager {
       datasources.zarr_format
     );
     return datavar.dimensionNames ?? [];
+  }
+
+  static resolveVariablePath(
+    contextVariable: string,
+    variable: string
+  ): string {
+    if (variable.includes("/") || !contextVariable.includes("/")) {
+      return variable;
+    }
+    const groupPath = contextVariable.split("/").slice(0, -1).join("/");
+    return `${groupPath}/${variable}`;
   }
 
   static invalidateCache() {

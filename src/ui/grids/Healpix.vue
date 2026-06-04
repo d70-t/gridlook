@@ -179,7 +179,7 @@ async function getCells() {
           props.datasources!,
           varnameSelector.value
         ),
-        "cell"
+        ZarrDataManager.resolveVariablePath(varnameSelector.value, "cell")
       )
     ).data as ArrayLike<number | bigint>;
 

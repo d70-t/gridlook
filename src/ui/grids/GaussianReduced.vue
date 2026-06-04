@@ -393,6 +393,7 @@ async function fetchAndRenderData(
   );
 
   const { latitudes, longitudes } = await getLatLonData(
+    varnameSelector.value,
     datavar,
     props.datasources
   );

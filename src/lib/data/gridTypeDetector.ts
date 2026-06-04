@@ -44,13 +44,18 @@ export const GRID_TYPE_DISPLAY_OVERRIDES: Partial<
 };
 
 async function checkTriangularGrid(
-  datasources: TSources | undefined
+  datasources: TSources | undefined,
+  variable: string
 ): Promise<boolean> {
   try {
     const gridsource = datasources!.levels[0].grid;
+    const resolvedPath = ZarrDataManager.resolveVariablePath(
+      variable,
+      "vertex_of_cell"
+    );
     await ZarrDataManager.getVariableInfo(
       gridsource,
-      "vertex_of_cell",
+      resolvedPath,
       datasources?.zarr_format
     );
     return true;
@@ -138,10 +143,15 @@ async function determineGridTypeFromCRS(
 
 // Determine grid type from lat/lon data analysis
 async function determineGridTypeFromData(
+  variable: string,
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   datasources: TSources | undefined
 ): Promise<T_GRID_TYPES | null> {
-  const { latitudes, longitudes } = await getLatLonData(datavar, datasources);
+  const { latitudes, longitudes } = await getLatLonData(
+    variable,
+    datavar,
+    datasources
+  );
   if (latitudes === null || longitudes === null) {
     return null; // Cannot determine grid type without lat/lon data
   }
@@ -171,7 +181,7 @@ export async function getGridType(
     return GRID_TYPES.ERROR;
   }
 
-  if (await checkTriangularGrid(datasources)) {
+  if (await checkTriangularGrid(datasources, varnameSelector)) {
     return GRID_TYPES.TRIANGULAR;
   }
 
@@ -199,7 +209,11 @@ export async function getGridType(
       return GRID_TYPES.REGULAR;
     }
 
-    const dataGridType = await determineGridTypeFromData(datavar, datasources);
+    const dataGridType = await determineGridTypeFromData(
+      varnameSelector,
+      datavar,
+      datasources
+    );
     if (dataGridType) {
       return dataGridType;
     }

@@ -139,7 +139,10 @@ async function getDims() {
 
   const grid = props.datasources!.levels[0].grid;
   if (latOnlyCheck) {
-    const latitudesData = await ZarrDataManager.getVariableData(grid, lastDim);
+    const latitudesData = await ZarrDataManager.getVariableData(
+      grid,
+      ZarrDataManager.resolveVariablePath(varnameSelector.value, lastDim)
+    );
     latitudes.value = new Float64Array(latitudesData.data as Float64Array);
     // Create synthetic global longitudes for visualization
     longitudes.value = Float64Array.from({ length: 360 }, (_, i) => i - 179.5);
@@ -147,8 +150,14 @@ async function getDims() {
     const latName = secondLastDim;
     const lonName = lastDim;
     const [latitudesData, longitudesData] = await Promise.all([
-      ZarrDataManager.getVariableData(grid, latName),
-      ZarrDataManager.getVariableData(grid, lonName),
+      ZarrDataManager.getVariableData(
+        grid,
+        ZarrDataManager.resolveVariablePath(varnameSelector.value, latName)
+      ),
+      ZarrDataManager.getVariableData(
+        grid,
+        ZarrDataManager.resolveVariablePath(varnameSelector.value, lonName)
+      ),
     ]);
     const myLongitudes = longitudesData.data as Float64Array;
     const myLatitudes = latitudesData.data as Float64Array;

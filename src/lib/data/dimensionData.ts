@@ -14,7 +14,8 @@ async function getTimeInfo(
   datasources: TSources,
   dimensionRanges: TDimensionRange[],
   dimensionIndex: number,
-  index: number
+  index: number,
+  variable: string
 ): Promise<TDimInfo> {
   if (dimensionRanges[dimensionIndex]?.name !== "time") {
     return {};
@@ -22,10 +23,17 @@ async function getTimeInfo(
   try {
     const myDatasource = datasources.levels[0].time;
     const timevalues = (
-      await ZarrDataManager.getVariableData(myDatasource, "time", [null])
+      await ZarrDataManager.getVariableData(
+        myDatasource,
+        ZarrDataManager.resolveVariablePath(variable, "time"),
+        [null]
+      )
     ).data as Int32Array;
 
-    const timevar = await ZarrDataManager.getVariableInfo(myDatasource, "time");
+    const timevar = await ZarrDataManager.getVariableInfo(
+      myDatasource,
+      ZarrDataManager.resolveVariablePath(variable, "time")
+    );
     return {
       values: timevalues,
       current: decodeTime(timevalues[index], timevar.attrs),
@@ -39,7 +47,8 @@ async function getTimeInfo(
 async function getDimensionInfo(
   datasource: TDataSource,
   dimension: TDimensionRange,
-  index: number
+  index: number,
+  variable: string
 ): Promise<TDimInfo> {
   try {
     const dimensionName = dimension?.name;
@@ -49,7 +58,7 @@ async function getDimensionInfo(
 
     const dimArray = await ZarrDataManager.getVariableData(
       datasource,
-      dimensionName,
+      ZarrDataManager.resolveVariablePath(variable, dimensionName),
       [null]
     );
 
@@ -74,7 +83,7 @@ async function getDimensionInfo(
 
     const dimvar = await ZarrDataManager.getVariableInfo(
       datasource,
-      dimensionName
+      ZarrDataManager.resolveVariablePath(variable, dimensionName)
     );
     return {
       values: dimValues,
@@ -103,14 +112,16 @@ export async function fetchDimensionDetails(
         datasources,
         dimensionRanges,
         i,
-        dimSlidersValues[i] as number
+        dimSlidersValues[i] as number,
+        currentVariable
       );
       array.push(timeInfo);
     } else {
       const dimInfo = await getDimensionInfo(
         datasources.levels[0].datasources[currentVariable],
         dim!,
-        dimSlidersValues[i] as number
+        dimSlidersValues[i] as number,
+        currentVariable
       );
       array.push(dimInfo);
     }

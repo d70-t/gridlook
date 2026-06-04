@@ -608,7 +608,7 @@ async function buildDimensionConfig(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
   const { latitudes, longitudes, latitudesAttrs, longitudesAttrs } =
-    await getLatLonData(datavar, props.datasources);
+    await getLatLonData(varnameSelector.value, datavar, props.datasources);
   const dimensions = await ZarrDataManager.getDimensionNames(
     props.datasources!,
     varnameSelector.value

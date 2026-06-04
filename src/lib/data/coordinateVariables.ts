@@ -171,13 +171,14 @@ function findLatLonNames(
 async function fetchLatLonVariables(
   datasources: TSources,
   latitudeName: string,
-  longitudeName: string
+  longitudeName: string,
+  variable: string
 ) {
   const gridsource = datasources.levels[0].grid;
 
   const latitudesVar = await ZarrDataManager.getVariableInfo(
     gridsource,
-    latitudeName
+    ZarrDataManager.resolveVariablePath(variable, latitudeName)
   );
 
   let longitudesVar: zarr.Array<zarr.DataType, zarr.AsyncReadable> | null =
@@ -185,7 +186,7 @@ async function fetchLatLonVariables(
   try {
     longitudesVar = await ZarrDataManager.getVariableInfo(
       gridsource,
-      longitudeName
+      ZarrDataManager.resolveVariablePath(variable, longitudeName)
     );
   } catch {
     // Longitude variable doesn't exist - this is a lat-only dataset
@@ -195,6 +196,7 @@ async function fetchLatLonVariables(
 }
 
 export async function getLatLonData(
+  variable: string,
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   datasources: TSources | undefined,
   isRotated = false
@@ -208,7 +210,8 @@ export async function getLatLonData(
   const { latitudesVar, longitudesVar } = await fetchLatLonVariables(
     datasources!,
     latitudeName,
-    longitudeName
+    longitudeName,
+    variable
   );
 
   const latitudes =

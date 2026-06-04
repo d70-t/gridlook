@@ -217,10 +217,34 @@ function shouldFlipTriangle(
 
 async function grid2buffer(grid: { store: string; dataset: string }) {
   const [voc, vx, vy, vz] = await Promise.all([
-    ZarrDataManager.getVariableData(grid, "vertex_of_cell"),
-    ZarrDataManager.getVariableData(grid, "cartesian_x_vertices"),
-    ZarrDataManager.getVariableData(grid, "cartesian_y_vertices"),
-    ZarrDataManager.getVariableData(grid, "cartesian_z_vertices"),
+    ZarrDataManager.getVariableData(
+      grid,
+      ZarrDataManager.resolveVariablePath(
+        varnameSelector.value,
+        "vertex_of_cell"
+      )
+    ),
+    ZarrDataManager.getVariableData(
+      grid,
+      ZarrDataManager.resolveVariablePath(
+        varnameSelector.value,
+        "cartesian_x_vertices"
+      )
+    ),
+    ZarrDataManager.getVariableData(
+      grid,
+      ZarrDataManager.resolveVariablePath(
+        varnameSelector.value,
+        "cartesian_y_vertices"
+      )
+    ),
+    ZarrDataManager.getVariableData(
+      grid,
+      ZarrDataManager.resolveVariablePath(
+        varnameSelector.value,
+        "cartesian_z_vertices"
+      )
+    ),
   ]);
 
   const ncells = voc.shape[1];
