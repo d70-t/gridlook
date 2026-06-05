@@ -146,6 +146,32 @@ async function determineGridTypeFromCRS(
   return null;
 }
 
+function determineGridTypeFromDGGSZarrConvention(metadata: any) {
+  if (metadata["name"] !== "healpix") {
+    // unsupported DGGS, for now
+    return GRID_TYPES.ERROR;
+  }
+
+  return GRID_TYPES.HEALPIX;
+}
+
+async function determineGridTypeFromZarrConvention(
+  datasources: TSources,
+  varnameSelector: string
+): Promise<T_GRID_TYPES | null> {
+  const group = await ZarrDataManager.getParentGroup(
+    datasources,
+    varnameSelector,
+    datasources?.zarr_format
+  );
+  const metadata = group.attrs;
+
+  if (metadata["dggs"] !== undefined) {
+    return determineGridTypeFromDGGSZarrConvention(metadata["dggs"]);
+  }
+  return null;
+}
+
 // Determine grid type from lat/lon data analysis
 async function determineGridTypeFromData(
   variable: string,
@@ -212,6 +238,15 @@ export async function getGridType(
     );
     if (crsGridType) {
       return crsGridType;
+    }
+
+    // zarr convention metadata
+    const zarrConventionType = await determineGridTypeFromZarrConvention(
+      datasources!,
+      varnameSelector
+    );
+    if (zarrConventionType) {
+      return zarrConventionType;
     }
 
     const dimensions = await ZarrDataManager.getDimensionNames(

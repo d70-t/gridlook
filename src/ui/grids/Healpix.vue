@@ -163,16 +163,46 @@ function fetchGrid() {
 }
 
 async function getNside() {
-  const crs = await ZarrDataManager.getCRSInfo(
-    props.datasources!,
-    varnameSelector.value
-  );
-  // FIXME: could probably have other names
-  const nside = crs.attrs["healpix_nside"] as number;
-  return nside;
+  try {
+    const crs = await ZarrDataManager.getCRSInfo(
+      props.datasources!,
+      varnameSelector.value
+    );
+
+    return crs.attrs["healpix_nside"] as number;
+    // FIXME: could probably have other names
+  } catch (error) {
+    const group = await ZarrDataManager.getParentGroup(
+      props.datasources!,
+      varnameSelector.value
+    );
+    const metadata: any = group.attrs?.dggs ?? {};
+    if ("refinement_level" in metadata) {
+      const refinementLevel = (metadata.refinement_level ?? 0) as number;
+      return Math.pow(2, refinementLevel);
+    }
+
+    throw error;
+  }
 }
 
 async function getCells() {
+  var cellCoord = "cell";
+  try {
+    const group = await ZarrDataManager.getParentGroup(
+      props.datasources!,
+      varnameSelector.value
+    );
+    const metadata: any = group.attrs?.dggs ?? {};
+
+    const key = "coordinate";
+    if (key in metadata) {
+      cellCoord = metadata[key];
+    }
+  } catch {
+    // no dggs metadata found, continue with the default cell coordinate
+  }
+
   try {
     const rawCells = (
       await ZarrDataManager.getVariableData(
@@ -180,7 +210,7 @@ async function getCells() {
           props.datasources!,
           varnameSelector.value
         ),
-        ZarrDataManager.resolveVariablePath(varnameSelector.value, "cell")
+        ZarrDataManager.resolveVariablePath(varnameSelector.value, cellCoord)
       )
     ).data as ArrayLike<number | bigint>;
 
