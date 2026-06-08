@@ -5,7 +5,7 @@
 
 ### Features
 
-* **lib:** added ESPG 3857-support ([0037dcf](https://github.com/d70-t/gridlook/commit/0037dcf3b538ac452848e438db7d632e0839917d))
+* **lib:** added EPSG 3857-support ([0037dcf](https://github.com/d70-t/gridlook/commit/0037dcf3b538ac452848e438db7d632e0839917d))
 * **lib:** support for groups ([46393d1](https://github.com/d70-t/gridlook/commit/46393d1810ae6c2bc413fafa9043349f1d1514e3))
 
 
