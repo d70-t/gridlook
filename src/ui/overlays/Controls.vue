@@ -1,14 +1,7 @@
 <script lang="ts" setup>
 import { useEventListener } from "@vueuse/core";
 import { storeToRefs } from "pinia";
-import {
-  computed,
-  onBeforeMount,
-  onUnmounted,
-  ref,
-  watch,
-  type Ref,
-} from "vue";
+import { computed, onBeforeMount, ref, watch, type Ref } from "vue";
 
 import CollapsibleCard from "../common/CollapsibleCard.vue";
 
@@ -314,7 +307,7 @@ defineExpose({
         </span>
       </div>
       <div v-else-if="loading" class="title-bar">
-        <progress class="progress is-large is-info" max="100">60%</progress>
+        <progress class="progress is-info" max="100"></progress>
       </div>
       <div v-else class="title-bar">No data available</div>
       <DataInput :current-source="currentSource" />
