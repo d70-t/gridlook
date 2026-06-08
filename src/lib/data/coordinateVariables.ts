@@ -264,21 +264,16 @@ async function fetchLatLonVariables(
 ) {
   const gridsource = datasources.levels[0].grid;
 
-  const latitudesVar = await ZarrDataManager.getVariableInfo(
-    gridsource,
-    ZarrDataManager.resolveVariablePath(variable, latitudeName)
-  );
-
-  let longitudesVar: zarr.Array<zarr.DataType, zarr.AsyncReadable> | null =
-    null;
-  try {
-    longitudesVar = await ZarrDataManager.getVariableInfo(
+  const [latitudesVar, longitudesVar] = await Promise.all([
+    ZarrDataManager.getVariableInfo(
+      gridsource,
+      ZarrDataManager.resolveVariablePath(variable, latitudeName)
+    ),
+    ZarrDataManager.getVariableInfo(
       gridsource,
       ZarrDataManager.resolveVariablePath(variable, longitudeName)
-    );
-  } catch {
-    // Longitude variable doesn't exist - this is a lat-only dataset
-  }
+    ).catch(() => null),
+  ]);
 
   return { latitudesVar, longitudesVar };
 }
@@ -303,13 +298,12 @@ export async function getLatLonData(
     variable
   );
 
-  const latitudes =
-    await ZarrDataManager.getVariableDataFromArray(latitudesVar);
-
-  let longitudes: zarr.Chunk<zarr.DataType> | null = null;
-  if (longitudesVar) {
-    longitudes = await ZarrDataManager.getVariableDataFromArray(longitudesVar);
-  }
+  const [latitudes, longitudes] = await Promise.all([
+    ZarrDataManager.getVariableDataFromArray(latitudesVar),
+    longitudesVar
+      ? ZarrDataManager.getVariableDataFromArray(longitudesVar)
+      : Promise.resolve(null),
+  ]);
 
   const returnObject = {
     latitudesAttrs: {
