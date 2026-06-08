@@ -89,6 +89,14 @@ export const useGlobeControlStore = defineStore("globeControl", {
         this.newDatasetSignifier += 2;
       }
     },
+    selectVariable(varname: string) {
+      if (this.varnameSelector === varname) {
+        return;
+      }
+      this.startLoading();
+      this.varnameSelector = varname;
+      this.signifyVariableChange();
+    },
     isNewDataset(): boolean {
       return this.newDatasetSignifier % 2 === 0;
     },

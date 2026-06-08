@@ -9,18 +9,18 @@ import {
   useGridHoverLookup,
 } from "./composables/gridHoverUtils.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
-import {
-  createWrappedProjectionMesh,
-  updateProjectionMeshes,
-} from "./composables/useProjectionEdgeQuality.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
-import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   castDataVarToFloat32,
-  getDataBoundsAndMapMissingToNaN,
-} from "@/lib/data/zarrUtils.ts";
+  decodeVariableDataAndGetBounds,
+} from "@/lib/data/variableDecoding.ts";
+import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
+import {
+  createWrappedProjectionMesh,
+  updateProjectionMeshes,
+} from "@/lib/projection/projectionEdgeQuality.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import { makeInvertableGpuMeshMaterial } from "@/lib/shaders/gridShaders.ts";
 import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
@@ -215,12 +215,55 @@ function shouldFlipTriangle(
   return ab.cross(ac).dot(centroid) < 0;
 }
 
+function writeTriangleVertices(
+  verts: Float32Array,
+  index: number,
+  v0: { x: number; y: number; z: number },
+  v1: { x: number; y: number; z: number },
+  v2: { x: number; y: number; z: number }
+) {
+  const baseIndex = 9 * index;
+  verts[baseIndex + 0] = v0.x;
+  verts[baseIndex + 1] = v0.y;
+  verts[baseIndex + 2] = v0.z;
+  verts[baseIndex + 3] = v1.x;
+  verts[baseIndex + 4] = v1.y;
+  verts[baseIndex + 5] = v1.z;
+  verts[baseIndex + 6] = v2.x;
+  verts[baseIndex + 7] = v2.y;
+  verts[baseIndex + 8] = v2.z;
+}
+
 async function grid2buffer(grid: { store: string; dataset: string }) {
   const [voc, vx, vy, vz] = await Promise.all([
-    ZarrDataManager.getVariableData(grid, "vertex_of_cell"),
-    ZarrDataManager.getVariableData(grid, "cartesian_x_vertices"),
-    ZarrDataManager.getVariableData(grid, "cartesian_y_vertices"),
-    ZarrDataManager.getVariableData(grid, "cartesian_z_vertices"),
+    ZarrDataManager.getVariableData(
+      grid,
+      ZarrDataManager.resolveVariablePath(
+        varnameSelector.value,
+        "vertex_of_cell"
+      )
+    ),
+    ZarrDataManager.getVariableData(
+      grid,
+      ZarrDataManager.resolveVariablePath(
+        varnameSelector.value,
+        "cartesian_x_vertices"
+      )
+    ),
+    ZarrDataManager.getVariableData(
+      grid,
+      ZarrDataManager.resolveVariablePath(
+        varnameSelector.value,
+        "cartesian_y_vertices"
+      )
+    ),
+    ZarrDataManager.getVariableData(
+      grid,
+      ZarrDataManager.resolveVariablePath(
+        varnameSelector.value,
+        "cartesian_z_vertices"
+      )
+    ),
   ]);
 
   const ncells = voc.shape[1];
@@ -245,17 +288,7 @@ async function grid2buffer(grid: { store: string; dataset: string }) {
       [v1, v2] = [v2, v1];
     }
 
-    // Set verts array values
-    const baseIndex = 9 * i;
-    verts[baseIndex + 0] = v0.x;
-    verts[baseIndex + 1] = v0.y;
-    verts[baseIndex + 2] = v0.z;
-    verts[baseIndex + 3] = v1.x;
-    verts[baseIndex + 4] = v1.y;
-    verts[baseIndex + 5] = v1.z;
-    verts[baseIndex + 6] = v2.x;
-    verts[baseIndex + 7] = v2.y;
-    verts[baseIndex + 8] = v2.z;
+    writeTriangleVertices(verts, i, v0, v1, v2);
   }
 
   return verts;
@@ -292,7 +325,7 @@ function data2valueBuffer(
   const ncells = awaitedData.shape[0];
   const plotdata = castDataVarToFloat32(awaitedData.data);
 
-  const { min, max, missingValue, fillValue } = getDataBoundsAndMapMissingToNaN(
+  const { min, max, missingValue, fillValue } = decodeVariableDataAndGetBounds(
     datavar,
     plotdata
   );

@@ -10,15 +10,18 @@ const pageQrCanvas = ref<HTMLCanvasElement | null>(null);
 
 function generateQR(canvas: HTMLCanvasElement | null, url: string) {
   if (canvas) {
-    void QRCode.toCanvas(canvas, url, { width: 150 });
+    void QRCode.toCanvas(canvas, url, { width: 120, margin: 0 });
   }
 }
+
+const githubLink = "https://github.com/d70-t/gridlook";
+const appLink = "https://gridlook.pages.dev";
 
 watch(visible, async (newVal) => {
   if (newVal) {
     await nextTick();
-    generateQR(repoQrCanvas.value, "https://github.com/d70-t/gridlook");
-    generateQR(pageQrCanvas.value, "https://gridlook.pages.dev");
+    generateQR(repoQrCanvas.value, githubLink);
+    generateQR(pageQrCanvas.value, appLink);
   }
 });
 </script>
@@ -32,24 +35,26 @@ watch(visible, async (newVal) => {
     </p>
     <div class="columns is-mobile mt-3">
       <div class="column has-text-centered">
-        <p class="has-text-weight-semibold">Application</p>
+        <p class="has-text-weight-semibold mb-2">Application</p>
         <canvas
           ref="pageQrCanvas"
           role="img"
-          aria-label="QR code for the Gridlook application"
+          :aria-label="`QR code for the Gridlook application: ${appLink}`"
         >
           QR code for the Gridlook application.
         </canvas>
+        <p class="mt-2 is-size-7 has-text-grey">gridlook.pages.dev</p>
       </div>
       <div class="column has-text-centered">
-        <p class="has-text-weight-semibold">GitHub</p>
+        <p class="has-text-weight-semibold mb-2">GitHub</p>
         <canvas
           ref="repoQrCanvas"
           role="img"
-          aria-label="QR code for the Gridlook GitHub repository"
+          :aria-label="`QR code for the Gridlook GitHub repository: ${githubLink}`"
         >
           QR code for the Gridlook GitHub repository.
         </canvas>
+        <p class="mt-2 is-size-7 has-text-grey">github.com/d70-t/gridlook</p>
       </div>
     </div>
     <br />

@@ -21,14 +21,11 @@ import type {
   TTimeInfo,
 } from "./infoPanel/types.ts";
 
+import { getLatLonData } from "@/lib/data/coordinateVariables.ts";
 import { GRID_TYPES, type T_GRID_TYPES } from "@/lib/data/gridTypeDetector.ts";
 import { decodeTime } from "@/lib/data/timeHandling.ts";
+import { getMissingValue, getFillValue } from "@/lib/data/variableDecoding.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
-import {
-  getLatLonData,
-  getMissingValue,
-  getFillValue,
-} from "@/lib/data/zarrUtils.ts";
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 import { useLog } from "@/utils/logging.ts";
@@ -90,7 +87,10 @@ async function fetchTimeData(
   varSource: { store: string; dataset: string },
   timeDimName: string
 ) {
-  const timeVar = await ZarrDataManager.getVariableInfo(varSource, timeDimName);
+  const timeVar = await ZarrDataManager.getVariableInfo(
+    varSource,
+    ZarrDataManager.resolveVariablePath(varnameSelector.value, timeDimName)
+  );
 
   const units = (timeVar.attrs?.units as string) || "unknown";
   const calendar = (timeVar.attrs?.calendar as string) || "standard";
@@ -224,6 +224,7 @@ async function getLatLonInfo(
   try {
     const { latitudes, latitudesAttrs, longitudes, longitudesAttrs } =
       await getLatLonData(
+        varnameSelector.value,
         variable,
         props.datasources,
         props.gridType === GRID_TYPES.REGULAR_ROTATED
@@ -256,8 +257,8 @@ async function getLatLonInfo(
     if (longitudes) {
       processLonData(longitudes, longitudesAttrs);
     }
-  } catch (err) {
-    logError(err);
+  } catch {
+    return;
   }
 }
 

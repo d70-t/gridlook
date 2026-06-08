@@ -171,40 +171,30 @@ function handleAutoContrast() {
     </div>
 
     <!-- Row: Colormap selector + options -->
-    <div class="w-100 colormap-column mb-4">
-      <Select
-        v-model="colormap"
-        :options="modelInfo.colormaps"
-        class="colormap-select"
-        @show="handleDropdownShow"
-        @hide="handleDropdownHide"
-        @change="handleDropdownChange"
-      >
-        <template #value="{ value }">
-          <div class="cm-option">
-            <img
-              :src="swatchSrc(value as TColorMap)"
-              class="cm-swatch"
-              alt=""
-            />
-            <span class="cm-name">{{ value }}</span>
-          </div>
-        </template>
-        <template #option="{ option }">
-          <div
-            class="cm-option"
-            @mouseenter="handleOptionHover(option as TColorMap)"
-          >
-            <img
-              :src="swatchSrc(option as TColorMap)"
-              class="cm-swatch"
-              alt=""
-            />
-            <span class="cm-name">{{ option }}</span>
-          </div>
-        </template>
-      </Select>
-    </div>
+    <Select
+      v-model="colormap"
+      :options="modelInfo.colormaps"
+      class="colormap-select mb-4"
+      @show="handleDropdownShow"
+      @hide="handleDropdownHide"
+      @change="handleDropdownChange"
+    >
+      <template #value="{ value }">
+        <div class="cm-option">
+          <img :src="swatchSrc(value as TColorMap)" class="cm-swatch" alt="" />
+          <span class="cm-name">{{ value }}</span>
+        </div>
+      </template>
+      <template #option="{ option }">
+        <div
+          class="cm-option w-100"
+          @mouseenter="handleOptionHover(option as TColorMap)"
+        >
+          <img :src="swatchSrc(option as TColorMap)" class="cm-swatch" alt="" />
+          <span class="cm-name">{{ option }}</span>
+        </div>
+      </template>
+    </Select>
     <div class="columns is-mobile is-vcentered compact-row px-1">
       <div class="column">
         <button
@@ -267,11 +257,6 @@ function handleAutoContrast() {
 .slider-column {
   display: flex;
   align-items: center;
-}
-
-.colormap-column {
-  min-width: 0;
-  overflow: hidden;
 }
 
 .colormap-select {

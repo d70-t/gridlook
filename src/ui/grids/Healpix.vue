@@ -10,23 +10,23 @@ import {
   type TGridHoverLookupResult,
 } from "./composables/gridHoverUtils.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
+import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
+
+import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
+import {
+  castDataVarToFloat32,
+  decodeVariableDataAndGetBounds,
+  decodeVariableDataInPlace,
+  getFillValue,
+  getMissingValue,
+} from "@/lib/data/variableDecoding.ts";
+import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   createTriangleWrapProjectionGeometry,
   createWrappedProjectionMesh,
   setupProjectionGeometryWrap,
   updateProjectionMeshes,
-} from "./composables/useProjectionEdgeQuality.ts";
-import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
-
-import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
-import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
-import {
-  castDataVarToFloat32,
-  getDataBoundsAndMapMissingToNaN,
-  getFillValue,
-  getMissingValue,
-  mapMissingAndFillToNaN,
-} from "@/lib/data/zarrUtils.ts";
+} from "@/lib/projection/projectionEdgeQuality.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import {
   getColormapScaleOffset,
@@ -179,7 +179,7 @@ async function getCells() {
           props.datasources!,
           varnameSelector.value
         ),
-        "cell"
+        ZarrDataManager.resolveVariablePath(varnameSelector.value, "cell")
       )
     ).data as ArrayLike<number | bigint>;
 
@@ -332,7 +332,7 @@ async function getHealpixData(
   );
 
   const { missingValue, fillValue } = getHealpixMissingAndFillValues(datavar);
-  const { min, max } = getDataBoundsAndMapMissingToNaN(
+  const { min, max } = decodeVariableDataAndGetBounds(
     datavar,
     dataSlice,
     missingValue,
@@ -665,7 +665,13 @@ async function fetchAndRenderData(
     (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
   );
   const { missingValue, fillValue } = getHealpixMissingAndFillValues(datavar);
-  mapMissingAndFillToNaN(hoverData.value, missingValue, fillValue);
+  decodeVariableDataInPlace(
+    hoverData.value,
+    datavar.attrs,
+    missingValue,
+    fillValue
+  );
+
   if (cellCoord) {
     const cellIndexMap = new Map<number, number>();
     for (let index = 0; index < cellCoord.length; index++) {

@@ -41,18 +41,19 @@ function isValidVariable(
 
 function searchDimensionsAndCoordinates(
   dimensions: Set<string>,
-  variable: zarr.Array<zarr.DataType, zarr.AsyncReadable>
+  variable: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
+  variablePath: string
 ) {
   if (Array.isArray(variable.dimensionNames)) {
     for (const dim of variable.dimensionNames) {
-      dimensions.add(dim);
+      dimensions.add(ZarrDataManager.resolveVariablePath(variablePath, dim));
     }
   }
 
   if (variable.attrs.coordinates) {
     const coords = variable.attrs.coordinates as string;
     for (const coord of coords.split(" ")) {
-      dimensions.add(coord);
+      dimensions.add(ZarrDataManager.resolveVariablePath(variablePath, coord));
     }
   }
 }
@@ -80,12 +81,14 @@ async function collectVariables(
           if (kind !== "array") {
             return {};
           }
+
           const variable = await zarr.open(root.resolve(path), {
             kind: "array",
           });
-          searchDimensionsAndCoordinates(dimensions, variable);
 
           const varname = path.slice(1);
+
+          searchDimensionsAndCoordinates(dimensions, variable, varname);
           return {
             [varname]: {
               store: src,

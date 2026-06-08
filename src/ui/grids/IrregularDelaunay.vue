@@ -10,20 +10,20 @@ import {
   useGridHoverLookup,
 } from "./composables/gridHoverUtils.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
+import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
+
+import { getLatLonData } from "@/lib/data/coordinateVariables.ts";
+import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
+import { reconcileCoordinates } from "@/lib/data/irregularGridHelpers.ts";
+import {
+  castDataVarToFloat32,
+  decodeVariableDataAndGetBounds,
+} from "@/lib/data/variableDecoding.ts";
+import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   createWrappedProjectionMesh,
   updateProjectionMeshes,
-} from "./composables/useProjectionEdgeQuality.ts";
-import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
-
-import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
-import { reconcileCoordinates } from "@/lib/data/irregularGridHelpers.ts";
-import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
-import {
-  castDataVarToFloat32,
-  getDataBoundsAndMapMissingToNaN,
-  getLatLonData,
-} from "@/lib/data/zarrUtils.ts";
+} from "@/lib/projection/projectionEdgeQuality.ts";
 import {
   PROJECTION_TYPES,
   ProjectionHelper,
@@ -98,10 +98,6 @@ const colormapMaterial = computed(() => {
   return makeInvertableGpuMeshMaterial(colormap.value, invertColormap.value);
 });
 
-function clearTriangulationCache() {
-  cachedTriangleIndices = null;
-}
-
 const { datasourceUpdate } = useGridDataLoader({
   getDatasources: () => props.datasources,
   getDataVar,
@@ -109,8 +105,6 @@ const { datasourceUpdate } = useGridDataLoader({
   clearHoverLookup,
   updateLandSeaMask,
   updateColormap: () => updateColormap(meshes),
-  onVariableChange: clearTriangulationCache,
-  onDatasourceChange: clearTriangulationCache,
 });
 
 /**
@@ -608,7 +602,7 @@ async function buildDimensionConfig(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
   const { latitudes, longitudes, latitudesAttrs, longitudesAttrs } =
-    await getLatLonData(datavar, props.datasources);
+    await getLatLonData(varnameSelector.value, datavar, props.datasources);
   const dimensions = await ZarrDataManager.getDimensionNames(
     props.datasources!,
     varnameSelector.value
@@ -666,7 +660,7 @@ async function fetchAndRenderData(
     (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
   );
 
-  const { min, max, fillValue, missingValue } = getDataBoundsAndMapMissingToNaN(
+  const { min, max, fillValue, missingValue } = decodeVariableDataAndGetBounds(
     datavar,
     rawData
   );

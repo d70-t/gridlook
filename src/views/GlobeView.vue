@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { useEventListener } from "@vueuse/core";
 import { storeToRefs } from "pinia";
-import { computed, onMounted, ref, watch, type Ref } from "vue";
+import { computed, nextTick, onMounted, ref, watch, type Ref } from "vue";
 
 import type {
   TModelInfo,
@@ -100,12 +100,17 @@ type TGlobeHandle = {
   applyCameraPreset: (state: TCameraState) => void;
 };
 
+type TControlsHandle = {
+  initForDataset: () => void;
+};
+
 const HYPERGLOBE_CAMERA_PRESET: TCameraState = {
   position: [0, 0, 33],
   quaternion: [0, 0, 0, 1],
 };
 
 const globe: Ref<TGlobeHandle | null> = ref(null);
+const controls: Ref<TControlsHandle | null> = ref(null);
 const distractionFree = ref(false);
 const hyperglobeModeActive = ref(false);
 const panelVisibleBeforeDistractionFree = ref(true);
@@ -163,53 +168,51 @@ const currentGlobeComponent = computed(() => {
   return gridMapping[activeGridType.value as keyof typeof gridMapping];
 });
 
-async function setGridType() {
-  if (!isInitialized.value) {
-    return;
-  }
+let gridTypeUpdateId = 0;
+let sourceUpdateId = 0;
+
+async function setGridType(forceRerender = false) {
+  const updateId = ++gridTypeUpdateId;
+  const previousGridType = detectedGridType.value;
   const localGridType = await getGridType(
     sourceValid.value,
     varnameSelector.value,
     datasources.value,
     logError
   );
+  if (updateId !== gridTypeUpdateId) {
+    return;
+  }
   detectedGridType.value = localGridType;
   if (localGridType === GRID_TYPES.ERROR) {
     store.stopLoading();
+  }
+  if (forceRerender || localGridType !== previousGridType) {
+    globeKey.value += 1;
   }
 }
 
 watch(
   () => props.src,
   async () => {
-    // Rerender controls and globe and reset store
-    // if new data is provided
-    detectedGridType.value = undefined;
-    globeKey.value += 1;
-    if (isDisplayMode.value || isPresenterActive.value) {
-      // In display/presenter mode we want to preserve some state across source changes
-      store.resetExcept([
-        "projectionMode",
-        "projectionCenter",
-        "catalogData",
-        "catalogUrl",
-      ]);
-    } else {
-      store.resetExcept(["catalogData", "catalogUrl"]);
-    }
-    // stop loading is handled in the grid components after data load
-    store.startLoading();
-    await updateSrc();
+    await loadCurrentSource();
   }
 );
 
 watch(
   () => varnameSelector.value,
-  async () => {
-    if (!varnameSelector.value || varnameSelector.value === "-") {
+  async (varname, oldVarname) => {
+    if (
+      !isInitialized.value ||
+      !varname ||
+      varname === "-" ||
+      varname === oldVarname
+    ) {
       return;
     }
-    await setGridType();
+    store.startLoading();
+    detectedGridType.value = undefined;
+    await setGridType(true);
   }
 );
 
@@ -244,9 +247,52 @@ function prepareDefaults(src: string, index: TSources) {
   }
 }
 
-const updateSrc = async () => {
+function resetForSourceChange(resetStore: boolean) {
+  isInitialized.value = false;
+  gridTypeUpdateId += 1;
+  detectedGridType.value = undefined;
+  datasources.value = undefined;
+
+  if (resetStore) {
+    if (isDisplayMode.value || isPresenterActive.value) {
+      // In display/presenter mode we want to preserve some state across source changes
+      store.resetExcept([
+        "projectionMode",
+        "projectionCenter",
+        "catalogData",
+        "catalogUrl",
+      ]);
+    } else {
+      store.resetExcept(["catalogData", "catalogUrl"]);
+    }
+  }
+
+  // stop loading is handled in the grid components after data load
+  store.startLoading();
+}
+
+async function initControlsFromSource() {
+  await nextTick();
+  controls.value?.initForDataset();
+}
+
+async function loadCurrentSource(resetStore = true) {
+  const updateId = ++sourceUpdateId;
+  resetForSourceChange(resetStore);
+  await updateSrc(updateId);
+  if (updateId !== sourceUpdateId) {
+    return;
+  }
+  await initControlsFromSource();
+  isInitialized.value = true;
+  await setGridType(true);
+}
+
+async function updateSrc(updateId: number) {
   const src = props.src;
   ZarrDataManager.invalidateCache();
+  sourceValid.value = false;
+  store.isInitializingVariable = true;
   // FIXME: Trying zarr and json-index in parallel and picking the first that
   // works. If both fail, we log the last error which is from the json-index.
   // This leads to confusing error messages if the zarr source is supposed to
@@ -254,8 +300,9 @@ const updateSrc = async () => {
   const indexPromises = [indexFromZarr(src), indexFromIndex(src)];
   const indices = await Promise.allSettled(indexPromises);
   let lastError = null;
-  store.isInitializingVariable = true;
-  sourceValid.value = false;
+  if (updateId !== sourceUpdateId || src !== props.src) {
+    return;
+  }
   for (const index of indices) {
     if (index.status === "fulfilled") {
       sourceValid.value = true;
@@ -267,11 +314,9 @@ const updateSrc = async () => {
   }
   store.signifyDatasetChange();
   if (!sourceValid.value && lastError) {
-    store.stopLoading();
     logError(lastError, "Failed to fetch data");
-    setGridType();
   }
-};
+}
 
 const makeSnapshot = (options: TSnapshotOptions) => {
   if (globe.value) {
@@ -351,11 +396,7 @@ const applyHyperglobePresenter = () => {
 };
 
 onMounted(async () => {
-  // stop loading is handled in the grid components after data load
-  store.startLoading();
-  await updateSrc();
-  isInitialized.value = true;
-  await setGridType();
+  await loadCurrentSource(false);
 });
 
 // Prevent the long-press context menu on touch-enabled devices (e.g. touchscreen
@@ -408,6 +449,7 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
     <Toast />
     <div v-show="!distractionFree && !isDisplayMode">
       <GlobeControls
+        ref="controls"
         :model-info="modelInfo"
         :current-source="props.src"
         @on-snapshot="makeSnapshot"
@@ -432,14 +474,15 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
         </div>
       </div>
     </section>
-    <div v-else-if="detectedGridType !== undefined" class="grid-canvas-wrapper">
+    <div v-else class="grid-canvas-wrapper">
       <currentGlobeComponent
+        v-if="detectedGridType !== undefined"
         ref="globe"
         :key="globeKey"
         :datasources="datasources"
         :is-rotated="detectedGridType === GRID_TYPES.REGULAR_ROTATED"
       />
-      <HoverReadout />
+      <HoverReadout v-if="detectedGridType !== undefined" />
     </div>
     <div
       v-if="!isDisplayMode"

@@ -9,21 +9,22 @@ import {
   useGridHoverLookup,
 } from "./composables/gridHoverUtils.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
-import {
-  createWrappedProjectionMesh,
-  setupProjectionGeometryWrap,
-  updateProjectionMeshes,
-} from "./composables/useProjectionEdgeQuality.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
+import { getLatLonData } from "@/lib/data/coordinateVariables.ts";
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
-import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   castDataVarToFloat32,
   createMissingOrFillPredicate,
-  getDataBoundsAndMapMissingToNaN,
-  getLatLonData,
-} from "@/lib/data/zarrUtils.ts";
+  decodeVariableDataAndGetBounds,
+} from "@/lib/data/variableDecoding.ts";
+import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
+import {
+  createTriangleWrapProjectionGeometry,
+  createWrappedProjectionMesh,
+  setupProjectionGeometryWrap,
+  updateProjectionMeshes,
+} from "@/lib/projection/projectionEdgeQuality.ts";
 import { makeInvertableGpuMeshMaterial } from "@/lib/shaders/gridShaders.ts";
 import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
@@ -86,7 +87,12 @@ function updateMeshProjectionUniforms() {
 }
 
 const colormapMaterial = computed(() => {
-  return makeInvertableGpuMeshMaterial(colormap.value, invertColormap.value);
+  const material = makeInvertableGpuMeshMaterial(
+    colormap.value,
+    invertColormap.value
+  );
+  material.uniforms.useTriangleWrapCull.value = 1;
+  return material;
 });
 
 const { datasourceUpdate } = useGridDataLoader({
@@ -105,6 +111,7 @@ async function getGrid(
   data: Float32Array
 ) {
   const { latitudes, longitudes } = await getLatLonData(
+    varnameSelector.value,
     datavar,
     props.datasources
   );
@@ -123,13 +130,16 @@ async function getGrid(
     ni
   );
 
+  const isPeriodicI = detectColumnPeriodicity(longitudesData, nj, ni);
+
   buildCurvilinearGeometry(
     latitudesData,
     longitudesData,
     data,
     nj,
     ni,
-    shouldFlipLongitude
+    shouldFlipLongitude,
+    isPeriodicI
   );
 
   return {
@@ -194,6 +204,42 @@ function detectLongitudeFlip(
   const crossProduct = dlonI * dlatJ - dlatI * dlonJ;
 
   return crossProduct < 0;
+}
+
+function detectColumnPeriodicity(
+  longitudes: Float64Array,
+  nj: number,
+  ni: number
+): boolean {
+  if (ni < 3) {
+    return false;
+  }
+
+  const sampleRow = Math.floor(nj / 2);
+  let sumSpacing = 0;
+  let count = 0;
+  const maxSamples = Math.min(ni - 1, 10);
+
+  for (let i = 0; i < maxSamples; i++) {
+    const lon0 = longitudes[sampleRow * ni + i];
+    const lon1 = longitudes[sampleRow * ni + i + 1];
+    const diff = Math.abs(((lon1 - lon0 + 540) % 360) - 180);
+    if (diff > 0) {
+      sumSpacing += diff;
+      count++;
+    }
+  }
+
+  if (count === 0) {
+    return false;
+  }
+  const avgSpacing = sumSpacing / count;
+
+  const lonFirst = longitudes[sampleRow * ni];
+  const lonLast = longitudes[sampleRow * ni + (ni - 1)];
+  const wrapGap = Math.abs(((lonFirst - lonLast + 540) % 360) - 180);
+
+  return wrapGap < avgSpacing * 4;
 }
 
 function cleanupMeshes(totalBatches: number) {
@@ -294,21 +340,72 @@ function getRowMidpoint(
   );
 }
 
-// Derive shared midpoint boundaries around the cell's source coordinate.
-function getCenteredCellCorners(
+function isAtFirstColumn(i: number, ni: number, flipLongitude: boolean) {
+  return flipLongitude ? i === ni - 1 : i === 0;
+}
+
+function isAtLastColumn(i: number, ni: number, flipLongitude: boolean) {
+  return flipLongitude ? i === 0 : i === ni - 1;
+}
+
+type TBoundaryFn = (
+  row: number,
+  fromColumn: number,
+  toColumn: number
+) => {
+  lat: number;
+  lon: number;
+};
+type TMidpointFn = (
+  fromColumn: number,
+  toColumn: number
+) => {
+  lat: number;
+  lon: number;
+};
+
+function computeMirroredPreviousBoundaries(
   j: number,
   i: number,
-  ni: number,
-  flipLongitude: boolean,
-  latitudes: Float64Array,
-  longitudes: Float64Array
+  iNext: number,
+  boundary: TBoundaryFn,
+  midpoint: TMidpointFn
 ) {
-  const iPrevious = getPreviousColumnIndex(i, ni, flipLongitude);
-  const iNext = getNextColumnIndex(i, ni, flipLongitude);
-  const boundary = (row: number, fromColumn: number, toColumn: number) =>
-    getBoundaryPoint(row, fromColumn, toColumn, ni, latitudes, longitudes);
-  const midpoint = (fromColumn: number, toColumn: number) =>
-    getRowMidpoint(j, fromColumn, toColumn, ni, latitudes, longitudes);
+  const forwardNext = boundary(j, i, iNext);
+  const forwardPrevious = mirrorBoundaryPoint(midpoint(i, i), forwardNext);
+  const backwardNext =
+    j === 0
+      ? mirrorBoundaryPoint(midpoint(i, iNext), forwardNext)
+      : boundary(j - 1, i, iNext);
+  const backwardPrevious = mirrorBoundaryPoint(midpoint(i, i), backwardNext);
+  return { forwardPrevious, forwardNext, backwardPrevious, backwardNext };
+}
+
+function computeMirroredNextBoundaries(
+  j: number,
+  i: number,
+  iPrevious: number,
+  boundary: TBoundaryFn,
+  midpoint: TMidpointFn
+) {
+  const forwardPrevious = boundary(j, iPrevious, i);
+  const forwardNext = mirrorBoundaryPoint(midpoint(i, i), forwardPrevious);
+  const backwardPrevious =
+    j === 0
+      ? mirrorBoundaryPoint(midpoint(iPrevious, i), forwardPrevious)
+      : boundary(j - 1, iPrevious, i);
+  const backwardNext = mirrorBoundaryPoint(midpoint(i, i), backwardPrevious);
+  return { forwardPrevious, forwardNext, backwardPrevious, backwardNext };
+}
+
+function computePeriodicBoundaries(
+  j: number,
+  i: number,
+  iPrevious: number,
+  iNext: number,
+  boundary: TBoundaryFn,
+  midpoint: TMidpointFn
+) {
   const forwardPrevious = boundary(j, iPrevious, i);
   const forwardNext = boundary(j, i, iNext);
   const backwardPrevious =
@@ -319,7 +416,38 @@ function getCenteredCellCorners(
     j === 0
       ? mirrorBoundaryPoint(midpoint(i, iNext), forwardNext)
       : boundary(j - 1, i, iNext);
+  return { forwardPrevious, forwardNext, backwardPrevious, backwardNext };
+}
 
+// Derive shared midpoint boundaries around the cell's source coordinate.
+function getCenteredCellCorners(
+  j: number,
+  i: number,
+  ni: number,
+  flipLongitude: boolean,
+  latitudes: Float64Array,
+  longitudes: Float64Array,
+  isPeriodicI: boolean
+) {
+  const iPrevious = getPreviousColumnIndex(i, ni, flipLongitude);
+  const iNext = getNextColumnIndex(i, ni, flipLongitude);
+  const boundary: TBoundaryFn = (row, fromColumn, toColumn) =>
+    getBoundaryPoint(row, fromColumn, toColumn, ni, latitudes, longitudes);
+  const midpoint: TMidpointFn = (fromColumn, toColumn) =>
+    getRowMidpoint(j, fromColumn, toColumn, ni, latitudes, longitudes);
+
+  const needsMirrorPrevious =
+    !isPeriodicI && isAtFirstColumn(i, ni, flipLongitude);
+  const needsMirrorNext = !isPeriodicI && isAtLastColumn(i, ni, flipLongitude);
+
+  const corners = needsMirrorPrevious
+    ? computeMirroredPreviousBoundaries(j, i, iNext, boundary, midpoint)
+    : needsMirrorNext
+      ? computeMirroredNextBoundaries(j, i, iPrevious, boundary, midpoint)
+      : computePeriodicBoundaries(j, i, iPrevious, iNext, boundary, midpoint);
+
+  const { backwardPrevious, backwardNext, forwardNext, forwardPrevious } =
+    corners;
   return {
     latPoints: [
       backwardPrevious.lat,
@@ -352,7 +480,7 @@ function createBatchGeometry(
   geometry.setAttribute("latLon", new THREE.BufferAttribute(latLonValues, 2));
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
 
-  return geometry;
+  return createTriangleWrapProjectionGeometry(geometry);
 }
 
 function updateBatchMesh(
@@ -464,7 +592,8 @@ function buildBatchGeometryData(
   jStart: number,
   jEnd: number,
   ni: number,
-  flipLongitude: boolean
+  flipLongitude: boolean,
+  isPeriodicI: boolean
 ) {
   const { positionValues, dataValues, latLonValues, indices } =
     initializeArrays(jEnd, jStart, ni);
@@ -482,7 +611,8 @@ function buildBatchGeometryData(
         ni,
         flipLongitude,
         latitudes,
-        longitudes
+        longitudes,
+        isPeriodicI
       );
       positionOffset = fillCellPositionAndData(
         latPoints,
@@ -511,7 +641,8 @@ function buildCurvilinearGeometry(
   data: Float32Array, // 2D array flattened: data values at each (j,i) grid point
   nj: number, // Number of rows in the grid (j dimension)
   ni: number, // Number of columns in the grid (i dimension)
-  flipLongitude: boolean = false // Whether to flip longitude ordering
+  flipLongitude: boolean = false, // Whether to flip longitude ordering
+  isPeriodicI: boolean = true // Whether the grid wraps in the i-direction
 ) {
   const totalBatches = Math.ceil((nj - 1) / BATCH_SIZE);
   cleanupMeshes(totalBatches);
@@ -527,7 +658,8 @@ function buildCurvilinearGeometry(
       jStart,
       jEnd,
       ni,
-      flipLongitude
+      flipLongitude,
+      isPeriodicI
     );
     updateBatchMesh(batchIndex, geometry, meshes);
   }
@@ -688,7 +820,7 @@ async function fetchAndRenderData(
   const rawData = castDataVarToFloat32(
     (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
   );
-  const { min, max, missingValue, fillValue } = getDataBoundsAndMapMissingToNaN(
+  const { min, max, missingValue, fillValue } = decodeVariableDataAndGetBounds(
     datavar,
     rawData
   );

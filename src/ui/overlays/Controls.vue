@@ -60,6 +60,7 @@ const {
   userBoundsLow,
   userBoundsHigh,
   projectionCenter,
+  loading,
 } = storeToRefs(store);
 
 // Bounds logic state
@@ -167,26 +168,14 @@ watch(
       pickedBoundsMode.value = BOUND_MODES.USER;
     }
     setDefaultColormap();
-    store.updateBounds(currentBounds.value as TBounds);
   }
 );
 
-watch(
-  () => currentBounds.value,
-  () => {
-    store.updateBounds(currentBounds.value as TBounds);
-  },
-  { deep: true }
-);
-
-watch(
-  () => store.newDatasetSignifier,
-  () => {
-    if (store.isNewDataset()) {
-      init();
-    }
+watch(currentBounds, (bounds) => {
+  if (bounds) {
+    store.updateBounds(bounds as TBounds);
   }
-);
+});
 
 function onPickedBoundsModeChange(newMode: TBoundModes) {
   if (newMode === BOUND_MODES.USER) {
@@ -218,21 +207,25 @@ function toggleMobileMenu() {
 
 onBeforeMount(() => {
   isMobileView.value = window.innerWidth < MOBILE_BREAKPOINT;
+  initPanelVisibility();
   useEventListener(window, "resize", () => {
     isMobileView.value = window.innerWidth < MOBILE_BREAKPOINT;
   });
 });
 
-function init() {
-  setDefaultBounds();
-  store.updateBounds(currentBounds.value as TBounds);
-
-  // Initialize control panel visibility
+function initPanelVisibility() {
   const initiallyVisible = isMobileView.value
     ? !mobileMenuCollapsed.value
     : !menuCollapsed.value;
   store.setControlPanelVisible(initiallyVisible);
+}
 
+function initDatasetControls() {
+  if (!props.modelInfo) {
+    return;
+  }
+  setDefaultBounds();
+  store.updateBounds(currentBounds.value as TBounds);
   initFromParams();
 }
 
@@ -292,6 +285,10 @@ function initFromParams() {
     pickedBoundsMode.value = BOUND_MODES.USER;
   }
 }
+
+defineExpose({
+  initForDataset: initDatasetControls,
+});
 </script>
 
 <template>
@@ -308,6 +305,9 @@ function initFromParams() {
         <span class="ellipsis" :title="modelInfo.title">
           {{ modelInfo.title }}
         </span>
+      </div>
+      <div v-else-if="loading" class="title-bar">
+        <progress class="progress is-info" max="100"></progress>
       </div>
       <div v-else class="title-bar">No data available</div>
       <DataInput :current-source="currentSource" />
@@ -328,7 +328,11 @@ function initFromParams() {
   </div>
 
   <Transition name="slide">
-    <nav v-show="!isHidden && modelInfo" id="main_controls" class="gl_controls">
+    <nav
+      v-show="(!isHidden && modelInfo) || loading"
+      id="main_controls"
+      class="gl_controls"
+    >
       <div class="full-panel">
         <CollapsibleCard title="Variable">
           <VariableSelector

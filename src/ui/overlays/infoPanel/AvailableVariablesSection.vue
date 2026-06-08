@@ -150,7 +150,7 @@ function toggleVariableAttributes(varName: string) {
 
 function selectVariable(varName: string) {
   selectedAttributesVariableName.value = varName;
-  varnameSelector.value = varName;
+  store.selectVariable(varName);
 }
 
 watch(

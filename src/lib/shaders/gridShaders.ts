@@ -137,6 +137,7 @@ export function makeGpuProjectedMeshMaterial(
       centerLat: { value: 0.0 },
       projectionRadius: { value: 1.0 },
       edgeQuality: { value: 1 },
+      useTriangleWrapCull: { value: 0 },
     },
     vertexShader: gpuProjectedMeshVertexShader,
     fragmentShader: scalarColormapFragmentShader,
@@ -144,6 +145,12 @@ export function makeGpuProjectedMeshMaterial(
   (material.defaultAttributeValues as Record<string, unknown>).wrapDirection = [
     0,
   ];
+  (material.defaultAttributeValues as Record<string, unknown>).triangleLatLon0 =
+    [0, 0];
+  (material.defaultAttributeValues as Record<string, unknown>).triangleLatLon1 =
+    [0, 0];
+  (material.defaultAttributeValues as Record<string, unknown>).triangleLatLon2 =
+    [0, 0];
   return material;
 }
 

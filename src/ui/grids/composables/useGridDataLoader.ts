@@ -1,4 +1,4 @@
-import { ref, watch, type Ref } from "vue";
+import { onScopeDispose, ref, watch, type Ref } from "vue";
 import type * as zarr from "zarrita";
 
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
@@ -10,6 +10,7 @@ type TGlobeControlStore = ReturnType<typeof useGlobeControlStore>;
 type TLogError = (maybeError: unknown, context?: string) => void;
 
 type TLoaderState = {
+  disposed: boolean;
   pendingUpdate: Ref<boolean>;
   updatingData: Ref<boolean>;
 };
@@ -26,8 +27,6 @@ type TGridDataLoaderOptions = {
   updateColormap: () => void;
   prepareDatasource?: () => void | Promise<void>;
   resetDataVars?: () => void;
-  onVariableChange?: () => void;
-  onDatasourceChange?: () => void;
 };
 
 function createGetData(
@@ -49,22 +48,33 @@ function createGetData(
     }
 
     state.updatingData.value = true;
+    let shouldStopLoading = true;
     try {
       do {
         state.pendingUpdate.value = false;
-        const datavar = await options.getDataVar(
-          store.varnameSelector,
-          datasources
-        );
+        const requestVarname = store.varnameSelector;
+        const datavar = await options.getDataVar(requestVarname, datasources);
+        if (state.disposed || datasources !== options.getDatasources()) {
+          shouldStopLoading = false;
+          return;
+        }
+        if (requestVarname !== store.varnameSelector) {
+          state.pendingUpdate.value = true;
+          continue;
+        }
         if (datavar !== undefined) {
           await options.fetchAndRenderData(datavar);
         }
       } while (state.pendingUpdate.value);
     } catch (error) {
-      logError(error, "Could not fetch data");
+      if (!state.disposed) {
+        logError(error, "Could not fetch data");
+      }
     } finally {
       state.updatingData.value = false;
-      store.stopLoading();
+      if (!state.disposed && shouldStopLoading) {
+        store.stopLoading();
+      }
     }
   };
 }
@@ -91,49 +101,40 @@ function createDatasourceUpdate(
 function registerGridDataLoaderWatches(
   options: TGridDataLoaderOptions,
   store: TGlobeControlStore,
-  getData: () => Promise<void>,
-  datasourceUpdate: () => Promise<void>
+  getData: () => Promise<void>
 ) {
   watch(
-    () => store.varnameSelector,
-    () => {
-      options.onVariableChange?.();
-      void getData();
-    }
-  );
-
-  watch(
-    () => store.dimSlidersValues,
+    () => [...store.dimSlidersValues],
     async () => {
       if (store.isInitializingVariable) {
-        // when variable changes, we fetch data in the varnameSelector watcher,
-        // and we don't want to fetch data twice
+        // Variable changes remount the grid, so the initial dim write should
+        // not trigger a second data request inside the fresh grid instance.
         store.isInitializingVariable = false;
         return;
       }
       await getData();
       options.updateColormap();
-    },
-    { deep: true }
+    }
   );
-
-  watch(options.getDatasources, () => {
-    options.onDatasourceChange?.();
-    void datasourceUpdate();
-  });
 }
 
 export function useGridDataLoader(options: TGridDataLoaderOptions) {
   const store = useGlobeControlStore();
   const { logError } = useLog();
   const state: TLoaderState = {
+    disposed: false,
     pendingUpdate: ref(false),
     updatingData: ref(false),
   };
   const getData = createGetData(options, store, state, logError);
   const datasourceUpdate = createDatasourceUpdate(options, getData);
 
-  registerGridDataLoaderWatches(options, store, getData, datasourceUpdate);
+  registerGridDataLoaderWatches(options, store, getData);
+
+  onScopeDispose(() => {
+    state.disposed = true;
+    state.pendingUpdate.value = false;
+  });
 
   return {
     datasourceUpdate,
