@@ -98,10 +98,6 @@ const colormapMaterial = computed(() => {
   return makeInvertableGpuMeshMaterial(colormap.value, invertColormap.value);
 });
 
-function clearTriangulationCache() {
-  cachedTriangleIndices = null;
-}
-
 const { datasourceUpdate } = useGridDataLoader({
   getDatasources: () => props.datasources,
   getDataVar,
@@ -109,8 +105,6 @@ const { datasourceUpdate } = useGridDataLoader({
   clearHoverLookup,
   updateLandSeaMask,
   updateColormap: () => updateColormap(meshes),
-  onVariableChange: clearTriangulationCache,
-  onDatasourceChange: clearTriangulationCache,
 });
 
 /**

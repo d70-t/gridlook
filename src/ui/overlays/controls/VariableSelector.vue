@@ -71,9 +71,7 @@ function onGroupChange(event: Event) {
 }
 
 function updateModel(basename: string, group = selectedGroup.value) {
-  store.startLoading();
-  model.value = group === "/" ? basename : `${group}/${basename}`;
-  store.signifyVariableChange();
+  store.selectVariable(group === "/" ? basename : `${group}/${basename}`);
 }
 
 const currentVar = computed(() => props.modelInfo.vars[model.value]);

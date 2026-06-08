@@ -167,26 +167,14 @@ watch(
       pickedBoundsMode.value = BOUND_MODES.USER;
     }
     setDefaultColormap();
-    store.updateBounds(currentBounds.value as TBounds);
   }
 );
 
-watch(
-  () => currentBounds.value,
-  () => {
-    store.updateBounds(currentBounds.value as TBounds);
-  },
-  { deep: true }
-);
-
-watch(
-  () => store.newDatasetSignifier,
-  () => {
-    if (store.isNewDataset()) {
-      init();
-    }
+watch(currentBounds, (bounds) => {
+  if (bounds) {
+    store.updateBounds(bounds as TBounds);
   }
-);
+});
 
 function onPickedBoundsModeChange(newMode: TBoundModes) {
   if (newMode === BOUND_MODES.USER) {
@@ -224,6 +212,9 @@ onBeforeMount(() => {
 });
 
 function init() {
+  if (!props.modelInfo) {
+    return;
+  }
   setDefaultBounds();
   store.updateBounds(currentBounds.value as TBounds);
 
@@ -292,6 +283,10 @@ function initFromParams() {
     pickedBoundsMode.value = BOUND_MODES.USER;
   }
 }
+
+defineExpose({
+  initForDataset: init,
+});
 </script>
 
 <template>
