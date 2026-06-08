@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { storeToRefs } from "pinia";
-import { computed, ref, watch } from "vue";
+import { computed } from "vue";
 
 import type { TModelInfo } from "@/lib/types/GlobeTypes.js";
 import { useGlobeControlStore } from "@/store/store.ts";
@@ -41,11 +41,22 @@ const groups = computed(() => {
 const groupNames = computed(() => Object.keys(groups.value));
 const hasMultipleGroups = computed(() => groupNames.value.length > 1);
 
-const selectedGroup = ref(
-  model.value.lastIndexOf("/") > 0
-    ? model.value.substring(0, model.value.lastIndexOf("/"))
-    : "/"
-);
+const selectedGroup = computed({
+  get: () => {
+    const group =
+      model.value.lastIndexOf("/") > 0
+        ? model.value.substring(0, model.value.lastIndexOf("/"))
+        : "/";
+
+    return groups.value[group] ? group : (groupNames.value[0] ?? "/");
+  },
+  set: (newGroup: string) => {
+    const vars = groups.value[newGroup];
+    if (vars && vars.length > 0) {
+      updateModel(vars[0], newGroup);
+    }
+  },
+});
 
 const selectedBasename = computed(() => {
   return model.value.substring(model.value.lastIndexOf("/") + 1);
@@ -55,27 +66,13 @@ const groupVariables = computed(() => {
   return groups.value[selectedGroup.value] ?? [];
 });
 
-watch(
-  () => props.modelInfo,
-  () => {
-    if (!groups.value[selectedGroup.value]) {
-      selectedGroup.value = groupNames.value[0] ?? "/";
-    }
-  }
-);
-
-function onGroupChange() {
-  const vars = groups.value[selectedGroup.value];
-  if (vars && vars.length > 0) {
-    updateModel(vars[0]);
-  }
+function onGroupChange(event: Event) {
+  selectedGroup.value = (event.target as HTMLSelectElement).value;
 }
 
-function updateModel(basename: string) {
-  model.value =
-    selectedGroup.value === "/"
-      ? basename
-      : `${selectedGroup.value}/${basename}`;
+function updateModel(basename: string, group = selectedGroup.value) {
+  store.startLoading();
+  model.value = group === "/" ? basename : `${group}/${basename}`;
   store.signifyVariableChange();
 }
 
@@ -114,7 +111,7 @@ function getOptionLabel(varname: string): string {
         :class="{ 'is-loading': loading }"
       >
         <select
-          v-model="selectedGroup"
+          :value="selectedGroup"
           class="form-control"
           @change="onGroupChange"
         >
@@ -122,6 +119,9 @@ function getOptionLabel(varname: string): string {
             {{ group }}
           </option>
         </select>
+      </div>
+      <div v-if="hasMultipleGroups" class="is-size-7 has-text-grey">
+        Variable
       </div>
       <div class="select is-fullwidth mb-2" :class="{ 'is-loading': loading }">
         <select
