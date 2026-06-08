@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.2.0](https://github.com/d70-t/gridlook/compare/v1.1.0...v1.2.0) (2026-06-08)
+
+
+### Features
+
+* **lib:** added EPSG 3857-support ([0037dcf](https://github.com/d70-t/gridlook/commit/0037dcf3b538ac452848e438db7d632e0839917d))
+* **lib:** support for groups ([46393d1](https://github.com/d70-t/gridlook/commit/46393d1810ae6c2bc413fafa9043349f1d1514e3))
+
+
+### Bug Fixes
+
+* **lib:** added handling of add_offset and scale_factor. ([cdfaaa1](https://github.com/d70-t/gridlook/commit/cdfaaa16a898d50b31d7dfa9eb75217940ea323b))
+* **lib:** better wrapping for regional curvilinear datasets on flat projections ([6a53e9c](https://github.com/d70-t/gridlook/commit/6a53e9cffa2e62b93986b37bee2d211669e09b2f))
+* **ui:** fixed hanging UI-bug when changing projection during rotation ([728c349](https://github.com/d70-t/gridlook/commit/728c34980c9c995d55f0a38c3990828336608d5d))
+
 ## [1.1.0](https://github.com/d70-t/gridlook/compare/v1.0.0...v1.1.0) (2026-06-01)
 
 
