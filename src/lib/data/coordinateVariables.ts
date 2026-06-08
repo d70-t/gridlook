@@ -62,6 +62,16 @@ type TLatLonNames = {
   longitudeName: string | null;
 };
 
+function getVariableGroup(variable: string) {
+  const lastSlashIndex = variable.lastIndexOf("/");
+  return lastSlashIndex === -1 ? "" : variable.slice(0, lastSlashIndex);
+}
+
+function getVariableLocalName(variable: string) {
+  const lastSlashIndex = variable.lastIndexOf("/");
+  return lastSlashIndex === -1 ? variable : variable.slice(lastSlashIndex + 1);
+}
+
 export function hasUnits(
   maybeHasUnits: unknown
 ): maybeHasUnits is { units: string } {
@@ -72,60 +82,75 @@ export function hasUnits(
 }
 
 export function isLongitudeVariable(name: string, attrs: unknown) {
+  const variableName = getVariableLocalName(name);
   return (
     (hasUnits(attrs) && !!attrs.units.match(/degrees?_?(E|east)/)) ||
-    name === "lon" ||
-    name === "longitude"
+    variableName === "lon" ||
+    variableName === "longitude"
   );
 }
 
 export function isLongitudeName(name: string) {
+  const variableName = getVariableLocalName(name);
   // FIXME: Need to check for unit later
   // having "rlon" here is a workaround to catch rotated regular grids if the have no CRS-var
-  return name === "lon" || name === "longitude" || name === "rlon";
+  return (
+    variableName === "lon" ||
+    variableName === "longitude" ||
+    variableName === "rlon"
+  );
 }
 
 export function isLatitudeVariable(name: string, attrs: unknown) {
+  const variableName = getVariableLocalName(name);
   return (
     (hasUnits(attrs) && !!attrs.units.match(/degrees?_?(N|north)/)) ||
-    name === "lat" ||
-    name === "latitude"
+    variableName === "lat" ||
+    variableName === "latitude"
   );
 }
 
 export function isLatitudeName(name: string) {
+  const variableName = getVariableLocalName(name);
   // FIXME: Need to check for unit later
   // having "rlat" here is a workaround to catch rotated regular grids if the have no CRS-var
-  return name === "lat" || name === "latitude" || name === "rlat";
+  return (
+    variableName === "lat" ||
+    variableName === "latitude" ||
+    variableName === "rlat"
+  );
 }
 
 function lonPriority(name: string) {
-  if (name === "rlon") {
+  const variableName = getVariableLocalName(name);
+  if (variableName === "rlon") {
     return 0;
   }
-  if (name === "lon") {
+  if (variableName === "lon") {
     return 1;
   }
-  if (name === "longitude") {
+  if (variableName === "longitude") {
     return 2;
   }
   return 3;
 }
 
 function latPriority(name: string) {
-  if (name === "rlat") {
+  const variableName = getVariableLocalName(name);
+  if (variableName === "rlat") {
     return 0;
   }
-  if (name === "lat") {
+  if (variableName === "lat") {
     return 1;
   }
-  if (name === "latitude") {
+  if (variableName === "latitude") {
     return 2;
   }
   return 3;
 }
 
 function resolveLatLonFromCoordinates(
+  variable: string,
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   isRotated: boolean
 ): TLatLonNames {
@@ -137,17 +162,20 @@ function resolveLatLonFromCoordinates(
   if (coordinates) {
     for (const coordName of coordinates.split(" ")) {
       if (isLatitudeName(coordName)) {
-        latitudeName = coordName;
+        latitudeName = ZarrDataManager.resolveVariablePath(variable, coordName);
       } else if (isLongitudeName(coordName)) {
-        longitudeName = coordName;
+        longitudeName = ZarrDataManager.resolveVariablePath(
+          variable,
+          coordName
+        );
       }
     }
   } else {
     (datavar.dimensionNames as string[]).forEach((dimName: string) => {
       if (isLatitudeName(dimName)) {
-        latitudeName = dimName;
+        latitudeName = ZarrDataManager.resolveVariablePath(variable, dimName);
       } else if (isLongitudeName(dimName)) {
-        longitudeName = dimName;
+        longitudeName = ZarrDataManager.resolveVariablePath(variable, dimName);
       }
     });
   }
@@ -156,10 +184,15 @@ function resolveLatLonFromCoordinates(
 
 function refineLatLonFromSources(
   sources: TSources["levels"][0]["datasources"],
+  variable: string,
   latitudeName: string | null,
   longitudeName: string | null
 ): TLatLonNames {
+  const variableGroup = getVariableGroup(variable);
   for (const sourceKey in sources) {
+    if (getVariableGroup(sourceKey) !== variableGroup) {
+      continue;
+    }
     if (isLatitudeVariable(sourceKey, sources[sourceKey].attrs)) {
       if (
         latitudeName === null ||
@@ -195,10 +228,12 @@ function refineLatLonFromSources(
  */
 function findLatLonNames(
   datasources: TSources,
+  variable: string,
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   isRotated = false
 ) {
   let { latitudeName, longitudeName } = resolveLatLonFromCoordinates(
+    variable,
     datavar,
     isRotated
   );
@@ -209,6 +244,7 @@ function findLatLonNames(
   if (!latitudeName || !longitudeName) {
     ({ latitudeName, longitudeName } = refineLatLonFromSources(
       datasources.levels[0].datasources,
+      variable,
       latitudeName,
       longitudeName
     ));
@@ -255,6 +291,7 @@ export async function getLatLonData(
 ) {
   const { latitudeName, longitudeName } = findLatLonNames(
     datasources!,
+    variable,
     datavar,
     isRotated
   );
