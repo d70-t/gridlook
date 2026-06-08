@@ -11,7 +11,7 @@
 
 ### Bug Fixes
 
-* **lib:** added handling of add_offset and scale_factor. refactored code ([cdfaaa1](https://github.com/d70-t/gridlook/commit/cdfaaa16a898d50b31d7dfa9eb75217940ea323b))
+* **lib:** added handling of add_offset and scale_factor. ([cdfaaa1](https://github.com/d70-t/gridlook/commit/cdfaaa16a898d50b31d7dfa9eb75217940ea323b))
 * **lib:** better wrapping for regional curvilinear datasets on flat projections ([6a53e9c](https://github.com/d70-t/gridlook/commit/6a53e9cffa2e62b93986b37bee2d211669e09b2f))
 * **ui:** fixed hanging UI-bug when changing projection during rotation ([728c349](https://github.com/d70-t/gridlook/commit/728c34980c9c995d55f0a38c3990828336608d5d))
 
