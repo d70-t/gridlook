@@ -474,14 +474,15 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
         </div>
       </div>
     </section>
-    <div v-else-if="detectedGridType !== undefined" class="grid-canvas-wrapper">
+    <div v-else class="grid-canvas-wrapper">
       <currentGlobeComponent
+        v-if="detectedGridType !== undefined"
         ref="globe"
         :key="globeKey"
         :datasources="datasources"
         :is-rotated="detectedGridType === GRID_TYPES.REGULAR_ROTATED"
       />
-      <HoverReadout />
+      <HoverReadout v-if="detectedGridType !== undefined" />
     </div>
     <div
       v-if="!isDisplayMode"

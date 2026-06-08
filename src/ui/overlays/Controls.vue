@@ -1,7 +1,14 @@
 <script lang="ts" setup>
 import { useEventListener } from "@vueuse/core";
 import { storeToRefs } from "pinia";
-import { computed, onBeforeMount, ref, watch, type Ref } from "vue";
+import {
+  computed,
+  onBeforeMount,
+  onUnmounted,
+  ref,
+  watch,
+  type Ref,
+} from "vue";
 
 import CollapsibleCard from "../common/CollapsibleCard.vue";
 
@@ -60,6 +67,7 @@ const {
   userBoundsLow,
   userBoundsHigh,
   projectionCenter,
+  loading,
 } = storeToRefs(store);
 
 // Bounds logic state
@@ -206,24 +214,25 @@ function toggleMobileMenu() {
 
 onBeforeMount(() => {
   isMobileView.value = window.innerWidth < MOBILE_BREAKPOINT;
+  initPanelVisibility();
   useEventListener(window, "resize", () => {
     isMobileView.value = window.innerWidth < MOBILE_BREAKPOINT;
   });
 });
 
-function init() {
+function initPanelVisibility() {
+  const initiallyVisible = isMobileView.value
+    ? !mobileMenuCollapsed.value
+    : !menuCollapsed.value;
+  store.setControlPanelVisible(initiallyVisible);
+}
+
+function initDatasetControls() {
   if (!props.modelInfo) {
     return;
   }
   setDefaultBounds();
   store.updateBounds(currentBounds.value as TBounds);
-
-  // Initialize control panel visibility
-  const initiallyVisible = isMobileView.value
-    ? !mobileMenuCollapsed.value
-    : !menuCollapsed.value;
-  store.setControlPanelVisible(initiallyVisible);
-
   initFromParams();
 }
 
@@ -285,7 +294,7 @@ function initFromParams() {
 }
 
 defineExpose({
-  initForDataset: init,
+  initForDataset: initDatasetControls,
 });
 </script>
 
@@ -303,6 +312,9 @@ defineExpose({
         <span class="ellipsis" :title="modelInfo.title">
           {{ modelInfo.title }}
         </span>
+      </div>
+      <div v-else-if="loading" class="title-bar">
+        <progress class="progress is-large is-info" max="100">60%</progress>
       </div>
       <div v-else class="title-bar">No data available</div>
       <DataInput :current-source="currentSource" />
@@ -323,7 +335,11 @@ defineExpose({
   </div>
 
   <Transition name="slide">
-    <nav v-show="!isHidden && modelInfo" id="main_controls" class="gl_controls">
+    <nav
+      v-show="(!isHidden && modelInfo) || loading"
+      id="main_controls"
+      class="gl_controls"
+    >
       <div class="full-panel">
         <CollapsibleCard title="Variable">
           <VariableSelector
