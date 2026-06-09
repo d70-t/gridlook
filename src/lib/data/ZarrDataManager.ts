@@ -211,6 +211,13 @@ export class ZarrDataManager {
     if (group.attrs?.grid_mapping) {
       return String(group.attrs.grid_mapping).split(":")[0];
     }
+    if (
+      (datavar.attrs?.coordinates as string | undefined)?.includes(
+        "spatial_ref"
+      )
+    ) {
+      return "spatial_ref";
+    }
     return "crs";
   }
 
