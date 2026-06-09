@@ -261,9 +261,10 @@ function resetForSourceChange(resetStore: boolean) {
         "projectionCenter",
         "catalogData",
         "catalogUrl",
+        "controlPanelVisible",
       ]);
     } else {
-      store.resetExcept(["catalogData", "catalogUrl"]);
+      store.resetExcept(["catalogData", "catalogUrl", "controlPanelVisible"]);
     }
   }
 
