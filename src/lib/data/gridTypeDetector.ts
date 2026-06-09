@@ -9,7 +9,7 @@ import {
 } from "./coordinateVariables.ts";
 import { ZarrDataManager } from "./ZarrDataManager.ts";
 
-import type { TSources } from "@/lib/types/GlobeTypes.ts";
+import type { TSources, TZarrDggsMetadata } from "@/lib/types/GlobeTypes.ts";
 
 export const GRID_TYPES = {
   REGULAR: "regular",
@@ -146,7 +146,7 @@ async function determineGridTypeFromCRS(
   return null;
 }
 
-function determineGridTypeFromDGGSZarrConvention(metadata: any) {
+function determineGridTypeFromDGGSZarrConvention(metadata: TZarrDggsMetadata) {
   if (metadata["name"] !== "healpix") {
     // unsupported DGGS, for now
     return GRID_TYPES.ERROR;
@@ -166,8 +166,11 @@ async function determineGridTypeFromZarrConvention(
   );
   const metadata = group.attrs;
 
-  if (metadata["dggs"] !== undefined) {
-    return determineGridTypeFromDGGSZarrConvention(metadata["dggs"]);
+  const dggsMetadata: TZarrDggsMetadata | unknown = metadata["dggs"];
+  if (dggsMetadata) {
+    return determineGridTypeFromDGGSZarrConvention(
+      dggsMetadata as TZarrDggsMetadata
+    );
   }
   return null;
 }

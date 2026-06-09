@@ -33,7 +33,11 @@ import {
   makeGpuProjectedTextureMaterial,
   updateProjectionUniforms,
 } from "@/lib/shaders/gridShaders.ts";
-import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
+import type {
+  TDimensionRange,
+  TSources,
+  TZarrDggsMetadata,
+} from "@/lib/types/GlobeTypes.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import {
   HOVERED_GRID_POINT_STATUS,
@@ -176,7 +180,7 @@ async function getNside() {
       props.datasources!,
       varnameSelector.value
     );
-    const metadata: any = group.attrs?.dggs ?? {};
+    const metadata = (group.attrs?.dggs as TZarrDggsMetadata) ?? {};
     if ("refinement_level" in metadata) {
       const refinementLevel = (metadata.refinement_level ?? 0) as number;
       return Math.pow(2, refinementLevel);
@@ -187,17 +191,17 @@ async function getNside() {
 }
 
 async function getCells() {
-  var cellCoord = "cell";
+  let cellCoord = "cell";
   try {
     const group = await ZarrDataManager.getParentGroup(
       props.datasources!,
       varnameSelector.value
     );
-    const metadata: any = group.attrs?.dggs ?? {};
+    const metadata = (group.attrs["dggs"] as TZarrDggsMetadata) ?? {};
 
-    const key = "coordinate";
-    if (key in metadata) {
-      cellCoord = metadata[key];
+    const coordinate = metadata["coordinate"];
+    if (coordinate) {
+      cellCoord = coordinate;
     }
   } catch {
     // no dggs metadata found, continue with the default cell coordinate
