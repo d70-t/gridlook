@@ -18,8 +18,7 @@ import {
   isLongitudeName,
   isProjectedXName,
   isProjectedYName,
-  isWebMercatorCRS,
-  webMercatorToLonLat,
+  projectedAxisCoordinatesToLonLat,
 } from "@/lib/data/coordinateVariables.ts";
 import { downsampleDataTexture } from "@/lib/data/dataTexture.ts";
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
@@ -83,8 +82,8 @@ const {
 const { setHoverLookupFromIndex, clearHoverLookup } =
   useGridHoverLookup(hoveredGeoPoint);
 
-const longitudes = ref(new Float64Array());
-const latitudes = ref(new Float64Array());
+const longitudes = ref<Float64Array>(new Float64Array());
+const latitudes = ref<Float64Array>(new Float64Array());
 
 const BATCH_SIZE = 60;
 const MAX_GEO_RESOLUTION = 512;
@@ -135,17 +134,13 @@ async function fetchProjectedXYDims(
     ),
   ]);
   const crsWkt = await getCRSWkt(props.datasources!, varnameSelector.value);
-  if (crsWkt && isWebMercatorCRS(crsWkt)) {
-    const converted = webMercatorToLonLat(
-      new Float64Array(xData.data as Float64Array),
-      new Float64Array(yData.data as Float64Array)
-    );
-    longitudes.value = converted.longitudes;
-    latitudes.value = converted.latitudes;
-  } else {
-    longitudes.value = new Float64Array(xData.data as Float64Array);
-    latitudes.value = new Float64Array(yData.data as Float64Array);
-  }
+  const converted = projectedAxisCoordinatesToLonLat(
+    new Float64Array(xData.data as Float64Array),
+    new Float64Array(yData.data as Float64Array),
+    crsWkt
+  );
+  longitudes.value = converted.longitudes;
+  latitudes.value = converted.latitudes;
 }
 
 async function getDims() {

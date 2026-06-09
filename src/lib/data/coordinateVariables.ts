@@ -1,3 +1,4 @@
+import proj4 from "proj4";
 import * as zarr from "zarrita";
 
 import { decodeVariableChunkInPlace } from "./variableDecoding.ts";
@@ -5,7 +6,8 @@ import { ZarrDataManager } from "./ZarrDataManager.ts";
 
 import { type TSources } from "@/lib/types/GlobeTypes.ts";
 
-const EARTH_RADIUS = 6378137;
+const WGS84 = "EPSG:4326";
+const WEB_MERCATOR = "EPSG:3857";
 
 export function isWebMercatorCRS(crsWkt: string): boolean {
   return (
@@ -24,24 +26,61 @@ export function isProjectedYName(name: string): boolean {
   return name === "y";
 }
 
+function transformProjectedAxesToLonLat(
+  x: Float64Array,
+  y: Float64Array,
+  crsWkt: string
+): {
+  longitudes: Float64Array;
+  latitudes: Float64Array;
+} {
+  const transformer = proj4(crsWkt, WGS84);
+  const longitudes = new Float64Array(x.length);
+  const latitudes = new Float64Array(y.length);
+
+  for (let i = 0; i < x.length; i++) {
+    const [lon] = transformer.forward([x[i], 0]);
+    longitudes[i] = lon;
+  }
+  for (let i = 0; i < y.length; i++) {
+    const [, lat] = transformer.forward([0, y[i]]);
+    latitudes[i] = lat;
+  }
+
+  return { longitudes, latitudes };
+}
+
 export function webMercatorToLonLat(
   x: Float64Array,
   y: Float64Array
 ): {
-  longitudes: Float64Array<ArrayBuffer>;
-  latitudes: Float64Array<ArrayBuffer>;
+  longitudes: Float64Array;
+  latitudes: Float64Array;
 } {
-  const longitudes = new Float64Array(x.length);
-  const latitudes = new Float64Array(y.length);
-  for (let i = 0; i < x.length; i++) {
-    longitudes[i] = (x[i] / EARTH_RADIUS) * (180 / Math.PI);
+  return transformProjectedAxesToLonLat(x, y, WEB_MERCATOR);
+}
+
+export function projectedAxisCoordinatesToLonLat(
+  x: Float64Array,
+  y: Float64Array,
+  crsWkt: string | null
+): {
+  longitudes: Float64Array;
+  latitudes: Float64Array;
+} {
+  if (!crsWkt) {
+    return {
+      longitudes: new Float64Array(x),
+      latitudes: new Float64Array(y),
+    };
   }
-  for (let i = 0; i < y.length; i++) {
-    latitudes[i] =
-      (Math.atan(Math.exp(y[i] / EARTH_RADIUS)) * 2 - Math.PI / 2) *
-      (180 / Math.PI);
+  if (isWebMercatorCRS(crsWkt)) {
+    return transformProjectedAxesToLonLat(x, y, crsWkt);
   }
-  return { longitudes, latitudes };
+  return {
+    longitudes: new Float64Array(x),
+    latitudes: new Float64Array(y),
+  };
 }
 
 export async function getCRSWkt(
