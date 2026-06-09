@@ -329,7 +329,7 @@ defineExpose({
 
   <Transition name="slide">
     <nav
-      v-show="(!isHidden && modelInfo) || loading"
+      v-show="!isHidden && (modelInfo || loading)"
       id="main_controls"
       class="gl_controls"
     >
