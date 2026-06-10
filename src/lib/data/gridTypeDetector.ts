@@ -256,7 +256,7 @@ async function determineGridTypeFromData(
   } catch {
     return await determineProjectedXYGridType(
       datasources,
-      variable,
+      varnameSelector,
       dimensions
     );
   }
