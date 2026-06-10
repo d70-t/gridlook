@@ -150,6 +150,28 @@ export class ZarrDataManager {
     return array;
   }
 
+  static async getParentGroup(
+    datasources: TSources,
+    varname: string,
+    format?: TZarrFormat
+  ): Promise<zarr.Group<zarr.AsyncReadable>> {
+    const groupPath = await ZarrDataManager.resolveGroupPath(varname);
+    const source = ZarrDataManager.getDatasetSource(datasources, varname);
+    const target = (await ZarrDataManager.getDataset(source)).resolve(
+      groupPath
+    );
+
+    let dataset: zarr.Group<zarr.AsyncReadable>;
+    if (format === ZARR_FORMAT.V2) {
+      dataset = await zarr.open.v2(target, { kind: "group" });
+    } else if (format === ZARR_FORMAT.V3) {
+      dataset = await zarr.open.v3(target, { kind: "group" });
+    } else {
+      dataset = await zarr.open(target, { kind: "group" });
+    }
+    return dataset;
+  }
+
   static async getVariableInfoByDatasetSources(
     datasource: TSources,
     variable: string
@@ -233,6 +255,14 @@ export class ZarrDataManager {
       datasources.zarr_format
     );
     return datavar.dimensionNames ?? [];
+  }
+
+  static resolveGroupPath(variable: string): string {
+    if (!variable.includes("/")) {
+      return "/";
+    }
+
+    return variable.split("/").slice(0, -1).join("/");
   }
 
   static resolveVariablePath(

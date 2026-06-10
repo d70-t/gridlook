@@ -43,6 +43,12 @@ export type TVarInfo = {
   attrs: zarr.Attributes;
 };
 
+export type TZarrDggsMetadata = {
+  name: string;
+  refinement_level: number;
+  coordinate: string | null;
+};
+
 export type TDataSource = {
   store: string;
   dataset: string;

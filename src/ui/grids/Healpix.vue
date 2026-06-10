@@ -33,7 +33,11 @@ import {
   makeGpuProjectedTextureMaterial,
   updateProjectionUniforms,
 } from "@/lib/shaders/gridShaders.ts";
-import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
+import type {
+  TDimensionRange,
+  TSources,
+  TZarrDggsMetadata,
+} from "@/lib/types/GlobeTypes.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import {
   HOVERED_GRID_POINT_STATUS,
@@ -162,16 +166,46 @@ function fetchGrid() {
 }
 
 async function getNside() {
-  const crs = await ZarrDataManager.getCRSInfo(
-    props.datasources!,
-    varnameSelector.value
-  );
-  // FIXME: could probably have other names
-  const nside = crs.attrs["healpix_nside"] as number;
-  return nside;
+  try {
+    const crs = await ZarrDataManager.getCRSInfo(
+      props.datasources!,
+      varnameSelector.value
+    );
+
+    return crs.attrs["healpix_nside"] as number;
+    // FIXME: could probably have other names
+  } catch (error) {
+    const group = await ZarrDataManager.getParentGroup(
+      props.datasources!,
+      varnameSelector.value
+    );
+    const metadata = (group.attrs?.dggs as TZarrDggsMetadata) ?? {};
+    if ("refinement_level" in metadata) {
+      const refinementLevel = (metadata.refinement_level ?? 0) as number;
+      return Math.pow(2, refinementLevel);
+    }
+
+    throw error;
+  }
 }
 
 async function getCells() {
+  let cellCoord = "cell";
+  try {
+    const group = await ZarrDataManager.getParentGroup(
+      props.datasources!,
+      varnameSelector.value
+    );
+    const metadata = (group.attrs["dggs"] as TZarrDggsMetadata) ?? {};
+
+    const coordinate = metadata["coordinate"];
+    if (coordinate) {
+      cellCoord = coordinate;
+    }
+  } catch {
+    // no dggs metadata found, continue with the default cell coordinate
+  }
+
   try {
     const rawCells = (
       await ZarrDataManager.getVariableData(
@@ -179,7 +213,7 @@ async function getCells() {
           props.datasources!,
           varnameSelector.value
         ),
-        ZarrDataManager.resolveVariablePath(varnameSelector.value, "cell")
+        ZarrDataManager.resolveVariablePath(varnameSelector.value, cellCoord)
       )
     ).data as ArrayLike<number | bigint>;
 
