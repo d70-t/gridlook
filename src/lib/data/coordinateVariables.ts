@@ -44,8 +44,8 @@ export function isProjectedYName(name: string): boolean {
 }
 
 function transformProjectedAxesToLonLat(
-  x: Float64Array,
-  y: Float64Array,
+  x: Float32Array,
+  y: Float32Array,
   crsWkt: string
 ): {
   longitudes: Float64Array;
@@ -68,8 +68,8 @@ function transformProjectedAxesToLonLat(
 }
 
 export function webMercatorToLonLat(
-  x: Float64Array,
-  y: Float64Array
+  x: Float32Array,
+  y: Float32Array
 ): {
   longitudes: Float64Array;
   latitudes: Float64Array;
@@ -78,8 +78,8 @@ export function webMercatorToLonLat(
 }
 
 export function projectedAxisCoordinatesToLonLat(
-  x: Float64Array,
-  y: Float64Array,
+  x: Float32Array,
+  y: Float32Array,
   crsWkt: string | null
 ): {
   longitudes: Float64Array;
@@ -143,10 +143,10 @@ export async function getCRSWkt(
   }
 }
 
-function createFloat64Chunk(
-  data: Float64Array,
+function createFloat32Chunk(
+  data: Float32Array,
   shape: number[]
-): zarr.Chunk<"float64"> {
+): zarr.Chunk<"float32"> {
   let strideValue = 1;
   const stride = new Array<number>(shape.length);
   for (let i = shape.length - 1; i >= 0; i--) {
@@ -156,21 +156,14 @@ function createFloat64Chunk(
   return { data, shape, stride };
 }
 
-function toFloat64Array(data: zarr.TypedArray<zarr.DataType>) {
-  if (data instanceof Float64Array) {
-    return data;
-  }
-  return Float64Array.from(data as ArrayLike<number>);
-}
-
 function projectXYGridToLonLat(
-  x: Float64Array,
-  y: Float64Array,
+  x: Float32Array,
+  y: Float32Array,
   crsWkt: string | null
 ) {
   const shape = [y.length, x.length];
-  const longitudes = new Float64Array(x.length * y.length);
-  const latitudes = new Float64Array(x.length * y.length);
+  const longitudes = new Float32Array(x.length * y.length);
+  const latitudes = new Float32Array(x.length * y.length);
   const transformer = crsWkt ? proj4(crsWkt, WGS84) : null;
 
   for (let j = 0; j < y.length; j++) {
@@ -188,8 +181,8 @@ function projectXYGridToLonLat(
   }
 
   return {
-    latitudes: createFloat64Chunk(latitudes, shape),
-    longitudes: createFloat64Chunk(longitudes, shape),
+    latitudes: createFloat32Chunk(latitudes, shape),
+    longitudes: createFloat32Chunk(longitudes, shape),
   };
 }
 
@@ -244,8 +237,8 @@ export async function getProjectedXYLonLatData(
 
   const crsWkt = await getCRSWkt(datasources!, variable);
   const { latitudes, longitudes } = projectXYGridToLonLat(
-    toFloat64Array(xCoordinates.data),
-    toFloat64Array(yCoordinates.data),
+    xCoordinates.data as Float32Array,
+    yCoordinates.data as Float32Array,
     crsWkt
   );
   const geographicDimensionNames = [yName, xName];

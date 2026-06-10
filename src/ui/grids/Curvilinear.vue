@@ -145,8 +145,8 @@ async function getGrid(
   );
   const isMissingOrFill = createMissingOrFillPredicate(datavar);
 
-  const latitudesData = latitudes.data as Float64Array;
-  const longitudesData = longitudes!.data as Float64Array;
+  const latitudesData = latitudes.data as Float32Array;
+  const longitudesData = longitudes!.data as Float32Array;
   const [nj, ni] = latitudes.shape;
 
   // Detect cell orientation by analyzing the winding order of grid cells
@@ -189,8 +189,8 @@ function hasTrailingProjectedXYDimensions(dimensionNames: string[]) {
 }
 
 function detectLongitudeFlip(
-  longitudes: Float64Array,
-  latitudes: Float64Array,
+  longitudes: Float32Array,
+  latitudes: Float32Array,
   isMissingOrFill: (value: number) => boolean,
   nj: number,
   ni: number
@@ -244,7 +244,7 @@ function detectLongitudeFlip(
 }
 
 function detectColumnPeriodicity(
-  longitudes: Float64Array,
+  longitudes: Float32Array,
   nj: number,
   ni: number
 ): boolean {
@@ -346,8 +346,8 @@ function getBoundaryPoint(
   fromColumn: number,
   toColumn: number,
   ni: number,
-  latitudes: Float64Array,
-  longitudes: Float64Array
+  latitudes: Float32Array,
+  longitudes: Float32Array
 ) {
   return getCellCenter(
     latitudes,
@@ -364,8 +364,8 @@ function getRowMidpoint(
   fromColumn: number,
   toColumn: number,
   ni: number,
-  latitudes: Float64Array,
-  longitudes: Float64Array
+  latitudes: Float32Array,
+  longitudes: Float32Array
 ) {
   return getCellCenter(
     latitudes,
@@ -462,8 +462,8 @@ function getCenteredCellCorners(
   i: number,
   ni: number,
   flipLongitude: boolean,
-  latitudes: Float64Array,
-  longitudes: Float64Array,
+  latitudes: Float32Array,
+  longitudes: Float32Array,
   isPeriodicI: boolean
 ) {
   const iPrevious = getPreviousColumnIndex(i, ni, flipLongitude);
@@ -623,8 +623,8 @@ function fillCellPositionAndData(
 }
 
 function buildBatchGeometryData(
-  latitudes: Float64Array,
-  longitudes: Float64Array,
+  latitudes: Float32Array,
+  longitudes: Float32Array,
   data: Float32Array,
   jStart: number,
   jEnd: number,
@@ -673,8 +673,8 @@ function buildBatchGeometryData(
 }
 
 function buildCurvilinearGeometry(
-  latitudes: Float64Array, // 2D array flattened: lat values at each (j,i) grid point
-  longitudes: Float64Array, // 2D array flattened: lon values at each (j,i) grid point
+  latitudes: Float32Array, // 2D array flattened: lat values at each (j,i) grid point
+  longitudes: Float32Array, // 2D array flattened: lon values at each (j,i) grid point
   data: Float32Array, // 2D array flattened: data values at each (j,i) grid point
   nj: number, // Number of rows in the grid (j dimension)
   ni: number, // Number of columns in the grid (i dimension)
@@ -743,8 +743,8 @@ function getCircularMeanLongitude(
 }
 
 function getCellCenter(
-  latitudes: Float64Array,
-  longitudes: Float64Array,
+  latitudes: Float32Array,
+  longitudes: Float32Array,
   idx00: number,
   idx01: number,
   idx10: number,
@@ -767,8 +767,8 @@ function getCellCenter(
 
 function buildCurvilinearHoverSamples(
   rawData: Float32Array,
-  latitudes: Float64Array,
-  longitudes: Float64Array,
+  latitudes: Float32Array,
+  longitudes: Float32Array,
   nj: number,
   ni: number,
   flipLongitude: boolean
@@ -792,8 +792,8 @@ function buildCurvilinearHoverSamples(
 
 function setHoverData(
   rawData: Float32Array,
-  latitudes: Float64Array,
-  longitudes: Float64Array,
+  latitudes: Float32Array,
+  longitudes: Float32Array,
   nj: number,
   ni: number,
   flipLongitude: boolean,
