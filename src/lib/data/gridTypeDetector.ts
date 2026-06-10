@@ -211,6 +211,59 @@ async function determineGridTypeFromData(
   }
 }
 
+async function detectGridType(
+  varnameSelector: string,
+  datasources: TSources | undefined
+): Promise<T_GRID_TYPES> {
+  if (await checkTriangularGrid(datasources, varnameSelector)) {
+    return GRID_TYPES.TRIANGULAR;
+  }
+
+  const datavar = await ZarrDataManager.getVariableInfo(
+    ZarrDataManager.getDatasetSource(datasources!, varnameSelector),
+    varnameSelector,
+    datasources?.zarr_format
+  );
+
+  // Check CRS-based grid types
+  const crsGridType = await determineGridTypeFromCRS(
+    datasources!,
+    varnameSelector
+  );
+  if (crsGridType) {
+    return crsGridType;
+  }
+
+  // zarr convention metadata
+  const zarrConventionType = await determineGridTypeFromZarrConvention(
+    datasources!,
+    varnameSelector
+  );
+  if (zarrConventionType) {
+    return zarrConventionType;
+  }
+
+  const dimensions = await ZarrDataManager.getDimensionNames(
+    datasources!,
+    varnameSelector
+  );
+  if (checkRegularGridFromDimensions(dimensions)) {
+    return GRID_TYPES.REGULAR;
+  }
+
+  const dataGridType = await determineGridTypeFromData(
+    varnameSelector,
+    datavar,
+    datasources,
+    dimensions
+  );
+  if (dataGridType) {
+    return dataGridType;
+  }
+
+  return GRID_TYPES.ERROR;
+}
+
 export async function getGridType(
   sourceValid: boolean,
   varnameSelector: string,
@@ -223,55 +276,12 @@ export async function getGridType(
     return GRID_TYPES.ERROR;
   }
 
-  if (await checkTriangularGrid(datasources, varnameSelector)) {
-    return GRID_TYPES.TRIANGULAR;
-  }
-
   try {
-    const datavar = await ZarrDataManager.getVariableInfo(
-      ZarrDataManager.getDatasetSource(datasources!, varnameSelector),
-      varnameSelector,
-      datasources?.zarr_format
-    );
-
-    // Check CRS-based grid types
-    const crsGridType = await determineGridTypeFromCRS(
-      datasources!,
-      varnameSelector
-    );
-    if (crsGridType) {
-      return crsGridType;
+    const gridType = await detectGridType(varnameSelector, datasources);
+    if (gridType === GRID_TYPES.ERROR) {
+      logError("No matching grid type found", "Could not determine grid type");
     }
-
-    // zarr convention metadata
-    const zarrConventionType = await determineGridTypeFromZarrConvention(
-      datasources!,
-      varnameSelector
-    );
-    if (zarrConventionType) {
-      return zarrConventionType;
-    }
-
-    const dimensions = await ZarrDataManager.getDimensionNames(
-      datasources!,
-      varnameSelector
-    );
-    if (checkRegularGridFromDimensions(dimensions)) {
-      return GRID_TYPES.REGULAR;
-    }
-
-    const dataGridType = await determineGridTypeFromData(
-      varnameSelector,
-      datavar,
-      datasources,
-      dimensions
-    );
-    if (dataGridType) {
-      return dataGridType;
-    }
-
-    logError("No matching grid type found", "Could not determine grid type");
-    return GRID_TYPES.ERROR;
+    return gridType;
   } catch (error) {
     logError(error, "Could not determine grid type");
     return GRID_TYPES.ERROR;
