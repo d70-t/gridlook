@@ -48,12 +48,12 @@ function transformProjectedAxesToLonLat(
   y: Float32Array,
   crsWkt: string
 ): {
-  longitudes: Float64Array;
-  latitudes: Float64Array;
+  longitudes: Float32Array;
+  latitudes: Float32Array;
 } {
   const transformer = proj4(crsWkt, WGS84);
-  const longitudes = new Float64Array(x.length);
-  const latitudes = new Float64Array(y.length);
+  const longitudes = new Float32Array(x.length);
+  const latitudes = new Float32Array(y.length);
 
   for (let i = 0; i < x.length; i++) {
     const [lon] = transformer.forward([x[i], 0]);
@@ -71,8 +71,8 @@ export function webMercatorToLonLat(
   x: Float32Array,
   y: Float32Array
 ): {
-  longitudes: Float64Array;
-  latitudes: Float64Array;
+  longitudes: Float32Array;
+  latitudes: Float32Array;
 } {
   return transformProjectedAxesToLonLat(x, y, WEB_MERCATOR);
 }
@@ -82,21 +82,21 @@ export function projectedAxisCoordinatesToLonLat(
   y: Float32Array,
   crsWkt: string | null
 ): {
-  longitudes: Float64Array;
-  latitudes: Float64Array;
+  longitudes: Float32Array;
+  latitudes: Float32Array;
 } {
   if (!crsWkt) {
     return {
-      longitudes: new Float64Array(x),
-      latitudes: new Float64Array(y),
+      longitudes: new Float32Array(x),
+      latitudes: new Float32Array(y),
     };
   }
   if (isWebMercatorCRS(crsWkt)) {
     return transformProjectedAxesToLonLat(x, y, crsWkt);
   }
   return {
-    longitudes: new Float64Array(x),
-    latitudes: new Float64Array(y),
+    longitudes: new Float32Array(x),
+    latitudes: new Float32Array(y),
   };
 }
 
