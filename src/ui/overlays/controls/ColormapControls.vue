@@ -26,6 +26,7 @@ const {
   invertColormap,
   posterizeLevels,
   hideLowerBound,
+  hideUpperBound,
   selection,
   histogram,
   fullHistogram,
@@ -195,8 +196,8 @@ function handleAutoContrast() {
         </div>
       </template>
     </Select>
-    <div class="columns is-mobile is-vcentered compact-row px-1">
-      <div class="column">
+    <div class="columns is-mobile is-multiline is-vcentered compact-row px-1">
+      <div class="column is-half">
         <button
           id="invert_colormap"
           type="button"
@@ -212,7 +213,21 @@ function handleAutoContrast() {
           <span>Invert</span>
         </button>
       </div>
-      <div class="column">
+      <div class="column is-half">
+        <button
+          type="button"
+          class="button is-small w-100"
+          title="Set bounds to the 2nd - 98th percentile of the data"
+          :disabled="!histogramSummary || !dataBounds"
+          @click="handleAutoContrast"
+        >
+          <span class="icon">
+            <i class="fa-solid fa-circle-half-stroke"></i>
+          </span>
+          <span> Auto Contrast </span>
+        </button>
+      </div>
+      <div class="column is-half">
         <button
           id="hide_lower_bound"
           type="button"
@@ -228,18 +243,20 @@ function handleAutoContrast() {
           <span>Hide low</span>
         </button>
       </div>
-      <div class="column">
+      <div class="column is-half">
         <button
+          id="hide_upper_bound"
           type="button"
           class="button is-small w-100"
-          title="Set bounds to the 2nd - 98th percentile of the data"
-          :disabled="!histogramSummary || !dataBounds"
-          @click="handleAutoContrast"
+          :class="{ 'is-info': hideUpperBound }"
+          :aria-pressed="hideUpperBound"
+          title="Hide values at or above the upper bound"
+          @click="hideUpperBound = !hideUpperBound"
         >
           <span class="icon">
-            <i class="fa-solid fa-circle-half-stroke"></i>
+            <i class="fa-solid fa-eye-slash"></i>
           </span>
-          <span> Auto Contrast </span>
+          <span>Hide high</span>
         </button>
       </div>
     </div>

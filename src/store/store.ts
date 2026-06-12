@@ -52,6 +52,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
       invertColormap: false,
       posterizeLevels: 0 as number,
       hideLowerBound: false,
+      hideUpperBound: false,
       userBoundsLow: undefined as number | undefined,
       userBoundsHigh: undefined as number | undefined,
       dimSlidersValues: [] as (number | null)[],

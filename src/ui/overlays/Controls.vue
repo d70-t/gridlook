@@ -75,6 +75,7 @@ const {
   paramInvertColormap,
   paramPosterizeLevels,
   paramHideLowerBound,
+  paramHideUpperBound,
   paramMaskMode,
   paramMaskingUseTexture,
   paramProjection,
@@ -251,6 +252,9 @@ function initFromParams() {
   }
   if (paramHideLowerBound.value === "true") {
     store.hideLowerBound = true;
+  }
+  if (paramHideUpperBound.value === "true") {
+    store.hideUpperBound = true;
   }
   if (paramMaskingUseTexture.value) {
     if (paramMaskingUseTexture.value === "false") {
