@@ -7,6 +7,11 @@ import {
   type TZarrFormat,
 } from "../types/GlobeTypes.ts";
 
+import {
+  createListableIcechunkStore,
+  isIcechunkStorePath,
+  splitIcechunkStoreAndGroup,
+} from "./icechunkStore.ts";
 import { ZarrDataManager } from "./ZarrDataManager.ts";
 
 import trim from "@/utils/trim.ts";
@@ -58,10 +63,69 @@ function searchDimensionsAndCoordinates(
   }
 }
 
+function getVariablePathInGroup(path: string, datasetPath: string) {
+  const normalizedPath = path.replace(/^\/+/, "");
+  if (!datasetPath) {
+    return normalizedPath;
+  }
+
+  const datasetPrefix = `${datasetPath}/`;
+  if (!normalizedPath.startsWith(datasetPrefix)) {
+    return null;
+  }
+  return normalizedPath.slice(datasetPrefix.length);
+}
+
+type TStoreContent = {
+  path: zarr.AbsolutePath;
+  kind: "array" | "group";
+};
+
+async function collectVariable(
+  root: zarr.Group<zarr.AsyncReadable>,
+  src: string,
+  datasetPath: string,
+  dimensions: Set<string>,
+  { path, kind }: TStoreContent
+) {
+  if (kind !== "array") {
+    return {};
+  }
+
+  const varname = getVariablePathInGroup(path, datasetPath);
+  if (!varname) {
+    return {};
+  }
+
+  const variable = await zarr.open(root.resolve(path), {
+    kind: "array",
+  });
+
+  searchDimensionsAndCoordinates(dimensions, variable, varname);
+  return {
+    [varname]: {
+      store: src,
+      dataset: datasetPath,
+      hidden: !isValidVariable(
+        varname,
+        variable.shape,
+        variable.dimensionNames as string[]
+      ),
+      attrs: {
+        ...variable.attrs,
+        dimensionNames: variable.dimensionNames,
+      },
+      shape: variable.shape,
+      dtype: String(variable.dtype),
+    },
+  };
+}
+
 async function collectVariables(
   store: zarr.Listable<zarr.AsyncReadable>,
   root: zarr.Group<zarr.AsyncReadable>,
-  src: string
+  src: string,
+  datasetPath = ""
 ): Promise<{
   candidates: PromiseSettledResult<Record<string, TDataSource>>[];
   dimensions: Set<string>;
@@ -70,43 +134,8 @@ async function collectVariables(
   const candidates = await Promise.allSettled(
     store
       .contents()
-      .map(
-        async ({
-          path,
-          kind,
-        }: {
-          path: zarr.AbsolutePath;
-          kind: "array" | "group";
-        }) => {
-          if (kind !== "array") {
-            return {};
-          }
-
-          const variable = await zarr.open(root.resolve(path), {
-            kind: "array",
-          });
-
-          const varname = path.slice(1);
-
-          searchDimensionsAndCoordinates(dimensions, variable, varname);
-          return {
-            [varname]: {
-              store: src,
-              dataset: "",
-              hidden: !isValidVariable(
-                varname,
-                variable.shape,
-                variable.dimensionNames as string[]
-              ),
-              attrs: {
-                ...variable.attrs,
-                dimensionNames: variable.dimensionNames,
-              },
-              shape: variable.shape,
-              dtype: String(variable.dtype),
-            },
-          };
-        }
+      .map((content) =>
+        collectVariable(root, src, datasetPath, dimensions, content)
       )
   );
 
@@ -116,9 +145,15 @@ async function collectVariables(
 async function processZarrVariables(
   store: zarr.Listable<zarr.AsyncReadable>,
   root: zarr.Group<zarr.AsyncReadable>,
-  src: string
+  src: string,
+  datasetPath = ""
 ): Promise<Record<string, TDataSource>> {
-  const { candidates, dimensions } = await collectVariables(store, root, src);
+  const { candidates, dimensions } = await collectVariables(
+    store,
+    root,
+    src,
+    datasetPath
+  );
 
   // Filter and merge datasources
   const datasources = candidates
@@ -143,7 +178,8 @@ function createIndex(
   title: string,
   datasources: Record<string, TDataSource>,
   src: string,
-  zarrFormat: TZarrFormat
+  zarrFormat: TZarrFormat,
+  datasetPath = ""
 ): TSources {
   return {
     name: title,
@@ -152,11 +188,11 @@ function createIndex(
       {
         time: {
           store: src,
-          dataset: "",
+          dataset: datasetPath,
         },
         grid: {
           store: src,
-          dataset: "",
+          dataset: datasetPath,
         },
         datasources,
       },
@@ -165,19 +201,29 @@ function createIndex(
 }
 
 export async function indexFromIcechunk(src: string): Promise<TSources> {
-  const store = await ZarrDataManager.createListableIcechunkStore(src);
+  const { storePath, groupPath } = await splitIcechunkStoreAndGroup(src);
+  const store = await createListableIcechunkStore(storePath);
   const root = await zarr.open.v3(store, { kind: "group" });
-  const datasources = await processZarrVariables(store, root, src);
+  const group = groupPath
+    ? await zarr.open.v3(root.resolve(groupPath), { kind: "group" })
+    : root;
+  const datasources = await processZarrVariables(
+    store,
+    root,
+    storePath,
+    groupPath
+  );
   return createIndex(
-    root.attrs?.title as string,
+    group.attrs?.title as string,
     datasources,
-    src,
-    ZARR_FORMAT.ICECHUNK
+    storePath,
+    ZARR_FORMAT.ICECHUNK,
+    groupPath
   );
 }
 
 export async function indexFromZarr(src: string): Promise<TSources> {
-  if (ZarrDataManager.isIcechunkStorePath(src)) {
+  if (isIcechunkStorePath(src)) {
     return indexFromIcechunk(src);
   }
   try {
