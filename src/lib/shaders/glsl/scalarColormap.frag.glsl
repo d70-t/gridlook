@@ -9,6 +9,7 @@ uniform float scaleFactor;
 uniform int colormap;
 uniform float posterizeLevels;
 uniform float hideBelowValue;
+uniform float hideAboveValue;
 uniform int projectionType;
 uniform float projectionRadius;
 uniform int edgeQuality;
@@ -19,7 +20,8 @@ void main() {
     if (
     (edgeQuality > 0 && !isInsideProjectionDomain(vProjectedXY, projectionType, projectionRadius)) ||
         is_nan(v_value) ||
-        v_value <= hideBelowValue
+        v_value <= hideBelowValue ||
+        v_value >= hideAboveValue
     ) {
         discard;
     }

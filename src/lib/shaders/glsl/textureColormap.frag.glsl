@@ -8,6 +8,7 @@ uniform float scaleFactor;
 uniform int colormap;
 uniform float posterizeLevels;
 uniform float hideBelowValue;
+uniform float hideAboveValue;
 uniform sampler2D data;
 uniform int projectionType;
 uniform float projectionRadius;
@@ -19,7 +20,7 @@ varying vec2 vProjectedXY;
 void main() {
     float v_value = texture(data, vUv).r;
     if ((edgeQuality > 0 && !isInsideProjectionDomain(vProjectedXY, projectionType, projectionRadius))
-    || is_nan(v_value) || v_value <= hideBelowValue) {
+    || is_nan(v_value) || v_value <= hideBelowValue || v_value >= hideAboveValue) {
         discard;
     }
     gl_FragColor.a = 1.0;

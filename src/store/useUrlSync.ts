@@ -41,6 +41,11 @@ const GLOBE_URL_SYNC_MAP: TUrlSyncEntry[] = [
     param: URL_PARAMETERS.HIDE_LOWER_BOUND,
     transform: String,
   },
+  {
+    key: "hideUpperBound",
+    param: URL_PARAMETERS.HIDE_UPPER_BOUND,
+    transform: String,
+  },
   { key: "landSeaMaskChoice", param: URL_PARAMETERS.MASK_MODE },
   {
     key: "landSeaMaskUseTexture",

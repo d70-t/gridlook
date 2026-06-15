@@ -87,6 +87,7 @@ export function makeGpuProjectedTextureMaterial(
       colormap: { value: availableColormaps[colormap] },
       posterizeLevels: { value: 0.0 },
       hideBelowValue: { value: -1e38 },
+      hideAboveValue: { value: 1e38 },
       data: { value: texture },
       // Projection uniforms
       projectionType: {
@@ -129,6 +130,7 @@ export function makeGpuProjectedMeshMaterial(
       colormap: { value: availableColormaps[colormap] },
       posterizeLevels: { value: 0.0 },
       hideBelowValue: { value: -1e38 },
+      hideAboveValue: { value: 1e38 },
       // Projection uniforms
       projectionType: {
         value: PROJECTION_TYPE_BY_MODE[PROJECTION_TYPES.NEARSIDE_PERSPECTIVE],
@@ -181,6 +183,7 @@ export function makeGpuProjectedPointMaterial(
       maxPointSize: { value: 10.0 },
       posterizeLevels: { value: 0.0 },
       hideBelowValue: { value: -1e38 },
+      hideAboveValue: { value: 1e38 },
       colormap: { value: availableColormaps[colormap] },
       // Projection uniforms
       projectionType: {

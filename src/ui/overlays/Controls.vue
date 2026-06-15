@@ -75,6 +75,7 @@ const {
   paramInvertColormap,
   paramPosterizeLevels,
   paramHideLowerBound,
+  paramHideUpperBound,
   paramMaskMode,
   paramMaskingUseTexture,
   paramProjection,
@@ -252,6 +253,9 @@ function initFromParams() {
   if (paramHideLowerBound.value === "true") {
     store.hideLowerBound = true;
   }
+  if (paramHideUpperBound.value === "true") {
+    store.hideUpperBound = true;
+  }
   if (paramMaskingUseTexture.value) {
     if (paramMaskingUseTexture.value === "false") {
       landSeaMaskUseTexture.value = false;
@@ -329,7 +333,7 @@ defineExpose({
 
   <Transition name="slide">
     <nav
-      v-show="(!isHidden && modelInfo) || loading"
+      v-show="!isHidden && (modelInfo || loading)"
       id="main_controls"
       class="gl_controls"
     >

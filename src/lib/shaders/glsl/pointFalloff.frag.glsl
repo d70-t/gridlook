@@ -8,6 +8,7 @@ uniform float scaleFactor;
 uniform int colormap;
 uniform float posterizeLevels;
 uniform float hideBelowValue;
+uniform float hideAboveValue;
 
 void main() {
     vec2 uv = gl_PointCoord * 2.0 - 1.0;
@@ -16,7 +17,7 @@ void main() {
     float falloff = exp(-r2 * 2.0);
     if (falloff < 0.01) discard;
 
-    if (is_nan(v_value) || v_value <= hideBelowValue) {
+    if (is_nan(v_value) || v_value <= hideBelowValue || v_value >= hideAboveValue) {
         gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
         return;
     }

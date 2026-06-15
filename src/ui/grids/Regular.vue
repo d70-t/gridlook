@@ -18,8 +18,7 @@ import {
   isLongitudeName,
   isProjectedXName,
   isProjectedYName,
-  isWebMercatorCRS,
-  webMercatorToLonLat,
+  projectedAxisCoordinatesToLonLat,
 } from "@/lib/data/coordinateVariables.ts";
 import { downsampleDataTexture } from "@/lib/data/dataTexture.ts";
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
@@ -83,8 +82,8 @@ const {
 const { setHoverLookupFromIndex, clearHoverLookup } =
   useGridHoverLookup(hoveredGeoPoint);
 
-const longitudes = ref(new Float64Array());
-const latitudes = ref(new Float64Array());
+const longitudes = ref<Float32Array>(new Float32Array());
+const latitudes = ref<Float32Array>(new Float32Array());
 
 const BATCH_SIZE = 60;
 const MAX_GEO_RESOLUTION = 512;
@@ -135,17 +134,13 @@ async function fetchProjectedXYDims(
     ),
   ]);
   const crsWkt = await getCRSWkt(props.datasources!, varnameSelector.value);
-  if (crsWkt && isWebMercatorCRS(crsWkt)) {
-    const converted = webMercatorToLonLat(
-      new Float64Array(xData.data as Float64Array),
-      new Float64Array(yData.data as Float64Array)
-    );
-    longitudes.value = converted.longitudes;
-    latitudes.value = converted.latitudes;
-  } else {
-    longitudes.value = new Float64Array(xData.data as Float64Array);
-    latitudes.value = new Float64Array(yData.data as Float64Array);
-  }
+  const converted = projectedAxisCoordinatesToLonLat(
+    xData.data as Float32Array,
+    yData.data as Float32Array,
+    crsWkt
+  );
+  longitudes.value = Float32Array.from(converted.longitudes);
+  latitudes.value = Float32Array.from(converted.latitudes);
 }
 
 async function getDims() {
@@ -174,8 +169,8 @@ async function getDims() {
       grid,
       ZarrDataManager.resolveVariablePath(varnameSelector.value, lastDim)
     );
-    latitudes.value = new Float64Array(latitudesData.data as Float64Array);
-    longitudes.value = Float64Array.from({ length: 360 }, (_, i) => i - 179.5);
+    latitudes.value = latitudesData.data as Float32Array;
+    longitudes.value = Float32Array.from({ length: 360 }, (_, i) => i - 179.5);
   } else {
     const latName = secondLastDim;
     const lonName = lastDim;
@@ -189,10 +184,10 @@ async function getDims() {
         ZarrDataManager.resolveVariablePath(varnameSelector.value, lonName)
       ),
     ]);
-    const myLongitudes = longitudesData.data as Float64Array;
-    const myLatitudes = latitudesData.data as Float64Array;
-    longitudes.value = new Float64Array(new Set(myLongitudes));
-    latitudes.value = new Float64Array(new Set(myLatitudes));
+    const myLongitudes = longitudesData.data as Float32Array;
+    const myLatitudes = latitudesData.data as Float32Array;
+    longitudes.value = new Float32Array(new Set(myLongitudes));
+    latitudes.value = new Float32Array(new Set(myLatitudes));
   }
 }
 
@@ -231,7 +226,7 @@ function rotatedToGeographic(
   return { lat, lon };
 }
 
-function isLongitudeGlobal(longitudes: Float64Array): boolean {
+function isLongitudeGlobal(longitudes: Float32Array): boolean {
   const n = longitudes.length;
   if (n < 2) {
     return false;
@@ -248,8 +243,8 @@ function isLongitudeGlobal(longitudes: Float64Array): boolean {
 }
 
 function generateBatchVerticesAndUVs(
-  latitudes: Float64Array,
-  longitudes: Float64Array,
+  latitudes: Float32Array,
+  longitudes: Float32Array,
   latOrigIndices: Int32Array,
   lonOrigIndices: Int32Array,
   originalLatCount: number,
@@ -330,15 +325,15 @@ function generateGridIndices(latCount: number, lonCount: number) {
   return indices;
 }
 
-function normalizeLongitudes(longitudes: Float64Array): Float64Array {
+function normalizeLongitudes(longitudes: Float32Array): Float32Array {
   // Normalize longitudes to [0, 360)
-  return Float64Array.from(longitudes, (lon) => ((lon % 360) + 360) % 360);
+  return Float32Array.from(longitudes, (lon) => ((lon % 360) + 360) % 360);
 }
 
 function subsampleCoords(
-  values: Float64Array,
+  values: Float32Array,
   maxCount: number
-): { coords: Float64Array; origIndices: Int32Array } {
+): { coords: Float32Array; origIndices: Int32Array } {
   if (values.length <= maxCount) {
     const origIndices = new Int32Array(values.length);
     for (let i = 0; i < values.length; i++) {
@@ -347,7 +342,7 @@ function subsampleCoords(
     return { coords: values, origIndices };
   }
 
-  const coords = new Float64Array(maxCount);
+  const coords = new Float32Array(maxCount);
   const origIndices = new Int32Array(maxCount);
   for (let i = 0; i < maxCount; i++) {
     const sourceIdx = Math.round((i * (values.length - 1)) / (maxCount - 1));
@@ -366,7 +361,7 @@ async function getRegularGridParameters() {
   const isLatReversed =
     latitudeValues[0] > latitudeValues[latitudeValues.length - 1];
   if (isLatReversed) {
-    latitudeValues = Float64Array.from(latitudeValues).reverse();
+    latitudeValues = Float32Array.from(latitudeValues).reverse();
   }
 
   const isGlobal = isLongitudeGlobal(longitudes.value);
@@ -383,7 +378,7 @@ async function getRegularGridParameters() {
   let geoLongitudes = geoLongitudesBase;
   let lonOrigIndices = lonOrigIndicesBase;
   if (isGlobal) {
-    geoLongitudes = new Float64Array([
+    geoLongitudes = new Float32Array([
       ...geoLongitudesBase,
       geoLongitudesBase[0] + 360,
     ]);
@@ -685,7 +680,7 @@ async function buildHoverSamples(
   };
 }
 
-function nearestIndex(sorted: Float64Array, target: number): number {
+function nearestIndex(sorted: Float32Array, target: number): number {
   let lo = 0;
   let hi = sorted.length - 1;
   // Handle both ascending and descending arrays
@@ -708,7 +703,7 @@ function nearestIndex(sorted: Float64Array, target: number): number {
   return lo;
 }
 
-function nearestLonIndex(lons: Float64Array, target: number): number {
+function nearestLonIndex(lons: Float32Array, target: number): number {
   // The lons array is monotonically sorted in its native range (either
   // [-180,180] or [0,360]). Search the raw values directly and handle
   // wrap by checking target, target+360, and target-360.

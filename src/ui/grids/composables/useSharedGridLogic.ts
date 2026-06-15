@@ -36,6 +36,7 @@ export function useSharedGridLogic() {
     invertColormap,
     posterizeLevels,
     hideLowerBound,
+    hideUpperBound,
     controlPanelVisible,
     projectionMode,
     projectionCenter,
@@ -183,6 +184,11 @@ export function useSharedGridLogic() {
           ? low
           : -1e38;
       }
+      if (material.uniforms.hideAboveValue) {
+        material.uniforms.hideAboveValue.value = hideUpperBound.value
+          ? high
+          : 1e38;
+      }
       material.needsUpdate = true;
     }
     redraw();
@@ -195,6 +201,7 @@ export function useSharedGridLogic() {
       () => colormap.value,
       () => posterizeLevels.value,
       () => hideLowerBound.value,
+      () => hideUpperBound.value,
     ],
     () => {
       for (const cb of colormapChangeCallbacks) {

@@ -184,24 +184,7 @@ export function decodeVariableDataAndGetBounds(
 /**
  * Gridlook cannot handle Float64 and integer types in textures, so cast to Float32
  */
-export function castDataVarToFloat32(
-  rawData:
-    | unknown[]
-    | Int8Array<ArrayBufferLike>
-    | Int16Array<ArrayBufferLike>
-    | Int32Array<ArrayBufferLike>
-    | BigInt64Array<ArrayBufferLike>
-    | Uint8Array<ArrayBufferLike>
-    | Uint16Array<ArrayBufferLike>
-    | Uint32Array<ArrayBufferLike>
-    | BigUint64Array<ArrayBufferLike>
-    | Float32Array<ArrayBufferLike>
-    | Float64Array<ArrayBufferLike>
-    | zarr.BoolArray
-    | zarr.UnicodeStringArray
-    | zarr.ByteStringArray
-    | zarr.Chunk<zarr.DataType>
-) {
+export function castDataVarToFloat32(rawData: zarr.TypedArray<zarr.DataType>) {
   if (rawData instanceof Float32Array) {
     return rawData;
   }

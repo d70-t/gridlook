@@ -1,11 +1,13 @@
 import * as zarr from "zarrita";
 
 import {
+  getCRSWkt,
   getLatLonData,
   isLatitudeName,
   isLongitudeName,
   isProjectedXName,
   isProjectedYName,
+  isWebMercatorCRS,
 } from "./coordinateVariables.ts";
 import { ZarrDataManager } from "./ZarrDataManager.ts";
 
@@ -133,6 +135,25 @@ function checkProjectedXYDimensions(dimensions: string[]): boolean {
   return dimensions.some(isProjectedXName) && dimensions.some(isProjectedYName);
 }
 
+async function determineProjectedXYGridType(
+  datasources: TSources | undefined,
+  variable: string,
+  dimensions: string[]
+): Promise<T_GRID_TYPES | null> {
+  if (!checkProjectedXYDimensions(dimensions)) {
+    return null;
+  }
+  if (!datasources) {
+    return GRID_TYPES.REGULAR;
+  }
+
+  const crsWkt = await getCRSWkt(datasources, variable);
+  if (crsWkt && !isWebMercatorCRS(crsWkt)) {
+    return GRID_TYPES.CURVILINEAR;
+  }
+  return GRID_TYPES.REGULAR;
+}
+
 // Attempt to determine grid type from CRS information
 async function determineGridTypeFromCRS(
   datasources: TSources,
@@ -233,10 +254,11 @@ async function determineGridTypeFromData(
     // an irregular grid
     return GRID_TYPES.IRREGULAR;
   } catch {
-    if (checkProjectedXYDimensions(dimensions)) {
-      return GRID_TYPES.REGULAR;
-    }
-    return null;
+    return await determineProjectedXYGridType(
+      datasources,
+      varnameSelector,
+      dimensions
+    );
   }
 }
 

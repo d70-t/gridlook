@@ -1,6 +1,11 @@
-import { IcechunkStore } from "icechunk-js";
 import QuickLRU from "quick-lru";
 import * as zarr from "zarrita";
+
+import {
+  createIcechunkStore,
+  isIcechunkStorePath,
+  parseStorePath,
+} from "./icechunkStore.ts";
 
 import {
   ZARR_FORMAT,
@@ -26,7 +31,6 @@ export type TZarrVariableMetadata = {
 };
 
 type TDatasetSource = Pick<TDataSource, "dataset" | "store">;
-type TIcechunkStore = zarr.AsyncReadable & Pick<IcechunkStore, "listNodes">;
 
 export class ZarrDataManager {
   private static pendingStore: Promise<
@@ -42,33 +46,17 @@ export class ZarrDataManager {
     return dataset.replace(/^\/+/, "").replace(/\/+$/, "");
   }
 
-  static isIcechunkStorePath(storePath: string) {
-    return this.normalizeStorePath(storePath.split(/[?#]/)[0]).endsWith(
-      ".icechunk"
-    );
-  }
-
-  private static async createIcechunkStore(
-    storePath: string
-  ): Promise<TIcechunkStore> {
-    return await IcechunkStore.open(this.normalizeStorePath(storePath));
-  }
-
-  static async createListableIcechunkStore(storePath: string) {
-    const store = await this.createIcechunkStore(storePath);
-    const contents = store.listNodes().map((node) => ({
-      path: node.path as zarr.AbsolutePath,
-      kind: node.nodeData.type,
-    }));
-    return Object.assign(store, { contents: () => contents });
-  }
-
   public static async createNewStore(storePath: string, isIcechunk = false) {
+    const parsed = parseStorePath(storePath);
     let store: zarr.AsyncReadable | undefined = undefined;
-    if (isIcechunk || this.isIcechunkStorePath(storePath)) {
-      store = await this.createIcechunkStore(storePath);
+    if (
+      isIcechunk ||
+      parsed.backend === "icechunk" ||
+      isIcechunkStorePath(storePath)
+    ) {
+      store = await createIcechunkStore(storePath);
     } else {
-      store = new zarr.FetchStore(storePath, { useSuffixRequest: true });
+      store = new zarr.FetchStore(parsed.url, { useSuffixRequest: true });
     }
 
     const cache = new QuickLRU<string, Uint8Array | undefined>({
@@ -232,6 +220,13 @@ export class ZarrDataManager {
     const group = await ZarrDataManager.getDatasetGroup(source);
     if (group.attrs?.grid_mapping) {
       return String(group.attrs.grid_mapping).split(":")[0];
+    }
+    if (
+      (datavar.attrs?.coordinates as string | undefined)?.includes(
+        "spatial_ref"
+      )
+    ) {
+      return "spatial_ref";
     }
     return "crs";
   }

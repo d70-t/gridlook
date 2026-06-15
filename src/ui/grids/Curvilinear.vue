@@ -11,7 +11,12 @@ import {
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
-import { getLatLonData } from "@/lib/data/coordinateVariables.ts";
+import {
+  getLatLonData,
+  getProjectedXYLonLatData,
+  isProjectedXName,
+  isProjectedYName,
+} from "@/lib/data/coordinateVariables.ts";
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
 import {
   castDataVarToFloat32,
@@ -106,19 +111,42 @@ const { datasourceUpdate } = useGridDataLoader({
 
 const BATCH_SIZE = 30;
 
+async function getCurvilinearCoordinates(
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
+  dimensionNames: string[]
+) {
+  try {
+    return await getLatLonData(
+      varnameSelector.value,
+      datavar,
+      props.datasources
+    );
+  } catch (error) {
+    if (hasTrailingProjectedXYDimensions(dimensionNames)) {
+      return await getProjectedXYLonLatData(
+        varnameSelector.value,
+        datavar,
+        props.datasources,
+        dimensionNames
+      );
+    }
+    throw error;
+  }
+}
+
 async function getGrid(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
-  data: Float32Array
+  data: Float32Array,
+  dimensionNames: string[]
 ) {
-  const { latitudes, longitudes } = await getLatLonData(
-    varnameSelector.value,
+  const { latitudes, longitudes } = await getCurvilinearCoordinates(
     datavar,
-    props.datasources
+    dimensionNames
   );
   const isMissingOrFill = createMissingOrFillPredicate(datavar);
 
-  const latitudesData = latitudes.data as Float64Array;
-  const longitudesData = longitudes!.data as Float64Array;
+  const latitudesData = latitudes.data as Float32Array;
+  const longitudesData = longitudes!.data as Float32Array;
   const [nj, ni] = latitudes.shape;
 
   // Detect cell orientation by analyzing the winding order of grid cells
@@ -151,9 +179,18 @@ async function getGrid(
   };
 }
 
+function hasTrailingProjectedXYDimensions(dimensionNames: string[]) {
+  if (dimensionNames.length < 2) {
+    return false;
+  }
+  const lastDim = dimensionNames[dimensionNames.length - 1];
+  const secondLastDim = dimensionNames[dimensionNames.length - 2];
+  return isProjectedXName(lastDim) && isProjectedYName(secondLastDim);
+}
+
 function detectLongitudeFlip(
-  longitudes: Float64Array,
-  latitudes: Float64Array,
+  longitudes: Float32Array,
+  latitudes: Float32Array,
   isMissingOrFill: (value: number) => boolean,
   nj: number,
   ni: number
@@ -207,7 +244,7 @@ function detectLongitudeFlip(
 }
 
 function detectColumnPeriodicity(
-  longitudes: Float64Array,
+  longitudes: Float32Array,
   nj: number,
   ni: number
 ): boolean {
@@ -309,8 +346,8 @@ function getBoundaryPoint(
   fromColumn: number,
   toColumn: number,
   ni: number,
-  latitudes: Float64Array,
-  longitudes: Float64Array
+  latitudes: Float32Array,
+  longitudes: Float32Array
 ) {
   return getCellCenter(
     latitudes,
@@ -327,8 +364,8 @@ function getRowMidpoint(
   fromColumn: number,
   toColumn: number,
   ni: number,
-  latitudes: Float64Array,
-  longitudes: Float64Array
+  latitudes: Float32Array,
+  longitudes: Float32Array
 ) {
   return getCellCenter(
     latitudes,
@@ -425,8 +462,8 @@ function getCenteredCellCorners(
   i: number,
   ni: number,
   flipLongitude: boolean,
-  latitudes: Float64Array,
-  longitudes: Float64Array,
+  latitudes: Float32Array,
+  longitudes: Float32Array,
   isPeriodicI: boolean
 ) {
   const iPrevious = getPreviousColumnIndex(i, ni, flipLongitude);
@@ -586,8 +623,8 @@ function fillCellPositionAndData(
 }
 
 function buildBatchGeometryData(
-  latitudes: Float64Array,
-  longitudes: Float64Array,
+  latitudes: Float32Array,
+  longitudes: Float32Array,
   data: Float32Array,
   jStart: number,
   jEnd: number,
@@ -636,8 +673,8 @@ function buildBatchGeometryData(
 }
 
 function buildCurvilinearGeometry(
-  latitudes: Float64Array, // 2D array flattened: lat values at each (j,i) grid point
-  longitudes: Float64Array, // 2D array flattened: lon values at each (j,i) grid point
+  latitudes: Float32Array, // 2D array flattened: lat values at each (j,i) grid point
+  longitudes: Float32Array, // 2D array flattened: lon values at each (j,i) grid point
   data: Float32Array, // 2D array flattened: data values at each (j,i) grid point
   nj: number, // Number of rows in the grid (j dimension)
   ni: number, // Number of columns in the grid (i dimension)
@@ -706,8 +743,8 @@ function getCircularMeanLongitude(
 }
 
 function getCellCenter(
-  latitudes: Float64Array,
-  longitudes: Float64Array,
+  latitudes: Float32Array,
+  longitudes: Float32Array,
   idx00: number,
   idx01: number,
   idx10: number,
@@ -730,8 +767,8 @@ function getCellCenter(
 
 function buildCurvilinearHoverSamples(
   rawData: Float32Array,
-  latitudes: Float64Array,
-  longitudes: Float64Array,
+  latitudes: Float32Array,
+  longitudes: Float32Array,
   nj: number,
   ni: number,
   flipLongitude: boolean
@@ -755,8 +792,8 @@ function buildCurvilinearHoverSamples(
 
 function setHoverData(
   rawData: Float32Array,
-  latitudes: Float64Array,
-  longitudes: Float64Array,
+  latitudes: Float32Array,
+  longitudes: Float32Array,
   nj: number,
   ni: number,
   flipLongitude: boolean,
@@ -782,11 +819,12 @@ function setHoverData(
 async function renderGridAndHover(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   rawData: Float32Array,
+  dimensionNames: string[],
   fillValue: number,
   missingValue: number
 ) {
   const { latitudesData, longitudesData, nj, ni, shouldFlipLongitude } =
-    await getGrid(datavar, rawData);
+    await getGrid(datavar, rawData, dimensionNames);
   setHoverData(
     rawData,
     latitudesData,
@@ -825,7 +863,13 @@ async function fetchAndRenderData(
     rawData
   );
 
-  await renderGridAndHover(datavar, rawData, fillValue, missingValue);
+  await renderGridAndHover(
+    datavar,
+    rawData,
+    dimensionNames,
+    fillValue,
+    missingValue
+  );
 
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
 
