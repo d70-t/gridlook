@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.3.0](https://github.com/d70-t/gridlook/compare/v1.2.0...v1.3.0) (2026-06-15)
+
+
+### Features
+
+* added hide high button ([e9002a1](https://github.com/d70-t/gridlook/commit/e9002a15efc3c8cf9922188d9ea2d14e40854538))
+* support for icechunk-groups as datasets ([511b192](https://github.com/d70-t/gridlook/commit/511b192a63d7a252cd4fc484eacb55a9319eb36d))
+* support for pcodec ([45a7ab8](https://github.com/d70-t/gridlook/commit/45a7ab84821620a1490c9bbd2671bb6b13cd1c63))
+* detect the grid type from the zarr dggs convention (Currently only Healpix) ([633a442](https://github.com/d70-t/gridlook/commit/633a442ffa854c2324a5f9eb70c523db612019af))
+
+### Bug Fixes
+
+* **lib:** better dataset recognition for Curvilinear and Regular Datasets ([43b5708](https://github.com/d70-t/gridlook/commit/43b570888461f20b191960fefbd9d7dc13870551))
+* **lib:** fixed EPSG3857 if spatial_ref is a coordinate ([2cf5790](https://github.com/d70-t/gridlook/commit/2cf5790ee8de2bd1311118f70a958ec13cb3e369))
+
 ## [1.2.0](https://github.com/d70-t/gridlook/compare/v1.1.0...v1.2.0) (2026-06-08)
 
 
