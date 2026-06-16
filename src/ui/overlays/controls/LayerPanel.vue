@@ -34,6 +34,7 @@ const { logError } = useLog();
 const fileInput = ref<HTMLInputElement>();
 const draggedId = ref<string | undefined>(undefined);
 const dropTargetIndex = ref<number | undefined>(undefined);
+const LAYER_ENTRY_SELECTOR = ".layer-entry";
 
 const LAYER_ICONS: Record<TLayerKind, string> = {
   [LAYER_KINDS.COASTLINES]: "fa-earth-europe",
@@ -190,6 +191,51 @@ function onDrop(index: number) {
   endDrag();
 }
 
+function isLayerControl(target: EventTarget | null) {
+  return target instanceof Element && Boolean(target.closest(".layer-actions"));
+}
+
+function getLayerIndexAtPoint(clientX: number, clientY: number) {
+  const target = document.elementFromPoint(clientX, clientY);
+  const entry = target?.closest(LAYER_ENTRY_SELECTOR);
+  if (!(entry instanceof HTMLElement)) {
+    return undefined;
+  }
+  const index = Number(entry.dataset.layerIndex);
+  return Number.isNaN(index) ? undefined : index;
+}
+
+function onTouchStart(event: TouchEvent, layer: TLayerEntry, index: number) {
+  if (event.touches.length !== 1 || isLayerControl(event.target)) {
+    return;
+  }
+  event.preventDefault();
+  draggedId.value = layer.id;
+  dropTargetIndex.value = index;
+}
+
+function onTouchMove(event: TouchEvent) {
+  if (!draggedId.value) {
+    return;
+  }
+  const touch = event.touches[0];
+  if (!touch) {
+    return;
+  }
+  event.preventDefault();
+  const index = getLayerIndexAtPoint(touch.clientX, touch.clientY);
+  if (index !== undefined) {
+    dropTargetIndex.value = index;
+  }
+}
+
+function onTouchEnd() {
+  if (draggedId.value && dropTargetIndex.value !== undefined) {
+    store.moveLayer(draggedId.value, dropTargetIndex.value);
+  }
+  endDrag();
+}
+
 function endDrag() {
   draggedId.value = undefined;
   dropTargetIndex.value = undefined;
@@ -245,11 +291,16 @@ function getLayerName(layer: TLayerEntry) {
           'is-drop-target': dropTargetIndex === index,
           'is-dragging': draggedId === layer.id,
         }"
+        :data-layer-index="index"
         draggable="true"
         @dragstart="onDragStart($event, layer)"
         @dragover="onDragOver($event, index)"
         @drop="onDrop(index)"
         @dragend="endDrag"
+        @touchstart="onTouchStart($event, layer, index)"
+        @touchmove="onTouchMove"
+        @touchend="onTouchEnd"
+        @touchcancel="endDrag"
       >
         <span class="icon is-small">
           <i class="fa-solid" :class="LAYER_ICONS[layer.kind]"></i>
@@ -395,6 +446,7 @@ function getLayerName(layer: TLayerEntry) {
   gap: 0.4rem;
   padding: 0.3rem 0.5rem;
   cursor: grab;
+  touch-action: none;
 
   &:not(:last-child) {
     border-bottom: 1px solid var(--bulma-border);
