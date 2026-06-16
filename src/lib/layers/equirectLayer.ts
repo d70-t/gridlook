@@ -74,6 +74,10 @@ export function createEquirectangularPath(
   return d3.geoPath(projection, ctx);
 }
 
+function getEquirectangularPathHeight(width: number): number {
+  return width / 2;
+}
+
 /**
  * Cut the current canvas content to land (`"land"`) or sea (`"sea"`) using
  * the natural-earth land polygons. `"off"`/`"globe"` leave it untouched.
@@ -88,13 +92,16 @@ export async function applyLandSeaCutout(
     return;
   }
   const land = await ResourceCache.loadLandGeoJSON();
-  const path = createEquirectangularPath(ctx, width, height);
+  const pathHeight = getEquirectangularPathHeight(width);
+  const path = createEquirectangularPath(ctx, width, pathHeight);
+  ctx.save();
+  ctx.scale(1, height / pathHeight);
   ctx.beginPath();
   path(land);
   ctx.globalCompositeOperation =
     mode === LAND_SEA_MASK_MODES.LAND ? "destination-in" : "destination-out";
   ctx.fill();
-  ctx.globalCompositeOperation = "source-over";
+  ctx.restore();
 }
 
 /**
