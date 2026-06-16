@@ -32,6 +32,8 @@ export type THoveredGridPoint = {
 };
 
 export const LAYER_KINDS = {
+  COASTLINES: "coastlines",
+  GRATICULES: "graticules",
   GRID: "grid",
   MASK: "mask",
   TEXTURE: "texture",
@@ -40,6 +42,8 @@ export const LAYER_KINDS = {
 export type TLayerKind = (typeof LAYER_KINDS)[keyof typeof LAYER_KINDS];
 
 export const BUILTIN_LAYER_IDS = {
+  COASTLINES: "coastlines",
+  GRATICULES: "graticules",
   GRID: "grid",
   MASK: "mask",
 } as const;
@@ -57,11 +61,25 @@ function builtinLayerStack(): TLayerEntry[] {
   // ordered top → bottom, as displayed in the layer panel
   return [
     {
+      id: BUILTIN_LAYER_IDS.COASTLINES,
+      kind: LAYER_KINDS.COASTLINES,
+      name: "Coastlines",
+      visible: true,
+      maskMode: LAND_SEA_MASK_MODES.OFF,
+    },
+    {
+      id: BUILTIN_LAYER_IDS.GRATICULES,
+      kind: LAYER_KINDS.GRATICULES,
+      name: "Lat/Lon grid",
+      visible: false,
+      maskMode: LAND_SEA_MASK_MODES.OFF,
+    },
+    {
       id: BUILTIN_LAYER_IDS.MASK,
       kind: LAYER_KINDS.MASK,
       name: "Land/sea mask",
       visible: true,
-      maskMode: LAND_SEA_MASK_MODES.OFF,
+      maskMode: LAND_SEA_MASK_MODES.LAND,
     },
     {
       id: BUILTIN_LAYER_IDS.GRID,
@@ -78,9 +96,8 @@ export const useGlobeControlStore = defineStore("globeControl", {
     return {
       showCoastLines: true,
       showGraticules: false,
-      // simplified UI choice (Off|Sea|Land|Globe) — used by controls
-      landSeaMaskChoice: LAND_SEA_MASK_MODES.OFF as TLandSeaMaskMode,
-      // when true, use the textured versions; when false, use the greyscale/solid versions
+      landSeaMaskChoice: LAND_SEA_MASK_MODES.LAND as TLandSeaMaskMode,
+      // when true, use the textured versions; when false, use the simple versions
       landSeaMaskUseTexture: false,
       varnameSelector: "-", // the varname currently selected in the dropdown
       varnameDisplay: "-", // the varname currently shown on the globe (will be updated after loading)

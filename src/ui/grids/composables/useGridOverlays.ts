@@ -176,6 +176,7 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
     } else {
       scene.add(await getCoastlines());
     }
+    applyLayerOrders();
     redraw();
   }
 
@@ -191,6 +192,7 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
     } else {
       scene.add(await getGraticulesLayer());
     }
+    applyLayerOrders();
     redraw();
   }
 
@@ -225,9 +227,8 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
   /**
    * Apply render order and blending to all layer meshes from their position
    * in the layer stack relative to the data grid (renderOrder 0).
-   * Layers above the grid land in 11.. (above the flat crop at 5, below
-   * coastlines at 20); layers below the grid get negative orders (above the
-   * base surface at -10).
+   * Layers above the grid land in 11.. (above the flat crop at 5). Layers
+   * below the grid get negative orders (above the base surface at -10).
    */
   function applyLayerOrders() {
     const stack = store.layerStack;
@@ -235,19 +236,44 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
       (entry) => entry.kind === LAYER_KINDS.GRID
     );
     for (const [index, entry] of stack.entries()) {
-      const mesh =
-        entry.kind === LAYER_KINDS.MASK
-          ? landSeaMask
-          : textureLayerMeshes.get(entry.id);
-      if (!mesh || !(mesh instanceof THREE.Mesh)) {
+      const layer = getLayerObject(entry);
+      if (!layer) {
         continue;
       }
       const delta = gridIndex - index;
-      applyLayerStackPosition(
-        mesh,
-        delta > 0 ? 10 + delta : Math.max(delta, -9)
-      );
+      const renderOrder = delta > 0 ? 10 + delta : Math.max(delta, -9);
+      if (layer instanceof THREE.Mesh) {
+        applyLayerStackPosition(layer, renderOrder);
+      } else if (layer instanceof THREE.LineSegments) {
+        applyLineStackPosition(layer, renderOrder);
+      }
     }
+  }
+
+  function getLayerObject(entry: TLayerEntry) {
+    if (entry.kind === LAYER_KINDS.COASTLINES) {
+      return coast;
+    }
+    if (entry.kind === LAYER_KINDS.GRATICULES) {
+      return graticules;
+    }
+    if (entry.kind === LAYER_KINDS.MASK) {
+      return landSeaMask;
+    }
+    if (entry.kind === LAYER_KINDS.TEXTURE) {
+      return textureLayerMeshes.get(entry.id);
+    }
+    return undefined;
+  }
+
+  function applyLineStackPosition(
+    lineSegments: THREE.LineSegments,
+    renderOrder: number
+  ) {
+    const material = lineSegments.material as THREE.ShaderMaterial;
+    lineSegments.renderOrder = renderOrder;
+    material.transparent = renderOrder > 0;
+    material.needsUpdate = true;
   }
 
   async function getLayerTexture(entry: TLayerEntry) {
