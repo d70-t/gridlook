@@ -224,6 +224,13 @@ function toggleLayer(layer: TLayerEntry) {
     store.updateTextureLayer(layer.id, { visible: !layer.visible });
   }
 }
+
+function getLayerName(layer: TLayerEntry) {
+  if (layer.kind === LAYER_KINDS.GRID && varnameDisplay.value !== "-") {
+    return `${layer.name}: ${varnameDisplay.value}`;
+  }
+  return layer.name;
+}
 </script>
 
 <template>
@@ -247,7 +254,9 @@ function toggleLayer(layer: TLayerEntry) {
         <span class="icon is-small">
           <i class="fa-solid" :class="LAYER_ICONS[layer.kind]"></i>
         </span>
-        <span class="layer-name" :title="layer.name">{{ layer.name }}</span>
+        <span class="layer-name is-size-7" :title="getLayerName(layer)">
+          {{ getLayerName(layer) }}
+        </span>
         <div class="layer-actions">
           <template v-if="layer.kind === LAYER_KINDS.MASK">
             <div class="select is-small layer-select">

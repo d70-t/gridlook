@@ -160,7 +160,7 @@ export function useSharedGridLogic() {
       try {
         const blob = await exportGridAsEquirectTexture(renderer, scene);
         const stored = await saveTexture(
-          `Grid export: ${store.varnameDisplay}`,
+          `Image: ${store.varnameDisplay}`,
           blob
         );
         store.addTextureLayer(stored.id, stored.name);
