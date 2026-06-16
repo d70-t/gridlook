@@ -409,7 +409,7 @@ function getLayerName(layer: TLayerEntry) {
         @click="fileInput?.click()"
       >
         <span class="icon is-small"><i class="fa-solid fa-upload"></i></span>
-        <span>Add texture</span>
+        <span>Upload</span>
       </button>
       <button
         class="button is-small is-light"
