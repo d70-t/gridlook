@@ -2,6 +2,13 @@ import { storeToRefs } from "pinia";
 import * as THREE from "three";
 import { watch, type ComputedRef, type Ref } from "vue";
 
+import {
+  applyLayerStackPosition,
+  createEquirectLayerMesh,
+  createImageLayerTexture,
+  disposeLayerMesh,
+  updateEquirectLayerProjection,
+} from "@/lib/layers/equirectLayer.ts";
 import { geojson2gpuLineSegmentsGeometry } from "@/lib/layers/geojson.ts";
 import {
   makeGpuProjectedLineMaterial,
@@ -11,11 +18,15 @@ import {
   getLandSeaMask,
   LAND_SEA_MASK_MODES,
   type TLandSeaMaskMode,
-  updateLandSeaMaskProjection,
 } from "@/lib/layers/landSeaMask.ts";
 import { ResourceCache } from "@/lib/layers/ResourceCache.ts";
+import { getTexture } from "@/lib/layers/textureStore.ts";
 import type { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
-import { useGlobeControlStore } from "@/store/store";
+import {
+  LAYER_KINDS,
+  useGlobeControlStore,
+  type TLayerEntry,
+} from "@/store/store";
 
 type UseGridOverlaysOptions = {
   projectionHelper: ComputedRef<ProjectionHelper>;
@@ -61,6 +72,14 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
   let coast: THREE.LineSegments | undefined = undefined;
   let graticules: THREE.LineSegments | undefined = undefined;
   let landSeaMask: THREE.Object3D | undefined = undefined;
+  const textureLayerMeshes = new Map<string, THREE.Mesh>();
+  const textureCache = new Map<
+    string,
+    { maskMode: TLandSeaMaskMode; texture: THREE.Texture }
+  >();
+  let textureLayersUpdating = false;
+  let textureLayersDirty = false;
+  let textureLayersPendingForceRebuild = false;
 
   watch(
     () => showCoastLines.value,
@@ -181,13 +200,7 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
     if (landSeaMask) {
       scene?.remove(landSeaMask);
       if (landSeaMask instanceof THREE.Mesh) {
-        landSeaMask.geometry?.dispose();
-        const material = landSeaMask.material as THREE.ShaderMaterial;
-        const tex = material.uniforms?.maskTexture?.value as
-          | THREE.Texture
-          | undefined;
-        tex?.dispose();
-        material?.dispose();
+        disposeLayerMesh(landSeaMask);
       }
       landSeaMask = undefined;
     }
@@ -205,14 +218,146 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
     if (landSeaMask) {
       scene?.add(landSeaMask);
     }
+    applyLayerOrders();
     redraw();
   }
 
-  function updateLandSeaMaskProjectionUniforms() {
-    if (!landSeaMask) {
+  /**
+   * Apply render order and blending to all layer meshes from their position
+   * in the layer stack relative to the data grid (renderOrder 0).
+   * Layers above the grid land in 11.. (above the flat crop at 5, below
+   * coastlines at 20); layers below the grid get negative orders (above the
+   * base surface at -10).
+   */
+  function applyLayerOrders() {
+    const stack = store.layerStack;
+    const gridIndex = stack.findIndex(
+      (entry) => entry.kind === LAYER_KINDS.GRID
+    );
+    for (const [index, entry] of stack.entries()) {
+      const mesh =
+        entry.kind === LAYER_KINDS.MASK
+          ? landSeaMask
+          : textureLayerMeshes.get(entry.id);
+      if (!mesh || !(mesh instanceof THREE.Mesh)) {
+        continue;
+      }
+      const delta = gridIndex - index;
+      applyLayerStackPosition(
+        mesh,
+        delta > 0 ? 10 + delta : Math.max(delta, -9)
+      );
+    }
+  }
+
+  async function getLayerTexture(entry: TLayerEntry) {
+    const cached = textureCache.get(entry.id);
+    if (cached && cached.maskMode === entry.maskMode) {
+      return cached.texture;
+    }
+    cached?.texture.dispose();
+    textureCache.delete(entry.id);
+    const stored = await getTexture(entry.id);
+    if (!stored) {
+      return undefined;
+    }
+    const texture = await createImageLayerTexture(stored.blob, entry.maskMode);
+    textureCache.set(entry.id, { maskMode: entry.maskMode, texture });
+    return texture;
+  }
+
+  // Removes the mesh but keeps the cached texture (disposed separately).
+  function removeTextureLayerMesh(id: string) {
+    const mesh = textureLayerMeshes.get(id);
+    if (!mesh) {
       return;
     }
-    updateLandSeaMaskProjection(landSeaMask, projectionHelper.value);
+    getScene()?.remove(mesh);
+    mesh.geometry.dispose();
+    (mesh.material as THREE.ShaderMaterial).dispose();
+    textureLayerMeshes.delete(id);
+  }
+
+  /**
+   * Sync texture layer meshes with the store's layer stack.
+   * Pass `forceRebuild` when the projection mode changed (the geometry type
+   * differs between globe and flat projections).
+   */
+  async function updateTextureLayers(forceRebuild = false) {
+    if (textureLayersUpdating) {
+      textureLayersDirty = true;
+      textureLayersPendingForceRebuild ||= forceRebuild;
+      return;
+    }
+    textureLayersUpdating = true;
+    try {
+      await syncTextureLayers(forceRebuild);
+    } finally {
+      textureLayersUpdating = false;
+    }
+    if (textureLayersDirty) {
+      const shouldForceRebuild = textureLayersPendingForceRebuild;
+      textureLayersDirty = false;
+      textureLayersPendingForceRebuild = false;
+      await updateTextureLayers(shouldForceRebuild);
+    }
+  }
+
+  async function syncTextureLayers(forceRebuild: boolean) {
+    const scene = getScene();
+    if (!scene) {
+      return;
+    }
+    const entries = store.layerStack.filter(
+      (entry) => entry.kind === LAYER_KINDS.TEXTURE
+    );
+    const wanted = new Set(entries.map((entry) => entry.id));
+
+    for (const id of [...textureLayerMeshes.keys()]) {
+      if (!wanted.has(id)) {
+        removeTextureLayerMesh(id);
+        textureCache.get(id)?.texture.dispose();
+        textureCache.delete(id);
+      }
+    }
+
+    for (const entry of entries) {
+      const maskModeChanged =
+        textureLayerMeshes.has(entry.id) &&
+        textureCache.get(entry.id)?.maskMode !== entry.maskMode;
+      if (forceRebuild || maskModeChanged) {
+        removeTextureLayerMesh(entry.id);
+      }
+      let mesh = textureLayerMeshes.get(entry.id);
+      if (!mesh && entry.visible) {
+        const texture = await getLayerTexture(entry);
+        if (!texture) {
+          continue;
+        }
+        mesh = createEquirectLayerMesh(
+          texture,
+          projectionHelper.value,
+          `textureLayer:${entry.id}`
+        );
+        textureLayerMeshes.set(entry.id, mesh);
+        scene.add(mesh);
+      }
+      if (mesh) {
+        mesh.visible = entry.visible;
+      }
+    }
+
+    applyLayerOrders();
+    redraw();
+  }
+
+  function updateLayerProjectionUniforms() {
+    if (landSeaMask) {
+      updateEquirectLayerProjection(landSeaMask, projectionHelper.value);
+    }
+    for (const mesh of textureLayerMeshes.values()) {
+      updateEquirectLayerProjection(mesh, projectionHelper.value);
+    }
     redraw();
   }
 
@@ -230,7 +375,8 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
     updateCoastlines,
     updateGraticules,
     updateLandSeaMask,
-    updateLandSeaMaskProjectionUniforms,
+    updateTextureLayers,
+    updateLayerProjectionUniforms,
     updateOverlayProjectionUniforms,
   };
 }

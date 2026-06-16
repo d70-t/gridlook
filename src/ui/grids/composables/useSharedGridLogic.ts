@@ -12,6 +12,8 @@ import {
   fetchDataVariable,
   getVariableDatasource,
 } from "@/lib/data/variableData.ts";
+import { exportGridAsEquirectTexture } from "@/lib/layers/gridExport.ts";
+import { saveTexture } from "@/lib/layers/textureStore.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import { availableColormaps } from "@/lib/shaders/colormapShaders.ts";
 import { getColormapScaleOffset } from "@/lib/shaders/gridShaders.ts";
@@ -70,6 +72,7 @@ export function useSharedGridLogic() {
 
   let updateCoastlines: TAsyncVoidFunction = async () => {};
   let updateGraticules: TAsyncVoidFunction = async () => {};
+  let syncTextureLayersOnReady: TAsyncVoidFunction = async () => {};
 
   const {
     canvas,
@@ -99,6 +102,7 @@ export function useSharedGridLogic() {
     onReady: () => {
       updateCoastlines();
       updateGraticules();
+      void syncTextureLayersOnReady();
     },
   });
 
@@ -106,7 +110,8 @@ export function useSharedGridLogic() {
     updateCoastlines: updateCoastlinesInternal,
     updateGraticules: updateGraticulesInternal,
     updateLandSeaMask,
-    updateLandSeaMaskProjectionUniforms,
+    updateTextureLayers,
+    updateLayerProjectionUniforms,
     updateOverlayProjectionUniforms,
   } = useGridOverlays({
     projectionHelper,
@@ -120,11 +125,49 @@ export function useSharedGridLogic() {
 
   updateCoastlines = updateCoastlinesInternal;
   updateGraticules = updateGraticulesInternal;
+  syncTextureLayersOnReady = () => updateTextureLayers();
+
+  // the mask mode may already be set from the URL before the grid mounts
+  store.positionMaskLayerForMode(landSeaMaskChoice.value);
 
   watch(
     [() => landSeaMaskChoice.value, () => landSeaMaskUseTexture.value],
-    () => {
+    ([newChoice], [oldChoice]) => {
+      if (newChoice !== oldChoice) {
+        store.positionMaskLayerForMode(newChoice);
+      }
       updateLandSeaMask();
+    }
+  );
+
+  // covers reordering, add/remove, visibility and mask-mode changes
+  watch(
+    () => store.layerStack,
+    () => {
+      void updateTextureLayers();
+    },
+    { deep: true }
+  );
+
+  watch(
+    () => store.gridExportRequest,
+    async () => {
+      const renderer = getRenderer();
+      const scene = getScene();
+      if (!renderer || !scene) {
+        return;
+      }
+      try {
+        const blob = await exportGridAsEquirectTexture(renderer, scene);
+        const stored = await saveTexture(
+          `Grid export: ${store.varnameDisplay}`,
+          blob
+        );
+        store.addTextureLayer(stored.id, stored.name);
+        redraw();
+      } catch (error) {
+        logError(error, "Couldn't export the grid as a texture layer");
+      }
     }
   );
 
@@ -143,10 +186,11 @@ export function useSharedGridLogic() {
         updateBaseSurface();
         void updateOverlayProjectionUniforms(true);
         updateLandSeaMask();
+        void updateTextureLayers(true);
         configureCameraForProjection();
       } else if (centerChanged) {
         void updateOverlayProjectionUniforms();
-        updateLandSeaMaskProjectionUniforms();
+        updateLayerProjectionUniforms();
       }
 
       for (const cb of projectionChangeCallbacks) {

@@ -10,6 +10,7 @@ import BoundsControls from "./controls/BoundsControls.vue";
 import ColormapControls from "./controls/ColormapControls.vue";
 import DataInput from "./controls/DataInput.vue";
 import DimensionControl from "./controls/DimensionControl.vue";
+import LayerPanel from "./controls/LayerPanel.vue";
 import MaskControls from "./controls/MaskControls.vue";
 import ProjectionControls from "./controls/ProjectionControls.vue";
 import VariableSelector from "./controls/VariableSelector.vue";
@@ -368,6 +369,8 @@ defineExpose({
           <ProjectionControls />
           <div class="section-title">Masks</div>
           <MaskControls />
+          <div class="section-title">Layers</div>
+          <LayerPanel />
         </CollapsibleCard>
         <CollapsibleCard title="Actions">
           <ActionControls

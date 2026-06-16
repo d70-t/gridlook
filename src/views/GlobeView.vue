@@ -262,9 +262,15 @@ function resetForSourceChange(resetStore: boolean) {
         "catalogData",
         "catalogUrl",
         "controlPanelVisible",
+        "layerStack",
       ]);
     } else {
-      store.resetExcept(["catalogData", "catalogUrl", "controlPanelVisible"]);
+      store.resetExcept([
+        "catalogData",
+        "catalogUrl",
+        "controlPanelVisible",
+        "layerStack",
+      ]);
     }
   }
 
