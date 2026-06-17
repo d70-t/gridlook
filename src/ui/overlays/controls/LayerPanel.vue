@@ -129,7 +129,7 @@ onMounted(async () => {
     const stored = await loadTextures();
     for (const texture of stored) {
       if (!layerStack.value.some((layer) => layer.id === texture.id)) {
-        store.addTextureLayer(texture.id, texture.name);
+        store.addTextureLayer(texture.id, texture.name, false);
       }
     }
   } catch (error) {
