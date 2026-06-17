@@ -11,6 +11,7 @@ import ColormapControls from "./controls/ColormapControls.vue";
 import DataInput from "./controls/DataInput.vue";
 import DimensionControl from "./controls/DimensionControl.vue";
 import LayerPanel from "./controls/LayerPanel.vue";
+import PopupDialog from "./controls/PopupDialog.vue";
 import ProjectionControls from "./controls/ProjectionControls.vue";
 import VariableSelector from "./controls/VariableSelector.vue";
 
@@ -366,7 +367,42 @@ defineExpose({
           />
           <div class="section-title mt-2">Projections</div>
           <ProjectionControls />
-          <div class="section-title mt-2">Layers and Masks</div>
+          <div class="section-title mt-2 is-flex is-align-items-center">
+            Layers and Masks
+            <div class="ml-2">
+              <PopupDialog dialog-class="layer-help-dialog">
+                <template #trigger="{ toggle, open }">
+                  <button
+                    class="button is-ghost p-0 has-text-black"
+                    type="button"
+                    title="Layer help"
+                    aria-label="Layer help"
+                    :aria-expanded="open"
+                    @click.stop="toggle"
+                  >
+                    <span class="icon is-small">
+                      <i
+                        class="fa-solid fa-circle-question"
+                        aria-hidden="true"
+                      ></i>
+                    </span>
+                  </button>
+                </template>
+
+                <template #default>
+                  <p class="dialog-section-label">Layers</p>
+                  <p class="is-size-7 mb-2">
+                    Drag layers up or down to change their drawing order.
+                  </p>
+                  <p class="has-text-danger is-light is-size-7 mb-0">
+                    <strong class="has-text-danger">Warning:</strong> Custom
+                    layers are stored only in this browser and cannot be shared
+                    via URL.
+                  </p>
+                </template>
+              </PopupDialog>
+            </div>
+          </div>
           <LayerPanel />
         </CollapsibleCard>
         <CollapsibleCard title="Actions">
