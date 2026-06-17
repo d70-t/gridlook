@@ -23,8 +23,12 @@ import { ResourceCache } from "@/lib/layers/ResourceCache.ts";
 import { getTexture } from "@/lib/layers/textureStore.ts";
 import type { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import {
+  COASTLINE_RESOLUTIONS,
+  GRATICULE_SPACINGS,
   LAYER_KINDS,
   useGlobeControlStore,
+  type TCoastlineResolution,
+  type TGraticuleSpacing,
   type TLayerEntry,
 } from "@/store/store";
 
@@ -56,10 +60,25 @@ const graticuleStyle: TOverlayLineStyle = {
   zOffset: 0.01,
 } as const;
 
+const COASTLINE_GEOJSON_PATHS: Record<TCoastlineResolution, string> = {
+  [COASTLINE_RESOLUTIONS.TEN_M]: "static/ne_10m_coastline.geojson",
+  [COASTLINE_RESOLUTIONS.FIFTY_M]: "static/ne_50m_coastline.geojson",
+};
+
+const GRATICULE_GEOJSON_PATHS: Record<TGraticuleSpacing, string> = {
+  [GRATICULE_SPACINGS.FIFTEEN_DEGREES]: "static/ne_50m_graticules_15.geojson",
+  [GRATICULE_SPACINGS.THIRTY_DEGREES]: "static/ne_50m_graticules_30.geojson",
+};
+
 /* eslint-disable-next-line max-lines-per-function */
 export function useGridOverlays(options: UseGridOverlaysOptions) {
   const store = useGlobeControlStore();
-  const { showCoastLines, showGraticules } = storeToRefs(store);
+  const {
+    coastlineResolution,
+    graticuleSpacing,
+    showCoastLines,
+    showGraticules,
+  } = storeToRefs(store);
 
   const {
     projectionHelper,
@@ -72,6 +91,8 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
   let coast: THREE.LineSegments | undefined = undefined;
   let graticules: THREE.LineSegments | undefined = undefined;
   let landSeaMask: THREE.Object3D | undefined = undefined;
+  let coastlineUpdateId = 0;
+  let graticuleUpdateId = 0;
   const textureLayerMeshes = new Map<string, THREE.Mesh>();
   const textureCache = new Map<
     string,
@@ -92,6 +113,22 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
     () => showGraticules.value,
     () => {
       updateGraticules();
+    }
+  );
+
+  watch(
+    () => coastlineResolution.value,
+    () => {
+      resetCoastlines();
+      void updateCoastlines();
+    }
+  );
+
+  watch(
+    () => graticuleSpacing.value,
+    () => {
+      resetGraticules();
+      void updateGraticules();
     }
   );
 
@@ -117,25 +154,43 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
     );
   }
 
-  async function getCoastlines() {
+  async function getCoastlines(updateId: number) {
     if (!coast) {
-      coast = await createLineSegments(
-        "static/ne_50m_coastline.geojson",
+      const selectedResolution = coastlineResolution.value;
+      const lineSegments = await createLineSegments(
+        COASTLINE_GEOJSON_PATHS[selectedResolution],
         coastStyle,
         "coastlines"
       );
+      if (
+        updateId !== coastlineUpdateId ||
+        selectedResolution !== coastlineResolution.value
+      ) {
+        disposeLineSegments(lineSegments);
+        return undefined;
+      }
+      coast = lineSegments;
     }
     updateLineProjection(coast, coastStyle);
     return coast;
   }
 
-  async function getGraticulesLayer() {
+  async function getGraticulesLayer(updateId: number) {
     if (!graticules) {
-      graticules = await createLineSegments(
-        "static/ne_50m_graticules_30.geojson",
+      const selectedSpacing = graticuleSpacing.value;
+      const lineSegments = await createLineSegments(
+        GRATICULE_GEOJSON_PATHS[selectedSpacing],
         graticuleStyle,
         "graticules"
       );
+      if (
+        updateId !== graticuleUpdateId ||
+        selectedSpacing !== graticuleSpacing.value
+      ) {
+        disposeLineSegments(lineSegments);
+        return undefined;
+      }
+      graticules = lineSegments;
     }
     updateLineProjection(graticules, graticuleStyle);
     return graticules;
@@ -164,7 +219,38 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
     return lineSegments;
   }
 
+  function disposeLineSegments(lineSegments: THREE.LineSegments) {
+    lineSegments.geometry.dispose();
+    const material = lineSegments.material;
+    if (Array.isArray(material)) {
+      for (const item of material) {
+        item.dispose();
+      }
+    } else {
+      material.dispose();
+    }
+  }
+
+  function resetCoastlines() {
+    if (!coast) {
+      return;
+    }
+    getScene()?.remove(coast);
+    disposeLineSegments(coast);
+    coast = undefined;
+  }
+
+  function resetGraticules() {
+    if (!graticules) {
+      return;
+    }
+    getScene()?.remove(graticules);
+    disposeLineSegments(graticules);
+    graticules = undefined;
+  }
+
   async function updateCoastlines() {
+    const updateId = ++coastlineUpdateId;
     const scene = getScene();
     if (!scene) {
       return;
@@ -174,13 +260,22 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
         scene.remove(coast);
       }
     } else {
-      scene.add(await getCoastlines());
+      const lineSegments = await getCoastlines(updateId);
+      if (
+        !lineSegments ||
+        updateId !== coastlineUpdateId ||
+        store.showCoastLines === false
+      ) {
+        return;
+      }
+      scene.add(lineSegments);
     }
     applyLayerOrders();
     redraw();
   }
 
   async function updateGraticules() {
+    const updateId = ++graticuleUpdateId;
     const scene = getScene();
     if (!scene) {
       return;
@@ -190,7 +285,15 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
         scene.remove(graticules);
       }
     } else {
-      scene.add(await getGraticulesLayer());
+      const lineSegments = await getGraticulesLayer(updateId);
+      if (
+        !lineSegments ||
+        updateId !== graticuleUpdateId ||
+        store.showGraticules === false
+      ) {
+        return;
+      }
+      scene.add(lineSegments);
     }
     applyLayerOrders();
     redraw();

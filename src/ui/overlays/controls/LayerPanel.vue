@@ -13,6 +13,8 @@ import {
   saveTexture,
 } from "@/lib/layers/textureStore.ts";
 import {
+  COASTLINE_RESOLUTIONS,
+  GRATICULE_SPACINGS,
   LAYER_KINDS,
   useGlobeControlStore,
   type TLayerEntry,
@@ -22,6 +24,8 @@ import { useLog } from "@/utils/logging.ts";
 
 const store = useGlobeControlStore();
 const {
+  coastlineResolution,
+  graticuleSpacing,
   landSeaMaskChoice,
   landSeaMaskUseTexture,
   layerStack,
@@ -309,6 +313,26 @@ function getLayerName(layer: TLayerEntry) {
           {{ getLayerName(layer) }}
         </span>
         <div class="layer-actions">
+          <template v-if="layer.kind === LAYER_KINDS.COASTLINES">
+            <div class="select is-small layer-select">
+              <select v-model="coastlineResolution" title="Coastline detail">
+                <option :value="COASTLINE_RESOLUTIONS.TEN_M">10m</option>
+                <option :value="COASTLINE_RESOLUTIONS.FIFTY_M">50m</option>
+              </select>
+            </div>
+          </template>
+          <template v-if="layer.kind === LAYER_KINDS.GRATICULES">
+            <div class="select is-small layer-select">
+              <select v-model="graticuleSpacing" title="Graticule spacing">
+                <option :value="GRATICULE_SPACINGS.FIFTEEN_DEGREES">
+                  15 degrees
+                </option>
+                <option :value="GRATICULE_SPACINGS.THIRTY_DEGREES">
+                  30 degrees
+                </option>
+              </select>
+            </div>
+          </template>
           <template v-if="layer.kind === LAYER_KINDS.MASK">
             <div class="select is-small layer-select">
               <select

@@ -41,6 +41,22 @@ export const LAYER_KINDS = {
 
 export type TLayerKind = (typeof LAYER_KINDS)[keyof typeof LAYER_KINDS];
 
+export const COASTLINE_RESOLUTIONS = {
+  TEN_M: "10m",
+  FIFTY_M: "50m",
+} as const;
+
+export type TCoastlineResolution =
+  (typeof COASTLINE_RESOLUTIONS)[keyof typeof COASTLINE_RESOLUTIONS];
+
+export const GRATICULE_SPACINGS = {
+  FIFTEEN_DEGREES: 15,
+  THIRTY_DEGREES: 30,
+} as const;
+
+export type TGraticuleSpacing =
+  (typeof GRATICULE_SPACINGS)[keyof typeof GRATICULE_SPACINGS];
+
 export const BUILTIN_LAYER_IDS = {
   COASTLINES: "coastlines",
   GRATICULES: "graticules",
@@ -96,6 +112,9 @@ export const useGlobeControlStore = defineStore("globeControl", {
     return {
       showCoastLines: true,
       showGraticules: false,
+      coastlineResolution:
+        COASTLINE_RESOLUTIONS.FIFTY_M as TCoastlineResolution,
+      graticuleSpacing: GRATICULE_SPACINGS.THIRTY_DEGREES as TGraticuleSpacing,
       landSeaMaskChoice: LAND_SEA_MASK_MODES.LAND as TLandSeaMaskMode,
       // when true, use the textured versions; when false, use the simple versions
       landSeaMaskUseTexture: false,
