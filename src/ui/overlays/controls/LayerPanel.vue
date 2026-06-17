@@ -7,6 +7,10 @@ import {
   type TLandSeaMaskMode,
 } from "@/lib/layers/landSeaMask.ts";
 import {
+  isSupportedTextureLayerFile,
+  TEXTURE_LAYER_UPLOAD_ACCEPT,
+} from "@/lib/layers/textureLayerFormats.ts";
+import {
   deleteTexture,
   getTexture,
   loadTextures,
@@ -141,7 +145,7 @@ async function onFileSelected(event: Event) {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
   input.value = "";
-  if (!file || !["image/png", "image/jpeg"].includes(file.type)) {
+  if (!file || !isSupportedTextureLayerFile(file)) {
     return;
   }
   try {
@@ -429,7 +433,7 @@ function getLayerName(layer: TLayerEntry) {
       <button
         class="button is-small is-light"
         type="button"
-        title="Upload a texture image (PNG or JPG, equirectangular)"
+        title="Upload a texture image (PNG, JPG, or GeoTIFF)"
         @click="fileInput?.click()"
       >
         <span class="icon is-small"><i class="fa-solid fa-upload"></i></span>
@@ -438,7 +442,7 @@ function getLayerName(layer: TLayerEntry) {
       <button
         class="button is-small is-light"
         type="button"
-        title="Export the current grid as an equirectangular texture layer"
+        title="Export the current grid as a GeoTIFF texture layer"
         @click="store.requestGridExport()"
       >
         <span class="icon is-small"><i class="fa-solid fa-camera"></i></span>
@@ -449,7 +453,7 @@ function getLayerName(layer: TLayerEntry) {
       </button>
       <input
         ref="fileInput"
-        accept="image/png,image/jpeg"
+        :accept="TEXTURE_LAYER_UPLOAD_ACCEPT"
         class="is-hidden"
         type="file"
         @change="onFileSelected"

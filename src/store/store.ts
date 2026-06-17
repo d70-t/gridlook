@@ -147,7 +147,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
       catalogData: undefined as TCatalog | undefined,
       // layer panel stack, ordered top → bottom; order determines render order
       layerStack: builtinLayerStack() as TLayerEntry[],
-      // incremented to request an equirectangular export of the current grid
+      // incremented to request a GeoTIFF image-layer export of the current grid
       gridExportRequest: 0 as number,
       // will get incremented each time a new dataset OR a new variable in the
       // same dataset is loaded; used to trigger reactivity in child components
