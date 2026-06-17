@@ -7,8 +7,8 @@ import * as THREE from "three";
 import { getProjectionTypeFromMode } from "@/lib/projection/projectionShaders.ts";
 import { PROJECTION_TYPES } from "@/lib/projection/projectionUtils.ts";
 
-const EXPORT_WIDTH = 4096;
-const EXPORT_HEIGHT = 2048;
+const EXPORT_WIDTH = 8192;
+const EXPORT_HEIGHT = 4096;
 
 type TUniformValue = { value: unknown };
 type TGridObject = THREE.Mesh | THREE.Points;

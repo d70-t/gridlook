@@ -34,7 +34,7 @@ const GRID_RESOLUTION = { latSegments: 180, lonSegments: 360 };
 // Canvas helpers
 // =============================================================================
 
-export function createLayerCanvas(width = 4096, height = 2048) {
+export function createLayerCanvas(width = 8192, height = 4096) {
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
