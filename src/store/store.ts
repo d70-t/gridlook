@@ -95,7 +95,7 @@ function builtinLayerStack(): TLayerEntry[] {
       kind: LAYER_KINDS.MASK,
       name: "Land/sea mask",
       visible: true,
-      maskMode: LAND_SEA_MASK_MODES.LAND,
+      maskMode: LAND_SEA_MASK_MODES.OFF,
     },
     {
       id: BUILTIN_LAYER_IDS.GRID,
@@ -115,7 +115,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
       coastlineResolution:
         COASTLINE_RESOLUTIONS.FIFTY_M as TCoastlineResolution,
       graticuleSpacing: GRATICULE_SPACINGS.THIRTY_DEGREES as TGraticuleSpacing,
-      landSeaMaskChoice: LAND_SEA_MASK_MODES.LAND as TLandSeaMaskMode,
+      landSeaMaskChoice: LAND_SEA_MASK_MODES.OFF as TLandSeaMaskMode,
       // when true, use the textured versions; when false, use the simple versions
       landSeaMaskUseTexture: false,
       varnameSelector: "-", // the varname currently selected in the dropdown
