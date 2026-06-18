@@ -157,6 +157,7 @@ export function useSharedGridLogic() {
       if (!renderer || !scene) {
         return;
       }
+      store.gridExportLoading = true;
       try {
         const blob = await exportGridAsGeoTiffTexture(renderer, scene);
         const stored = await saveTexture(
@@ -167,6 +168,8 @@ export function useSharedGridLogic() {
         redraw();
       } catch (error) {
         logError(error, "Couldn't export the grid as a texture layer");
+      } finally {
+        store.gridExportLoading = false;
       }
     }
   );
