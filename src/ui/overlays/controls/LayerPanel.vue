@@ -441,7 +441,9 @@ function getLayerName(layer: TLayerEntry) {
       </button>
       <button
         class="button is-small is-light"
+        :class="{ 'is-loading': store.gridExportLoading }"
         type="button"
+        :disabled="store.gridExportLoading || varnameDisplay === '-'"
         title="Export the current grid as a GeoTIFF texture layer"
         @click="store.requestGridExport()"
       >

@@ -149,6 +149,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
       layerStack: builtinLayerStack() as TLayerEntry[],
       // incremented to request a GeoTIFF image-layer export of the current grid
       gridExportRequest: 0 as number,
+      gridExportLoading: false,
       // will get incremented each time a new dataset OR a new variable in the
       // same dataset is loaded; used to trigger reactivity in child components
       // that need to reload data when the variable changes
