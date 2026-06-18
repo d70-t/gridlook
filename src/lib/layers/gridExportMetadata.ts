@@ -1,34 +1,21 @@
 import { type TGeoBounds } from "./equirectLayer.ts";
 
-export const GridTextureExportMode = {
-  REGULAR_LAT_LON: "regular-lat-lon",
-} as const;
-
-export type TGridTextureExportMode =
-  (typeof GridTextureExportMode)[keyof typeof GridTextureExportMode];
-
 export const GridTextureExportUserDataKey = {
   METADATA: "gridTextureExport",
 } as const;
-
-export type TGridTextureExportUserDataKey =
-  (typeof GridTextureExportUserDataKey)[keyof typeof GridTextureExportUserDataKey];
 
 export const TextureExportVCoordinate = {
   BOTTOM: 0,
   TOP: 1,
 } as const;
 
-export type TTextureExportVCoordinate =
+type TTextureExportVCoordinate =
   (typeof TextureExportVCoordinate)[keyof typeof TextureExportVCoordinate];
 
 export type TRegularLatLonTextureExportMetadata = {
-  mode: typeof GridTextureExportMode.REGULAR_LAT_LON;
   bounds: TGeoBounds;
   topV: TTextureExportVCoordinate;
 };
-
-export type TGridTextureExportMetadata = TRegularLatLonTextureExportMetadata;
 
 const DEFAULT_SINGLE_COORD_SPAN = 1;
 

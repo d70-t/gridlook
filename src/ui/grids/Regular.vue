@@ -28,7 +28,6 @@ import {
 } from "@/lib/data/variableDecoding.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
-  GridTextureExportMode,
   GridTextureExportUserDataKey,
   getRegularLatLonGridBounds,
   TextureExportVCoordinate,
@@ -371,7 +370,6 @@ function getRegularTextureExportMetadata(isRotated: boolean | undefined) {
   }
 
   return {
-    mode: GridTextureExportMode.REGULAR_LAT_LON,
     bounds,
     topV:
       latitudes.value[0] > latitudes.value[latitudes.value.length - 1]

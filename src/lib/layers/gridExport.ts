@@ -12,10 +12,8 @@ import {
   type TGeoBounds,
 } from "@/lib/layers/equirectLayer.ts";
 import {
-  GridTextureExportMode,
   GridTextureExportUserDataKey,
   TextureExportVCoordinate,
-  type TGridTextureExportMetadata,
   type TRegularLatLonTextureExportMetadata,
 } from "@/lib/layers/gridExportMetadata.ts";
 import {
@@ -177,9 +175,7 @@ function getLongitudeBounds(
   };
 }
 
-export function getGeoBoundsFromLatLonValues(
-  values: readonly number[]
-): TGeoBounds {
+function getGeoBoundsFromLatLonValues(values: readonly number[]): TGeoBounds {
   const longitudes: number[] = [];
   let south = Number.POSITIVE_INFINITY;
   let north = Number.NEGATIVE_INFINITY;
@@ -259,8 +255,8 @@ function isRegularLatLonTextureExportMetadata(
   return (
     typeof metadata === "object" &&
     metadata !== null &&
-    (metadata as TGridTextureExportMetadata).mode ===
-      GridTextureExportMode.REGULAR_LAT_LON
+    "bounds" in metadata &&
+    "topV" in metadata
   );
 }
 
@@ -355,7 +351,7 @@ function getFallbackExportSize(bounds: TGeoBounds): TExportSize {
   };
 }
 
-export function getGeoTiffExportSize(
+function getGeoTiffExportSize(
   bounds: TGeoBounds,
   textureSizes: TExportSize[],
   sampleCount: number
@@ -429,7 +425,7 @@ function hasTriangleWrapAttributes(geometry: THREE.BufferGeometry) {
   );
 }
 
-export function createGeoTiffExportGeometry(
+function createGeoTiffExportGeometry(
   source: THREE.BufferGeometry,
   useTriangleWrapCull: boolean
 ) {
@@ -579,7 +575,7 @@ function flipPixelsTopDown(pixels: Uint8Array, size: TExportSize) {
   return flipped;
 }
 
-export function getAlphaCrop(
+function getAlphaCrop(
   pixels: Uint8Array,
   size: TExportSize
 ): TAlphaCrop | undefined {
@@ -627,7 +623,7 @@ function cropPixels(
   return cropped;
 }
 
-export function getCroppedGeoBounds(
+function getCroppedGeoBounds(
   bounds: TGeoBounds,
   size: TExportSize,
   crop: TAlphaCrop
@@ -741,7 +737,7 @@ function compressTiffStrip(
   });
 }
 
-export async function encodePixelsToGeoTiffBlob(
+async function encodePixelsToGeoTiffBlob(
   pixels: Uint8Array,
   size: TExportSize,
   bounds: TGeoBounds,
@@ -773,7 +769,7 @@ export async function encodePixelsToGeoTiffBlob(
   return blob;
 }
 
-export function createExportRenderTarget(size: TExportSize) {
+function createExportRenderTarget(size: TExportSize) {
   return new THREE.WebGLRenderTarget(size.width, size.height);
 }
 
