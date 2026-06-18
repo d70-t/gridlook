@@ -7,6 +7,10 @@ import {
   type TLandSeaMaskMode,
 } from "@/lib/layers/landSeaMask.ts";
 import {
+  isSupportedTextureLayerFile,
+  TEXTURE_LAYER_UPLOAD_ACCEPT,
+} from "@/lib/layers/textureLayerFormats.ts";
+import {
   deleteTexture,
   getTexture,
   loadTextures,
@@ -141,7 +145,7 @@ async function onFileSelected(event: Event) {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
   input.value = "";
-  if (!file || !["image/png", "image/jpeg"].includes(file.type)) {
+  if (!file || !isSupportedTextureLayerFile(file)) {
     return;
   }
   try {
@@ -170,7 +174,7 @@ async function downloadLayer(layer: TLayerEntry) {
     const url = URL.createObjectURL(texture.blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = texture.name;
+    link.download = texture.name.replace(/\s/g, "");
     link.click();
     URL.revokeObjectURL(url);
   } catch (error) {
@@ -310,7 +314,12 @@ function getLayerName(layer: TLayerEntry) {
           <i class="fa-solid" :class="LAYER_ICONS[layer.kind]"></i>
         </span>
         <span class="layer-name is-size-7" :title="getLayerName(layer)">
-          {{ getLayerName(layer) }}
+          {{ layer.name }}
+          <template
+            v-if="layer.kind === LAYER_KINDS.GRID && varnameDisplay !== '-'"
+          >
+            : <strong class="is-family-code">{{ varnameDisplay }}</strong>
+          </template>
         </span>
         <div class="layer-actions">
           <template v-if="layer.kind === LAYER_KINDS.COASTLINES">
@@ -325,10 +334,10 @@ function getLayerName(layer: TLayerEntry) {
             <div class="select is-small layer-select">
               <select v-model="graticuleSpacing" title="Graticule spacing">
                 <option :value="GRATICULE_SPACINGS.FIFTEEN_DEGREES">
-                  15 degrees
+                  15&deg;
                 </option>
                 <option :value="GRATICULE_SPACINGS.THIRTY_DEGREES">
-                  30 degrees
+                  30&deg;
                 </option>
               </select>
             </div>
@@ -394,16 +403,11 @@ function getLayerName(layer: TLayerEntry) {
             </button>
           </template>
           <template v-else-if="layer.kind === LAYER_KINDS.GRID">
-            <button
-              class="button is-small is-light"
-              disabled
-              type="button"
-              title="Data grid anchor"
+            <span
+              class="tag is-info"
+              :class="{ 'is-light': !store.hoverEnabled }"
+              >Active data</span
             >
-              <span class="icon is-small">
-                <i class="fa-solid fa-lock"></i>
-              </span>
-            </button>
           </template>
           <template v-if="layer.kind !== LAYER_KINDS.GRID">
             <button
@@ -429,7 +433,7 @@ function getLayerName(layer: TLayerEntry) {
       <button
         class="button is-small is-light"
         type="button"
-        title="Upload a texture image (PNG or JPG, equirectangular)"
+        title="Upload a texture image (PNG, JPG, or GeoTIFF)"
         @click="fileInput?.click()"
       >
         <span class="icon is-small"><i class="fa-solid fa-upload"></i></span>
@@ -437,8 +441,10 @@ function getLayerName(layer: TLayerEntry) {
       </button>
       <button
         class="button is-small is-light"
+        :class="{ 'is-loading': store.gridExportLoading }"
         type="button"
-        title="Export the current grid as an equirectangular texture layer"
+        :disabled="store.gridExportLoading || varnameDisplay === '-'"
+        title="Export the current grid as a GeoTIFF texture layer"
         @click="store.requestGridExport()"
       >
         <span class="icon is-small"><i class="fa-solid fa-camera"></i></span>
@@ -449,7 +455,7 @@ function getLayerName(layer: TLayerEntry) {
       </button>
       <input
         ref="fileInput"
-        accept="image/png,image/jpeg"
+        :accept="TEXTURE_LAYER_UPLOAD_ACCEPT"
         class="is-hidden"
         type="file"
         @change="onFileSelected"

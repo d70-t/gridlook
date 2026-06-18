@@ -8,6 +8,7 @@ import {
   createImageLayerTexture,
   disposeLayerMesh,
   updateEquirectLayerProjection,
+  type TImageLayerTexture,
 } from "@/lib/layers/equirectLayer.ts";
 import { geojson2gpuLineSegmentsGeometry } from "@/lib/layers/geojson.ts";
 import {
@@ -96,7 +97,7 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
   const textureLayerMeshes = new Map<string, THREE.Mesh>();
   const textureCache = new Map<
     string,
-    { maskMode: TLandSeaMaskMode; texture: THREE.Texture }
+    { maskMode: TLandSeaMaskMode; layerTexture: TImageLayerTexture }
   >();
   let textureLayersUpdating = false;
   let textureLayersDirty = false;
@@ -382,17 +383,21 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
   async function getLayerTexture(entry: TLayerEntry) {
     const cached = textureCache.get(entry.id);
     if (cached && cached.maskMode === entry.maskMode) {
-      return cached.texture;
+      return cached.layerTexture;
     }
-    cached?.texture.dispose();
+    cached?.layerTexture.texture.dispose();
     textureCache.delete(entry.id);
     const stored = await getTexture(entry.id);
     if (!stored) {
       return undefined;
     }
-    const texture = await createImageLayerTexture(stored.blob, entry.maskMode);
-    textureCache.set(entry.id, { maskMode: entry.maskMode, texture });
-    return texture;
+    const layerTexture = await createImageLayerTexture(
+      stored.blob,
+      entry.maskMode,
+      stored.name
+    );
+    textureCache.set(entry.id, { maskMode: entry.maskMode, layerTexture });
+    return layerTexture;
   }
 
   // Removes the mesh but keeps the cached texture (disposed separately).
@@ -445,7 +450,7 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
     for (const id of [...textureLayerMeshes.keys()]) {
       if (!wanted.has(id)) {
         removeTextureLayerMesh(id);
-        textureCache.get(id)?.texture.dispose();
+        textureCache.get(id)?.layerTexture.texture.dispose();
         textureCache.delete(id);
       }
     }
@@ -459,14 +464,15 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
       }
       let mesh = textureLayerMeshes.get(entry.id);
       if (!mesh && entry.visible) {
-        const texture = await getLayerTexture(entry);
-        if (!texture) {
+        const layerTexture = await getLayerTexture(entry);
+        if (!layerTexture) {
           continue;
         }
         mesh = createEquirectLayerMesh(
-          texture,
+          layerTexture.texture,
           projectionHelper.value,
-          `textureLayer:${entry.id}`
+          `textureLayer:${entry.id}`,
+          layerTexture.bounds
         );
         textureLayerMeshes.set(entry.id, mesh);
         scene.add(mesh);

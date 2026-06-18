@@ -28,6 +28,11 @@ import {
 } from "@/lib/data/variableDecoding.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
+  GridTextureExportUserDataKey,
+  getRegularLatLonGridBounds,
+  TextureExportVCoordinate,
+} from "@/lib/layers/gridExportMetadata.ts";
+import {
   createWrappedProjectionMesh,
   setupProjectionGeometryWrap,
   updateProjectionMeshes,
@@ -84,6 +89,7 @@ const { setHoverLookupFromIndex, clearHoverLookup } =
 
 const longitudes = ref<Float32Array>(new Float32Array());
 const latitudes = ref<Float32Array>(new Float32Array());
+const isProjectedGrid = ref(false);
 
 const BATCH_SIZE = 60;
 const MAX_GEO_RESOLUTION = 512;
@@ -154,6 +160,7 @@ async function getDims() {
 
   const isProjectedXY =
     isProjectedXName(lastDim) && isProjectedYName(secondLastDim);
+  isProjectedGrid.value = isProjectedXY;
 
   const latOnlyCheck =
     !isProjectedXY &&
@@ -352,6 +359,36 @@ function subsampleCoords(
   return { coords, origIndices };
 }
 
+function getRegularTextureExportMetadata(isRotated: boolean | undefined) {
+  if (isRotated || isProjectedGrid.value) {
+    return undefined;
+  }
+
+  const bounds = getRegularLatLonGridBounds(latitudes.value, longitudes.value);
+  if (!bounds) {
+    return undefined;
+  }
+
+  return {
+    bounds,
+    topV:
+      latitudes.value[0] > latitudes.value[latitudes.value.length - 1]
+        ? TextureExportVCoordinate.BOTTOM
+        : TextureExportVCoordinate.TOP,
+  };
+}
+
+async function getRegularGridPole(isRotated: boolean | undefined) {
+  if (!isRotated) {
+    return {};
+  }
+  const rotatedNorthPole = await getRotatedNorthPole();
+  return {
+    poleLat: rotatedNorthPole.lat,
+    poleLon: rotatedNorthPole.lon,
+  };
+}
+
 async function getRegularGridParameters() {
   const isRotated = props.isRotated;
   let longitudeValues = normalizeLongitudes(longitudes.value);
@@ -367,6 +404,7 @@ async function getRegularGridParameters() {
   const isGlobal = isLongitudeGlobal(longitudes.value);
   const textureLonCount = longitudeValues.length;
   const originalLatCount = latitudeValues.length;
+  const textureExportMetadata = getRegularTextureExportMetadata(isRotated);
 
   const { coords: geoLatitudes, origIndices: latOrigIndices } = subsampleCoords(
     latitudeValues,
@@ -387,12 +425,7 @@ async function getRegularGridParameters() {
     lonOrigIndices[lonOrigIndicesBase.length] = textureLonCount;
   }
 
-  let poleLat: number | undefined, poleLon: number | undefined;
-  if (isRotated) {
-    const rotatedNorthPole = await getRotatedNorthPole();
-    poleLat = rotatedNorthPole.lat;
-    poleLon = rotatedNorthPole.lon;
-  }
+  const { poleLat, poleLon } = await getRegularGridPole(isRotated);
 
   return {
     geoLatitudes,
@@ -407,6 +440,7 @@ async function getRegularGridParameters() {
     poleLon,
     geoLatCount: geoLatitudes.length,
     geoLonCount: geoLongitudes.length,
+    textureExportMetadata,
   };
 }
 
@@ -492,6 +526,10 @@ function createBatchGeometry(
 
   const indices = generateGridIndices(batchLatCount, gridParams.geoLonCount);
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  if (gridParams.textureExportMetadata) {
+    geometry.userData[GridTextureExportUserDataKey.METADATA] =
+      gridParams.textureExportMetadata;
+  }
   return geometry;
 }
 

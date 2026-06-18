@@ -12,7 +12,7 @@ import {
   fetchDataVariable,
   getVariableDatasource,
 } from "@/lib/data/variableData.ts";
-import { exportGridAsEquirectTexture } from "@/lib/layers/gridExport.ts";
+import { exportGridAsGeoTiffTexture } from "@/lib/layers/gridExport.ts";
 import { saveTexture } from "@/lib/layers/textureStore.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import { availableColormaps } from "@/lib/shaders/colormapShaders.ts";
@@ -157,16 +157,19 @@ export function useSharedGridLogic() {
       if (!renderer || !scene) {
         return;
       }
+      store.gridExportLoading = true;
       try {
-        const blob = await exportGridAsEquirectTexture(renderer, scene);
+        const blob = await exportGridAsGeoTiffTexture(renderer, scene);
         const stored = await saveTexture(
-          `Image: ${store.varnameDisplay}`,
+          `Image: ${store.varnameDisplay}.tif`,
           blob
         );
         store.addTextureLayer(stored.id, stored.name);
         redraw();
       } catch (error) {
         logError(error, "Couldn't export the grid as a texture layer");
+      } finally {
+        store.gridExportLoading = false;
       }
     }
   );
