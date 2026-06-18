@@ -181,6 +181,13 @@ it("can encode a regular texture GeoTIFF without alpha cropping", async () => {
   const image = await tiff.getImage();
   expect(image.getWidth()).toBe(4);
   expect(image.getHeight()).toBe(2);
+  expect(image.getBoundingBox()).toEqual([-1.25, -90, 8.75, -85]);
+  expect(image.getGeoKeys()).toMatchObject({
+    GeographicTypeGeoKey: 4326,
+    GeogCitationGeoKey: "WGS 84",
+    GTModelTypeGeoKey: 2,
+    GTRasterTypeGeoKey: 1,
+  });
   const raster = await image.readRGB({ interleave: true, enableAlpha: true });
   expect(Array.from(raster)).toEqual(Array.from(pixels));
 });

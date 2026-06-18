@@ -3,7 +3,7 @@
 // center (0, 0), independent of the projection active in the viewer.
 
 import { zlib } from "fflate";
-import { writeArrayBuffer, type GeotiffWriterMetadata } from "geotiff";
+import { globals, writeArrayBuffer, type GeotiffWriterMetadata } from "geotiff";
 import * as THREE from "three";
 
 import {
@@ -56,16 +56,6 @@ type TRendererState = {
 };
 
 const EXPORT_WRAP_INSTANCE_COUNT = 3;
-const GeoTiffPhotometricInterpretation = {
-  RGB: 2,
-} as const;
-type TGeoTiffPhotometricInterpretation =
-  (typeof GeoTiffPhotometricInterpretation)[keyof typeof GeoTiffPhotometricInterpretation];
-const GeoTiffExtraSample = {
-  UNASSOCIATED_ALPHA: 2,
-} as const;
-type TGeoTiffExtraSample =
-  (typeof GeoTiffExtraSample)[keyof typeof GeoTiffExtraSample];
 const GeoTiffRasterType = {
   AREA: 1,
 } as const;
@@ -82,6 +72,9 @@ const GeoTiffCompression = {
 type TGeoTiffCompression =
   (typeof GeoTiffCompression)[keyof typeof GeoTiffCompression];
 const TIFF_DEFLATE_LEVEL = 6;
+const CLASSIC_TIFF_MAX_UINT32 = 0xffffffff;
+const GEO_TIFF_WGS_84_CITATION = "WGS 84";
+const TIFF_HEADER_DUMMY_PIXELS = new Uint8Array([0]);
 const TRIANGLE_WRAP_ATTRIBUTE_NAMES = [
   "triangleLatLon0",
   "triangleLatLon1",
@@ -649,46 +642,102 @@ export function getCroppedGeoBounds(
   };
 }
 
+function assertClassicTiffUInt32(value: number, label: string) {
+  if (
+    !Number.isInteger(value) ||
+    value < 0 ||
+    value > CLASSIC_TIFF_MAX_UINT32
+  ) {
+    throw new Error(`${label} is too large for classic TIFF.`);
+  }
+}
+
 function makeGeoTiffMetadata(
   size: TExportSize,
   bounds: TGeoBounds,
   byteCount: number
 ): GeotiffWriterMetadata {
+  const lonSpan = getLongitudeSpan(bounds);
   return {
     width: size.width,
     height: size.height,
     BitsPerSample: [8, 8, 8, 8],
     SampleFormat: [1, 1, 1, 1],
     SamplesPerPixel: 4,
-    ExtraSamples:
-      GeoTiffExtraSample.UNASSOCIATED_ALPHA satisfies TGeoTiffExtraSample,
-    PhotometricInterpretation:
-      GeoTiffPhotometricInterpretation.RGB satisfies TGeoTiffPhotometricInterpretation,
+    ExtraSamples: globals.ExtraSamplesValues.Unassalpha,
+    PhotometricInterpretation: globals.photometricInterpretations.RGB,
     Compression: GeoTiffCompression.DEFLATE satisfies TGeoTiffCompression,
     RowsPerStrip: size.height,
     StripByteCounts: [byteCount],
     ModelPixelScale: [
-      getLongitudeSpan(bounds) / size.width,
+      lonSpan / size.width,
       (bounds.north - bounds.south) / size.height,
       0,
     ],
     ModelTiepoint: [0, 0, 0, bounds.west, bounds.north, 0],
     GeographicTypeGeoKey: 4326,
-    GeogCitationGeoKey: "WGS 84",
+    GeogCitationGeoKey: GEO_TIFF_WGS_84_CITATION,
     GTModelTypeGeoKey: GeoTiffModelType.GEOGRAPHIC satisfies TGeoTiffModelType,
     GTRasterTypeGeoKey: GeoTiffRasterType.AREA satisfies TGeoTiffRasterType,
   };
 }
 
-function compressTiffStrip(pixels: Uint8Array): Promise<Uint8Array> {
+function getArrayBufferBlobPart(data: Uint8Array): ArrayBuffer {
+  const buffer = data.buffer;
+  if (buffer instanceof ArrayBuffer) {
+    if (data.byteOffset === 0 && data.byteLength === buffer.byteLength) {
+      return buffer;
+    }
+    return buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+  }
+  const copy = new Uint8Array(data.byteLength);
+  copy.set(data);
+  return copy.buffer;
+}
+
+function encodeCompressedPixelsToGeoTiffBlob(
+  compressedPixels: Uint8Array,
+  size: TExportSize,
+  bounds: TGeoBounds
+): Blob {
+  assertClassicTiffUInt32(size.width, "GeoTIFF width");
+  assertClassicTiffUInt32(size.height, "GeoTIFF height");
+  assertClassicTiffUInt32(compressedPixels.byteLength, "GeoTIFF strip");
+  // Reuse geotiff.js for TIFF/GeoKey metadata, but keep its pixel loop out of the hot path.
+  const headerWithDummyStrip = writeArrayBuffer(
+    TIFF_HEADER_DUMMY_PIXELS,
+    makeGeoTiffMetadata(size, bounds, compressedPixels.byteLength)
+  );
+  const header = headerWithDummyStrip.slice(
+    0,
+    headerWithDummyStrip.byteLength - TIFF_HEADER_DUMMY_PIXELS.byteLength
+  );
+  assertClassicTiffUInt32(header.byteLength, "GeoTIFF header");
+  assertClassicTiffUInt32(
+    header.byteLength + compressedPixels.byteLength,
+    "GeoTIFF output"
+  );
+  return new Blob([header, getArrayBufferBlobPart(compressedPixels)], {
+    type: "image/tiff",
+  });
+}
+
+function compressTiffStrip(
+  pixels: Uint8Array,
+  canConsumePixels: boolean
+): Promise<Uint8Array> {
   return new Promise((resolve, reject) => {
-    zlib(pixels, { level: TIFF_DEFLATE_LEVEL }, (error, data) => {
-      if (error) {
-        reject(error);
-        return;
+    zlib(
+      pixels,
+      { consume: canConsumePixels, level: TIFF_DEFLATE_LEVEL },
+      (error, data) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(data);
       }
-      resolve(data);
-    });
+    );
   });
 }
 
@@ -701,6 +750,7 @@ export async function encodePixelsToGeoTiffBlob(
   let tiffPixels = pixels;
   let tiffSize = size;
   let tiffBounds = bounds;
+  let canConsumeTiffPixels = false;
   if (cropAlpha) {
     const crop = getAlphaCrop(pixels, size);
     if (!crop) {
@@ -709,13 +759,18 @@ export async function encodePixelsToGeoTiffBlob(
     tiffPixels = cropPixels(pixels, size, crop);
     tiffSize = { width: crop.width, height: crop.height };
     tiffBounds = getCroppedGeoBounds(bounds, size, crop);
+    canConsumeTiffPixels = true;
   }
-  const compressedPixels = await compressTiffStrip(tiffPixels);
-  const arrayBuffer = writeArrayBuffer(
-    compressedPixels,
-    makeGeoTiffMetadata(tiffSize, tiffBounds, compressedPixels.byteLength)
+  const compressedPixels = await compressTiffStrip(
+    tiffPixels,
+    canConsumeTiffPixels
   );
-  return new Blob([arrayBuffer], { type: "image/tiff" });
+  const blob = encodeCompressedPixelsToGeoTiffBlob(
+    compressedPixels,
+    tiffSize,
+    tiffBounds
+  );
+  return blob;
 }
 
 export function createExportRenderTarget(size: TExportSize) {
