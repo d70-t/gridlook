@@ -47,6 +47,7 @@ export type TZarrDggsMetadata = {
   name: string;
   refinement_level: number;
   coordinate: string | null;
+  indexing_scheme: string;
 };
 
 export type TDataSource = {
