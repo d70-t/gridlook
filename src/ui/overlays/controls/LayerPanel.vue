@@ -99,20 +99,6 @@ const MASK_LAYER_OPTION_CONFIG: Record<
   },
 };
 
-const maskLayerOption = computed<TMaskLayerOption>({
-  get() {
-    return getMaskLayerOption(
-      landSeaMaskChoice.value,
-      landSeaMaskUseTexture.value
-    );
-  },
-  set(value) {
-    const config = MASK_LAYER_OPTION_CONFIG[value];
-    landSeaMaskChoice.value = config.mode;
-    landSeaMaskUseTexture.value = config.useTexture;
-  },
-});
-
 function getMaskLayerOption(
   mode: TLandSeaMaskMode,
   useTexture: boolean
@@ -127,6 +113,28 @@ function getMaskLayerOption(
   }
   return useTexture ? MASK_LAYER_OPTIONS.LAND : MASK_LAYER_OPTIONS.LAND_SIMPLE;
 }
+
+const lastVisibleMaskLayerOption = ref<TMaskLayerOption>(
+  getMaskLayerOption(landSeaMaskChoice.value, landSeaMaskUseTexture.value)
+);
+
+const maskLayerOption = computed<TMaskLayerOption>({
+  get() {
+    if (landSeaMaskChoice.value === LAND_SEA_MASK_MODES.OFF) {
+      return lastVisibleMaskLayerOption.value;
+    }
+    return getMaskLayerOption(
+      landSeaMaskChoice.value,
+      landSeaMaskUseTexture.value
+    );
+  },
+  set(value) {
+    const config = MASK_LAYER_OPTION_CONFIG[value];
+    lastVisibleMaskLayerOption.value = value;
+    landSeaMaskChoice.value = config.mode;
+    landSeaMaskUseTexture.value = config.useTexture;
+  },
+});
 
 onMounted(async () => {
   try {
@@ -269,9 +277,14 @@ function toggleLayer(layer: TLayerEntry) {
     store.toggleGraticules();
   } else if (layer.kind === LAYER_KINDS.MASK) {
     if (landSeaMaskChoice.value === LAND_SEA_MASK_MODES.OFF) {
-      landSeaMaskChoice.value = LAND_SEA_MASK_MODES.LAND;
-      landSeaMaskUseTexture.value = false;
+      const config = MASK_LAYER_OPTION_CONFIG[lastVisibleMaskLayerOption.value];
+      landSeaMaskChoice.value = config.mode;
+      landSeaMaskUseTexture.value = config.useTexture;
     } else {
+      lastVisibleMaskLayerOption.value = getMaskLayerOption(
+        landSeaMaskChoice.value,
+        landSeaMaskUseTexture.value
+      );
       landSeaMaskChoice.value = LAND_SEA_MASK_MODES.OFF;
     }
   } else if (layer.kind === LAYER_KINDS.TEXTURE) {
