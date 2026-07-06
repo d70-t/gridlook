@@ -27,6 +27,7 @@ import {
   COASTLINE_RESOLUTIONS,
   GRATICULE_SPACINGS,
   LAYER_KINDS,
+  LAYER_OPACITY,
   useGlobeControlStore,
   type TCoastlineResolution,
   type TGraticuleSpacing,
@@ -347,7 +348,11 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
       const delta = gridIndex - index;
       const renderOrder = delta > 0 ? 10 + delta : Math.max(delta, -9);
       if (layer instanceof THREE.Mesh) {
-        applyLayerStackPosition(layer, renderOrder);
+        applyLayerStackPosition(
+          layer,
+          renderOrder,
+          entry.opacity ?? LAYER_OPACITY.MAX
+        );
       } else if (layer instanceof THREE.LineSegments) {
         applyLineStackPosition(layer, renderOrder);
       }

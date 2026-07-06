@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { expect, it } from "vitest";
 
 import {
+  applyLayerStackPosition,
   configureEquirectangularTexture,
   getLongitudeSpan,
   normalizeGeoTiffBounds,
@@ -69,4 +70,15 @@ it("can configure GeoTIFF textures with pixel-preserving sampling", () => {
   expect(texture.minFilter).toBe(THREE.NearestFilter);
   expect(texture.magFilter).toBe(THREE.NearestFilter);
   expect(texture.anisotropy).toBe(1);
+});
+
+it("applies layer opacity to the equirectangular shader uniform", () => {
+  const material = new THREE.ShaderMaterial({
+    uniforms: { opacity: { value: 1.0 } },
+  });
+  const mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
+
+  applyLayerStackPosition(mesh, 11, 0.4);
+
+  expect(material.uniforms.opacity.value).toBe(0.4);
 });

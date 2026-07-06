@@ -546,10 +546,14 @@ export function createEquirectLayerMesh(
  */
 export function applyLayerStackPosition(
   mesh: THREE.Mesh,
-  renderOrder: number
+  renderOrder: number,
+  opacity = 1.0
 ): void {
   const material = mesh.material as THREE.ShaderMaterial;
   mesh.renderOrder = renderOrder;
+  if (material.uniforms?.opacity) {
+    material.uniforms.opacity.value = opacity;
+  }
   if (renderOrder > 0) {
     material.transparent = true;
     material.blending = THREE.NormalBlending;

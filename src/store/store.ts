@@ -64,14 +64,34 @@ export const BUILTIN_LAYER_IDS = {
   MASK: "mask",
 } as const;
 
+export const LAYER_OPACITY = {
+  MIN: 0,
+  MAX: 1,
+  STEP: 0.05,
+} as const;
+
 export type TLayerEntry = {
   id: string;
   kind: TLayerKind;
   name: string;
   visible: boolean;
+  opacity: number;
   // land/sea cutout applied to texture layers
   maskMode: TLandSeaMaskMode;
 };
+
+export function normalizeLayerOpacity(opacity: number) {
+  if (!Number.isFinite(opacity)) {
+    return LAYER_OPACITY.MAX;
+  }
+  if (opacity < LAYER_OPACITY.MIN) {
+    return LAYER_OPACITY.MIN;
+  }
+  if (opacity > LAYER_OPACITY.MAX) {
+    return LAYER_OPACITY.MAX;
+  }
+  return opacity;
+}
 
 function builtinLayerStack(): TLayerEntry[] {
   // ordered top → bottom, as displayed in the layer panel
@@ -81,6 +101,7 @@ function builtinLayerStack(): TLayerEntry[] {
       kind: LAYER_KINDS.COASTLINES,
       name: "Coastlines",
       visible: true,
+      opacity: LAYER_OPACITY.MAX,
       maskMode: LAND_SEA_MASK_MODES.OFF,
     },
     {
@@ -88,6 +109,7 @@ function builtinLayerStack(): TLayerEntry[] {
       kind: LAYER_KINDS.GRATICULES,
       name: "Lat/Lon grid",
       visible: false,
+      opacity: LAYER_OPACITY.MAX,
       maskMode: LAND_SEA_MASK_MODES.OFF,
     },
     {
@@ -95,6 +117,7 @@ function builtinLayerStack(): TLayerEntry[] {
       kind: LAYER_KINDS.MASK,
       name: "Land/sea mask",
       visible: true,
+      opacity: LAYER_OPACITY.MAX,
       maskMode: LAND_SEA_MASK_MODES.OFF,
     },
     {
@@ -102,6 +125,7 @@ function builtinLayerStack(): TLayerEntry[] {
       kind: LAYER_KINDS.GRID,
       name: "Data grid",
       visible: true,
+      opacity: LAYER_OPACITY.MAX,
       maskMode: LAND_SEA_MASK_MODES.OFF,
     },
   ];
@@ -271,6 +295,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
         kind: LAYER_KINDS.TEXTURE,
         name,
         visible,
+        opacity: LAYER_OPACITY.MAX,
         maskMode: LAND_SEA_MASK_MODES.OFF,
       });
     },
@@ -284,6 +309,12 @@ export const useGlobeControlStore = defineStore("globeControl", {
       const layer = this.layerStack.find((entry) => entry.id === id);
       if (layer) {
         Object.assign(layer, patch);
+      }
+    },
+    updateLayerOpacity(id: string, opacity: number) {
+      const layer = this.layerStack.find((entry) => entry.id === id);
+      if (layer) {
+        layer.opacity = normalizeLayerOpacity(opacity);
       }
     },
     // moves the entry so it ends up at index `toIndex` of the resulting array

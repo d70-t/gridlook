@@ -2,6 +2,8 @@
 import { storeToRefs } from "pinia";
 import { computed, onMounted, ref } from "vue";
 
+import PopupDialog from "./PopupDialog.vue";
+
 import {
   LAND_SEA_MASK_MODES,
   type TLandSeaMaskMode,
@@ -20,6 +22,7 @@ import {
   COASTLINE_RESOLUTIONS,
   GRATICULE_SPACINGS,
   LAYER_KINDS,
+  LAYER_OPACITY,
   useGlobeControlStore,
   type TLayerEntry,
   type TLayerKind,
@@ -292,6 +295,25 @@ function toggleLayer(layer: TLayerEntry) {
   }
 }
 
+function canChangeLayerOpacity(layer: TLayerEntry) {
+  return layer.kind === LAYER_KINDS.MASK || layer.kind === LAYER_KINDS.TEXTURE;
+}
+
+function getLayerOpacity(layer: TLayerEntry) {
+  return layer.opacity ?? LAYER_OPACITY.MAX;
+}
+
+function formatLayerOpacity(layer: TLayerEntry) {
+  return `${(getLayerOpacity(layer) * 100).toFixed(0)}%`;
+}
+
+function setLayerOpacity(layer: TLayerEntry, event: Event) {
+  store.updateLayerOpacity(
+    layer.id,
+    (event.target as HTMLInputElement).valueAsNumber
+  );
+}
+
 function getLayerName(layer: TLayerEntry) {
   if (layer.kind === LAYER_KINDS.GRID && varnameDisplay.value !== "-") {
     return `${layer.name}: ${varnameDisplay.value}`;
@@ -415,6 +437,51 @@ function getLayerName(layer: TLayerEntry) {
               </span>
             </button>
           </template>
+          <template v-if="canChangeLayerOpacity(layer)">
+            <PopupDialog dialog-class="layer-opacity-popover">
+              <template #trigger="{ toggle, open }">
+                <button
+                  class="button is-small is-light"
+                  :class="{
+                    'is-info':
+                      open || getLayerOpacity(layer) < LAYER_OPACITY.MAX,
+                  }"
+                  type="button"
+                  :title="`Opacity: ${formatLayerOpacity(layer)}`"
+                  :aria-expanded="open"
+                  :aria-label="`${layer.name} opacity`"
+                  @click.stop="toggle"
+                  @mousedown.stop
+                  @touchstart.stop
+                >
+                  <span class="icon is-small">
+                    <i class="fa-solid fa-circle-half-stroke"></i>
+                  </span>
+                </button>
+              </template>
+
+              <template #default>
+                <label class="layer-opacity-control">
+                  <span class="layer-opacity-header">
+                    <span>Opacity</span>
+                    <span class="tag is-light layer-opacity-value">
+                      {{ formatLayerOpacity(layer) }}
+                    </span>
+                  </span>
+                  <input
+                    class="layer-opacity"
+                    type="range"
+                    :min="LAYER_OPACITY.MIN"
+                    :max="LAYER_OPACITY.MAX"
+                    :step="LAYER_OPACITY.STEP"
+                    :value="getLayerOpacity(layer)"
+                    :aria-label="`${layer.name} opacity`"
+                    @input="setLayerOpacity(layer, $event)"
+                  />
+                </label>
+              </template>
+            </PopupDialog>
+          </template>
           <template v-else-if="layer.kind === LAYER_KINDS.GRID">
             <span
               class="tag is-info"
@@ -531,5 +598,29 @@ function getLayerName(layer: TLayerEntry) {
 
 .layer-select select {
   max-width: 7rem;
+}
+
+.layer-opacity-control {
+  display: block;
+  min-width: 11rem;
+}
+
+.layer-opacity-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.layer-opacity {
+  width: 100%;
+}
+
+.layer-opacity-value {
+  min-width: 2.5rem;
+  justify-content: center;
 }
 </style>
