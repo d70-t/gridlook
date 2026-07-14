@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.4.1](https://github.com/d70-t/gridlook/compare/v1.4.0...v1.4.1) (2026-07-14)
+
+
+### Bug Fixes
+
+* fixed Lon 0 to 360 geotiffs with masks ([cfe8ac8](https://github.com/d70-t/gridlook/commit/cfe8ac83490d481c2534a1c1ad7be63de6b2903d))
+* fixed Lon 0 to 360 geotiffs with masks ([1600387](https://github.com/d70-t/gridlook/commit/1600387c52e046bf9c314ef6ff97c85da3baf7bd))
+
 ## [1.4.0](https://github.com/d70-t/gridlook/compare/v1.3.0...v1.4.0) (2026-07-14)
 
 
