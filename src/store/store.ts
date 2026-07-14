@@ -150,7 +150,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
       histogram: undefined as number[] | undefined, // selection-range histogram bins
       fullHistogram: undefined as number[] | undefined, // fixed histogram over full data range
       histogramSummary: undefined as THistogramSummary | undefined, // full-resolution (4096-bin) summary
-      colormap: "turbo" as TColorMap,
+      colormap: "viridis" as TColorMap,
       invertColormap: false,
       posterizeLevels: 0 as number,
       hideLowerBound: false,
