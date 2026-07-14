@@ -312,6 +312,23 @@ defineExpose({
         <span class="ellipsis" :title="modelInfo.title">
           {{ modelInfo.title }}
         </span>
+        <button
+          type="button"
+          class="borderless-btn dataset-info-trigger ml-1"
+          :class="{ 'has-text-info': infoPanelOpen }"
+          :title="
+            infoPanelOpen
+              ? 'Close Dataset Info panel'
+              : 'Open Dataset Info panel'
+          "
+          aria-label="Dataset Info"
+          :aria-expanded="infoPanelOpen"
+          @click="() => $emit('toggleInfoPanel')"
+        >
+          <span class="icon">
+            <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+          </span>
+        </button>
       </div>
       <div v-else-if="loading" class="title-bar">
         <progress class="progress is-info" max="100"></progress>
@@ -409,11 +426,9 @@ defineExpose({
         </CollapsibleCard>
         <CollapsibleCard title="Actions">
           <ActionControls
-            :info-panel-open="infoPanelOpen"
             @on-snapshot="(opts) => $emit('onSnapshot', opts)"
             @on-rotate="() => $emit('onRotate')"
             @toggle-display="() => $emit('toggleDisplay')"
-            @toggle-info-panel="() => $emit('toggleInfoPanel')"
           />
         </CollapsibleCard>
       </div>
@@ -434,6 +449,27 @@ defineExpose({
 
 .panel-toggle {
   order: 2;
+}
+
+.dataset-info-trigger {
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  font-size: 1.6rem;
+  opacity: 0.8;
+
+  &:hover {
+    color: inherit;
+    background: rgb(255 255 255 / 12%);
+    opacity: 1;
+  }
+
+  &.has-text-info {
+    color: var(--bulma-info) !important;
+    opacity: 1;
+  }
 }
 
 .header-container {

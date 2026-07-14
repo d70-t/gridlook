@@ -11,15 +11,10 @@ import { useGlobeControlStore } from "@/store/store.ts";
 import { isPresenterActive } from "@/store/usePresenterSync.ts";
 import { isMobileDevice } from "@/ui/common/viewConstants.ts";
 
-defineProps<{
-  infoPanelOpen: boolean;
-}>();
-
 defineEmits<{
   onSnapshot: [options: TSnapshotOptions];
   onRotate: [];
   toggleDisplay: [];
-  toggleInfoPanel: [];
 }>();
 
 const store = useGlobeControlStore();
@@ -33,21 +28,6 @@ const showPresenter = !isMobileDevice();
 <template>
   <div class="column">
     <div class="grid">
-      <button
-        class="button cell"
-        :class="{ 'is-info': infoPanelOpen }"
-        type="button"
-        :title="
-          infoPanelOpen ? 'Close Dataset Info panel' : 'Open Dataset Info panel'
-        "
-        :aria-expanded="infoPanelOpen"
-        @click="() => $emit('toggleInfoPanel')"
-      >
-        <span class="icon">
-          <i class="fa-solid fa-circle-info"></i>
-        </span>
-        <span>Dataset Info</span>
-      </button>
       <SnapshotButton @on-snapshot="(opts) => $emit('onSnapshot', opts)" />
       <button
         class="button cell"
