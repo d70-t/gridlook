@@ -1,62 +1,59 @@
 <script lang="ts" setup>
-import Toast from "primevue/toast";
-type ToastTone = "info" | "success" | "warning" | "danger";
+import { ToastType, useToast, type TToastType } from "./useToast.ts";
 
-const toastThemes: Record<string, { tone: ToastTone; icon: string }> = {
-  info: { tone: "info", icon: "fa-circle-info" },
-  success: { tone: "success", icon: "fa-check" },
-  warn: { tone: "warning", icon: "fa-triangle-exclamation" },
-  warning: { tone: "warning", icon: "fa-triangle-exclamation" },
-  error: { tone: "danger", icon: "fa-ban" },
-  danger: { tone: "danger", icon: "fa-ban" },
+type TToastTheme = { tone: TToastType; icon: string };
+
+const { toasts, removeToast } = useToast();
+
+const toastThemes: Record<TToastType, TToastTheme> = {
+  [ToastType.INFO]: { tone: ToastType.INFO, icon: "fa-circle-info" },
+  [ToastType.SUCCESS]: { tone: ToastType.SUCCESS, icon: "fa-check" },
+  [ToastType.WARNING]: {
+    tone: ToastType.WARNING,
+    icon: "fa-triangle-exclamation",
+  },
+  [ToastType.DANGER]: { tone: ToastType.DANGER, icon: "fa-ban" },
 };
 
-const getToastTheme = (severity?: string) =>
-  toastThemes[severity ?? ""] ?? toastThemes.info;
+const getToastTheme = (type: TToastType): TToastTheme => toastThemes[type];
 </script>
 
 <template>
-  <Toast
-    unstyled
-    position="top-right"
-    :pt="{
-      message: { class: 'mb-3' },
-    }"
-  >
-    <template #container="{ message, closeCallback }">
-      <article
-        class="toast-card"
-        :class="`is-${getToastTheme(message.severity).tone}`"
-        role="alert"
+  <div class="toast-container" aria-live="polite" aria-atomic="false">
+    <article
+      v-for="toast in toasts"
+      :key="toast.id"
+      class="toast-card"
+      :class="`is-${getToastTheme(toast.type).tone}`"
+      role="alert"
+    >
+      <span class="toast-icon">
+        <i
+          class="fa-solid"
+          :class="getToastTheme(toast.type).icon"
+          aria-hidden="true"
+        />
+      </span>
+      <div class="toast-copy">
+        <p class="toast-title">
+          <span class="has-text-weight-semibold">
+            {{ toast.summary }}
+          </span>
+        </p>
+        <p v-if="toast.detail" class="toast-detail">
+          {{ toast.detail }}
+        </p>
+      </div>
+      <button
+        class="toast-close"
+        type="button"
+        aria-label="Close notification"
+        @click="removeToast(toast.id)"
       >
-        <span class="toast-icon">
-          <i
-            class="fa-solid"
-            :class="getToastTheme(message.severity).icon"
-            aria-hidden="true"
-          />
-        </span>
-        <div class="toast-copy">
-          <p class="toast-title">
-            <span class="has-text-weight-semibold">
-              {{ message.summary }}
-            </span>
-          </p>
-          <p v-if="message.detail" class="toast-detail">
-            {{ message.detail }}
-          </p>
-        </div>
-        <button
-          class="toast-close"
-          type="button"
-          aria-label="Close notification"
-          @click="closeCallback"
-        >
-          <i class="fa-solid fa-xmark" aria-hidden="true"></i>
-        </button>
-      </article>
-    </template>
-  </Toast>
+        <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+      </button>
+    </article>
+  </div>
 </template>
 
 <style lang="scss">
@@ -66,6 +63,16 @@ const getToastTheme = (severity?: string) =>
 @mixin toast-accent($accent) {
   border: 1px solid color.adjust($accent, $lightness: 15%);
   background-color: color.adjust($accent, $lightness: 25%);
+}
+
+.toast-container {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 50;
+  display: grid;
+  gap: 0.75rem;
+  pointer-events: none;
 }
 
 .toast-card {
@@ -78,7 +85,7 @@ const getToastTheme = (severity?: string) =>
   border-radius: bulmaUt.$radius;
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.06);
   pointer-events: auto;
-  width: 28rem;
+  width: min(28rem, calc(100vw - 2rem));
 }
 
 .toast-card.is-success {

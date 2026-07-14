@@ -28,7 +28,7 @@ import { getMissingValue, getFillValue } from "@/lib/data/variableDecoding.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
-import { useLog } from "@/utils/logging.ts";
+import { useLog } from "@/ui/common/useLog.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -38,7 +38,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   close: [];
-  toggle: [];
   selectGridType: [gridType: T_GRID_TYPES];
 }>();
 
@@ -346,20 +345,6 @@ watch(
 </script>
 
 <template>
-  <!-- Toggle button -->
-  <button
-    v-if="!isOpen"
-    type="button"
-    class="button is-small is-info"
-    :title="isOpen ? 'Close info panel' : 'Open info panel'"
-    @click="emit('toggle')"
-  >
-    <span class="icon">
-      <i class="fa-solid fa-circle-info"></i>
-    </span>
-    <span>Dataset Info</span>
-  </button>
-
   <div class="info-panel" :class="[{ 'is-open': isOpen }]">
     <div class="info-panel-header">
       <h3 class="title is-5">Dataset Info</h3>

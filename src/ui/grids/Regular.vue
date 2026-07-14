@@ -46,7 +46,7 @@ import {
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
-import { useLog } from "@/utils/logging.ts";
+import { useLog } from "@/ui/common/useLog.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -816,6 +816,7 @@ function updateMeshMaterials(rawData: Float32Array) {
   const material = makeMaterial(rawData);
   updateProjectionUniforms(material, projectionHelper.value);
   setMeshMaterials(material);
+  updateColormap(meshes);
 }
 
 async function fetchAndRenderData(

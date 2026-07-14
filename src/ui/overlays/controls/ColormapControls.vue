@@ -1,7 +1,16 @@
 <script lang="ts" setup>
 import { storeToRefs } from "pinia";
-import Select from "primevue/select";
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
+import {
+  SelectListbox,
+  SelectOption,
+  SelectPopover,
+  SelectRoot,
+  SelectTrailingIcon,
+  SelectTrigger,
+  SelectValue,
+} from "vue3-select-component";
+import "vue3-select-component/styles.css";
 
 import ColorBar from "./ColorBar.vue";
 import { percentileFromBins, roundToDataPrecision } from "./colorbarUtils.ts";
@@ -32,6 +41,15 @@ const {
   fullHistogram,
   histogramSummary,
 } = storeToRefs(store);
+
+type TColormapOption = {
+  label: TColorMap;
+  value: TColorMap;
+};
+
+const colormapOptions = computed<TColormapOption[]>(() =>
+  props.modelInfo.colormaps.map((value) => ({ label: value, value }))
+);
 
 const previousValue = ref(posterizeLevels.value);
 
@@ -172,30 +190,44 @@ function handleAutoContrast() {
     </div>
 
     <!-- Row: Colormap selector + options -->
-    <Select
+    <SelectRoot
       v-model="colormap"
-      :options="modelInfo.colormaps"
+      :options="colormapOptions"
       class="colormap-select mb-4"
-      @show="handleDropdownShow"
-      @hide="handleDropdownHide"
-      @change="handleDropdownChange"
+      data-assembled-select
+      @menu-opened="handleDropdownShow"
+      @menu-closed="handleDropdownHide"
+      @option-selected="handleDropdownChange"
     >
-      <template #value="{ value }">
-        <div class="cm-option">
-          <img :src="swatchSrc(value as TColorMap)" class="cm-swatch" alt="" />
-          <span class="cm-name">{{ value }}</span>
-        </div>
-      </template>
-      <template #option="{ option }">
-        <div
-          class="cm-option w-100"
-          @mouseenter="handleOptionHover(option as TColorMap)"
-        >
-          <img :src="swatchSrc(option as TColorMap)" class="cm-swatch" alt="" />
-          <span class="cm-name">{{ option }}</span>
-        </div>
-      </template>
-    </Select>
+      <SelectTrigger>
+        <SelectValue>
+          <div class="cm-option">
+            <img :src="swatchSrc(colormap)" class="cm-swatch" alt="" />
+            <span class="cm-name">{{ colormap }}</span>
+          </div>
+        </SelectValue>
+        <SelectTrailingIcon>
+          <i class="fa-solid fa-angle-down is-size-5"></i>
+        </SelectTrailingIcon>
+      </SelectTrigger>
+
+      <SelectPopover>
+        <SelectListbox>
+          <SelectOption
+            v-for="option in colormapOptions"
+            :key="option.value"
+            :value="option.value"
+            :label="option.label"
+            @mouseenter="handleOptionHover(option.value)"
+          >
+            <div class="cm-option w-100">
+              <img :src="swatchSrc(option.value)" class="cm-swatch" alt="" />
+              <span class="cm-name">{{ option.label }}</span>
+            </div>
+          </SelectOption>
+        </SelectListbox>
+      </SelectPopover>
+    </SelectRoot>
     <div class="columns is-mobile is-multiline is-vcentered compact-row px-1">
       <div class="column is-half">
         <button
@@ -280,42 +312,26 @@ function handleAutoContrast() {
   width: 100%;
   font-size: 1rem;
   font-family: inherit;
+  --vs-min-height: 2.5em;
+  --vs-padding-y: 0;
+  --vs-padding-x: 0.625em;
+  --vs-border: 1px solid var(--bulma-border, #dbdbdb);
+  --vs-border-radius: 4px;
+  --vs-background-color: var(--bulma-scheme-main, #fff);
+  --vs-text-color: var(--bulma-text, #363636);
+  --vs-outline-color: rgb(66, 88, 255);
+  --vs-outline-width: 3px;
+  --vs-trailing-icon-color: var(--bulma-link);
 }
 
-:deep(.p-select) {
-  width: 100%;
-  height: 2.5em;
-  border: 1px solid var(--bulma-border, #dbdbdb);
-  border-radius: 4px;
-  background-color: var(--bulma-scheme-main, #fff);
-  padding: 0 0.625em;
-  font-size: 1rem;
-  color: var(--bulma-text, #363636);
-  cursor: pointer;
-  transition: border-color 0.15s ease;
-
-  &:hover {
-    border-color: var(--bulma-border-hover, #b5b5b5) !important;
-  }
-
-  &.p-focus {
-    border-color: rgb(66, 88, 255) !important;
-    box-shadow: rgba(66, 88, 255, 0.25) 0px 0px 0px 3px !important;
-  }
+:deep([data-select-trigger][aria-expanded="true"]),
+:deep([data-select-trigger]:focus-visible) {
+  box-shadow: rgba(66, 88, 255, 0.25) 0 0 0 3px;
 }
 
-:deep(.p-select-label) {
-  padding: 0;
+:deep([data-select-value]) {
   line-height: 1;
-  display: flex;
-  align-items: center;
   height: 100%;
-  overflow: hidden;
-}
-
-:deep(.p-select-dropdown) {
-  width: 1.75em;
-  color: var(--bulma-link);
 }
 
 .cm-option {
@@ -337,5 +353,15 @@ function handleAutoContrast() {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+:global([data-select-popover]) {
+  --vs-border: 1px solid var(--bulma-border, #dbdbdb);
+  --vs-border-radius: 4px;
+  --vs-menu-background-color: var(--bulma-scheme-main, #fff);
+  --vs-menu-z-index: 1000;
+  --vs-option-hover-background-color: var(--bulma-scheme-main-bis, #fafafa);
+  --vs-option-focused-background-color: var(--bulma-scheme-main-ter, #f5f5f5);
+  --vs-option-selected-background-color: var(--bulma-info-soft, #eef6fc);
 }
 </style>
