@@ -56,6 +56,8 @@ export function usePresenterSync() {
     isRotating,
     showCoastLines,
     showGraticules,
+    coastlineResolution,
+    graticuleSpacing,
     dimSlidersValues,
     selection,
   } = storeToRefs(store);
@@ -120,6 +122,8 @@ export function usePresenterSync() {
       isRotating: isRotating.value,
       showCoastLines: showCoastLines.value,
       showGraticules: showGraticules.value,
+      coastlineResolution: coastlineResolution.value,
+      graticuleSpacing: graticuleSpacing.value,
       dimSlidersValues: opts?.includeDimSlidersValues
         ? gatherDimSlidersValues()
         : undefined,
@@ -173,13 +177,7 @@ export function usePresenterSync() {
     if (payload.userBoundsHigh !== undefined) {
       userBoundsHigh.value = payload.userBoundsHigh;
     }
-    if (payload.landSeaMaskChoice !== undefined) {
-      landSeaMaskChoice.value =
-        payload.landSeaMaskChoice as typeof landSeaMaskChoice.value;
-    }
-    if (payload.landSeaMaskUseTexture !== undefined) {
-      landSeaMaskUseTexture.value = payload.landSeaMaskUseTexture;
-    }
+    applyLayerState(payload);
     if (payload.projectionMode !== undefined) {
       projectionMode.value =
         payload.projectionMode as typeof projectionMode.value;
@@ -191,17 +189,35 @@ export function usePresenterSync() {
     if (payload.isRotating !== undefined) {
       isRotating.value = payload.isRotating;
     }
+    if (payload.dimSlidersValues !== undefined) {
+      dimSlidersValues.value = payload.dimSlidersValues;
+    }
+    if (payload.selection !== undefined) {
+      selection.value = payload.selection;
+    }
+  }
+
+  function applyLayerState(payload: TPresenterStatePayload) {
+    if (payload.landSeaMaskChoice !== undefined) {
+      landSeaMaskChoice.value =
+        payload.landSeaMaskChoice as typeof landSeaMaskChoice.value;
+    }
+    if (payload.landSeaMaskUseTexture !== undefined) {
+      landSeaMaskUseTexture.value = payload.landSeaMaskUseTexture;
+    }
     if (payload.showCoastLines !== undefined) {
       showCoastLines.value = payload.showCoastLines;
     }
     if (payload.showGraticules !== undefined) {
       showGraticules.value = payload.showGraticules;
     }
-    if (payload.dimSlidersValues !== undefined) {
-      dimSlidersValues.value = payload.dimSlidersValues;
+    if (payload.coastlineResolution !== undefined) {
+      coastlineResolution.value =
+        payload.coastlineResolution as typeof coastlineResolution.value;
     }
-    if (payload.selection !== undefined) {
-      selection.value = payload.selection;
+    if (payload.graticuleSpacing !== undefined) {
+      graticuleSpacing.value =
+        payload.graticuleSpacing as typeof graticuleSpacing.value;
     }
   }
 
@@ -327,6 +343,8 @@ export function usePresenterSync() {
     () => isRotating.value,
     () => showCoastLines.value,
     () => showGraticules.value,
+    () => coastlineResolution.value,
+    () => graticuleSpacing.value,
     () => JSON.stringify(selection.value),
     () => paramCameraState.value,
     () => paramGridType.value,

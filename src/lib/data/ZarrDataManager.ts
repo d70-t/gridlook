@@ -128,6 +128,26 @@ export class ZarrDataManager {
     return await this.getDataset(datasource);
   }
 
+  static async getGroup(
+    datasource: TDatasetSource,
+    groupPath: string,
+    format?: TZarrFormat
+  ): Promise<zarr.Group<zarr.AsyncReadable>> {
+    const dataset = await this.getDataset(datasource, format);
+    const normalizedGroupPath = this.normalizeDatasetPath(groupPath);
+    if (!normalizedGroupPath) {
+      return dataset;
+    }
+
+    const target = dataset.resolve(normalizedGroupPath);
+    if (format === ZARR_FORMAT.V2) {
+      return await zarr.open.v2(target, { kind: "group" });
+    } else if (format === ZARR_FORMAT.V3) {
+      return await zarr.open.v3(target, { kind: "group" });
+    }
+    return await zarr.open(target, { kind: "group" });
+  }
+
   static async getVariableInfo(
     datasource: TDatasetSource,
     variable: string,
@@ -145,19 +165,7 @@ export class ZarrDataManager {
   ): Promise<zarr.Group<zarr.AsyncReadable>> {
     const groupPath = await ZarrDataManager.resolveGroupPath(varname);
     const source = ZarrDataManager.getDatasetSource(datasources, varname);
-    const target = (await ZarrDataManager.getDataset(source)).resolve(
-      groupPath
-    );
-
-    let dataset: zarr.Group<zarr.AsyncReadable>;
-    if (format === ZARR_FORMAT.V2) {
-      dataset = await zarr.open.v2(target, { kind: "group" });
-    } else if (format === ZARR_FORMAT.V3) {
-      dataset = await zarr.open.v3(target, { kind: "group" });
-    } else {
-      dataset = await zarr.open(target, { kind: "group" });
-    }
-    return dataset;
+    return await ZarrDataManager.getGroup(source, groupPath, format);
   }
 
   static async getVariableInfoByDatasetSources(
