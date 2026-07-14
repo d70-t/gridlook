@@ -16,7 +16,7 @@ import type { TURLParameterValues } from "@/utils/urlParams.ts";
 type TParams = Partial<Record<TURLParameterValues, string>>;
 
 const DEFAULT_DATASET =
-  "https://s3.eu-dkrz-1.dkrz.cloud/wrcp-hackathon/data/ICON/d3hp003.zarr/P1D_mean_z7_atm";
+  "https://storage.googleapis.com/cmip6/CMIP6/ScenarioMIP/AWI/AWI-CM-1-1-MR/ssp585/r1i1p1f1/day/sfcWind/gn/v20190529/";
 
 const DEFAULT_CATALOG = "static/catalog.json";
 
