@@ -816,6 +816,7 @@ function updateMeshMaterials(rawData: Float32Array) {
   const material = makeMaterial(rawData);
   updateProjectionUniforms(material, projectionHelper.value);
   setMeshMaterials(material);
+  updateColormap(meshes);
 }
 
 async function fetchAndRenderData(
