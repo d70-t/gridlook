@@ -27,7 +27,7 @@ import {
   type TLayerEntry,
   type TLayerKind,
 } from "@/store/store.ts";
-import { useLog } from "@/utils/logging.ts";
+import { useLog } from "@/ui/common/useLog.ts";
 
 const store = useGlobeControlStore();
 const {

@@ -33,12 +33,14 @@ import { MOBILE_BREAKPOINT } from "@/ui/common/viewConstants.ts";
 const props = defineProps<{
   modelInfo?: TModelInfo;
   currentSource: string;
+  infoPanelOpen: boolean;
 }>();
 
 defineEmits<{
   onSnapshot: [options: TSnapshotOptions];
   onRotate: [];
   toggleDisplay: [];
+  toggleInfoPanel: [];
 }>();
 
 // Bounds management types
@@ -407,9 +409,11 @@ defineExpose({
         </CollapsibleCard>
         <CollapsibleCard title="Actions">
           <ActionControls
+            :info-panel-open="infoPanelOpen"
             @on-snapshot="(opts) => $emit('onSnapshot', opts)"
             @on-rotate="() => $emit('onRotate')"
             @toggle-display="() => $emit('toggleDisplay')"
+            @toggle-info-panel="() => $emit('toggleInfoPanel')"
           />
         </CollapsibleCard>
       </div>

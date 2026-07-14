@@ -43,12 +43,12 @@ import {
   HOVERED_GRID_POINT_STATUS,
   useGlobeControlStore,
 } from "@/store/store.ts";
+import { useLog } from "@/ui/common/useLog.ts";
 import {
   HISTOGRAM_SUMMARY_BINS,
   buildHistogramSummary,
   type THistogramSummary,
 } from "@/utils/histogram.ts";
-import { useLog } from "@/utils/logging.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -705,7 +705,6 @@ async function fetchAndRenderData(
     missingValue,
     fillValue
   );
-
   if (cellCoord) {
     const cellIndexMap = new Map<number, number>();
     for (let index = 0; index < cellCoord.length; index++) {

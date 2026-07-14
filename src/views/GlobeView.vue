@@ -31,6 +31,7 @@ import {
 } from "@/store/usePresenterSync.ts";
 import { useUrlSync } from "@/store/useUrlSync.ts";
 import Toast from "@/ui/common/Toast.vue";
+import { useLog } from "@/ui/common/useLog.ts";
 import { isMobileDevice } from "@/ui/common/viewConstants.ts";
 import type { TCameraState } from "@/ui/grids/composables/useGridCameraState.ts";
 import GridCurvilinear from "@/ui/grids/Curvilinear.vue";
@@ -45,7 +46,6 @@ import { toggleTimeAnimation } from "@/ui/overlays/controls/useTimeAnimation.ts"
 import GlobeControls from "@/ui/overlays/Controls.vue";
 import HoverReadout from "@/ui/overlays/HoverReadout.vue";
 import InfoPanel from "@/ui/overlays/InfoPanel.vue";
-import { useLog } from "@/utils/logging.ts";
 
 const props = defineProps<{ src: string }>();
 
@@ -459,9 +459,11 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
         ref="controls"
         :model-info="modelInfo"
         :current-source="props.src"
+        :info-panel-open="infoPanelOpen"
         @on-snapshot="makeSnapshot"
         @on-rotate="toggleRotate"
         @toggle-display="toggleDisplayWindow"
+        @toggle-info-panel="toggleInfoPanel"
       />
     </div>
 
@@ -501,7 +503,6 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
         :grid-type="detectedGridType"
         :is-open="infoPanelOpen"
         @close="infoPanelOpen = false"
-        @toggle="toggleInfoPanel"
         @select-grid-type="selectGridType"
       />
       <AboutView />

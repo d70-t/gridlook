@@ -3,7 +3,7 @@ import type * as zarr from "zarrita";
 
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
-import { useLog } from "@/utils/logging.ts";
+import { useLog } from "@/ui/common/useLog.ts";
 
 type TDataVar = zarr.Array<zarr.DataType, zarr.AsyncReadable>;
 type TGlobeControlStore = ReturnType<typeof useGlobeControlStore>;
