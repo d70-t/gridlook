@@ -100,9 +100,13 @@ export function getLongitudeSpan(bounds: TGeoBounds): number {
   return span > 0 ? span : span + 360;
 }
 
+function hasGlobalLongitudeBounds(bounds: TGeoBounds) {
+  return Math.abs(getLongitudeSpan(bounds) - 360) < COORDINATE_EPSILON;
+}
+
 function isGlobalTextureBounds(bounds: TGeoBounds) {
   return (
-    Math.abs(getLongitudeSpan(bounds) - 360) < COORDINATE_EPSILON &&
+    hasGlobalLongitudeBounds(bounds) &&
     bounds.south <= -90 + COORDINATE_EPSILON &&
     bounds.north >= 90 - COORDINATE_EPSILON
   );
@@ -143,40 +147,37 @@ export function copyAntimeridianEdge(
 export function createEquirectangularPath(
   ctx: CanvasRenderingContext2D,
   width: number,
-  height: number
+  height: number,
+  bounds: TGeoBounds = GLOBAL_TEXTURE_BOUNDS
 ): d3.GeoPath {
-  const projection = d3
-    .geoEquirectangular()
-    .translate([width / 2, height / 2])
-    .scale(width / (2 * Math.PI));
-  return d3.geoPath(projection, ctx);
-}
-
-function getEquirectangularPathHeight(width: number): number {
-  return width / 2;
-}
-
-function createRegionalEquirectangularPath(
-  ctx: CanvasRenderingContext2D,
-  width: number,
-  bounds: TGeoBounds
-): { path: d3.GeoPath; pathHeight: number } {
-  const lonSpan = getLongitudeSpan(bounds);
-  const latSpan = bounds.north - bounds.south;
-  const scale = width / THREE.MathUtils.degToRad(lonSpan);
-  const pathHeight = THREE.MathUtils.degToRad(latSpan) * scale;
+  const scale = width / THREE.MathUtils.degToRad(getLongitudeSpan(bounds));
+  const wrapsLongitude = hasGlobalLongitudeBounds(bounds);
   const projection = d3
     .geoEquirectangular()
     .translate([
-      -THREE.MathUtils.degToRad(bounds.west) * scale,
+      wrapsLongitude
+        ? width / 2
+        : -THREE.MathUtils.degToRad(bounds.west) * scale,
       THREE.MathUtils.degToRad(bounds.north) * scale,
     ])
     .scale(scale)
     .clipExtent([
       [0, 0],
-      [width, pathHeight],
+      [width, height],
     ]);
-  return { path: d3.geoPath(projection, ctx), pathHeight };
+  if (wrapsLongitude) {
+    projection.rotate([-(bounds.west + 180), 0]);
+  }
+  return d3.geoPath(projection, ctx);
+}
+
+function getEquirectangularPathHeight(
+  width: number,
+  bounds: TGeoBounds
+): number {
+  const lonSpan = getLongitudeSpan(bounds);
+  const latSpan = bounds.north - bounds.south;
+  return width * (latSpan / lonSpan);
 }
 
 /**
@@ -194,16 +195,8 @@ export async function applyLandSeaCutout(
     return;
   }
   const land = await ResourceCache.loadLandGeoJSON();
-  const { path, pathHeight } = isGlobalTextureBounds(bounds)
-    ? {
-        path: createEquirectangularPath(
-          ctx,
-          width,
-          getEquirectangularPathHeight(width)
-        ),
-        pathHeight: getEquirectangularPathHeight(width),
-      }
-    : createRegionalEquirectangularPath(ctx, width, bounds);
+  const pathHeight = getEquirectangularPathHeight(width, bounds);
+  const path = createEquirectangularPath(ctx, width, pathHeight, bounds);
   ctx.save();
   ctx.scale(1, height / pathHeight);
   ctx.beginPath();
