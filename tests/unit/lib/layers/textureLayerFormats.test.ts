@@ -1,9 +1,11 @@
+import type { Polygon } from "geojson";
 import * as THREE from "three";
 import { expect, it } from "vitest";
 
 import {
   applyLayerStackPosition,
   configureEquirectangularTexture,
+  createEquirectangularPath,
   getLongitudeSpan,
   normalizeGeoTiffBounds,
   TextureLayerSampling,
@@ -12,6 +14,30 @@ import {
   isGeoTiffLayerSource,
   isSupportedTextureLayerFile,
 } from "@/lib/layers/textureLayerFormats.ts";
+
+it("aligns mask paths with partial-latitude 0 to 360 degree textures", () => {
+  const path = createEquirectangularPath(
+    {} as CanvasRenderingContext2D,
+    360,
+    120,
+    { west: 0, south: -60, east: 360, north: 60 }
+  );
+  const westernLand: Polygon = {
+    type: "Polygon",
+    coordinates: [
+      [
+        [-100, -10],
+        [-100, 10],
+        [-80, 10],
+        [-80, -10],
+        [-100, -10],
+      ],
+    ],
+  };
+
+  expect(path.centroid(westernLand)[0]).toBeCloseTo(270);
+  expect(path.centroid(westernLand)[1]).toBeCloseTo(60);
+});
 
 it("accepts image files and GeoTIFF files as texture layers", () => {
   expect(
