@@ -5,10 +5,9 @@
 
 ### Features
 
-* added texture-feature ([5b997de](https://github.com/d70-t/gridlook/commit/5b997dee2c9c0a890cd82880b1ea41bd44fcd115))
-* **lib:** geotiff support ([e3204b4](https://github.com/d70-t/gridlook/commit/e3204b4900fdd126eed83a197b20d42f84139cd6))
-* moved Dataset Info button to the title ([bd2e822](https://github.com/d70-t/gridlook/commit/bd2e822582f77b743a81d551b25ee184bd69e06b))
-* replaced turbo by viridis as default colormap ([ed7a016](https://github.com/d70-t/gridlook/commit/ed7a0167ec8fc374ffe114a95c461f15b63ffdfa))
+* added texture/layer-feature: Import your own PNGs/JPEGs and (WGS84)-Geotiffs into Gridlook ([5b997de](https://github.com/d70-t/gridlook/commit/5b997dee2c9c0a890cd82880b1ea41bd44fcd115))
+* **ui** moved Dataset Info button to the title ([bd2e822](https://github.com/d70-t/gridlook/commit/bd2e822582f77b743a81d551b25ee184bd69e06b))
+* **ui** replaced turbo by viridis as default colormap ([ed7a016](https://github.com/d70-t/gridlook/commit/ed7a0167ec8fc374ffe114a95c461f15b63ffdfa))
 * **ui:** added 15deg lat/lon grid and 10m coastlines ([4685917](https://github.com/d70-t/gridlook/commit/4685917a629f093c78f534e1d93ca9a48c98cb37))
 * **ui:** Dataset info shows groups in dropdowns now ([f966413](https://github.com/d70-t/gridlook/commit/f96641315039f2609058ef5984ca1d1f99eec752))
 
