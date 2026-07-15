@@ -1,6 +1,8 @@
 import QuickLRU from "quick-lru";
 import * as zarr from "zarrita";
 
+import "./codecs.ts";
+
 import {
   createIcechunkStore,
   isIcechunkStorePath,
