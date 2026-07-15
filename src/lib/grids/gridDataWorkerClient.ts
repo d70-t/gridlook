@@ -1,14 +1,14 @@
 import type * as zarr from "zarrita";
 
 import {
-  RegularGridDataWorkerMessageType,
-  type TRegularGridDataWorkerRequest,
-  type TRegularGridDataWorkerResponse,
-} from "./regularGridDataWorkerProtocol.ts";
+  GridDataWorkerMessageType,
+  type TGridDataWorkerRequest,
+  type TGridDataWorkerResponse,
+} from "./gridDataWorkerProtocol.ts";
 
 import type { TDataSource, TZarrFormat } from "@/lib/types/GlobeTypes.ts";
 
-type TRegularGridDataRequest = {
+export type TGridDataRequest = {
   source: Pick<TDataSource, "store" | "dataset">;
   variable: string;
   format: TZarrFormat;
@@ -31,13 +31,13 @@ function rejectPendingRequests(error: Error) {
   pendingRequests.clear();
 }
 
-function handleWorkerMessage(message: TRegularGridDataWorkerResponse) {
+function handleWorkerMessage(message: TGridDataWorkerResponse) {
   const pending = pendingRequests.get(message.requestId);
   if (!pending) {
     return;
   }
   pendingRequests.delete(message.requestId);
-  if (message.type === RegularGridDataWorkerMessageType.ERROR) {
+  if (message.type === GridDataWorkerMessageType.ERROR) {
     pending.reject(new Error(message.message));
     return;
   }
@@ -48,10 +48,10 @@ function getWorker() {
   if (worker) {
     return worker;
   }
-  worker = new Worker(new URL("./regularGridData.worker.ts", import.meta.url), {
+  worker = new Worker(new URL("./gridData.worker.ts", import.meta.url), {
     type: "module",
   });
-  worker.onmessage = (event: MessageEvent<TRegularGridDataWorkerResponse>) => {
+  worker.onmessage = (event: MessageEvent<TGridDataWorkerResponse>) => {
     handleWorkerMessage(event.data);
   };
   worker.onerror = (event) => {
@@ -62,11 +62,11 @@ function getWorker() {
   return worker;
 }
 
-export function getRegularGridVariableData(request: TRegularGridDataRequest) {
+export function getGridVariableData(request: TGridDataRequest) {
   const requestId = ++nextRequestId;
-  const message: TRegularGridDataWorkerRequest = {
+  const message: TGridDataWorkerRequest = {
     requestId,
-    type: RegularGridDataWorkerMessageType.GET_DATA,
+    type: GridDataWorkerMessageType.GET_DATA,
     source: {
       store: request.source.store,
       dataset: request.source.dataset,
@@ -86,8 +86,8 @@ export function getRegularGridVariableData(request: TRegularGridDataRequest) {
   });
 }
 
-export function terminateRegularGridDataWorker() {
+export function terminateGridDataWorker() {
   worker?.terminate();
   worker = null;
-  rejectPendingRequests(new Error("Regular grid data worker terminated."));
+  rejectPendingRequests(new Error("Grid data worker terminated."));
 }

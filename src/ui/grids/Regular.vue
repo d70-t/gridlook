@@ -35,9 +35,9 @@ import {
 } from "@/lib/data/vectorField.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
-  getRegularGridVariableData,
-  terminateRegularGridDataWorker,
-} from "@/lib/grids/regularGridDataWorkerClient.ts";
+  getGridVariableData,
+  terminateGridDataWorker,
+} from "@/lib/grids/gridDataWorkerClient.ts";
 import {
   GridTextureExportUserDataKey,
   getRegularLatLonGridBounds,
@@ -826,7 +826,7 @@ async function buildDimensionConfig(
 function fetchRegularGridVariableData(
   selection: (number | null | zarr.Slice)[]
 ) {
-  return getRegularGridVariableData({
+  return getGridVariableData({
     source: ZarrDataManager.getDatasetSource(
       props.datasources!,
       varnameSelector.value
@@ -992,7 +992,7 @@ onBeforeMount(async () => {
 });
 
 onBeforeUnmount(() => {
-  terminateRegularGridDataWorker();
+  terminateGridDataWorker();
   for (const mesh of meshes) {
     mesh.geometry.dispose();
     getScene()?.remove(mesh);
