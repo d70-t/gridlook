@@ -4,6 +4,7 @@ import type {
   TGridDataValueBatch,
   TGridGeometryBatch,
   TGridPointBatch,
+  TGridPositionBatch,
   TSerializedGeoSampleIndexData,
   TGridWorkerBatch,
 } from "./gridWorkerTypes.ts";
@@ -94,5 +95,21 @@ export function postGridDataValueBatch<TMetadata>(
       batch,
     },
     [batch.dataValues.buffer]
+  );
+}
+
+export function postGridPositionBatch<TMetadata>(
+  workerScope: DedicatedWorkerGlobalScope,
+  requestId: number,
+  batch: TGridPositionBatch
+) {
+  postGridGeometryResponse<TMetadata, TGridPositionBatch>(
+    workerScope,
+    {
+      requestId,
+      type: GridGeometryWorkerMessageType.BATCH,
+      batch,
+    },
+    [batch.positionValues.buffer, batch.latLonValues.buffer]
   );
 }

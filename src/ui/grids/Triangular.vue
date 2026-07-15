@@ -1,13 +1,10 @@
 <script lang="ts" setup>
 import { storeToRefs } from "pinia";
 import * as THREE from "three";
-import { computed, onBeforeMount, ref } from "vue";
+import { computed, onBeforeMount, onBeforeUnmount } from "vue";
 import * as zarr from "zarrita";
 
-import {
-  createGeoSampleIndex,
-  useGridHoverLookup,
-} from "./composables/gridHoverUtils.ts";
+import { useGridHoverLookup } from "./composables/gridHoverUtils.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
@@ -18,31 +15,40 @@ import {
 } from "@/lib/data/variableDecoding.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
+  getGridVariableData,
+  terminateGridDataWorker,
+} from "@/lib/grids/gridDataWorkerClient.ts";
+import type {
+  TGridDataValueBatch,
+  TGridPositionBatch,
+} from "@/lib/grids/gridWorkerTypes.ts";
+import { createSerializedGeoSampleIndex } from "@/lib/grids/serializedGeoSampleIndex.ts";
+import {
+  buildTriangularData,
+  buildTriangularGeometry,
+  terminateTriangularWorker,
+} from "@/lib/grids/triangularWorkerClient.ts";
+import {
   createWrappedProjectionMesh,
   updateProjectionMeshes,
 } from "@/lib/projection/projectionEdgeQuality.ts";
-import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import { makeInvertableGpuMeshMaterial } from "@/lib/shaders/gridShaders.ts";
 import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 import { useLog } from "@/ui/common/useLog.ts";
 
-const props = defineProps<{
-  datasources?: TSources;
-}>();
+const props = defineProps<{ datasources?: TSources }>();
 
 const store = useGlobeControlStore();
 const { logError } = useLog();
 const { dimSlidersValues, varnameSelector, colormap, invertColormap, varinfo } =
   storeToRefs(store);
-
 const urlParameterStore = useUrlParameterStore();
 const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
   storeToRefs(urlParameterStore);
 
-const hoverTriangleVertices = ref<Float32Array | null>(null);
-
+const BATCH_SIZE = 3000000;
 let meshes: THREE.Mesh[] = [];
 
 const {
@@ -70,14 +76,9 @@ const { setHoverLookupFromIndex, clearHoverLookup } =
   useGridHoverLookup(hoveredGeoPoint);
 
 onColormapChange(() => updateColormap(meshes));
-
 onProjectionChange(updateMeshProjectionUniforms);
 onMotionStateChange(updateMeshProjectionUniforms);
 
-/**
- * Update projection uniforms on all mesh materials.
- * This is the fast path - no geometry rebuild needed.
- */
 function updateMeshProjectionUniforms() {
   updateProjectionMeshes(meshes, {
     redraw,
@@ -86,17 +87,11 @@ function updateMeshProjectionUniforms() {
   });
 }
 
-const colormapMaterial = computed(() => {
-  return makeInvertableGpuMeshMaterial(colormap.value, invertColormap.value);
-});
+const colormapMaterial = computed(() =>
+  makeInvertableGpuMeshMaterial(colormap.value, invertColormap.value)
+);
 
-const gridsource = computed(() => {
-  if (props.datasources) {
-    return props.datasources.levels[0].grid;
-  } else {
-    return undefined;
-  }
-});
+const gridsource = computed(() => props.datasources?.levels[0].grid);
 
 const { datasourceUpdate } = useGridDataLoader({
   getDatasources: () => props.datasources,
@@ -119,66 +114,90 @@ function cleanupMeshes() {
   meshes.length = 0;
 }
 
-// Split triangles into batches for multiple meshes
-const BATCH_SIZE = 3000000; // number of triangles per mesh (tune as needed)
-
-function createTriangleMesh(geometry: THREE.InstancedBufferGeometry) {
+function updateGeometryBatch(batch: TGridPositionBatch) {
+  const geometry = new THREE.InstancedBufferGeometry();
+  geometry.setAttribute(
+    "position",
+    new THREE.BufferAttribute(batch.positionValues, 3)
+  );
+  geometry.setAttribute(
+    "latLon",
+    new THREE.BufferAttribute(batch.latLonValues, 2)
+  );
+  geometry.computeBoundingSphere();
   const mesh = createWrappedProjectionMesh(
     geometry,
     colormapMaterial.value,
     projectionHelper.value.type
   );
   mesh.frustumCulled = false;
-  return mesh;
+  meshes[batch.batchIndex] = mesh;
+  getScene()?.add(mesh);
+}
+
+function updateDataBatch(batch: TGridDataValueBatch) {
+  const mesh = meshes[batch.batchIndex];
+  if (!mesh) {
+    throw new Error(`Missing triangular mesh batch ${batch.batchIndex}.`);
+  }
+  const dataAttribute = mesh.geometry.getAttribute("data_value");
+  if (dataAttribute) {
+    if (dataAttribute.count !== batch.dataValues.length) {
+      throw new Error(
+        `Triangular mesh batch ${batch.batchIndex} size changed.`
+      );
+    }
+    dataAttribute.array.set(batch.dataValues);
+    dataAttribute.needsUpdate = true;
+    return;
+  }
+  mesh.geometry.setAttribute(
+    "data_value",
+    new THREE.BufferAttribute(batch.dataValues, 1)
+  );
+}
+
+function fetchGridArray(variable: string) {
+  return getGridVariableData({
+    source: gridsource.value!,
+    variable: ZarrDataManager.resolveVariablePath(
+      varnameSelector.value,
+      variable
+    ),
+    format: props.datasources!.zarr_format,
+    selection: [],
+  });
 }
 
 async function fetchGrid() {
   try {
-    const verts = await grid2buffer(gridsource.value!);
-    hoverTriangleVertices.value = verts;
+    const [vertexOfCell, vertexX, vertexY, vertexZ] = await Promise.all([
+      fetchGridArray("vertex_of_cell"),
+      fetchGridArray("cartesian_x_vertices"),
+      fetchGridArray("cartesian_y_vertices"),
+      fetchGridArray("cartesian_z_vertices"),
+    ]);
     cleanupMeshes();
-
-    const nTriangles = verts.length / 9;
-    for (let i = 0; i < nTriangles; i += BATCH_SIZE) {
-      const count = Math.min(BATCH_SIZE, nTriangles - i);
-      const geometry = new THREE.InstancedBufferGeometry();
-      // Each triangle has 9 values (3 vertices * 3 coords)
-      const batchVerts = verts.subarray(i * 9, (i + count) * 9);
-      const positionValues = new Float32Array(batchVerts.length);
-      const numVerts = positionValues.length / 3;
-      // Create latLon array for GPU projection (2 values per vertex)
-      const latLonValues = new Float32Array(numVerts * 2);
-      for (let v = 0; v < numVerts; v++) {
-        const positionOffset = v * 3;
-        const x = batchVerts[positionOffset];
-        const y = batchVerts[positionOffset + 1];
-        const z = batchVerts[positionOffset + 2];
-        const { lat, lon } = ProjectionHelper.cartesianToLatLon(x, y, z);
-        // Store lat/lon for GPU projection and compute initial positions
-        projectionHelper.value.projectLatLonToArrays(
-          lat,
-          lon,
-          positionValues,
-          positionOffset,
-          latLonValues,
-          v * 2
-        );
+    const helper = projectionHelper.value;
+    await buildTriangularGeometry(
+      {
+        vertexOfCell: vertexOfCell as Int32Array,
+        vertexX: vertexX as Float32Array | Float64Array,
+        vertexY: vertexY as Float32Array | Float64Array,
+        vertexZ: vertexZ as Float32Array | Float64Array,
+        batchSize: BATCH_SIZE,
+        projectionType: helper.type,
+        projectionCenter: { lat: helper.center.lat, lon: helper.center.lon },
+      },
+      {
+        onMetadata: () => undefined,
+        onBatch: (batch) => {
+          if ("positionValues" in batch) {
+            updateGeometryBatch(batch);
+          }
+        },
       }
-      geometry.setAttribute(
-        "position",
-        new THREE.BufferAttribute(positionValues, 3)
-      );
-      // Add latLon attribute for GPU projection
-      geometry.setAttribute(
-        "latLon",
-        new THREE.BufferAttribute(latLonValues, 2)
-      );
-      geometry.computeBoundingSphere();
-      const mesh = createTriangleMesh(geometry);
-      meshes.push(mesh);
-      getScene()?.add(mesh);
-    }
-    // Update projection uniforms on all meshes after creation
+    );
     updateMeshProjectionUniforms();
     redraw();
   } catch (error) {
@@ -186,200 +205,16 @@ async function fetchGrid() {
   }
 }
 
-function getVertexCoordinates(
-  index: number,
-  vx: zarr.Chunk<zarr.DataType>,
-  vy: zarr.Chunk<zarr.DataType>,
-  vz: zarr.Chunk<zarr.DataType>
-) {
-  return {
-    x: (vx.data as Float64Array)[index],
-    y: (vy.data as Float64Array)[index],
-    z: (vz.data as Float64Array)[index],
-  };
-}
-
-function shouldFlipTriangle(
-  v0: { x: number; y: number; z: number },
-  v1: { x: number; y: number; z: number },
-  v2: { x: number; y: number; z: number }
-) {
-  const a = new THREE.Vector3(v0.x, v0.y, v0.z);
-  const b = new THREE.Vector3(v1.x, v1.y, v1.z);
-  const c = new THREE.Vector3(v2.x, v2.y, v2.z);
-
-  const ab = new THREE.Vector3().subVectors(b, a);
-  const ac = new THREE.Vector3().subVectors(c, a);
-  const centroid = new THREE.Vector3().add(a).add(b).add(c);
-
-  return ab.cross(ac).dot(centroid) < 0;
-}
-
-function writeTriangleVertices(
-  verts: Float32Array,
-  index: number,
-  v0: { x: number; y: number; z: number },
-  v1: { x: number; y: number; z: number },
-  v2: { x: number; y: number; z: number }
-) {
-  const baseIndex = 9 * index;
-  verts[baseIndex + 0] = v0.x;
-  verts[baseIndex + 1] = v0.y;
-  verts[baseIndex + 2] = v0.z;
-  verts[baseIndex + 3] = v1.x;
-  verts[baseIndex + 4] = v1.y;
-  verts[baseIndex + 5] = v1.z;
-  verts[baseIndex + 6] = v2.x;
-  verts[baseIndex + 7] = v2.y;
-  verts[baseIndex + 8] = v2.z;
-}
-
-async function grid2buffer(grid: { store: string; dataset: string }) {
-  const [voc, vx, vy, vz] = await Promise.all([
-    ZarrDataManager.getVariableData(
-      grid,
-      ZarrDataManager.resolveVariablePath(
-        varnameSelector.value,
-        "vertex_of_cell"
-      )
-    ),
-    ZarrDataManager.getVariableData(
-      grid,
-      ZarrDataManager.resolveVariablePath(
-        varnameSelector.value,
-        "cartesian_x_vertices"
-      )
-    ),
-    ZarrDataManager.getVariableData(
-      grid,
-      ZarrDataManager.resolveVariablePath(
-        varnameSelector.value,
-        "cartesian_y_vertices"
-      )
-    ),
-    ZarrDataManager.getVariableData(
-      grid,
-      ZarrDataManager.resolveVariablePath(
-        varnameSelector.value,
-        "cartesian_z_vertices"
-      )
-    ),
-  ]);
-
-  const ncells = voc.shape[1];
-
-  const verts = new Float32Array(ncells * 3 * 3);
-
-  const vs0 = (voc.data as Int32Array).slice(ncells * 0, ncells * 1);
-  const vs1 = (voc.data as Int32Array).slice(ncells * 1, ncells * 2);
-  const vs2 = (voc.data as Int32Array).slice(ncells * 2, ncells * 3);
-
-  for (let i = 0; i < ncells; i++) {
-    const v0Idx = vs0[i] - 1;
-    const v1Idx = vs1[i] - 1;
-    const v2Idx = vs2[i] - 1;
-
-    // Cache vertex values
-    let v0 = getVertexCoordinates(v0Idx, vx, vy, vz);
-    let v1 = getVertexCoordinates(v1Idx, vx, vy, vz);
-    let v2 = getVertexCoordinates(v2Idx, vx, vy, vz);
-
-    if (shouldFlipTriangle(v0, v1, v2)) {
-      [v1, v2] = [v2, v1];
-    }
-
-    writeTriangleVertices(verts, i, v0, v1, v2);
-  }
-
-  return verts;
-}
-
-function buildTriangleHoverIndex(
-  vertices: Float32Array,
-  cellCount: number,
-  data: Float32Array
-) {
-  return createGeoSampleIndex(
-    Array.from({ length: cellCount }, (_, index) => {
-      const offset = index * 9;
-      const centroid = new THREE.Vector3(
-        vertices[offset] + vertices[offset + 3] + vertices[offset + 6],
-        vertices[offset + 1] + vertices[offset + 4] + vertices[offset + 7],
-        vertices[offset + 2] + vertices[offset + 5] + vertices[offset + 8]
-      ).normalize();
-      const { lat, lon } = ProjectionHelper.cartesianToLatLon(
-        centroid.x,
-        centroid.y,
-        centroid.z
-      );
-      return { lat, lon, value: data[index] };
-    })
-  );
-}
-
-function data2valueBuffer(
-  data: zarr.Chunk<zarr.DataType>,
-  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
-) {
-  const awaitedData = data;
-  const ncells = awaitedData.shape[0];
-  const plotdata = castDataVarToFloat32(awaitedData.data);
-
-  const { min, max, missingValue, fillValue } = decodeVariableDataAndGetBounds(
-    datavar,
-    plotdata
-  );
-  const dataValues = new Float32Array(ncells * 3);
-
-  for (let i = 0; i < ncells; i++) {
-    const v = plotdata[i];
-    const baseIndex = 3 * i;
-    dataValues[baseIndex + 0] = v;
-    dataValues[baseIndex + 1] = v;
-    dataValues[baseIndex + 2] = v;
-  }
-  return {
-    dataValues: dataValues,
-    plotData: plotdata,
-    dataMin: min,
-    dataMax: max,
-    missingValue,
-    fillValue,
-  };
-}
-
 async function getDimensionValues(
   dimensionRanges: TDimensionRange[],
   indices: (number | zarr.Slice | null)[]
 ) {
-  const dimValues = await fetchDimensionDetails(
+  return await fetchDimensionDetails(
     varnameSelector.value,
     props.datasources!,
     dimensionRanges,
     indices
   );
-  return dimValues;
-}
-
-function distributeDataToMeshes(dataBuffer: {
-  dataValues: Float32Array;
-  plotData: Float32Array;
-  dataMin: number;
-  dataMax: number;
-  missingValue: number;
-  fillValue: number;
-}) {
-  let offset = 0;
-  for (const mesh of meshes) {
-    const nVerts = mesh.geometry.getAttribute("position").count;
-    // Each triangle has 3 vertices, each vertex has a value
-    const meshData = dataBuffer.dataValues.subarray(offset, offset + nVerts);
-    mesh.geometry.setAttribute(
-      "data_value",
-      new THREE.BufferAttribute(meshData, 1)
-    );
-    offset += nVerts;
-  }
 }
 
 async function buildDimensionConfig(
@@ -401,47 +236,52 @@ async function buildDimensionConfig(
   );
 }
 
+function fetchVariableData(selection: (number | null | zarr.Slice)[]) {
+  return getGridVariableData({
+    source: ZarrDataManager.getDatasetSource(
+      props.datasources!,
+      varnameSelector.value
+    ),
+    variable: varnameSelector.value,
+    format: props.datasources!.zarr_format,
+    selection,
+  });
+}
+
 async function fetchAndRenderData(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
   const { dimensionRanges, indices } = await buildDimensionConfig(datavar);
-
-  const rawData = await ZarrDataManager.getVariableDataFromArray(
+  const variableData = await fetchVariableData(indices);
+  const plotData = castDataVarToFloat32(variableData);
+  const { min, max, missingValue, fillValue } = decodeVariableDataAndGetBounds(
     datavar,
-    indices
+    plotData
   );
-  const dataBuffer = data2valueBuffer(rawData, datavar);
-  // Distribute data values to each mesh
-  distributeDataToMeshes(dataBuffer);
-
-  // Update hover lookup
-  if (hoverTriangleVertices.value) {
-    const hoverIndex = buildTriangleHoverIndex(
-      hoverTriangleVertices.value,
-      rawData.shape[0],
-      dataBuffer.plotData
-    );
-    setHoverLookupFromIndex(
-      hoverIndex,
-      dataBuffer.fillValue,
-      dataBuffer.missingValue
-    );
-  }
+  const result = await buildTriangularData(
+    { data: plotData, batchSize: BATCH_SIZE },
+    {
+      onMetadata: () => undefined,
+      onBatch: (batch) => {
+        if (!("positionValues" in batch)) {
+          updateDataBatch(batch);
+        }
+      },
+    }
+  );
+  setHoverLookupFromIndex(
+    createSerializedGeoSampleIndex(result.hoverIndexData),
+    fillValue,
+    missingValue
+  );
 
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
-  updateHistogram(
-    dataBuffer.dataValues,
-    dataBuffer.dataMin,
-    dataBuffer.dataMax,
-    dataBuffer.missingValue,
-    dataBuffer.fillValue
-  );
-
+  updateHistogram(plotData, min, max, missingValue, fillValue);
   store.updateVarInfo(
     {
       attrs: datavar.attrs,
       dimInfo,
-      bounds: { low: dataBuffer.dataMin, high: dataBuffer.dataMax },
+      bounds: { low: min, high: max },
       dimRanges: dimensionRanges,
     },
     indices as number[]
@@ -449,30 +289,16 @@ async function fetchAndRenderData(
   redraw();
 }
 
-// Maybe for later use
-// function copyPythonExample() {
-//   const example = datashaderExample({
-//     cameraPosition: getCamera()!.position,
-//     datasrc: datasource.value!.store + datasource.value!.dataset,
-//     gridsrc: gridsource.value!.store + gridsource.value!.dataset,
-//     varname: varnameSelector.value,
-//     timeIndex: timeIndexSlider.value as number,
-//     varbounds: bounds.value,
-//     colormap: colormap.value,
-//     invertColormap: invertColormap.value,
-//   });
-//   navigator.clipboard.writeText(example);
-// }
-
 onBeforeMount(async () => {
   await datasourceUpdate();
 });
 
-defineExpose({
-  makeSnapshot,
-  toggleRotate,
-  applyCameraPreset,
+onBeforeUnmount(() => {
+  terminateTriangularWorker();
+  terminateGridDataWorker();
 });
+
+defineExpose({ makeSnapshot, toggleRotate, applyCameraPreset });
 </script>
 
 <template>

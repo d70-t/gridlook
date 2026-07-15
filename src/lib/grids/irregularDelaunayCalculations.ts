@@ -1,6 +1,9 @@
 import { Delaunay } from "d3-delaunay";
 
-import { buildSerializedGeoSampleIndexData } from "./gridWorkerCalculations.ts";
+import {
+  buildSerializedGeoSampleIndexData,
+  shouldFlipCartesianTriangle,
+} from "./gridWorkerCalculations.ts";
 import type {
   TGridDataValueBatch,
   TGridPointBatch,
@@ -156,19 +159,17 @@ function shouldFlipTriangle(
   const x0 = positions[offset0];
   const y0 = positions[offset0 + 1];
   const z0 = positions[offset0 + 2];
-  const edgeAx = positions[offset1] - x0;
-  const edgeAy = positions[offset1 + 1] - y0;
-  const edgeAz = positions[offset1 + 2] - z0;
-  const edgeBx = positions[offset2] - x0;
-  const edgeBy = positions[offset2 + 1] - y0;
-  const edgeBz = positions[offset2 + 2] - z0;
-  const normalX = edgeAy * edgeBz - edgeAz * edgeBy;
-  const normalY = edgeAz * edgeBx - edgeAx * edgeBz;
-  const normalZ = edgeAx * edgeBy - edgeAy * edgeBx;
-  const centerX = (x0 + positions[offset1] + positions[offset2]) / 3;
-  const centerY = (y0 + positions[offset1 + 1] + positions[offset2 + 1]) / 3;
-  const centerZ = (z0 + positions[offset1 + 2] + positions[offset2 + 2]) / 3;
-  return normalX * centerX + normalY * centerY + normalZ * centerZ < 0;
+  return shouldFlipCartesianTriangle(
+    x0,
+    y0,
+    z0,
+    positions[offset1],
+    positions[offset1 + 1],
+    positions[offset1 + 2],
+    positions[offset2],
+    positions[offset2 + 1],
+    positions[offset2 + 2]
+  );
 }
 
 export function buildIrregularDelaunayGrid(
