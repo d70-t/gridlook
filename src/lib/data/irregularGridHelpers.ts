@@ -46,9 +46,22 @@ export function reconcileCoordinates(
 ): { latitudes: Float32Array; longitudes: Float32Array } {
   const latitudes = latitudesVar.data as Float32Array;
   const longitudes = longitudesVar.data as Float32Array;
-  const latShape = latitudesVar.shape;
-  const lonShape = longitudesVar.shape;
+  return reconcileCoordinateArrays(
+    latitudes,
+    longitudes,
+    latitudesVar.shape,
+    longitudesVar.shape,
+    dataLength
+  );
+}
 
+export function reconcileCoordinateArrays(
+  latitudes: Float32Array,
+  longitudes: Float32Array,
+  latitudeShape: number[],
+  longitudeShape: number[],
+  dataLength: number
+): { latitudes: Float32Array; longitudes: Float32Array } {
   // Case 1: All arrays already have same length (typical irregular grid)
   if (latitudes.length === dataLength && longitudes.length === dataLength) {
     return { latitudes, longitudes };
@@ -56,9 +69,9 @@ export function reconcileCoordinates(
 
   // Case 2: 2D coordinate arrays - just ensure they're flattened and match data
   // (zarr.Chunk.data should already be flattened)
-  if (latShape.length === 2 && lonShape.length === 2) {
-    const latTotal = latShape[0] * latShape[1];
-    const lonTotal = lonShape[0] * lonShape[1];
+  if (latitudeShape.length === 2 && longitudeShape.length === 2) {
+    const latTotal = latitudeShape[0] * latitudeShape[1];
+    const lonTotal = longitudeShape[0] * longitudeShape[1];
     if (latTotal === dataLength && lonTotal === dataLength) {
       // Already flattened by zarr, should match
       return { latitudes, longitudes };
@@ -66,7 +79,7 @@ export function reconcileCoordinates(
   }
 
   // Case 3: 1D separate coordinates - expand via meshgrid
-  if (latShape.length === 1 && lonShape.length === 1) {
+  if (latitudeShape.length === 1 && longitudeShape.length === 1) {
     const product = latitudes.length * longitudes.length;
     if (product === dataLength) {
       return expandCoordinatesToMeshgrid(latitudes, longitudes, dataLength);
