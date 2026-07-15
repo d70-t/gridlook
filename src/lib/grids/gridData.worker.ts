@@ -2,16 +2,14 @@
 
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
-  RegularGridDataWorkerMessageType,
-  type TRegularGridDataWorkerRequest,
-  type TRegularGridDataWorkerResponse,
-} from "@/lib/grids/regularGridDataWorkerProtocol.ts";
+  GridDataWorkerMessageType,
+  type TGridDataWorkerRequest,
+  type TGridDataWorkerResponse,
+} from "@/lib/grids/gridDataWorkerProtocol.ts";
 
 const workerScope = self as unknown as DedicatedWorkerGlobalScope;
 
-workerScope.onmessage = async (
-  event: MessageEvent<TRegularGridDataWorkerRequest>
-) => {
+workerScope.onmessage = async (event: MessageEvent<TGridDataWorkerRequest>) => {
   const { requestId, source, variable, format, selection } = event.data;
   try {
     const array = await ZarrDataManager.getVariableInfo(
@@ -23,9 +21,9 @@ workerScope.onmessage = async (
       array,
       selection
     );
-    const response: TRegularGridDataWorkerResponse = {
+    const response: TGridDataWorkerResponse = {
       requestId,
-      type: RegularGridDataWorkerMessageType.RESULT,
+      type: GridDataWorkerMessageType.RESULT,
       data: chunk.data,
     };
     const transfer =
@@ -34,9 +32,9 @@ workerScope.onmessage = async (
         : [];
     workerScope.postMessage(response, transfer);
   } catch (error) {
-    const response: TRegularGridDataWorkerResponse = {
+    const response: TGridDataWorkerResponse = {
       requestId,
-      type: RegularGridDataWorkerMessageType.ERROR,
+      type: GridDataWorkerMessageType.ERROR,
       message: error instanceof Error ? error.message : String(error),
     };
     workerScope.postMessage(response);
