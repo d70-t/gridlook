@@ -8,6 +8,8 @@ export type TGridGeometryBatch = {
 
 export type TGridPointBatch = Omit<TGridGeometryBatch, "indices">;
 
+export type TGridPositionBatch = Omit<TGridPointBatch, "dataValues">;
+
 export type TGridDataValueBatch = {
   batchIndex: number;
   dataValues: Float32Array;
@@ -16,6 +18,7 @@ export type TGridDataValueBatch = {
 export type TGridWorkerBatch =
   | TGridGeometryBatch
   | TGridPointBatch
+  | TGridPositionBatch
   | TGridDataValueBatch;
 
 export type TSerializedGeoSampleIndexData = {
