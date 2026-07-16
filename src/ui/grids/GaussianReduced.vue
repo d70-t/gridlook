@@ -51,12 +51,6 @@ const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
 
 let meshes: THREE.Mesh[] = [];
 
-function logTiming(label: string, startedAt: number) {
-  console.log(
-    `[GaussianReduced] ${label}: ${(performance.now() - startedAt).toFixed(1)} ms`
-  );
-}
-
 const {
   getScene,
   redraw,
@@ -88,13 +82,11 @@ onProjectionChange(updateMeshProjectionUniforms);
 onMotionStateChange(updateMeshProjectionUniforms);
 
 function updateMeshProjectionUniforms() {
-  const startedAt = performance.now();
   updateProjectionMeshes(meshes, {
     redraw,
     projectionHelper: projectionHelper.value,
     isSceneInMotion: isSceneInMotion.value,
   });
-  logTiming("update projection meshes", startedAt);
 }
 
 const colormapMaterial = computed(() => {
@@ -128,7 +120,6 @@ function updateOrCreateMesh(
   batchIndex: number,
   geometry: THREE.InstancedBufferGeometry
 ) {
-  const startedAt = performance.now();
   setupProjectionGeometryWrap(geometry);
   if (meshes[batchIndex]) {
     meshes[batchIndex].geometry.dispose();
@@ -143,7 +134,6 @@ function updateOrCreateMesh(
     meshes.push(mesh);
     getScene()?.add(mesh);
   }
-  logTiming(`update/create mesh batch ${batchIndex}`, startedAt);
 }
 
 function cleanupMeshes(totalBatches: number) {
@@ -151,13 +141,11 @@ function cleanupMeshes(totalBatches: number) {
     return; // No cleanup needed
   }
 
-  const startedAt = performance.now();
   for (const mesh of meshes) {
     mesh.geometry.dispose(); // Free GPU memory
     getScene()?.remove(mesh); // Remove from Three.js scene
   }
   meshes.length = 0; // Clear our mesh array
-  logTiming("clean up meshes", startedAt);
 }
 
 function createBatchGeometry(
@@ -166,7 +154,6 @@ function createBatchGeometry(
   latLonValues: Float32Array,
   indices: Uint32Array
 ) {
-  const startedAt = performance.now();
   const geometry = new THREE.InstancedBufferGeometry();
 
   geometry.setAttribute(
@@ -178,7 +165,6 @@ function createBatchGeometry(
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   geometry.computeBoundingSphere();
 
-  logTiming("create Three.js batch geometry", startedAt);
   return geometry;
 }
 
@@ -268,48 +254,34 @@ function fetchGaussianReducedVariableData(
   });
 }
 
-/* eslint-disable-next-line max-lines-per-function */
 async function fetchAndRenderData(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
-  const startedAt = performance.now();
-  let blockStartedAt = performance.now();
   const { dimensionRanges, indices, dimensionNames } =
     await buildDimensionConfig(datavar);
-  logTiming("build dimension configuration", blockStartedAt);
 
-  blockStartedAt = performance.now();
   const variableData = await fetchGaussianReducedVariableData(indices);
-  logTiming("fetch variable data", blockStartedAt);
 
-  blockStartedAt = performance.now();
   const rawData = castDataVarToFloat32(variableData);
-  logTiming("cast variable data to Float32", blockStartedAt);
 
-  blockStartedAt = performance.now();
   const { latitudes, longitudes } = await getLatLonData(
     varnameSelector.value,
     datavar,
     props.datasources
   );
-  logTiming("fetch latitude/longitude data", blockStartedAt);
   const latitudesData = latitudes.data as Float64Array;
   const longitudesData = longitudes!.data as Float64Array;
 
-  blockStartedAt = performance.now();
   const { min, max, missingValue, fillValue } = decodeVariableDataAndGetBounds(
     datavar,
     rawData
   );
-  logTiming("decode data and calculate bounds", blockStartedAt);
 
-  blockStartedAt = performance.now();
   const hoverIndexData = await buildGaussianReducedGeometry(
     latitudesData,
     longitudesData,
     rawData
   );
-  logTiming("build geometry and hover index in worker", blockStartedAt);
 
   await streamlines.setContext({
     latitudes: Float32Array.from(latitudesData),
@@ -320,26 +292,19 @@ async function fetchAndRenderData(
   });
 
   // Update hover lookup
-  blockStartedAt = performance.now();
   setHoverLookupFromIndex(
     createSerializedGeoSampleIndex(hoverIndexData),
     fillValue,
     missingValue
   );
-  logTiming("install hover lookup", blockStartedAt);
 
   // Set projection uniforms on all meshes after grid creation
   updateMeshProjectionUniforms();
 
-  blockStartedAt = performance.now();
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
-  logTiming("fetch dimension values", blockStartedAt);
 
-  blockStartedAt = performance.now();
   updateHistogram(rawData, min, max, missingValue, fillValue);
-  logTiming("calculate histogram", blockStartedAt);
 
-  blockStartedAt = performance.now();
   store.updateVarInfo(
     {
       attrs: datavar.attrs,
@@ -349,12 +314,8 @@ async function fetchAndRenderData(
     },
     indices as number[]
   );
-  logTiming("update variable information", blockStartedAt);
 
-  blockStartedAt = performance.now();
   redraw();
-  logTiming("redraw", blockStartedAt);
-  logTiming("fetch and render total", startedAt);
 }
 
 onBeforeMount(async () => {
