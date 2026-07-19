@@ -1,5 +1,4 @@
 <script lang="ts" setup>
-import * as healpix from "@hscmap/healpix";
 import * as healpixGeo from "healpix-geo";
 import { storeToRefs } from "pinia";
 import * as THREE from "three";
@@ -56,17 +55,42 @@ const props = defineProps<{
   datasources?: TSources;
 }>();
 
+type TIndexingScheme = "nested" | "ring" | "zuniq";
 class GridParameters {
   nside: number;
-  indexingScheme: string;
+  indexingScheme: TIndexingScheme;
   ellipsoid: TEllipsoid;
 
-  constructor(nside: number, indexingScheme: string, ellipsoid: TEllipsoid) {
+  constructor(
+    nside: number,
+    indexingScheme: TIndexingScheme,
+    ellipsoid: TEllipsoid
+  ) {
     this.nside = nside;
     this.indexingScheme = indexingScheme;
     this.ellipsoid = ellipsoid;
   }
 }
+type TSchemeNamespace = {
+  lonLatToHealpix: (
+    lon: number,
+    lat: number,
+    level: number,
+    ellipsoid: healpixGeo.EllipsoidLike
+  ) => bigint;
+  healpixToLonLat: (
+    ipix: bigint,
+    level: number,
+    ellipsoid: healpixGeo.EllipsoidLike
+  ) => healpixGeo.Coordinate;
+  vertex: (
+    ipix: bigint,
+    level: number,
+    u: number,
+    v: number,
+    ellipsoid: healpixGeo.EllipsoidLike
+  ) => healpixGeo.Coordinate;
+};
 
 // By convention, HEALPIX uses -1.6375e+30 to mark invalid or unseen pixels.
 const HEALPIX_UNSEEN = -1.6375e30;
@@ -119,7 +143,7 @@ const { setHoverLookup, clearHoverLookup } =
   useGridHoverLookup(hoveredGeoPoint);
 
 const hoverData = ref<Float32Array | null>(null);
-const hoverCellIndexMap = ref<Map<number, number> | null>(null);
+const hoverCellIndexMap = ref<Map<bigint, number> | null>(null);
 const hoverNside = ref<number | null>(null);
 const hoverIndexingScheme = ref<string | null>(null);
 const healpixGrid = ref<GridParameters | null>(null);
@@ -158,6 +182,9 @@ const { datasourceUpdate } = useGridDataLoader({
 
 function fetchGrid() {
   const gridParams = unpackGridParameters();
+  if (gridParams === null) {
+    throw new Error("failed to fetch grid parameters");
+  }
 
   const gridStep = 64 + 1;
   try {
@@ -167,6 +194,7 @@ function fetchGrid() {
         BigInt(ipix),
         gridStep,
         projectionHelper.value,
+        gridParams.indexingScheme,
         gridParams?.ellipsoid ?? null
       );
       const mesh = mainMeshes[ipix];
@@ -195,7 +223,7 @@ async function getGridParameters(): Promise<GridParameters> {
     if ("grid_mapping_name" in crs.attrs) {
       const params = {
         nside: crs.attrs["healpix_nside"] as number,
-        indexingScheme: "nested",
+        indexingScheme: "nested" as TIndexingScheme,
         ellipsoid: null,
       };
       console.log("crs info:", params);
@@ -222,7 +250,7 @@ async function getGridParameters(): Promise<GridParameters> {
   console.log("found dggs convention:", metadata);
   return {
     nside: 2 ** level,
-    indexingScheme: metadata["indexing_scheme"] as string,
+    indexingScheme: metadata["indexing_scheme"] as TIndexingScheme,
     ellipsoid: metadata["ellipsoid"] ?? null,
   };
 }
@@ -502,6 +530,7 @@ function makeHealpixGeometry(
   ipix: bigint,
   steps: number,
   helper: ProjectionHelper,
+  scheme: TIndexingScheme,
   ellipsoid: TEllipsoid
 ) {
   const vertexCount = steps * steps;
@@ -518,7 +547,7 @@ function makeHealpixGeometry(
     const u = i / (steps - 1);
     for (let j = 0; j < steps; ++j) {
       const v = j / (steps - 1);
-      const { lon, lat } = healpixGeo["nested"].vertex(
+      const { lon, lat } = (healpixGeo[scheme] as TSchemeNamespace).vertex(
         BigInt(ipix),
         level,
         u,
@@ -692,18 +721,26 @@ function healpixHoverLookup(
   lat: number,
   lon: number
 ): TGridHoverLookupResult | null {
-  if (!hoverData.value || hoverNside.value === null) {
+  const grid = unpackGridParameters();
+  if (!hoverData.value || grid === null) {
     return null;
   }
-  const theta = THREE.MathUtils.degToRad(90 - lat);
+
+  const level: number = Math.log2(grid.nside);
+  const scheme = grid.indexingScheme;
+  const ellipsoid = grid.ellipsoid ?? null;
+
   const normalizedLon = ProjectionHelper.normalizeLongitude(lon);
-  const phi = THREE.MathUtils.degToRad(
-    normalizedLon < 0 ? normalizedLon + 360 : normalizedLon
+  const pixelIndex = (healpixGeo[scheme] as TSchemeNamespace).lonLatToHealpix(
+    normalizedLon,
+    lat,
+    level,
+    healpixGeo.parseEllipsoid(ellipsoid)
   );
-  const pixelIndex = healpix.ang2pix_nest(hoverNside.value, theta, phi);
+
   const dataIndex = hoverCellIndexMap.value
     ? hoverCellIndexMap.value.get(pixelIndex)
-    : pixelIndex;
+    : Number(pixelIndex);
   if (
     dataIndex === undefined ||
     dataIndex < 0 ||
@@ -717,13 +754,16 @@ function healpixHoverLookup(
     };
   }
   const value = hoverData.value[dataIndex];
-  const pixelAngles = healpix.pix2ang_nest(hoverNside.value, pixelIndex);
+  const pixelAngles = (healpixGeo[scheme] as TSchemeNamespace).healpixToLonLat(
+    BigInt(pixelIndex),
+    level,
+    healpixGeo.parseEllipsoid(ellipsoid)
+  );
+
   const isMissing = !Number.isFinite(value) || value === HEALPIX_UNSEEN;
   return {
-    lat: 90 - THREE.MathUtils.radToDeg(pixelAngles.theta),
-    lon: ProjectionHelper.normalizeLongitude(
-      THREE.MathUtils.radToDeg(pixelAngles.phi)
-    ),
+    lat: pixelAngles.lat,
+    lon: ProjectionHelper.normalizeLongitude(pixelAngles.lon),
     value: isMissing ? null : value,
     status: isMissing
       ? HOVERED_GRID_POINT_STATUS.MISSING
@@ -771,9 +811,9 @@ async function fetchAndRenderData(
     fillValue
   );
   if (cellCoord) {
-    const cellIndexMap = new Map<number, number>();
+    const cellIndexMap = new Map<bigint, number>();
     for (let index = 0; index < cellCoord.length; index++) {
-      cellIndexMap.set(cellCoord[index], index);
+      cellIndexMap.set(BigInt(cellCoord[index]), index);
     }
     hoverCellIndexMap.value = cellIndexMap;
   } else {
@@ -842,6 +882,7 @@ onBeforeMount(async () => {
       BigInt(ipix),
       gridStep,
       projectionHelper.value,
+      grid.indexingScheme,
       grid.ellipsoid
     );
     const mesh = createWrappedProjectionMesh(

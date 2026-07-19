@@ -30,7 +30,6 @@
   "dependencies": {
     "@eeholmes/zarrita-pcodec": "github:eeholmes/zarrita-pcodec",
     "@fortawesome/fontawesome-free": "^7.2.0",
-    "@hscmap/healpix": "^1.4.12",
     "@primevue/themes": "^4.5.4",
     "@vuepic/vue-datepicker": "14.0.0",
     "@vueuse/core": "^14.3.0",
