@@ -43,11 +43,26 @@ export type TVarInfo = {
   attrs: zarr.Attributes;
 };
 
+export type TEllipsoid =
+  | {
+      radius: number;
+    }
+  | {
+      semi_major_axis: number;
+      inverse_flatting: number;
+    }
+  | {
+      semi_major_axis: number;
+      semi_minor_axis: number;
+    }
+  | null;
+
 export type TZarrDggsMetadata = {
   name: string;
   refinement_level: number;
   coordinate: string | null;
   indexing_scheme: string;
+  ellipsoid: TEllipsoid;
 };
 
 export type TDataSource = {

@@ -3,7 +3,7 @@ import * as healpix from "@hscmap/healpix";
 import * as healpixGeo from "healpix-geo";
 import { storeToRefs } from "pinia";
 import * as THREE from "three";
-import { onBeforeMount, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { onBeforeMount, onBeforeUnmount, ref, watch } from "vue";
 import * as zarr from "zarrita";
 
 import {
@@ -38,6 +38,7 @@ import type {
   TDimensionRange,
   TSources,
   TZarrDggsMetadata,
+  TEllipsoid,
 } from "@/lib/types/GlobeTypes.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import {
@@ -58,9 +59,9 @@ const props = defineProps<{
 class GridParameters {
   nside: number;
   indexingScheme: string;
-  ellipsoid: Ellipsoid;
+  ellipsoid: TEllipsoid;
 
-  constructor(nside: number, indexingScheme: string, ellipsoid: Ellipsoid) {
+  constructor(nside: number, indexingScheme: string, ellipsoid: TEllipsoid) {
     this.nside = nside;
     this.indexingScheme = indexingScheme;
     this.ellipsoid = ellipsoid;
@@ -121,7 +122,6 @@ const hoverData = ref<Float32Array | null>(null);
 const hoverCellIndexMap = ref<Map<number, number> | null>(null);
 const hoverNside = ref<number | null>(null);
 const hoverIndexingScheme = ref<string | null>(null);
-const hoverEllipsoid = ref<string | null>(null);
 const healpixGrid = ref<GridParameters | null>(null);
 const gridPrepared = ref<boolean>(false);
 
@@ -157,17 +157,17 @@ const { datasourceUpdate } = useGridDataLoader({
 });
 
 function fetchGrid() {
-  const gridParams = unpackGridParameters(healpixGrid.value);
+  const gridParams = unpackGridParameters();
 
   const gridStep = 64 + 1;
   try {
     for (let ipix = 0; ipix < HEALPIX_NUMCHUNKS; ipix++) {
       const { geometry } = makeHealpixGeometry(
         1,
-        ipix,
+        BigInt(ipix),
         gridStep,
         projectionHelper.value,
-        gridParams.ellipsoid
+        gridParams?.ellipsoid ?? null
       );
       const mesh = mainMeshes[ipix];
       if (!mesh) {
@@ -194,8 +194,8 @@ async function getGridParameters(): Promise<GridParameters> {
 
     if ("grid_mapping_name" in crs.attrs) {
       const params = {
-        nside: crs.attrs["healpix_nside"],
-        indexing_scheme: "nested",
+        nside: crs.attrs["healpix_nside"] as number,
+        indexingScheme: "nested",
         ellipsoid: null,
       };
       console.log("crs info:", params);
@@ -212,16 +212,17 @@ async function getGridParameters(): Promise<GridParameters> {
     varnameSelector.value
   );
   if (!("dggs" in group.attrs)) {
-    throw Error("no grid metadata found");
+    throw new Error("no grid metadata found");
   }
   const metadata = (group.attrs?.dggs as TZarrDggsMetadata) ?? {};
   if (!metadata) {
     throw new Error("grid metadata found but is empty");
   }
+  const level = metadata["refinement_level"] as number;
   console.log("found dggs convention:", metadata);
   return {
-    nside: 2 ** metadata["refinement_level"],
-    indexing_scheme: metadata["indexing_scheme"] as string,
+    nside: 2 ** level,
+    indexingScheme: metadata["indexing_scheme"] as string,
     ellipsoid: metadata["ellipsoid"] ?? null,
   };
 }
@@ -498,10 +499,10 @@ function generateHealpixIndices(positionValues: Float32Array, steps: number) {
 
 function makeHealpixGeometry(
   nside: number,
-  ipix: number,
+  ipix: bigint,
   steps: number,
   helper: ProjectionHelper,
-  ellipsoid: Ellipsoid
+  ellipsoid: TEllipsoid
 ) {
   const vertexCount = steps * steps;
   const positionValues = new Float32Array(vertexCount * 3);
@@ -550,17 +551,17 @@ function makeHealpixGeometry(
 
 function getUnshuffleIndex(
   size: number,
-  unshuffleIndex: { [key: number]: BigUint64 }
+  unshuffleIndex: { [key: number]: Float32Array }
 ): Float32Array {
   if (unshuffleIndex[size] === undefined) {
     const len = size * size;
-    const temp = new BigUint64Array(len);
+    const temp = new Float32Array(len);
     let idx = 0;
 
     let level = Math.log2(size);
     for (let i = 0; i < size; ++i) {
       for (let j = 0; j < size; ++j) {
-        temp[idx++] = healpixGeo["nested"].bitCombine(level, j, i);
+        temp[idx++] = Number(healpixGeo["nested"].bitCombine(level, j, i));
       }
     }
     unshuffleIndex[size] = temp;
@@ -570,7 +571,7 @@ function getUnshuffleIndex(
 
 function unshuffleMortonArray(
   arr: Float32Array,
-  unshuffleIndex: { [key: number]: BigUint64Array }
+  unshuffleIndex: { [key: number]: Float32Array }
 ): Float32Array {
   const out = arr.slice(); // makes a copy
   const size = Math.floor(Math.sqrt(arr.length));
@@ -583,7 +584,7 @@ function unshuffleMortonArray(
 
 function data2texture(
   arr: Float32Array,
-  unshuffleIndex: { [key: number]: BigUint64Array }
+  unshuffleIndex: { [key: number]: Float32Array }
 ) {
   const size = Math.floor(Math.sqrt(arr.length));
   arr = castDataVarToFloat32(arr);
@@ -730,7 +731,8 @@ function healpixHoverLookup(
   };
 }
 
-function unpackGridParameters(obj: Proxy | null): GridParameters | null {
+function unpackGridParameters(): GridParameters | null {
+  const obj = healpixGrid.value;
   if (obj === null) {
     return null;
   }
@@ -751,7 +753,10 @@ async function fetchAndRenderData(
   const { dimensionRanges, indices } = await prepareDimensionData(datavar);
 
   const cellCoord = await getCells();
-  const gridParams = unpackGridParameters(healpixGrid.value);
+  const gridParams = unpackGridParameters();
+  if (gridParams === null) {
+    throw new Error("no grid parameters available");
+  }
 
   hoverNside.value = gridParams.nside;
   hoverIndexingScheme.value = gridParams.indexingScheme;
