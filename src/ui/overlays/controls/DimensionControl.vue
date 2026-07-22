@@ -10,7 +10,8 @@ import { decodeTime, isTimeUnits } from "@/lib/data/timeHandling.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 
 const store = useGlobeControlStore();
-const { varinfo, dimSlidersValues } = storeToRefs(store);
+const { varinfo, dimSlidersValues, live, livePaused, liveConnected } =
+  storeToRefs(store);
 
 const { isPlaying, canAnimate, toggle, cycleSpeed, speedLabel } =
   useTimeAnimation();
@@ -108,6 +109,12 @@ function formatCurrentValue(index: number) {
 function capitalize(str: string): string {
   return String(str[0]).toUpperCase() + String(str).slice(1);
 }
+
+// While live-following, the time dimension is driven by polling and must not be
+// scrubbed manually (only the current timestep is available).
+function isLiveTime(index: number): boolean {
+  return live.value && isTimeDimension(index);
+}
 </script>
 
 <template>
@@ -133,7 +140,7 @@ function capitalize(str: string): string {
           <div class="is-flex is-align-items-center" style="gap: 0.5rem">
             {{ capitalize(range.name) }}:
             <DatetimePicker
-              v-if="isTimeDimension(index)"
+              v-if="isTimeDimension(index) && !isLiveTime(index)"
               :time-values="varinfo.dimInfo[index]?.values ?? []"
               :time-attrs="varinfo.dimInfo[index]?.attrs ?? {}"
               :current-index="localSliders[index] ?? 0"
@@ -149,6 +156,7 @@ function capitalize(str: string): string {
               type="number"
               :min="range.minBound"
               :max="range.maxBound"
+              :disabled="isLiveTime(index)"
               style="width: 8em"
             />
             <div class="my-2 ml-2">/ {{ range.maxBound }}</div>
@@ -161,10 +169,40 @@ function capitalize(str: string): string {
           type="range"
           :min="range.minBound"
           :max="range.maxBound"
+          :disabled="isLiveTime(index)"
         />
 
+        <!-- Live-follow controls (replace playback controls for live datasets) -->
         <div
-          v-if="isTimeDimension(index) && canAnimate"
+          v-if="isLiveTime(index)"
+          class="is-flex is-align-items-center mt-2"
+          style="gap: 0.5rem"
+        >
+          <span class="tag is-danger">
+            <span class="icon is-small">
+              <i class="fas fa-circle"></i>
+            </span>
+            <span>LIVE</span>
+          </span>
+          <button
+            class="button is-small"
+            :class="{ 'is-info': livePaused }"
+            type="button"
+            :title="livePaused ? 'Resume live updates' : 'Pause live updates'"
+            @click="store.toggleLivePaused()"
+          >
+            <span class="icon">
+              <i :class="livePaused ? 'fas fa-play' : 'fas fa-pause'"></i>
+            </span>
+          </button>
+          <span v-if="livePaused" class="is-size-7 has-text-grey">Paused</span>
+          <span v-else-if="!liveConnected" class="is-size-7 has-text-grey">
+            Reconnecting…
+          </span>
+        </div>
+
+        <div
+          v-if="isTimeDimension(index) && canAnimate && !isLiveTime(index)"
           class="is-flex is-align-items-center mt-2"
           style="gap: 0.5rem"
         >

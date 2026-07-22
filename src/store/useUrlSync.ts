@@ -177,6 +177,11 @@ export function useUrlSync() {
         if (dimension[i] === null) {
           continue;
         }
+        // In live mode the time index is driven by polling and re-seeded from
+        // the server on load, so keep it out of the shareable URL.
+        if (store.live && dimension[i]?.name === "time") {
+          continue;
+        }
         const val = store.dimSlidersDisplay[i];
         if (val !== null) {
           dimensionValues[`dimIndices_${dimension[i]?.name}` as string] = val;

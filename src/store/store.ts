@@ -169,6 +169,13 @@ export const useGlobeControlStore = defineStore("globeControl", {
       hoveredGridPoint: undefined as THoveredGridPoint | undefined,
       catalogUrl: undefined as string | undefined,
       catalogData: undefined as TCatalog | undefined,
+      // ── Live datasets ──────────────────────────────────────────────
+      // A live dataset exposes only the currently-available timestep and is
+      // followed automatically by polling the store's timestep endpoints.
+      live: false, // whether the current dataset is a live dataset
+      livePaused: false, // user paused auto-following the newest timestep
+      liveConnected: false, // whether the long-poll is currently connected
+      liveTimestep: undefined as number | undefined, // latest known live index
       // layer panel stack, ordered top → bottom; order determines render order
       layerStack: builtinLayerStack() as TLayerEntry[],
       // incremented to request a GeoTIFF image-layer export of the current grid
@@ -213,6 +220,23 @@ export const useGlobeControlStore = defineStore("globeControl", {
     },
     toggleRotating() {
       this.isRotating = !this.isRotating;
+    },
+    setLive(live: boolean) {
+      this.live = live;
+      if (!live) {
+        this.livePaused = false;
+        this.liveConnected = false;
+        this.liveTimestep = undefined;
+      }
+    },
+    toggleLivePaused() {
+      this.livePaused = !this.livePaused;
+    },
+    setLiveConnected(connected: boolean) {
+      this.liveConnected = connected;
+    },
+    setLiveTimestep(timestep: number) {
+      this.liveTimestep = timestep;
     },
     toggleHoverEnabled() {
       this.hoverEnabled = !this.hoverEnabled;
