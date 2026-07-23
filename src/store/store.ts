@@ -351,6 +351,14 @@ export const useGlobeControlStore = defineStore("globeControl", {
         )?.visible
       );
     },
+    setStreamlineLayerEnabled(enabled: boolean) {
+      const layer = this.layerStack.find(
+        (entry) => entry.id === BUILTIN_LAYER_IDS.STREAMLINES
+      );
+      if (layer) {
+        layer.visible = enabled;
+      }
+    },
     // moves the entry so it ends up at index `toIndex` of the resulting array
     moveLayer(id: string, toIndex: number) {
       const fromIndex = this.layerStack.findIndex((entry) => entry.id === id);

@@ -91,8 +91,14 @@ if (urlParams.get("mode") === PresenterRole.DISPLAY) {
 const { varnameSelector, loading, colormap, invertColormap } =
   storeToRefs(store);
 
-const { paramVarname, paramGridType, paramDistractionFree } =
-  storeToRefs(urlParameterStore);
+const {
+  paramVarname,
+  paramGridType,
+  paramDistractionFree,
+  paramStreamlines,
+  paramStreamlineU,
+  paramStreamlineV,
+} = storeToRefs(urlParameterStore);
 
 type TGlobeHandle = {
   makeSnapshot: (options: TSnapshotOptions) => void;
@@ -283,6 +289,19 @@ async function initControlsFromSource() {
   controls.value?.initForDataset();
 }
 
+function initStreamlinesFromParams() {
+  store.setStreamlineLayerEnabled(paramStreamlines.value === "true");
+  if (paramStreamlineU.value || paramStreamlineV.value) {
+    store.setStreamlineSelection({
+      automatic: false,
+      u: paramStreamlineU.value || undefined,
+      v: paramStreamlineV.value || undefined,
+    });
+  } else {
+    store.resetStreamlineSelection();
+  }
+}
+
 async function loadCurrentSource(resetStore = true) {
   const updateId = ++sourceUpdateId;
   resetForSourceChange(resetStore);
@@ -290,6 +309,7 @@ async function loadCurrentSource(resetStore = true) {
   if (updateId !== sourceUpdateId) {
     return;
   }
+  initStreamlinesFromParams();
   await initControlsFromSource();
   isInitialized.value = true;
   await setGridType(true);

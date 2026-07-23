@@ -132,6 +132,34 @@ export function useUrlSync() {
     );
   }
 
+  watch(
+    () => store.isStreamlineLayerEnabled(),
+    (enabled) => {
+      changeURLHash({
+        [URL_PARAMETERS.STREAMLINES]: enabled ? "true" : "",
+      });
+    }
+  );
+
+  watch(
+    () => [
+      store.streamlineSelection.automatic,
+      store.streamlineSelection.u,
+      store.streamlineSelection.v,
+    ],
+    () => {
+      const selection = store.streamlineSelection;
+      changeURLHash({
+        [URL_PARAMETERS.STREAMLINE_U]: selection.automatic
+          ? ""
+          : (selection.u ?? ""),
+        [URL_PARAMETERS.STREAMLINE_V]: selection.automatic
+          ? ""
+          : (selection.v ?? ""),
+      });
+    }
+  );
+
   // Debounced: user bounds
   watchDebounced(
     () => [userBoundsLow.value, userBoundsHigh.value],
