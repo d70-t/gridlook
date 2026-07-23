@@ -594,8 +594,7 @@ export function disposeLayerMesh(mesh: THREE.Mesh): void {
   mesh.geometry?.dispose();
   const material = mesh.material as THREE.ShaderMaterial;
   const texture = material.uniforms?.maskTexture?.value as
-    | THREE.Texture
-    | undefined;
+    THREE.Texture | undefined;
   texture?.dispose();
   material?.dispose();
 }

@@ -30,7 +30,6 @@
   "dependencies": {
     "@eeholmes/zarrita-pcodec": "github:eeholmes/zarrita-pcodec",
     "@fortawesome/fontawesome-free": "^7.2.0",
-    "@hscmap/healpix": "^1.4.12",
     "@primevue/themes": "^4.5.4",
     "@vuepic/vue-datepicker": "14.0.0",
     "@vueuse/core": "^14.3.0",
@@ -46,6 +45,7 @@
     "fflate": "^0.8.3",
     "geokdbush": "2.1.0",
     "geotiff": "^3.0.5",
+    "healpix-geo": "^0.2.1",
     "humanize-duration": "^3.33.2",
     "icechunk-js": "^0.4.0",
     "kdbush": "4.1.0",
@@ -93,6 +93,7 @@
     "typescript-eslint": "^8.59.0",
     "vite": "^8.0.10",
     "vite-plugin-glsl": "^1.6.0",
+    "vite-plugin-wasm": "^3.6.0",
     "vitest": "^4.1.9",
     "vue-tsc": "^3.2.7"
   },
