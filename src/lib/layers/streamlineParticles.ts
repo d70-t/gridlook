@@ -66,6 +66,7 @@ export class StreamlineParticleLayer {
   private readonly cachedStreamlines: TCachedStreamline[] = [];
   private readonly particles: TParticle[] = [];
   private readonly lineLatLons = new Float32Array(LINE_VERTEX_COUNT * 2);
+  private readonly lineOtherEndpoints = new Float32Array(LINE_VERTEX_COUNT * 3);
   private readonly lineAlphas = new Float32Array(LINE_VERTEX_COUNT);
   private readonly lines: THREE.LineSegments;
   private projectionHelper: ProjectionHelper;
@@ -80,7 +81,7 @@ export class StreamlineParticleLayer {
     const lineGeometry = new THREE.BufferGeometry();
     lineGeometry.setAttribute(
       "position",
-      new THREE.BufferAttribute(new Float32Array(LINE_VERTEX_COUNT * 3), 3)
+      new THREE.BufferAttribute(this.lineOtherEndpoints, 3)
     );
     lineGeometry.setAttribute(
       "latLon",
@@ -190,15 +191,13 @@ export class StreamlineParticleLayer {
   updateProjection(projectionHelper: ProjectionHelper) {
     this.projectionHelper = projectionHelper;
     this.updateMaterialProjection();
-    this.updateGeometry(false);
   }
 
   private writeSegment(
     particle: TParticle,
     trailIndex: number,
     vertexOffset: number,
-    lifeAlpha: number,
-    updatePositions: boolean
+    lifeAlpha: number
   ) {
     const startIndex = particle.headIndex - (TRAIL_LENGTH - 1) + trailIndex;
     const endIndex = startIndex + 1;
@@ -213,35 +212,33 @@ export class StreamlineParticleLayer {
     const startLongitude = particle.path.latLons[startOffset + 1];
     const endLatitude = particle.path.latLons[endOffset];
     const endLongitude = particle.path.latLons[endOffset + 1];
-    if (updatePositions) {
-      const outputOffset = vertexOffset * 2;
-      this.lineLatLons[outputOffset] = startLatitude;
-      this.lineLatLons[outputOffset + 1] = startLongitude;
-      this.lineLatLons[outputOffset + 2] = endLatitude;
-      this.lineLatLons[outputOffset + 3] = endLongitude;
-    }
-    const crossesFlatSeam =
-      this.projectionHelper.isFlat &&
-      Math.abs(startLongitude - endLongitude) > 180;
+    const outputOffset = vertexOffset * 2;
+    this.lineLatLons[outputOffset] = startLatitude;
+    this.lineLatLons[outputOffset + 1] = startLongitude;
+    this.lineLatLons[outputOffset + 2] = endLatitude;
+    this.lineLatLons[outputOffset + 3] = endLongitude;
+
+    // LineSegments supplies no opposite endpoint to its vertex shader. Keep
+    // it in the otherwise unused position attribute so the shader can hide
+    // segments crossing the seam of the current rotated projection.
+    const otherEndpointOffset = vertexOffset * 3;
+    this.lineOtherEndpoints[otherEndpointOffset] = endLatitude;
+    this.lineOtherEndpoints[otherEndpointOffset + 1] = endLongitude;
+    this.lineOtherEndpoints[otherEndpointOffset + 3] = startLatitude;
+    this.lineOtherEndpoints[otherEndpointOffset + 4] = startLongitude;
     const fadeStart = trailIndex / (TRAIL_LENGTH - 1);
     const fadeEnd = (trailIndex + 1) / (TRAIL_LENGTH - 1);
-    this.lineAlphas[vertexOffset] = crossesFlatSeam
-      ? 0
-      : fadeStart ** TRAIL_FADE_EXPONENT *
-        lifeAlpha *
-        particle.path.speedAlphas[startIndex];
-    this.lineAlphas[vertexOffset + 1] = crossesFlatSeam
-      ? 0
-      : fadeEnd ** TRAIL_FADE_EXPONENT *
-        lifeAlpha *
-        particle.path.speedAlphas[endIndex];
+    this.lineAlphas[vertexOffset] =
+      fadeStart ** TRAIL_FADE_EXPONENT *
+      lifeAlpha *
+      particle.path.speedAlphas[startIndex];
+    this.lineAlphas[vertexOffset + 1] =
+      fadeEnd ** TRAIL_FADE_EXPONENT *
+      lifeAlpha *
+      particle.path.speedAlphas[endIndex];
   }
 
-  private writeParticle(
-    particle: TParticle,
-    initialVertexOffset: number,
-    updatePositions: boolean
-  ) {
+  private writeParticle(particle: TParticle, initialVertexOffset: number) {
     const remainingSeconds =
       (particle.path.pointCount - 1 - particle.headIndex) *
       TRAIL_SAMPLE_SECONDS;
@@ -252,13 +249,13 @@ export class StreamlineParticleLayer {
     );
     let vertexOffset = initialVertexOffset;
     for (let i = 0; i < TRAIL_LENGTH - 1; i++) {
-      this.writeSegment(particle, i, vertexOffset, lifeAlpha, updatePositions);
+      this.writeSegment(particle, i, vertexOffset, lifeAlpha);
       vertexOffset += 2;
     }
     return vertexOffset;
   }
 
-  private updateGeometry(updatePositions = true) {
+  private updateGeometry() {
     let vertexOffset = 0;
     for (
       let particleIndex = 0;
@@ -267,13 +264,11 @@ export class StreamlineParticleLayer {
     ) {
       vertexOffset = this.writeParticle(
         this.particles[particleIndex],
-        vertexOffset,
-        updatePositions
+        vertexOffset
       );
     }
-    if (updatePositions) {
-      this.lines.geometry.getAttribute("latLon").needsUpdate = true;
-    }
+    this.lines.geometry.getAttribute("latLon").needsUpdate = true;
+    this.lines.geometry.getAttribute("position").needsUpdate = true;
     this.lines.geometry.getAttribute("trailAlpha").needsUpdate = true;
   }
 
