@@ -18,6 +18,7 @@ import {
   loadTextures,
   saveTexture,
 } from "@/lib/layers/textureStore.ts";
+import type { TModelInfo } from "@/lib/types/GlobeTypes.ts";
 import {
   COASTLINE_RESOLUTIONS,
   GRATICULE_SPACINGS,
@@ -29,6 +30,10 @@ import {
 } from "@/store/store.ts";
 import { useLog } from "@/ui/common/useLog.ts";
 
+const props = defineProps<{
+  modelInfo?: TModelInfo;
+}>();
+
 const store = useGlobeControlStore();
 const {
   coastlineResolution,
@@ -38,6 +43,8 @@ const {
   layerStack,
   showCoastLines,
   showGraticules,
+  streamlinePair,
+  streamlineSelection,
   varnameDisplay,
 } = storeToRefs(store);
 const { logError } = useLog();
@@ -46,6 +53,27 @@ const fileInput = ref<HTMLInputElement>();
 const draggedId = ref<string | undefined>(undefined);
 const dropTargetIndex = ref<number | undefined>(undefined);
 const LAYER_ENTRY_SELECTOR = ".layer-entry";
+
+const vectorVariables = computed(() =>
+  Object.keys(props.modelInfo?.vars ?? {})
+    .filter((name) => !props.modelInfo?.vars[name].hidden)
+    .sort((a, b) => a.localeCompare(b))
+);
+
+function vectorComponentValue(component: "u" | "v") {
+  return streamlineSelection.value.automatic
+    ? (streamlinePair.value?.[component] ?? "")
+    : (streamlineSelection.value[component] ?? "");
+}
+
+function setVectorComponent(component: "u" | "v", value: string) {
+  store.setStreamlineSelection({
+    automatic: false,
+    u: vectorComponentValue("u") || undefined,
+    v: vectorComponentValue("v") || undefined,
+    [component]: value || undefined,
+  });
+}
 
 const LAYER_ICONS: Record<TLayerKind, string> = {
   [LAYER_KINDS.COASTLINES]: "fa-earth-europe",
@@ -212,7 +240,10 @@ function onDrop(index: number) {
 }
 
 function isLayerControl(target: EventTarget | null) {
-  return target instanceof Element && Boolean(target.closest(".layer-actions"));
+  return (
+    target instanceof Element &&
+    Boolean(target.closest(".layer-actions, .streamline-components"))
+  );
 }
 
 function getLayerIndexAtPoint(clientX: number, clientY: number) {
@@ -275,7 +306,11 @@ function isLayerVisible(layer: TLayerEntry) {
 }
 
 function isLayerAvailable(layer: TLayerEntry) {
-  return layer.kind !== LAYER_KINDS.STREAMLINES || store.streamlineAvailable;
+  return layer.kind !== LAYER_KINDS.STREAMLINES || Boolean(props.modelInfo);
+}
+
+function canToggleLayer(layer: TLayerEntry) {
+  return layer.kind !== LAYER_KINDS.STREAMLINES || Boolean(props.modelInfo);
 }
 
 function toggleLayer(layer: TLayerEntry) {
@@ -329,8 +364,8 @@ function getLayerName(layer: TLayerEntry) {
   if (layer.kind === LAYER_KINDS.GRID && varnameDisplay.value !== "-") {
     return `${layer.name}: ${varnameDisplay.value}`;
   }
-  if (layer.kind === LAYER_KINDS.STREAMLINES && store.streamlinePair) {
-    return `${layer.name}: ${store.streamlinePair.u} / ${store.streamlinePair.v}`;
+  if (layer.kind === LAYER_KINDS.STREAMLINES) {
+    return "Streamlines integrated by RK4/3";
   }
   return layer.name;
 }
@@ -509,6 +544,7 @@ function getLayerName(layer: TLayerEntry) {
               class="button is-small is-light"
               :class="{ 'is-info': isLayerVisible(layer) }"
               type="button"
+              :disabled="!canToggleLayer(layer)"
               :title="isLayerVisible(layer) ? 'Hide layer' : 'Show layer'"
               :aria-pressed="isLayerVisible(layer)"
               @click="toggleLayer(layer)"
@@ -521,6 +557,59 @@ function getLayerName(layer: TLayerEntry) {
               </span>
             </button>
           </template>
+        </div>
+        <div
+          v-if="layer.kind === LAYER_KINDS.STREAMLINES && isLayerVisible(layer)"
+          class="streamline-components"
+        >
+          <label>
+            <span>U</span>
+            <span class="select is-small">
+              <select
+                :value="vectorComponentValue('u')"
+                aria-label="Flow eastward or x component"
+                @change="
+                  setVectorComponent(
+                    'u',
+                    ($event.target as HTMLSelectElement).value
+                  )
+                "
+              >
+                <option value="">Choose…</option>
+                <option
+                  v-for="name in vectorVariables"
+                  :key="name"
+                  :value="name"
+                >
+                  {{ name }}
+                </option>
+              </select>
+            </span>
+          </label>
+          <label>
+            <span>V</span>
+            <span class="select is-small">
+              <select
+                :value="vectorComponentValue('v')"
+                aria-label="Flow northward or y component"
+                @change="
+                  setVectorComponent(
+                    'v',
+                    ($event.target as HTMLSelectElement).value
+                  )
+                "
+              >
+                <option value="">Choose…</option>
+                <option
+                  v-for="name in vectorVariables"
+                  :key="name"
+                  :value="name"
+                >
+                  {{ name }}
+                </option>
+              </select>
+            </span>
+          </label>
         </div>
       </li>
     </ul>
@@ -572,6 +661,7 @@ function getLayerName(layer: TLayerEntry) {
   padding: 0.3rem 0.5rem;
   cursor: grab;
   touch-action: none;
+  flex-wrap: wrap;
 
   &:not(:last-child) {
     border-bottom: 1px solid var(--bulma-border);
@@ -593,6 +683,27 @@ function getLayerName(layer: TLayerEntry) {
 
   &.is-drop-target {
     outline: 2px solid var(--bulma-link);
+  }
+}
+
+.streamline-components {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  flex-basis: 100%;
+  padding-left: 1.65rem;
+
+  label {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.75rem;
+  }
+
+  .select,
+  select {
+    width: 100%;
   }
 }
 
