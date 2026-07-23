@@ -49,7 +49,7 @@ export type TEllipsoid =
     }
   | {
       semi_major_axis: number;
-      inverse_flatting: number;
+      inverse_flattening: number;
     }
   | {
       semi_major_axis: number;
