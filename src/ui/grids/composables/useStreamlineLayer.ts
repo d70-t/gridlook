@@ -25,6 +25,8 @@ type TOptions = {
 
 type TStore = ReturnType<typeof useGlobeControlStore>;
 
+const PROJECTION_SETTLE_MS = 100;
+
 function findLayerEntry(store: TStore) {
   return store.layerStack.find(
     (entry) => entry.id === BUILTIN_LAYER_IDS.STREAMLINES
@@ -65,6 +67,8 @@ export function useStreamlineLayer(options: TOptions) {
   const store = useGlobeControlStore();
   let layer: StreamlineParticleLayer | undefined;
   let stopAnimation: (() => void) | undefined;
+  let projectionSettleTimer: ReturnType<typeof setTimeout> | undefined;
+  let projectionChanging = false;
   let disposed = false;
 
   function updateAppearance() {
@@ -75,12 +79,15 @@ export function useStreamlineLayer(options: TOptions) {
     layer.setRenderOrder(getRenderOrder(store));
     layer.setOpacity(entry?.opacity ?? LAYER_OPACITY.MAX);
     const visible = Boolean(entry?.visible && store.streamlineAvailable);
-    layer.object.visible = visible;
+    layer.object.visible = visible && !projectionChanging;
     stopAnimation = syncAnimation(options, layer, visible, stopAnimation);
     options.redraw();
   }
 
   function disposeObject() {
+    clearTimeout(projectionSettleTimer);
+    projectionSettleTimer = undefined;
+    projectionChanging = false;
     stopAnimation?.();
     stopAnimation = undefined;
     if (layer) {
@@ -116,7 +123,17 @@ export function useStreamlineLayer(options: TOptions) {
 
   options.onProjectionChange(() => {
     layer?.updateProjection(options.projectionHelper.value);
-    options.redraw();
+    if (!layer) {
+      return;
+    }
+    projectionChanging = true;
+    clearTimeout(projectionSettleTimer);
+    updateAppearance();
+    projectionSettleTimer = setTimeout(() => {
+      projectionChanging = false;
+      projectionSettleTimer = undefined;
+      updateAppearance();
+    }, PROJECTION_SETTLE_MS);
   });
   watch(() => store.layerStack, updateAppearance, { deep: true });
   onScopeDispose(() => {
