@@ -116,6 +116,7 @@ export function useStreamlineLayer(options: TOptions) {
 
   options.onProjectionChange(() => {
     layer?.updateProjection(options.projectionHelper.value);
+    options.redraw();
   });
   watch(() => store.layerStack, updateAppearance, { deep: true });
   onScopeDispose(() => {
