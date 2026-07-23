@@ -9,6 +9,7 @@ import {
   useGridHoverLookup,
 } from "./composables/gridHoverUtils.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
+import { useIrregularStreamlines } from "./composables/useIrregularStreamlines.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
 import { getLatLonData } from "@/lib/data/coordinateVariables.ts";
@@ -59,6 +60,7 @@ const {
   onProjectionChange,
   onMotionStateChange,
   onColormapChange,
+  registerAnimationCallback,
   canvas,
   box,
   updateHistogram,
@@ -85,6 +87,17 @@ const colormapMaterial = computed(() => {
   return makeInvertableGpuMeshMaterial(colormap.value, invertColormap.value);
 });
 
+const streamlines = useIrregularStreamlines({
+  getDatasources: () => props.datasources,
+  getPreferredVariable: () => varnameSelector.value,
+  getDataVar,
+  getScene,
+  redraw,
+  projectionHelper,
+  onProjectionChange,
+  registerAnimationCallback,
+});
+
 const { datasourceUpdate } = useGridDataLoader({
   getDatasources: () => props.datasources,
   getDataVar,
@@ -92,6 +105,7 @@ const { datasourceUpdate } = useGridDataLoader({
   clearHoverLookup,
   updateLandSeaMask,
   updateColormap: () => updateColormap(meshes),
+  refreshStreamlines: streamlines.refresh,
 });
 
 const BATCH_SIZE = 64; // Adjust based on memory and browser limits
@@ -371,22 +385,26 @@ async function buildDimensionConfig(
     props.datasources!,
     varnameSelector.value
   );
-  return buildDimensionRangesAndIndices(
-    datavar,
+  return {
+    ...buildDimensionRangesAndIndices(
+      datavar,
+      dimensionNames,
+      paramDimIndices.value,
+      paramDimMinBounds.value,
+      paramDimMaxBounds.value,
+      dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
+      [datavar.shape.length - 1],
+      varinfo.value?.dimRanges
+    ),
     dimensionNames,
-    paramDimIndices.value,
-    paramDimMinBounds.value,
-    paramDimMaxBounds.value,
-    dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
-    [datavar.shape.length - 1],
-    varinfo.value?.dimRanges
-  );
+  };
 }
 
 async function fetchAndRenderData(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
-  const { dimensionRanges, indices } = await buildDimensionConfig(datavar);
+  const { dimensionRanges, indices, dimensionNames } =
+    await buildDimensionConfig(datavar);
 
   const rawData = castDataVarToFloat32(
     (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
@@ -404,6 +422,14 @@ async function fetchAndRenderData(
     datavar,
     rawData
   );
+
+  await streamlines.setContext({
+    latitudes: Float32Array.from(latitudesData),
+    longitudes: Float32Array.from(longitudesData),
+    dimensionNames,
+    indices,
+    spatialDimensionNames: [dimensionNames.at(-1)!],
+  });
 
   buildGaussianReducedGeometry(latitudesData, longitudesData, rawData);
 

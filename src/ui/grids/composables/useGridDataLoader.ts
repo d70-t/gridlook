@@ -27,6 +27,7 @@ type TGridDataLoaderOptions = {
   updateColormap: () => void;
   prepareDatasource?: () => void | Promise<void>;
   resetDataVars?: () => void;
+  refreshStreamlines?: () => void | Promise<void>;
 };
 
 function createGetData(
@@ -101,7 +102,8 @@ function createDatasourceUpdate(
 function registerGridDataLoaderWatches(
   options: TGridDataLoaderOptions,
   store: TGlobeControlStore,
-  getData: () => Promise<void>
+  getData: () => Promise<void>,
+  logError: TLogError
 ) {
   watch(
     () => [...store.dimSlidersValues],
@@ -114,6 +116,19 @@ function registerGridDataLoaderWatches(
       }
       await getData();
       options.updateColormap();
+    }
+  );
+  watch(
+    [
+      () => store.streamlineSelectionRevision,
+      () => store.isStreamlineLayerEnabled(),
+    ],
+    async () => {
+      try {
+        await options.refreshStreamlines?.();
+      } catch (error) {
+        logError(error, "Could not update vector components");
+      }
     }
   );
 }
@@ -129,7 +144,7 @@ export function useGridDataLoader(options: TGridDataLoaderOptions) {
   const getData = createGetData(options, store, state, logError);
   const datasourceUpdate = createDatasourceUpdate(options, getData);
 
-  registerGridDataLoaderWatches(options, store, getData);
+  registerGridDataLoaderWatches(options, store, getData, logError);
 
   onScopeDispose(() => {
     state.disposed = true;

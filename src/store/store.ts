@@ -1,5 +1,9 @@
 import { defineStore } from "pinia";
 
+import type {
+  TVectorVariablePair,
+  TVectorVariableSelection,
+} from "@/lib/data/vectorField.ts";
 import {
   LAND_SEA_MASK_MODES,
   type TLandSeaMaskMode,
@@ -36,6 +40,7 @@ export const LAYER_KINDS = {
   GRATICULES: "graticules",
   GRID: "grid",
   MASK: "mask",
+  STREAMLINES: "streamlines",
   TEXTURE: "texture",
 } as const;
 
@@ -62,6 +67,7 @@ export const BUILTIN_LAYER_IDS = {
   GRATICULES: "graticules",
   GRID: "grid",
   MASK: "mask",
+  STREAMLINES: "streamlines",
 } as const;
 
 export const LAYER_OPACITY = {
@@ -96,6 +102,14 @@ export function normalizeLayerOpacity(opacity: number) {
 function builtinLayerStack(): TLayerEntry[] {
   // ordered top → bottom, as displayed in the layer panel
   return [
+    {
+      id: BUILTIN_LAYER_IDS.STREAMLINES,
+      kind: LAYER_KINDS.STREAMLINES,
+      name: "Flow streamlines",
+      visible: false,
+      opacity: 0.55,
+      maskMode: LAND_SEA_MASK_MODES.OFF,
+    },
     {
       id: BUILTIN_LAYER_IDS.COASTLINES,
       kind: LAYER_KINDS.COASTLINES,
@@ -174,6 +188,12 @@ export const useGlobeControlStore = defineStore("globeControl", {
       // incremented to request a GeoTIFF image-layer export of the current grid
       gridExportRequest: 0 as number,
       gridExportLoading: false,
+      streamlineAvailable: false,
+      streamlinePair: undefined as TVectorVariablePair | undefined,
+      streamlineSelection: {
+        automatic: true,
+      } as TVectorVariableSelection,
+      streamlineSelectionRevision: 0,
       // will get incremented each time a new dataset OR a new variable in the
       // same dataset is loaded; used to trigger reactivity in child components
       // that need to reload data when the variable changes
@@ -189,6 +209,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
       } else {
         this.newDatasetSignifier += 1;
       }
+      this.resetStreamlineSelection();
     },
     signifyVariableChange() {
       if (this.newDatasetSignifier % 2 === 0) {
@@ -317,6 +338,27 @@ export const useGlobeControlStore = defineStore("globeControl", {
         layer.opacity = normalizeLayerOpacity(opacity);
       }
     },
+    toggleLayerVisibility(id: string) {
+      const layer = this.layerStack.find((entry) => entry.id === id);
+      if (layer) {
+        layer.visible = !layer.visible;
+      }
+    },
+    isStreamlineLayerEnabled() {
+      return Boolean(
+        this.layerStack.find(
+          (entry) => entry.id === BUILTIN_LAYER_IDS.STREAMLINES
+        )?.visible
+      );
+    },
+    setStreamlineLayerEnabled(enabled: boolean) {
+      const layer = this.layerStack.find(
+        (entry) => entry.id === BUILTIN_LAYER_IDS.STREAMLINES
+      );
+      if (layer) {
+        layer.visible = enabled;
+      }
+    },
     // moves the entry so it ends up at index `toIndex` of the resulting array
     moveLayer(id: string, toIndex: number) {
       const fromIndex = this.layerStack.findIndex((entry) => entry.id === id);
@@ -345,6 +387,25 @@ export const useGlobeControlStore = defineStore("globeControl", {
     },
     requestGridExport() {
       this.gridExportRequest++;
+    },
+    setStreamlinePair(pair?: TVectorVariablePair) {
+      this.streamlinePair = pair;
+      this.streamlineAvailable = pair !== undefined;
+    },
+    setStreamlineSelection(selection: TVectorVariableSelection) {
+      const previous = this.streamlineSelection;
+      if (
+        previous.automatic === selection.automatic &&
+        previous.u === selection.u &&
+        previous.v === selection.v
+      ) {
+        return;
+      }
+      this.streamlineSelection = selection;
+      this.streamlineSelectionRevision++;
+    },
+    resetStreamlineSelection() {
+      this.setStreamlineSelection({ automatic: true });
     },
     setHoveredGridPoint(point: THoveredGridPoint) {
       this.hoveredGridPoint = point;

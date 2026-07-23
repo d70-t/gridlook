@@ -422,7 +422,7 @@ defineExpose({
               </PopupDialog>
             </div>
           </div>
-          <LayerPanel />
+          <LayerPanel :model-info="modelInfo" />
         </CollapsibleCard>
         <CollapsibleCard title="Actions">
           <ActionControls
