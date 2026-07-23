@@ -56,10 +56,7 @@ export class ZarrDataManager {
     ) {
       store = await createIcechunkStore(storePath);
     } else {
-      // HEAD + an explicit byte interval remains CORS-safelisted. Suffix Range
-      // headers (`bytes=-N`) trigger a preflight that many public Zarr object
-      // stores do not allow, including the DKRZ HEALPix datasets.
-      store = new zarr.FetchStore(parsed.url, { useSuffixRequest: false });
+      store = new zarr.FetchStore(parsed.url, { useSuffixRequest: true });
     }
 
     const cache = new QuickLRU<string, Uint8Array | undefined>({
