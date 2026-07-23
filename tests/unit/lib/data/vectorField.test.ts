@@ -40,6 +40,14 @@ describe("detectVectorVariablePair", () => {
       kind: "uas/vas",
     });
   });
+
+  it("detects u10/v10 components", () => {
+    expect(detectVectorVariablePair(["temperature", "u10", "v10"])).toEqual({
+      u: "u10",
+      v: "v10",
+      kind: "u10/v10",
+    });
+  });
 });
 
 describe("resolveVectorVariablePair", () => {

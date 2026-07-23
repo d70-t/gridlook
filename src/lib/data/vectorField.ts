@@ -4,7 +4,7 @@ import KDBush from "kdbush";
 export type TVectorVariablePair = {
   u: string;
   v: string;
-  kind: "u/v" | "ua/va" | "uas/vas" | "custom";
+  kind: "u/v" | "ua/va" | "uas/vas" | "u10/v10" | "custom";
 };
 
 export type TVectorVariableSelection = {
@@ -48,6 +48,7 @@ const VECTOR_PAIR_NAMES = [
   { u: "u", v: "v", kind: "u/v" },
   { u: "ua", v: "va", kind: "ua/va" },
   { u: "uas", v: "vas", kind: "uas/vas" },
+  { u: "u10", v: "v10", kind: "u10/v10" },
 ] as const;
 
 function splitVariableName(name: string) {
