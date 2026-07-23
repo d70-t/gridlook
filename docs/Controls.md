@@ -71,6 +71,19 @@ Touch behavior also depends on the current projection.
 
 - One-finger drag changes the projection center
 
+## Flow Streamlines
+
+Gridlook detects matching `u`/`v`, `ua`/`va`, or `uas`/`vas` variable pairs on
+regular, curvilinear, reduced Gaussian, HEALPix, triangular, and irregular
+grids. Streamlines are disabled by default; use **Enable streamlines** in the
+**Flow** menu or the visibility button on the **Flow streamlines** layer to
+start them. The **Flow** menu can instead assign any compatible eastward/x and
+northward/y component, including ocean-current variables. The animated
+particles follow cached trajectories through the steady vector field at the
+currently selected time and level. Adaptive RK4/3 integration runs when that
+field changes, not on every animation frame. Dense, short traces fade in and
+out. The layer panel can hide, reorder, or adjust their opacity.
+
 ## Notes
 
 - Presenter mode is only available on desktop

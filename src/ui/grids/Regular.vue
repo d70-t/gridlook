@@ -9,8 +9,10 @@ import type {
   TGeoSample,
   TGeoSampleIndex,
 } from "./composables/gridHoverUtils.ts";
+import { loadVectorComponents } from "./composables/streamlineData.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
+import { useStreamlineLayer } from "./composables/useStreamlineLayer.ts";
 
 import {
   getCRSWkt,
@@ -26,6 +28,11 @@ import {
   castDataVarToFloat32,
   decodeVariableDataAndGetBounds,
 } from "@/lib/data/variableDecoding.ts";
+import {
+  IrregularVectorField,
+  RegularVectorField,
+  resolveVectorVariablePair,
+} from "@/lib/data/vectorField.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   GridTextureExportUserDataKey,
@@ -79,6 +86,7 @@ const {
   onProjectionChange,
   onMotionStateChange,
   onColormapChange,
+  registerAnimationCallback,
   canvas,
   box,
   hoveredGeoPoint,
@@ -90,6 +98,9 @@ const { setHoverLookupFromIndex, clearHoverLookup } =
 const longitudes = ref<Float32Array>(new Float32Array());
 const latitudes = ref<Float32Array>(new Float32Array());
 const isProjectedGrid = ref(false);
+const selectedDimensionNames = ref<string[]>([]);
+let lastStreamlineIndices: (number | null | zarr.Slice)[] | undefined;
+let streamlineRequestRevision = 0;
 
 const BATCH_SIZE = 60;
 const MAX_GEO_RESOLUTION = 512;
@@ -100,6 +111,14 @@ onColormapChange(() => updateColormap(meshes));
 
 onProjectionChange(updateMeshProjectionUniforms);
 onMotionStateChange(updateMeshProjectionUniforms);
+
+const streamlines = useStreamlineLayer({
+  getScene,
+  redraw,
+  projectionHelper,
+  onProjectionChange,
+  registerAnimationCallback,
+});
 
 function updateMeshProjectionUniforms() {
   updateProjectionMeshes(meshes, {
@@ -120,6 +139,11 @@ const { datasourceUpdate } = useGridDataLoader({
   },
   updateLandSeaMask,
   updateColormap: () => updateColormap(meshes),
+  refreshStreamlines: async () => {
+    if (lastStreamlineIndices) {
+      await updateStreamlines(lastStreamlineIndices);
+    }
+  },
 });
 
 const isLatOnly = ref(false);
@@ -154,6 +178,7 @@ async function getDims() {
     props.datasources!,
     varnameSelector.value
   );
+  selectedDimensionNames.value = dimensions;
 
   const lastDim = dimensions[dimensions.length - 1];
   const secondLastDim = dimensions[dimensions.length - 2];
@@ -819,6 +844,91 @@ function updateMeshMaterials(rawData: Float32Array) {
   updateColormap(meshes);
 }
 
+async function makeVectorField(uData: Float32Array, vData: Float32Array) {
+  if (!props.isRotated) {
+    return new RegularVectorField(
+      latitudes.value,
+      longitudes.value,
+      uData,
+      vData
+    );
+  }
+  const pole = await getRotatedNorthPole();
+  const geographicLatitudes = new Float32Array(uData.length);
+  const geographicLongitudes = new Float32Array(uData.length);
+  for (let y = 0; y < latitudes.value.length; y++) {
+    for (let x = 0; x < longitudes.value.length; x++) {
+      const index = y * longitudes.value.length + x;
+      const point = rotatedToGeographic(
+        latitudes.value[y],
+        longitudes.value[x],
+        pole.lat,
+        pole.lon
+      );
+      geographicLatitudes[index] = point.lat;
+      geographicLongitudes[index] = point.lon;
+    }
+  }
+  return new IrregularVectorField(
+    geographicLatitudes,
+    geographicLongitudes,
+    uData,
+    vData
+  );
+}
+
+async function updateStreamlines(
+  selectedIndices: (number | null | zarr.Slice)[]
+) {
+  const requestRevision = ++streamlineRequestRevision;
+  const variableNames = Object.keys(
+    props.datasources?.levels[0]?.datasources ?? {}
+  );
+  const pair = resolveVectorVariablePair(
+    variableNames,
+    varnameSelector.value,
+    store.streamlineSelection
+  );
+  const supportedGrid = !isLatOnly.value;
+  if (!pair || !supportedGrid || !props.datasources) {
+    streamlines.clear();
+    return;
+  }
+  if (!store.isStreamlineLayerEnabled()) {
+    streamlines.setAvailablePair(pair);
+    return;
+  }
+
+  try {
+    const components = await loadVectorComponents({
+      pair,
+      datasources: props.datasources,
+      getDataVar,
+      currentDimensionNames: selectedDimensionNames.value,
+      currentIndices: selectedIndices,
+      spatialDimensionNames: selectedDimensionNames.value.slice(-2),
+      expectedDataLength: latitudes.value.length * longitudes.value.length,
+    });
+    if (requestRevision !== streamlineRequestRevision) {
+      return;
+    }
+    if (!components) {
+      streamlines.clear();
+      return;
+    }
+    const field = await makeVectorField(components.uData, components.vData);
+    if (requestRevision !== streamlineRequestRevision) {
+      return;
+    }
+    streamlines.setField(field, pair);
+  } catch (error) {
+    if (requestRevision === streamlineRequestRevision) {
+      streamlines.clear();
+      logError(error, "Could not render vector streamlines");
+    }
+  }
+}
+
 async function fetchAndRenderData(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
@@ -839,6 +949,9 @@ async function fetchAndRenderData(
   setHoverLookupFromIndex(hoverIndex, fillValue, missingValue);
 
   updateHistogram(rawData, min, max, missingValue, fillValue);
+
+  lastStreamlineIndices = indices;
+  await updateStreamlines(indices);
 
   const dimInfo = await fetchDimensionDetails(
     varnameSelector.value,

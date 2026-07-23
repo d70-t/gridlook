@@ -8,14 +8,20 @@ import {
   createGeoSampleIndex,
   useGridHoverLookup,
 } from "./composables/gridHoverUtils.ts";
+import { loadVectorComponents } from "./composables/streamlineData.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
+import { useStreamlineLayer } from "./composables/useStreamlineLayer.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
 import {
   castDataVarToFloat32,
   decodeVariableDataAndGetBounds,
 } from "@/lib/data/variableDecoding.ts";
+import {
+  IrregularVectorField,
+  resolveVectorVariablePair,
+} from "@/lib/data/vectorField.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   createWrappedProjectionMesh,
@@ -42,6 +48,11 @@ const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
   storeToRefs(urlParameterStore);
 
 const hoverTriangleVertices = ref<Float32Array | null>(null);
+const triangleLatitudes = ref<Float32Array>(new Float32Array());
+const triangleLongitudes = ref<Float32Array>(new Float32Array());
+const selectedDimensionNames = ref<string[]>([]);
+let lastStreamlineIndices: (number | null | zarr.Slice)[] | undefined;
+let streamlineRequestRevision = 0;
 
 let meshes: THREE.Mesh[] = [];
 
@@ -60,6 +71,7 @@ const {
   onProjectionChange,
   onMotionStateChange,
   onColormapChange,
+  registerAnimationCallback,
   canvas,
   box,
   updateHistogram,
@@ -73,6 +85,14 @@ onColormapChange(() => updateColormap(meshes));
 
 onProjectionChange(updateMeshProjectionUniforms);
 onMotionStateChange(updateMeshProjectionUniforms);
+
+const streamlines = useStreamlineLayer({
+  getScene,
+  redraw,
+  projectionHelper,
+  onProjectionChange,
+  registerAnimationCallback,
+});
 
 /**
  * Update projection uniforms on all mesh materials.
@@ -106,6 +126,11 @@ const { datasourceUpdate } = useGridDataLoader({
   prepareDatasource: fetchGrid,
   updateLandSeaMask,
   updateColormap: () => updateColormap(meshes),
+  refreshStreamlines: async () => {
+    if (lastStreamlineIndices) {
+      await updateStreamlines(lastStreamlineIndices);
+    }
+  },
 });
 
 function cleanupMeshes() {
@@ -136,6 +161,9 @@ async function fetchGrid() {
   try {
     const verts = await grid2buffer(gridsource.value!);
     hoverTriangleVertices.value = verts;
+    const centers = buildTriangleCenters(verts);
+    triangleLatitudes.value = centers.latitudes;
+    triangleLongitudes.value = centers.longitudes;
     cleanupMeshes();
 
     const nTriangles = verts.length / 9;
@@ -295,26 +323,42 @@ async function grid2buffer(grid: { store: string; dataset: string }) {
 }
 
 function buildTriangleHoverIndex(
-  vertices: Float32Array,
-  cellCount: number,
+  latitudes: Float32Array,
+  longitudes: Float32Array,
   data: Float32Array
 ) {
   return createGeoSampleIndex(
-    Array.from({ length: cellCount }, (_, index) => {
-      const offset = index * 9;
-      const centroid = new THREE.Vector3(
+    Array.from(data, (value, index) => ({
+      lat: latitudes[index],
+      lon: longitudes[index],
+      value,
+    }))
+  );
+}
+
+function buildTriangleCenters(vertices: Float32Array) {
+  const cellCount = vertices.length / 9;
+  const latitudes = new Float32Array(cellCount);
+  const longitudes = new Float32Array(cellCount);
+  const centroid = new THREE.Vector3();
+  for (let index = 0; index < cellCount; index++) {
+    const offset = index * 9;
+    centroid
+      .set(
         vertices[offset] + vertices[offset + 3] + vertices[offset + 6],
         vertices[offset + 1] + vertices[offset + 4] + vertices[offset + 7],
         vertices[offset + 2] + vertices[offset + 5] + vertices[offset + 8]
-      ).normalize();
-      const { lat, lon } = ProjectionHelper.cartesianToLatLon(
-        centroid.x,
-        centroid.y,
-        centroid.z
-      );
-      return { lat, lon, value: data[index] };
-    })
-  );
+      )
+      .normalize();
+    const point = ProjectionHelper.cartesianToLatLon(
+      centroid.x,
+      centroid.y,
+      centroid.z
+    );
+    latitudes[index] = point.lat;
+    longitudes[index] = point.lon;
+  }
+  return { latitudes, longitudes };
 }
 
 function data2valueBuffer(
@@ -389,6 +433,7 @@ async function buildDimensionConfig(
     props.datasources!,
     varnameSelector.value
   );
+  selectedDimensionNames.value = dimensionNames;
   return buildDimensionRangesAndIndices(
     datavar,
     dimensionNames,
@@ -399,6 +444,55 @@ async function buildDimensionConfig(
     [datavar.shape.length - 1],
     varinfo.value?.dimRanges
   );
+}
+
+async function updateStreamlines(
+  selectedIndices: (number | null | zarr.Slice)[]
+) {
+  const requestRevision = ++streamlineRequestRevision;
+  const pair = resolveVectorVariablePair(
+    Object.keys(props.datasources?.levels[0]?.datasources ?? {}),
+    varnameSelector.value,
+    store.streamlineSelection
+  );
+  if (!pair || !props.datasources) {
+    streamlines.clear();
+    return;
+  }
+  if (!store.isStreamlineLayerEnabled()) {
+    streamlines.setAvailablePair(pair);
+    return;
+  }
+  try {
+    const components = await loadVectorComponents({
+      pair,
+      datasources: props.datasources,
+      getDataVar,
+      currentDimensionNames: selectedDimensionNames.value,
+      currentIndices: selectedIndices,
+      spatialDimensionNames: [selectedDimensionNames.value.at(-1)!],
+      expectedDataLength: triangleLatitudes.value.length,
+    });
+    if (requestRevision !== streamlineRequestRevision) {
+      return;
+    }
+    if (!components) {
+      streamlines.clear();
+      return;
+    }
+    const field = new IrregularVectorField(
+      triangleLatitudes.value,
+      triangleLongitudes.value,
+      components.uData,
+      components.vData
+    );
+    streamlines.setField(field, pair);
+  } catch (error) {
+    if (requestRevision === streamlineRequestRevision) {
+      streamlines.clear();
+      logError(error, "Could not render vector streamlines");
+    }
+  }
 }
 
 async function fetchAndRenderData(
@@ -417,8 +511,8 @@ async function fetchAndRenderData(
   // Update hover lookup
   if (hoverTriangleVertices.value) {
     const hoverIndex = buildTriangleHoverIndex(
-      hoverTriangleVertices.value,
-      rawData.shape[0],
+      triangleLatitudes.value,
+      triangleLongitudes.value,
       dataBuffer.plotData
     );
     setHoverLookupFromIndex(
@@ -436,6 +530,8 @@ async function fetchAndRenderData(
     dataBuffer.missingValue,
     dataBuffer.fillValue
   );
+  lastStreamlineIndices = indices;
+  await updateStreamlines(indices);
 
   store.updateVarInfo(
     {

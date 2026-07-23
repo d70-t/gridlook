@@ -9,8 +9,10 @@ import {
   useGridHoverLookup,
   type TGridHoverLookupResult,
 } from "./composables/gridHoverUtils.ts";
+import { loadVectorComponents } from "./composables/streamlineData.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
+import { useStreamlineLayer } from "./composables/useStreamlineLayer.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
 import {
@@ -20,6 +22,10 @@ import {
   getFillValue,
   getMissingValue,
 } from "@/lib/data/variableDecoding.ts";
+import {
+  RegularVectorField,
+  resolveVectorVariablePair,
+} from "@/lib/data/vectorField.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   createTriangleWrapProjectionGeometry,
@@ -96,6 +102,7 @@ const {
   onProjectionChange,
   onMotionStateChange,
   onColormapChange,
+  registerAnimationCallback,
   canvas,
   box,
   hoveredGeoPoint,
@@ -107,6 +114,16 @@ const { setHoverLookup, clearHoverLookup } =
 const hoverData = ref<Float32Array | null>(null);
 const hoverCellIndexMap = ref<Map<number, number> | null>(null);
 const hoverNside = ref<number | null>(null);
+const selectedDimensionNames = ref<string[]>([]);
+
+type TStreamlineContext = {
+  indices: (number | null | zarr.Slice)[];
+  nside: number;
+  cellCoord?: number[];
+};
+
+let lastStreamlineContext: TStreamlineContext | undefined;
+let streamlineRequestRevision = 0;
 
 const HEALPIX_NUMCHUNKS = 12;
 
@@ -116,6 +133,14 @@ onColormapChange(() => updateColormap(mainMeshes));
 
 onProjectionChange(updateMeshProjectionUniforms);
 onMotionStateChange(updateMeshProjectionUniforms);
+
+const streamlines = useStreamlineLayer({
+  getScene,
+  redraw,
+  projectionHelper,
+  onProjectionChange,
+  registerAnimationCallback,
+});
 
 /**
  * Update projection uniforms on all mesh materials.
@@ -137,6 +162,11 @@ const { datasourceUpdate } = useGridDataLoader({
   prepareDatasource: fetchGrid,
   updateLandSeaMask,
   updateColormap: () => updateColormap(mainMeshes),
+  refreshStreamlines: async () => {
+    if (lastStreamlineContext) {
+      await updateStreamlines(lastStreamlineContext);
+    }
+  },
 });
 
 function fetchGrid() {
@@ -564,6 +594,7 @@ async function prepareDimensionData(
     props.datasources!,
     varnameSelector.value
   );
+  selectedDimensionNames.value = dimensionNames;
   const { dimensionRanges, indices } = buildDimensionRangesAndIndices(
     datavar,
     dimensionNames,
@@ -576,6 +607,98 @@ async function prepareDimensionData(
   );
 
   return { dimensionRanges, indices };
+}
+
+function healpixPixelIndex(nside: number, latitude: number, longitude: number) {
+  const theta = THREE.MathUtils.degToRad(90 - latitude);
+  const normalizedLongitude = longitude < 0 ? longitude + 360 : longitude;
+  return healpix.ang2pix_nest(
+    nside,
+    theta,
+    THREE.MathUtils.degToRad(normalizedLongitude)
+  );
+}
+
+function makeHealpixVectorField(
+  nside: number,
+  cellCoord: number[] | undefined,
+  uValues: Float32Array,
+  vValues: Float32Array
+) {
+  const cellIndex = cellCoord
+    ? new Map(cellCoord.map((pixel, index) => [pixel, index]))
+    : undefined;
+  const latitudes = Float32Array.from({ length: 179 }, (_, i) => i - 89);
+  const longitudes = Float32Array.from({ length: 360 }, (_, i) => i - 180);
+  const uData = new Float32Array(latitudes.length * longitudes.length);
+  const vData = new Float32Array(uData.length);
+  for (let y = 0; y < latitudes.length; y++) {
+    for (let x = 0; x < longitudes.length; x++) {
+      const outputIndex = y * longitudes.length + x;
+      const pixel = healpixPixelIndex(nside, latitudes[y], longitudes[x]);
+      const inputIndex = cellIndex ? cellIndex.get(pixel) : pixel;
+      const u = inputIndex === undefined ? NaN : uValues[inputIndex];
+      const v = inputIndex === undefined ? NaN : vValues[inputIndex];
+      uData[outputIndex] = u === HEALPIX_UNSEEN ? NaN : u;
+      vData[outputIndex] = v === HEALPIX_UNSEEN ? NaN : v;
+    }
+  }
+  return new RegularVectorField(latitudes, longitudes, uData, vData);
+}
+
+// eslint-disable-next-line max-lines-per-function
+async function updateStreamlines(context: TStreamlineContext) {
+  const requestRevision = ++streamlineRequestRevision;
+  const variableNames = Object.keys(
+    props.datasources?.levels[0]?.datasources ?? {}
+  );
+  const pair = resolveVectorVariablePair(
+    variableNames,
+    varnameSelector.value,
+    store.streamlineSelection
+  );
+  if (!pair || !props.datasources) {
+    streamlines.clear();
+    return;
+  }
+  if (!store.isStreamlineLayerEnabled()) {
+    streamlines.setAvailablePair(pair);
+    return;
+  }
+  try {
+    const expectedDataLength =
+      context.cellCoord?.length ?? 12 * context.nside * context.nside;
+    const components = await loadVectorComponents({
+      pair,
+      datasources: props.datasources,
+      getDataVar,
+      currentDimensionNames: selectedDimensionNames.value,
+      currentIndices: context.indices,
+      spatialDimensionNames: [selectedDimensionNames.value.at(-1)!],
+      expectedDataLength,
+    });
+    if (requestRevision !== streamlineRequestRevision) {
+      return;
+    }
+    if (!components) {
+      streamlines.clear();
+      return;
+    }
+    streamlines.setField(
+      makeHealpixVectorField(
+        context.nside,
+        context.cellCoord,
+        components.uData,
+        components.vData
+      ),
+      pair
+    );
+  } catch (error) {
+    if (requestRevision === streamlineRequestRevision) {
+      streamlines.clear();
+      logError(error, "Could not render vector streamlines");
+    }
+  }
 }
 
 async function getDimensionValues(
@@ -723,6 +846,9 @@ async function fetchAndRenderData(
   );
 
   updateHistogram(histogramSummaries, dataMin, dataMax);
+
+  lastStreamlineContext = { indices, nside, cellCoord };
+  await updateStreamlines(lastStreamlineContext);
 
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
 

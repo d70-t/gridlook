@@ -52,6 +52,7 @@ const LAYER_ICONS: Record<TLayerKind, string> = {
   [LAYER_KINDS.GRATICULES]: "fa-globe",
   [LAYER_KINDS.GRID]: "fa-border-all",
   [LAYER_KINDS.MASK]: "fa-mask",
+  [LAYER_KINDS.STREAMLINES]: "fa-wind",
   [LAYER_KINDS.TEXTURE]: "fa-image",
 };
 
@@ -273,6 +274,10 @@ function isLayerVisible(layer: TLayerEntry) {
   return layer.visible;
 }
 
+function isLayerAvailable(layer: TLayerEntry) {
+  return layer.kind !== LAYER_KINDS.STREAMLINES || store.streamlineAvailable;
+}
+
 function toggleLayer(layer: TLayerEntry) {
   if (layer.kind === LAYER_KINDS.COASTLINES) {
     store.toggleCoastLines();
@@ -292,11 +297,17 @@ function toggleLayer(layer: TLayerEntry) {
     }
   } else if (layer.kind === LAYER_KINDS.TEXTURE) {
     store.updateTextureLayer(layer.id, { visible: !layer.visible });
+  } else if (layer.kind === LAYER_KINDS.STREAMLINES) {
+    store.toggleLayerVisibility(layer.id);
   }
 }
 
 function canChangeLayerOpacity(layer: TLayerEntry) {
-  return layer.kind === LAYER_KINDS.MASK || layer.kind === LAYER_KINDS.TEXTURE;
+  return (
+    layer.kind === LAYER_KINDS.MASK ||
+    layer.kind === LAYER_KINDS.STREAMLINES ||
+    layer.kind === LAYER_KINDS.TEXTURE
+  );
 }
 
 function getLayerOpacity(layer: TLayerEntry) {
@@ -318,6 +329,9 @@ function getLayerName(layer: TLayerEntry) {
   if (layer.kind === LAYER_KINDS.GRID && varnameDisplay.value !== "-") {
     return `${layer.name}: ${varnameDisplay.value}`;
   }
+  if (layer.kind === LAYER_KINDS.STREAMLINES && store.streamlinePair) {
+    return `${layer.name}: ${store.streamlinePair.u} / ${store.streamlinePair.v}`;
+  }
   return layer.name;
 }
 </script>
@@ -327,6 +341,7 @@ function getLayerName(layer: TLayerEntry) {
     <ul class="layer-stack mb-2">
       <li
         v-for="(layer, index) in layerStack"
+        v-show="isLayerAvailable(layer)"
         :key="layer.id"
         class="layer-entry"
         :class="{

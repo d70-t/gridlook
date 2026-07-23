@@ -9,6 +9,7 @@ import {
   useGridHoverLookup,
 } from "./composables/gridHoverUtils.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
+import { useIrregularStreamlines } from "./composables/useIrregularStreamlines.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
 import {
@@ -65,6 +66,7 @@ const {
   onProjectionChange,
   onMotionStateChange,
   onColormapChange,
+  registerAnimationCallback,
   canvas,
   box,
   updateHistogram,
@@ -100,6 +102,17 @@ const colormapMaterial = computed(() => {
   return material;
 });
 
+const streamlines = useIrregularStreamlines({
+  getDatasources: () => props.datasources,
+  getPreferredVariable: () => varnameSelector.value,
+  getDataVar,
+  getScene,
+  redraw,
+  projectionHelper,
+  onProjectionChange,
+  registerAnimationCallback,
+});
+
 const { datasourceUpdate } = useGridDataLoader({
   getDatasources: () => props.datasources,
   getDataVar,
@@ -107,6 +120,7 @@ const { datasourceUpdate } = useGridDataLoader({
   clearHoverLookup,
   updateLandSeaMask,
   updateColormap: () => updateColormap(meshes),
+  refreshStreamlines: streamlines.refresh,
 });
 
 const BATCH_SIZE = 30;
@@ -835,6 +849,21 @@ async function renderGridAndHover(
     fillValue,
     missingValue
   );
+  return { latitudesData, longitudesData };
+}
+
+async function updateStreamlines(
+  coordinates: Awaited<ReturnType<typeof renderGridAndHover>>,
+  dimensionNames: string[],
+  indices: (number | null | zarr.Slice)[]
+) {
+  await streamlines.setContext({
+    latitudes: coordinates.latitudesData,
+    longitudes: coordinates.longitudesData,
+    dimensionNames,
+    indices,
+    spatialDimensionNames: dimensionNames.slice(-2),
+  });
 }
 
 async function fetchAndRenderData(
@@ -863,13 +892,15 @@ async function fetchAndRenderData(
     rawData
   );
 
-  await renderGridAndHover(
+  const coordinates = await renderGridAndHover(
     datavar,
     rawData,
     dimensionNames,
     fillValue,
     missingValue
   );
+
+  await updateStreamlines(coordinates, dimensionNames, indices);
 
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
 
