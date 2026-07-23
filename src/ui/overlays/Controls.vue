@@ -14,7 +14,6 @@ import LayerPanel from "./controls/LayerPanel.vue";
 import PopupDialog from "./controls/PopupDialog.vue";
 import ProjectionControls from "./controls/ProjectionControls.vue";
 import VariableSelector from "./controls/VariableSelector.vue";
-import VectorFieldControls from "./controls/VectorFieldControls.vue";
 
 // Import control components
 import {
@@ -368,10 +367,6 @@ defineExpose({
           <DimensionControl />
         </CollapsibleCard>
 
-        <CollapsibleCard v-if="modelInfo" title="Flow">
-          <VectorFieldControls :model-info="modelInfo" />
-        </CollapsibleCard>
-
         <CollapsibleCard title="Appearance">
           <div class="section-title">Colormap</div>
           <BoundsControls
@@ -427,7 +422,7 @@ defineExpose({
               </PopupDialog>
             </div>
           </div>
-          <LayerPanel />
+          <LayerPanel :model-info="modelInfo" />
         </CollapsibleCard>
         <CollapsibleCard title="Actions">
           <ActionControls
