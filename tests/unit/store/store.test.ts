@@ -41,3 +41,13 @@ it("defaults layer opacity to opaque and clamps updates", () => {
   store.updateLayerOpacity("texture-layer", 0.5);
   expect(textureLayer?.opacity).toBe(0.5);
 });
+
+it("sets streamline layer visibility explicitly", () => {
+  const store = useGlobeControlStore();
+
+  expect(store.isStreamlineLayerEnabled()).toBe(false);
+  store.setStreamlineLayerEnabled(true);
+  expect(store.isStreamlineLayerEnabled()).toBe(true);
+  store.setStreamlineLayerEnabled(false);
+  expect(store.isStreamlineLayerEnabled()).toBe(false);
+});
