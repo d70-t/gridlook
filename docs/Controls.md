@@ -73,16 +73,19 @@ Touch behavior also depends on the current projection.
 
 ## Flow Streamlines
 
-Gridlook detects matching `u`/`v`, `ua`/`va`, or `uas`/`vas` variable pairs on
-regular, curvilinear, reduced Gaussian, HEALPix, triangular, and irregular
-grids. Streamlines are disabled by default; use **Enable streamlines** in the
-**Flow** menu or the visibility button on the **Flow streamlines** layer to
-start them. The **Flow** menu can instead assign any compatible eastward/x and
+Gridlook detects matching `u`/`v`, `ua`/`va`, `uas`/`vas`, or `u10`/`v10`
+variable pairs on regular, curvilinear, reduced Gaussian, HEALPix, triangular,
+and irregular grids. Streamlines are disabled by default; use the visibility
+button on the **Flow streamlines** layer to start them. Enabling the layer also
+reveals its U and V menus, which can assign any compatible eastward/x and
 northward/y component, including ocean-current variables. The animated
 particles follow cached trajectories through the steady vector field at the
 currently selected time and level. Adaptive RK4/3 integration runs when that
 field changes, not on every animation frame. Dense, short traces fade in and
-out. The layer panel can hide, reorder, or adjust their opacity.
+out. The layer panel can hide, reorder, or adjust their opacity. This state is
+included in shared URLs: automatically detected components only add
+`streamlines=true`, while manually selected components also add `streamlineu`
+and `streamlinev`.
 
 ## Notes
 
