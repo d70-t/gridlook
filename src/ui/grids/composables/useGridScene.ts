@@ -106,6 +106,8 @@ export function useGridScene(options: UseGridSceneOptions) {
   let targetOffset = 0;
   let isInitialLoad = true;
   let isInMotion = false;
+  let lastAnimationTime: number | undefined = undefined;
+  const animationCallbacks = new Set<(deltaSeconds: number) => void>();
 
   function setMotionState(next: boolean) {
     if (isInMotion === next) {
@@ -137,6 +139,18 @@ export function useGridScene(options: UseGridSceneOptions) {
 
   function registerUpdateLOD(func: () => void) {
     updateLOD = func;
+  }
+
+  function registerAnimationCallback(callback: (deltaSeconds: number) => void) {
+    animationCallbacks.add(callback);
+    lastAnimationTime = undefined;
+    animationLoop();
+    return () => {
+      animationCallbacks.delete(callback);
+      if (animationCallbacks.size === 0) {
+        lastAnimationTime = undefined;
+      }
+    };
   }
 
   function redraw() {
@@ -818,8 +832,29 @@ export function useGridScene(options: UseGridSceneOptions) {
     animationLoop();
   }
 
-  function animationLoop() {
+  function runAnimationCallbacks(timestamp: number) {
+    const deltaSeconds = Math.min(
+      Math.max((timestamp - (lastAnimationTime ?? timestamp)) / 1000, 0),
+      0.1
+    );
+    lastAnimationTime = timestamp;
+    for (const callback of animationCallbacks) {
+      callback(deltaSeconds);
+    }
+  }
+
+  function updateRotationSpeed() {
+    if (projectionHelper.value.isFlat || !orbitControls || !camera) {
+      return;
+    }
+    const normalizedDistance = camera.position.length() / 30;
+    orbitControls.rotateSpeed = Math.min(1, 0.01 + normalizedDistance ** 2);
+  }
+
+  function animationLoop(timestamp = performance.now()) {
     cancelAnimationFrame(frameId.value);
+
+    runAnimationCallbacks(timestamp);
 
     // Rotate 2D projection center longitude
     if (store.isRotating && projectionHelper.value.isFlat) {
@@ -828,12 +863,7 @@ export function useGridScene(options: UseGridSceneOptions) {
       projectionCenter.value = { lat: center.lat, lon: newLon };
     }
 
-    // Update rotation speed based on camera distance
-    if (!projectionHelper.value.isFlat && orbitControls && camera) {
-      const distance = camera.position.length();
-      const normalizedDistance = distance / 30;
-      orbitControls.rotateSpeed = Math.min(1, 0.01 + normalizedDistance ** 2);
-    }
+    updateRotationSpeed();
 
     const controlsUpdated = render();
     const userInteractionActive = mouseDown || wheelActive;
@@ -844,7 +874,11 @@ export function useGridScene(options: UseGridSceneOptions) {
       refreshHover();
     }
     const cam = getCamera();
-    if (!userInteractionActive && !store.isRotating) {
+    if (
+      !userInteractionActive &&
+      !store.isRotating &&
+      animationCallbacks.size === 0
+    ) {
       if (controlsUpdated) {
         // Controls are still moving (damping draining) – reset idle counter.
         idleFrameCount = 0;
@@ -1107,6 +1141,7 @@ export function useGridScene(options: UseGridSceneOptions) {
       cancelAnimationFrame(frameId.value);
       frameId.value = 0;
     }
+    animationCallbacks.clear();
     orbitControls?.dispose();
     orbitControls = undefined;
     cleanupSurface(baseSurface);
@@ -1211,6 +1246,7 @@ export function useGridScene(options: UseGridSceneOptions) {
     makeSnapshot,
     applyCameraPreset,
     registerUpdateLOD,
+    registerAnimationCallback,
     updateBaseSurface,
     configureCameraForProjection,
     hoveredGeoPoint,
