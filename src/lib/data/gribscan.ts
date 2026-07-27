@@ -327,12 +327,9 @@ function decodeTemplate0(
 ) {
   const s5 = section5.offset;
   const referenceValue = view.getFloat32(s5 + 11, false);
-  const binaryScaleFactor = view.getInt16(s5 + 15, false);
-  const decimalScaleFactor = view.getInt16(s5 + 17, false);
   const bitsPerValue = view.getUint8(s5 + 19);
   const valueCount = view.getUint32(s5 + 5, false);
-  const scale =
-    Math.pow(2, binaryScaleFactor) / Math.pow(10, decimalScaleFactor);
+  const scale = readGrib2Scale(view, s5);
 
   return unpackSimple(
     section6,
@@ -438,8 +435,6 @@ function decodeTemplate42(
   totalPoints: number
 ) {
   const s5 = section5.offset;
-  const binaryScaleFactor = view.getInt16(s5 + 15, false);
-  const decimalScaleFactor = view.getInt16(s5 + 17, false);
   const params = {
     bitsPerSample: view.getUint8(s5 + 19),
     blockSize: view.getUint8(s5 + 22),
@@ -451,8 +446,7 @@ function decodeTemplate42(
     params,
     view.getUint32(s5 + 5, false)
   );
-  const scale =
-    Math.pow(2, binaryScaleFactor) / Math.pow(10, decimalScaleFactor);
+  const scale = readGrib2Scale(view, s5);
 
   return applyBitmap(
     section6,
@@ -464,8 +458,6 @@ function decodeTemplate42(
 
 function readComplexPackingParams(section5: TSection, view: DataView) {
   const s5 = section5.offset;
-  const binaryScaleFactor = view.getInt16(s5 + 15, false);
-  const decimalScaleFactor = view.getInt16(s5 + 17, false);
   return {
     bitsGroupWidth: view.getUint8(s5 + 36),
     bitsPerValue: view.getUint8(s5 + 19),
@@ -477,9 +469,21 @@ function readComplexPackingParams(section5: TSection, view: DataView) {
     referenceGroupLength: view.getUint32(s5 + 37, false),
     referenceGroupWidth: view.getUint8(s5 + 35),
     referenceValue: view.getFloat32(s5 + 11, false),
-    scale: Math.pow(2, binaryScaleFactor) / Math.pow(10, decimalScaleFactor),
+    scale: readGrib2Scale(view, s5),
     valueCount: view.getUint32(s5 + 5, false),
   };
+}
+
+function readGrib2Scale(view: DataView, section5Offset: number) {
+  const binaryScaleFactor = signMagnitude(
+    view.getUint16(section5Offset + 15, false),
+    16
+  );
+  const decimalScaleFactor = signMagnitude(
+    view.getUint16(section5Offset + 17, false),
+    16
+  );
+  return Math.pow(2, binaryScaleFactor) / Math.pow(10, decimalScaleFactor);
 }
 
 function readGroupReferences(
