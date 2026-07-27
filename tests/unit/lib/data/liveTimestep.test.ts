@@ -1,3 +1,4 @@
+import axios, { AxiosError, AxiosHeaders } from "axios";
 import { afterEach, expect, it, vi } from "vitest";
 
 import {
@@ -22,16 +23,11 @@ function makeSources(store: string): TSources {
   };
 }
 
-function jsonResponse(body: unknown, ok = true, status = 200) {
-  return { ok, status, json: async () => body } as unknown as Response;
-}
-
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 const signal = new AbortController().signal;
 
 afterEach(() => {
   vi.restoreAllMocks();
-  vi.unstubAllGlobals();
 });
 
 it("joins the base URL and endpoint, normalizing trailing slashes", () => {
@@ -56,43 +52,47 @@ it("returns undefined for an icechunk store (live mode is HTTP-only)", () => {
 });
 
 it("parses the timestep from the current-timestep endpoint", async () => {
-  const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ timestep: 7 }));
-  vi.stubGlobal("fetch", fetchMock);
+  const getMock = vi
+    .spyOn(axios, "get")
+    .mockResolvedValue({ data: { timestep: 7 } });
 
   await expect(fetchCurrentTimestep("https://h/d.zarr", signal)).resolves.toBe(
     7
   );
-  expect(fetchMock).toHaveBeenCalledWith(
+  expect(getMock).toHaveBeenCalledWith(
     "https://h/d.zarr/current-timestep",
     expect.objectContaining({ signal })
   );
 });
 
 it("accepts a numeric string in the timestep field", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn().mockResolvedValue(jsonResponse({ timestep: "42" }))
-  );
+  vi.spyOn(axios, "get").mockResolvedValue({ data: { timestep: "42" } });
   await expect(fetchCurrentTimestep("https://h/d.zarr", signal)).resolves.toBe(
     42
   );
 });
 
 it("long-polls the next-timestep endpoint", async () => {
-  const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ timestep: 8 }));
-  vi.stubGlobal("fetch", fetchMock);
+  const getMock = vi
+    .spyOn(axios, "get")
+    .mockResolvedValue({ data: { timestep: 8 } });
 
   await expect(fetchNextTimestep("https://h/d.zarr", signal)).resolves.toBe(8);
-  expect(fetchMock).toHaveBeenCalledWith(
+  expect(getMock).toHaveBeenCalledWith(
     "https://h/d.zarr/next-timestep",
     expect.objectContaining({ signal })
   );
 });
 
 it("throws on a non-OK response", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn().mockResolvedValue(jsonResponse({}, false, 503))
+  vi.spyOn(axios, "get").mockRejectedValue(
+    new AxiosError("Request failed", undefined, undefined, undefined, {
+      status: 503,
+      data: {},
+      statusText: "Service Unavailable",
+      headers: {},
+      config: { headers: new AxiosHeaders() },
+    })
   );
   await expect(
     fetchCurrentTimestep("https://h/d.zarr", signal)
@@ -100,20 +100,14 @@ it("throws on a non-OK response", async () => {
 });
 
 it("throws on an invalid payload", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn().mockResolvedValue(jsonResponse({ timestep: "nope" }))
-  );
+  vi.spyOn(axios, "get").mockResolvedValue({ data: { timestep: "nope" } });
   await expect(
     fetchCurrentTimestep("https://h/d.zarr", signal)
   ).rejects.toThrow(/invalid payload/);
 });
 
 it("rejects negative or non-integer timesteps", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn().mockResolvedValue(jsonResponse({ timestep: -1 }))
-  );
+  vi.spyOn(axios, "get").mockResolvedValue({ data: { timestep: -1 } });
   await expect(
     fetchCurrentTimestep("https://h/d.zarr", signal)
   ).rejects.toThrow(/invalid payload/);
@@ -122,17 +116,16 @@ it("rejects negative or non-integer timesteps", async () => {
 it("emits the current timestep first, then follows subsequent ones", async () => {
   // current-timestep -> 5, next-timestep -> 6, then park (never resolves).
   let call = 0;
-  const fetchMock = vi.fn().mockImplementation(() => {
+  const getMock = vi.spyOn(axios, "get").mockImplementation(() => {
     call += 1;
     if (call === 1) {
-      return Promise.resolve(jsonResponse({ timestep: 5 }));
+      return Promise.resolve({ data: { timestep: 5 } });
     }
     if (call === 2) {
-      return Promise.resolve(jsonResponse({ timestep: 6 }));
+      return Promise.resolve({ data: { timestep: 6 } });
     }
     return new Promise(() => {}); // pending long-poll
   });
-  vi.stubGlobal("fetch", fetchMock);
 
   const seen: number[] = [];
   const connected: boolean[] = [];
@@ -148,12 +141,12 @@ it("emits the current timestep first, then follows subsequent ones", async () =>
   controller.stop();
 
   expect(seen).toEqual([5, 6]);
-  expect(fetchMock).toHaveBeenNthCalledWith(
+  expect(getMock).toHaveBeenNthCalledWith(
     1,
     "https://h/d.zarr/current-timestep",
     expect.anything()
   );
-  expect(fetchMock).toHaveBeenNthCalledWith(
+  expect(getMock).toHaveBeenNthCalledWith(
     2,
     "https://h/d.zarr/next-timestep",
     expect.anything()
@@ -163,10 +156,7 @@ it("emits the current timestep first, then follows subsequent ones", async () =>
 });
 
 it("does not emit after stop() is called before start()", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn().mockResolvedValue(jsonResponse({ timestep: 1 }))
-  );
+  vi.spyOn(axios, "get").mockResolvedValue({ data: { timestep: 1 } });
 
   const seen: number[] = [];
   const controller = new LiveTimestepController({

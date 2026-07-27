@@ -1,3 +1,5 @@
+import axios from "axios";
+
 import { parseStorePath } from "./icechunkStore.ts";
 
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
@@ -62,13 +64,20 @@ async function fetchTimestep(
   url: string,
   signal: AbortSignal
 ): Promise<number> {
-  const response = await fetch(url, { signal, cache: "no-store" });
-  if (!response.ok) {
-    throw new Error(
-      `Timestep endpoint ${url} returned HTTP ${response.status}`
-    );
+  let body: TTimestepResponse;
+  try {
+    const response = await axios.get<TTimestepResponse>(url, {
+      signal,
+      headers: { "Cache-Control": "no-store" },
+    });
+    body = response.data;
+  } catch (error) {
+    if (axios.isAxiosError(error) && error.response) {
+      const { status } = error.response;
+      throw new Error(`Timestep endpoint ${url} returned HTTP ${status}`);
+    }
+    throw error;
   }
-  const body = (await response.json()) as TTimestepResponse;
   const timestep = parseTimestep(body?.timestep);
   if (timestep === null) {
     throw new Error(
@@ -103,7 +112,10 @@ export function fetchNextTimestep(
 }
 
 function isAbortError(error: unknown): boolean {
-  return error instanceof DOMException && error.name === "AbortError";
+  return (
+    axios.isCancel(error) ||
+    (error instanceof DOMException && error.name === "AbortError")
+  );
 }
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
