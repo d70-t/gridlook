@@ -14,6 +14,10 @@ import {
   GRID_TYPES,
   type T_GRID_TYPES,
 } from "@/lib/data/gridTypeDetector.ts";
+import {
+  fetchCurrentTimestep,
+  liveStoreBaseUrl,
+} from "@/lib/data/liveTimestep.ts";
 import { indexFromIndex, indexFromZarr } from "@/lib/data/sourceIndexing.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { PROJECTION_TYPES, clamp } from "@/lib/projection/projectionUtils.ts";
@@ -24,6 +28,7 @@ import {
 import { PresenterRole } from "@/lib/types/presenterSync.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
+import { useLiveTimestep } from "@/store/useLiveTimestep.ts";
 import {
   usePresenterSync,
   isDisplayMode,
@@ -91,7 +96,7 @@ if (urlParams.get("mode") === PresenterRole.DISPLAY) {
 const { varnameSelector, loading, colormap, invertColormap } =
   storeToRefs(store);
 
-const { paramVarname, paramGridType, paramDistractionFree } =
+const { paramVarname, paramGridType, paramDistractionFree, paramLive } =
   storeToRefs(urlParameterStore);
 
 type TGlobeHandle = {
@@ -120,6 +125,9 @@ const sourceValid = ref(false);
 const datasources: Ref<TSources | undefined> = ref(undefined);
 const detectedGridType: Ref<T_GRID_TYPES | undefined> = ref(undefined);
 const infoPanelOpen = ref(false);
+
+// Auto-follow the newest timestep of a live dataset (see useLiveTimestep).
+useLiveTimestep(datasources);
 
 const distractionFreeFromUrl = paramDistractionFree.value === "true";
 
@@ -319,9 +327,45 @@ async function updateSrc(updateId: number) {
       lastError = index.reason;
     }
   }
+  store.setLive(paramLive.value === "true");
+  if (store.live && sourceValid.value && datasources.value) {
+    await seedLiveTimestep(datasources.value, updateId);
+  }
   store.signifyDatasetChange();
   if (!sourceValid.value && lastError) {
     logError(lastError, "Failed to fetch data");
+  }
+}
+
+/**
+ * Fetch the currently-available timestep of a live dataset and use it as the
+ * initial time index, so the first render requests a chunk that actually
+ * exists. Best-effort: on failure the live controller will still recover by
+ * retrying once it starts. Bounded by a timeout so a stuck endpoint cannot
+ * block the whole dataset from loading.
+ */
+async function seedLiveTimestep(sources: TSources, updateId: number) {
+  const baseUrl = liveStoreBaseUrl(sources);
+  if (!baseUrl) {
+    return;
+  }
+  const abortController = new AbortController();
+  const timeout = setTimeout(() => abortController.abort(), 10000);
+  try {
+    const current = await fetchCurrentTimestep(baseUrl, abortController.signal);
+    if (updateId !== sourceUpdateId) {
+      return;
+    }
+    urlParameterStore.paramDimIndices["time"] = String(current);
+    store.setLiveTimestep(current);
+  } catch (error) {
+    logError(
+      error,
+      `Live dataset: could not reach ${baseUrl}/current-timestep ` +
+        `(check the endpoint is served next to the store and CORS-enabled)`
+    );
+  } finally {
+    clearTimeout(timeout);
   }
 }
 

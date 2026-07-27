@@ -65,6 +65,7 @@ type TAnimationStoreRefs = {
   varinfo: Ref<TVarInfo | undefined>;
   dimSlidersValues: Ref<(number | null)[]>;
   loading: Ref<boolean>;
+  live: Ref<boolean>;
 };
 
 function createTimeRangeIndex(varinfo: Ref<TVarInfo | undefined>) {
@@ -97,7 +98,10 @@ function createTimeAnimationContext(
   });
   const canAnimate = computed(() => {
     const range = timeRange.value;
-    return range !== null && range.maxBound > range.minBound;
+    // Live datasets are driven by polling, not manual playback.
+    return (
+      !refs.live.value && range !== null && range.maxBound > range.minBound
+    );
   });
 
   return {
@@ -177,11 +181,12 @@ function createPlaybackControls(ctx: TAnimationContext) {
 
 export function useTimeAnimation() {
   const store = useGlobeControlStore();
-  const { varinfo, dimSlidersValues, loading } = storeToRefs(store);
+  const { varinfo, dimSlidersValues, loading, live } = storeToRefs(store);
   const animationContext = createTimeAnimationContext({
     varinfo,
     dimSlidersValues,
     loading,
+    live,
   });
 
   const { stop, toggle, cycleSpeed, scheduleNextStep } =

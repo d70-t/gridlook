@@ -18,6 +18,8 @@ https://gridlook.pages.dev/#<ZARR_URI>
 
 Gridlook can also load catalog JSON files that list multiple datasets. The catalog format and deployment options are documented in [docs/catalogs.md](docs/catalogs.md).
 
+Gridlook can follow **live datasets** (a Zarr store where only the current timestep is available, updated as a simulation runs) by appending `::live=true` to the dataset URL. See [docs/live-datasets.md](docs/live-datasets.md).
+
 A guide to the viewer keyboard, mouse, and touch interaction is available in [docs/Controls.md](docs/Controls.md).
 
 ## Project Setup

@@ -165,28 +165,78 @@ function fetchGrid() {
   }
 }
 
-async function getNside() {
-  try {
-    const crs = await ZarrDataManager.getCRSInfo(
-      props.datasources!,
-      varnameSelector.value
-    );
+function coerceNside(value: unknown): number | null {
+  const nside = typeof value === "number" ? value : Number(value);
+  return Number.isInteger(nside) && nside > 0 ? nside : null;
+}
 
-    return crs.attrs["healpix_nside"] as number;
-    // FIXME: could probably have other names
-  } catch (error) {
+async function nsideFromDggsMetadata(): Promise<number | null> {
+  try {
     const group = await ZarrDataManager.getParentGroup(
       props.datasources!,
       varnameSelector.value
     );
     const metadata = (group.attrs?.dggs as TZarrDggsMetadata) ?? {};
-    if ("refinement_level" in metadata) {
-      const refinementLevel = (metadata.refinement_level ?? 0) as number;
-      return Math.pow(2, refinementLevel);
+    const level = metadata.refinement_level;
+    if (level !== null && level !== undefined) {
+      return Math.pow(2, Number(level));
     }
-
-    throw error;
+  } catch {
+    // no dggs metadata found
   }
+  return null;
+}
+
+/**
+ * Derive nside from the length of the (last) cell dimension, assuming a global
+ * grid where `ncells = 12 * nside^2`. Returns null unless that yields an exact
+ * positive integer nside, so it never misfires on limited-area data.
+ */
+function nsideFromCellCount(
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
+): number | null {
+  const ncells = datavar.shape[datavar.shape.length - 1];
+  if (!ncells) {
+    return null;
+  }
+  return coerceNside(Math.sqrt(ncells / 12));
+}
+
+async function getNside(
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
+): Promise<number> {
+  // Preferred: `healpix_nside` on the grid-mapping / CRS variable.
+  try {
+    const crs = await ZarrDataManager.getCRSInfo(
+      props.datasources!,
+      varnameSelector.value
+    );
+    const fromCrs = coerceNside(crs.attrs["healpix_nside"]);
+    if (fromCrs !== null) {
+      return fromCrs;
+    }
+    // CRS variable exists but has no usable nside; fall through to dggs.
+  } catch {
+    // No CRS variable; fall through to dggs metadata.
+  }
+
+  // Fallback: derive nside from the group's DGGS refinement level.
+  const fromDggs = await nsideFromDggsMetadata();
+  if (fromDggs !== null) {
+    return fromDggs;
+  }
+
+  // Last resort: infer nside from a global grid's cell count (12 * nside^2).
+  const fromShape = nsideFromCellCount(datavar);
+  if (fromShape !== null) {
+    return fromShape;
+  }
+
+  throw new Error(
+    "Could not determine HEALPix nside: no valid `healpix_nside` on the " +
+      "grid-mapping variable, no `dggs.refinement_level` on the group, and " +
+      "the cell-dimension length is not 12 * nside^2."
+  );
 }
 
 async function getCells() {
@@ -693,7 +743,7 @@ async function fetchAndRenderData(
   const { dimensionRanges, indices } = await prepareDimensionData(datavar);
 
   const cellCoord = await getCells();
-  const nside = await getNside();
+  const nside = await getNside(datavar);
   hoverNside.value = nside;
   hoverData.value = castDataVarToFloat32(
     (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
