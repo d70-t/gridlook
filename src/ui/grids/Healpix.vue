@@ -15,6 +15,7 @@ import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 import { useStreamlineLayer } from "./composables/useStreamlineLayer.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
+import { healpixNestedPixelIndex } from "@/lib/data/healpix.ts";
 import {
   castDataVarToFloat32,
   decodeVariableDataAndGetBounds,
@@ -162,7 +163,10 @@ const { datasourceUpdate } = useGridDataLoader({
   prepareDatasource: fetchGrid,
   updateLandSeaMask,
   updateColormap: () => updateColormap(mainMeshes),
-  refreshStreamlines: async () => {
+  refreshStreamlines: async (reuseCached) => {
+    if (reuseCached && streamlines.showCached()) {
+      return;
+    }
     if (lastStreamlineContext) {
       await updateStreamlines(lastStreamlineContext);
     }
@@ -659,16 +663,6 @@ async function prepareDimensionData(
   return { dimensionRanges, indices };
 }
 
-function healpixPixelIndex(nside: number, latitude: number, longitude: number) {
-  const theta = THREE.MathUtils.degToRad(90 - latitude);
-  const normalizedLongitude = longitude < 0 ? longitude + 360 : longitude;
-  return healpix.ang2pix_nest(
-    nside,
-    theta,
-    THREE.MathUtils.degToRad(normalizedLongitude)
-  );
-}
-
 function makeHealpixVectorField(
   nside: number,
   cellCoord: number[] | undefined,
@@ -685,7 +679,7 @@ function makeHealpixVectorField(
   for (let y = 0; y < latitudes.length; y++) {
     for (let x = 0; x < longitudes.length; x++) {
       const outputIndex = y * longitudes.length + x;
-      const pixel = healpixPixelIndex(nside, latitudes[y], longitudes[x]);
+      const pixel = healpixNestedPixelIndex(nside, latitudes[y], longitudes[x]);
       const inputIndex = cellIndex ? cellIndex.get(pixel) : pixel;
       const u = inputIndex === undefined ? NaN : uValues[inputIndex];
       const v = inputIndex === undefined ? NaN : vValues[inputIndex];
@@ -824,12 +818,12 @@ function healpixHoverLookup(
   if (!hoverData.value || hoverNside.value === null) {
     return null;
   }
-  const theta = THREE.MathUtils.degToRad(90 - lat);
   const normalizedLon = ProjectionHelper.normalizeLongitude(lon);
-  const phi = THREE.MathUtils.degToRad(
-    normalizedLon < 0 ? normalizedLon + 360 : normalizedLon
+  const pixelIndex = healpixNestedPixelIndex(
+    hoverNside.value,
+    lat,
+    normalizedLon
   );
-  const pixelIndex = healpix.ang2pix_nest(hoverNside.value, theta, phi);
   const dataIndex = hoverCellIndexMap.value
     ? hoverCellIndexMap.value.get(pixelIndex)
     : pixelIndex;

@@ -74,7 +74,10 @@ export function useIrregularStreamlines(options: TOptions) {
   let currentContext: TIrregularStreamlineContext | undefined;
   let requestRevision = 0;
 
-  async function refresh() {
+  async function refresh(reuseCached = false) {
+    if (reuseCached && layer.showCached()) {
+      return;
+    }
     const revision = ++requestRevision;
     const datasources = options.getDatasources();
     const context = currentContext;

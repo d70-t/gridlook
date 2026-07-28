@@ -50,7 +50,45 @@ describe("detectVectorVariablePair", () => {
   });
 });
 
-describe("resolveVectorVariablePair", () => {
+describe("resolveVectorVariablePair groups", () => {
+  it("only detects components in the selected scalar-variable group", () => {
+    expect(
+      resolveVectorVariablePair(
+        ["surface/temperature", "atmosphere/u", "atmosphere/v"],
+        "surface/temperature",
+        { automatic: true }
+      )
+    ).toBeUndefined();
+
+    expect(
+      resolveVectorVariablePair(
+        ["surface/temperature", "surface/uas", "surface/vas"],
+        "surface/temperature",
+        { automatic: true }
+      )
+    ).toEqual({
+      u: "surface/uas",
+      v: "surface/vas",
+      kind: "uas/vas",
+    });
+  });
+
+  it("rejects explicitly selected components from another group", () => {
+    expect(
+      resolveVectorVariablePair(
+        ["surface/temperature", "ocean/uo", "ocean/vo"],
+        "surface/temperature",
+        {
+          automatic: false,
+          u: "ocean/uo",
+          v: "ocean/vo",
+        }
+      )
+    ).toBeUndefined();
+  });
+});
+
+describe("resolveVectorVariablePair selection", () => {
   it("uses an explicitly selected compatible pair", () => {
     expect(
       resolveVectorVariablePair(["uo", "vo", "temperature"], "temperature", {
@@ -150,5 +188,39 @@ describe("RegularVectorField", () => {
       new Float32Array([1, 1, 1, 1])
     );
     expect(field.sample(5, 5)).toBeUndefined();
+  });
+});
+
+describe("RegularVectorField seeding", () => {
+  it("distributes random positions uniformly by spherical area", () => {
+    const field = new RegularVectorField(
+      new Float32Array([-60, 60]),
+      new Float32Array([0, 180]),
+      new Float32Array(4).fill(1),
+      new Float32Array(4).fill(1)
+    );
+
+    const randomValues = [0.25, 0.5];
+    const position = field.randomPosition(() => randomValues.shift()!);
+    const expectedLatitude =
+      (Math.asin(-Math.sin(Math.PI / 3) / 2) * 180) / Math.PI;
+
+    expect(position.latitude).toBeCloseTo(expectedLatitude);
+    expect(position.longitude).toBe(-180);
+  });
+});
+
+describe("slow vector-field flow", () => {
+  it("preserves slow velocity magnitude without a regional speed floor", () => {
+    const field = new RegularVectorField(
+      new Float32Array([-10, 10]),
+      new Float32Array([-180, -60, 60]),
+      new Float32Array([100, 0.1, 0.1, 100, 0.1, 0.1]),
+      new Float32Array(6).fill(0)
+    );
+
+    const next = field.advance(0, 0, 0.1);
+    expect(next?.longitude).toBeGreaterThan(0);
+    expect(next?.longitude).toBeLessThan(0.005);
   });
 });

@@ -126,7 +126,10 @@ const { datasourceUpdate } = useGridDataLoader({
   prepareDatasource: fetchGrid,
   updateLandSeaMask,
   updateColormap: () => updateColormap(meshes),
-  refreshStreamlines: async () => {
+  refreshStreamlines: async (reuseCached) => {
+    if (reuseCached && streamlines.showCached()) {
+      return;
+    }
     if (lastStreamlineIndices) {
       await updateStreamlines(lastStreamlineIndices);
     }

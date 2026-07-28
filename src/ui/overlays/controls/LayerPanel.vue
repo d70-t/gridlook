@@ -4,6 +4,7 @@ import { computed, onMounted, ref } from "vue";
 
 import PopupDialog from "./PopupDialog.vue";
 
+import { getVariableGroup } from "@/lib/data/vectorField.ts";
 import {
   LAND_SEA_MASK_MODES,
   type TLandSeaMaskMode,
@@ -46,6 +47,7 @@ const {
   streamlinePair,
   streamlineSelection,
   varnameDisplay,
+  varnameSelector,
 } = storeToRefs(store);
 const { logError } = useLog();
 
@@ -56,14 +58,23 @@ const LAYER_ENTRY_SELECTOR = ".layer-entry";
 
 const vectorVariables = computed(() =>
   Object.keys(props.modelInfo?.vars ?? {})
-    .filter((name) => !props.modelInfo?.vars[name].hidden)
+    .filter(
+      (name) =>
+        !props.modelInfo?.vars[name].hidden &&
+        getVariableGroup(name) === getVariableGroup(varnameSelector.value)
+    )
     .sort((a, b) => a.localeCompare(b))
 );
 
+function vectorVariableLabel(name: string) {
+  return name.slice(name.lastIndexOf("/") + 1);
+}
+
 function vectorComponentValue(component: "u" | "v") {
-  return streamlineSelection.value.automatic
+  const value = streamlineSelection.value.automatic
     ? (streamlinePair.value?.[component] ?? "")
     : (streamlineSelection.value[component] ?? "");
+  return vectorVariables.value.includes(value) ? value : "";
 }
 
 function setVectorComponent(component: "u" | "v", value: string) {
@@ -581,7 +592,7 @@ function getLayerName(layer: TLayerEntry) {
                   :key="name"
                   :value="name"
                 >
-                  {{ name }}
+                  {{ vectorVariableLabel(name) }}
                 </option>
               </select>
             </span>
@@ -605,7 +616,7 @@ function getLayerName(layer: TLayerEntry) {
                   :key="name"
                   :value="name"
                 >
-                  {{ name }}
+                  {{ vectorVariableLabel(name) }}
                 </option>
               </select>
             </span>

@@ -146,6 +146,7 @@ function builtinLayerStack(): TLayerEntry[] {
 }
 
 export const useGlobeControlStore = defineStore("globeControl", {
+  // eslint-disable-next-line max-lines-per-function
   state: () => {
     return {
       showCoastLines: true,

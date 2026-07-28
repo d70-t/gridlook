@@ -27,7 +27,7 @@ type TGridDataLoaderOptions = {
   updateColormap: () => void;
   prepareDatasource?: () => void | Promise<void>;
   resetDataVars?: () => void;
-  refreshStreamlines?: () => void | Promise<void>;
+  refreshStreamlines?: (reuseCached?: boolean) => void | Promise<void>;
 };
 
 function createGetData(
@@ -119,15 +119,25 @@ function registerGridDataLoaderWatches(
     }
   );
   watch(
-    [
-      () => store.streamlineSelectionRevision,
-      () => store.isStreamlineLayerEnabled(),
-    ],
+    () => store.streamlineSelectionRevision,
     async () => {
       try {
         await options.refreshStreamlines?.();
       } catch (error) {
         logError(error, "Could not update vector components");
+      }
+    }
+  );
+  watch(
+    () => store.isStreamlineLayerEnabled(),
+    async (enabled) => {
+      if (!enabled) {
+        return;
+      }
+      try {
+        await options.refreshStreamlines?.(true);
+      } catch (error) {
+        logError(error, "Could not enable vector streamlines");
       }
     }
   );
