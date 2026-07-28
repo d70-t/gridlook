@@ -262,6 +262,15 @@ function finiteBounds(values: Float32Array) {
   };
 }
 
+function regularAxis(minimum: number, maximum: number) {
+  const count = Math.max(2, Math.ceil(maximum - minimum) + 1);
+
+  return Float32Array.from(
+    { length: count },
+    (_, index) => minimum + (index * (maximum - minimum)) / (count - 1)
+  );
+}
+
 function interpolationRadiusKm(
   sampleCount: number,
   latitudeMin: number,
@@ -871,6 +880,7 @@ export class IrregularVectorField implements TStreamlineVectorField {
 
   private readonly index: KDBush;
   private readonly indexSampleIds: Uint32Array;
+  private readonly regularField: RegularVectorField;
 
   private readonly latitudes: Float32Array;
   private readonly longitudes: Float32Array;
@@ -961,6 +971,7 @@ export class IrregularVectorField implements TStreamlineVectorField {
     }
 
     this.index.finish();
+    this.regularField = this.createRegularField();
   }
 
   private candidateSampleIds(latitude: number, longitude: number) {
@@ -1064,23 +1075,32 @@ export class IrregularVectorField implements TStreamlineVectorField {
     };
   }
 
+  private createRegularField() {
+    const latitudes = this.isGlobal
+      ? Float32Array.from({ length: 179 }, (_, index) => index - 89)
+      : regularAxis(this.latitudeMin, this.latitudeMax);
+
+    const longitudes = this.isGlobal
+      ? Float32Array.from({ length: 360 }, (_, index) => index - 180)
+      : regularAxis(this.longitudeMin, this.longitudeMax);
+
+    const uData = new Float32Array(latitudes.length * longitudes.length);
+    const vData = new Float32Array(uData.length);
+
+    for (let y = 0; y < latitudes.length; y++) {
+      for (let x = 0; x < longitudes.length; x++) {
+        const index = y * longitudes.length + x;
+        const vector = this.sampleIndexed(latitudes[y], longitudes[x]);
+        uData[index] = vector?.u ?? NaN;
+        vData[index] = vector?.v ?? NaN;
+      }
+    }
+
+    return new RegularVectorField(latitudes, longitudes, uData, vData);
+  }
+
   sample(latitude: number, longitude: number): TVectorSample | undefined {
-    if (latitude < this.latitudeMin || latitude > this.latitudeMax) {
-      return undefined;
-    }
-
-    const queryLongitude = this.isGlobal
-      ? normalizeLongitude(longitude)
-      : longitude;
-
-    if (
-      !this.isGlobal &&
-      (queryLongitude < this.longitudeMin || queryLongitude > this.longitudeMax)
-    ) {
-      return undefined;
-    }
-
-    return this.sampleIndexed(latitude, queryLongitude);
+    return this.regularField.sample(latitude, longitude);
   }
 
   advance(latitude: number, longitude: number, seconds: number) {
