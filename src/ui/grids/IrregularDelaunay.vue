@@ -10,6 +10,7 @@ import {
   useGridHoverLookup,
 } from "./composables/gridHoverUtils.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
+import { useIrregularStreamlines } from "./composables/useIrregularStreamlines.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
 import { getLatLonData } from "@/lib/data/coordinateVariables.ts";
@@ -67,6 +68,7 @@ const {
   onProjectionChange,
   onMotionStateChange,
   onColormapChange,
+  registerAnimationCallback,
   redraw,
   canvas,
   box,
@@ -98,6 +100,17 @@ const colormapMaterial = computed(() => {
   return makeInvertableGpuMeshMaterial(colormap.value, invertColormap.value);
 });
 
+const streamlines = useIrregularStreamlines({
+  getDatasources: () => props.datasources,
+  getPreferredVariable: () => varnameSelector.value,
+  getDataVar,
+  getScene,
+  redraw,
+  projectionHelper,
+  onProjectionChange,
+  registerAnimationCallback,
+});
+
 const { datasourceUpdate } = useGridDataLoader({
   getDatasources: () => props.datasources,
   getDataVar,
@@ -105,6 +118,7 @@ const { datasourceUpdate } = useGridDataLoader({
   clearHoverLookup,
   updateLandSeaMask,
   updateColormap: () => updateColormap(meshes),
+  refreshStreamlines: streamlines.refresh,
 });
 
 /**
@@ -622,7 +636,14 @@ async function buildDimensionConfig(
     geoDims,
     varinfo.value?.dimRanges
   );
-  return { latitudes, longitudes, dimensionRanges, indices };
+  return {
+    latitudes,
+    longitudes,
+    dimensionRanges,
+    indices,
+    dimensions,
+    geoDims,
+  };
 }
 
 function updateHoverLookup(
@@ -653,8 +674,14 @@ function updateHoverLookup(
 async function fetchAndRenderData(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
-  const { latitudes, longitudes, dimensionRanges, indices } =
-    await buildDimensionConfig(datavar);
+  const {
+    latitudes,
+    longitudes,
+    dimensionRanges,
+    indices,
+    dimensions,
+    geoDims,
+  } = await buildDimensionConfig(datavar);
 
   const rawData = castDataVarToFloat32(
     (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
@@ -665,6 +692,18 @@ async function fetchAndRenderData(
     rawData
   );
   getGrid(latitudes, longitudes!, rawData);
+
+  const coordinates = reconcileCoordinates(
+    latitudes,
+    longitudes!,
+    rawData.length
+  );
+  await streamlines.setContext({
+    ...coordinates,
+    dimensionNames: dimensions,
+    indices,
+    spatialDimensionNames: geoDims.map((index) => dimensions[index]),
+  });
 
   updateHoverLookup(rawData, latitudes, longitudes!, fillValue, missingValue);
 
