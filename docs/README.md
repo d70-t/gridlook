@@ -1,235 +1,129 @@
-# Gridlook 2025-07-22
+# Gridlook
 
-**ESM data viewer on a 3D sphere using WebGL**
-
-Andrej Fast¹, Tobi Kölling², Fabian Wachsmann¹, Lukas Kluft²
+Andrej Fast¹, Tobi Kölling², Fabian Wachsmann¹, and contributors
 
 ¹DKRZ, ²MPI-M
 
-🔗 [Github](https://github.com/d70-t/gridlook) - 🔗 [Demo](https://gridlook.pages.dev/)
+Gridlook is a browser-based WebGL viewer for interactive exploration of
+cloud-hosted Zarr datasets and Icechunk repositories containing Earth system
+model (ESM) output on native grids.
+
+- [Open Gridlook](https://gridlook.pages.dev/)
+- [Read the EGU26 publication](https://www.egu26.eu/EGU26-9862.html)
+
+## Documentation index
+
+### Using Gridlook
+
+- [Controls](Controls.md) — keyboard, mouse, touch, streamlines, and presenter
+  controls.
+- [Supported grid types](grid-types.md) — grid families, automatic detection,
+  and alternative renderers.
+
+### Providing data
+
+- [Catalogs](catalogs.md) — catalog schema, hosting, and shareable catalog URLs.
+- [Live-dataset server contract](live-datasets.md#server-contract) — endpoints
+  required by live mode.
+- [CORS and data hosting](../README.md#cors--hosting-notes) — browser access
+  requirements and a header check.
+
+## Capabilities
+
+- Explore model output without installing desktop software, logging in to an
+  HPC system, or generating map tiles first.
+- Render regular and unstructured native grids without regridding, with
+  automatic grid detection from dataset metadata.
+- Fetch data directly from public Zarr stores and Icechunk repositories and
+  project, color, and render it in the browser with WebGL.
+- Use interactive 3D and flat projections, scientific colormaps, histograms,
+  range selection, auto-contrast, hover readout, and snapshot export.
+- Add coastlines, graticules, land and sea masks, texture layers, and animated
+  streamlines.
+- Share the dataset, variable, projection, and view parameters through a URL.
+- Browse grouped datasets through catalogs or follow a running simulation in
+  live mode.
+
+## Dataset information
+
+- Open the **Dataset Info** panel to inspect the metadata of a dataset
+- Review the current variable's long name, standard name, units, and CF
+  standard-name information.
+- Check standard name-details provided by [The NERC Vocabulary Server (NVS), National Oceanography Centre – BODC](https://vocab.nerc.ac.uk/)
+- Inspect dataset metadata, available variables and dimensions, spatial
+  coverage, data type, chunk shape, and estimated uncompressed size.
+
+![Dataset Info panel showing grid, variable, metadata, and storage information](assets/datasetInfo.png)
+
+## Layers
+
+- Organize the data grid, coastlines, graticules, masks, streamlines, and custom
+  texture layers in one layer stack.
+- Drag layers to change their drawing order, toggle their visibility, and
+  adjust opacity where supported.
+- Import custom PNG, JPG, and GeoTIFF files as image layers.
+- Create a GeoTIFF image layer from the currently loaded data and add it to the
+  layer stack.
+
+## Open a dataset
+
+- Start with the [hosted Gridlook application](https://gridlook.pages.dev/).
+- Open a Zarr dataset or Icechunk repository directly with this URL pattern:
+
+  ```text
+  https://gridlook.pages.dev/#<ZARR_OR_ICECHUNK_URI>
+  ```
+
+- Use a publicly reachable Zarr or Icechunk URI that allows browser requests
+  through CORS. Icechunk repositories can use an `icechunk+https://` URI.
+- Open multiple related datasets through a [Gridlook catalog](catalogs.md).
+- Follow a changing dataset by adding `::live=true`; see
+  [Live datasets](live-datasets.md).
+- Use the [controls guide](Controls.md) for keyboard, mouse, touch, streamline,
+  and presenter controls.
+
+## Supported grids
+
+- Regular latitude-longitude grids, including Web Mercator and zonal means.
+- Rotated regular latitude-longitude grids, including CORDEX output.
+- Curvilinear grids, including ocean-model grids.
+- Reduced Gaussian grids, including IFS-style products.
+- HEALPix grids, including ICON and HEALPix-remapped output.
+- Triangular grids, including native ICON output.
+- Irregular and unstructured grids, including AWI-CM and FESOM output.
+
+See [Supported grid types](grid-types.md) for detection rules and rendering
+alternatives.
+
+## Examples
+
+- [Triangular: EERIE ICON historical near-surface temperature on R2B8](https://gridlook.pages.dev/#https://gridlook.pages.dev/static/index_mr_dpp0066.json::varname=sfcwind::dimIndices_time=1)
+- [Regular: CMIP6 EC-Earth3P-HR precipitation](https://gridlook.pages.dev/#https://storage.googleapis.com/cmip6/CMIP6/HighResMIP/EC-Earth-Consortium/EC-Earth3P-HR/highresSST-present/r1i1p1f1/Amon/pr/gr/v20170811/)
+- [Rotated regular: EURO-CORDEX REMO2015 near-surface temperature](https://gridlook.pages.dev/#https://euro-cordex.s3.amazonaws.com/CMIP5/cordex/output/EUR-11/GERICS/MPI-M-MPI-ESM-LR/historical/r3i1p1/REMO2015/v1/mon/tas/v20190925/)
+- [Reduced Gaussian: EERIE IFS historical output on TCO1279](https://gridlook.pages.dev/#https://eerie.cloud.dkrz.de/datasets/ifs-amip-tco1279.hist.v20240901.atmos.native.2D_monthly/stac)
+- [Healpix](https://gridlook.pages.dev/#https://s3.waterpark.dkrz.de/eerie/eerie-future-ssp245-v20240618_P1M_mean_7.zarr)
+- [Irregular: CMIP6 AWI-CM historical sea-surface temperature](https://gridlook.pages.dev/#https://cmip6-pds.s3.amazonaws.com/CMIP6/CMIP/AWI/AWI-CM-1-1-MR/historical/r1i1p1f1/Oday/tos/gn/v20181218/)
+
+## Use cases
 
----
+- Embed interactive model views in web applications, including mobile layouts.
+- Understand model internals, such as ring-shaped precipitation in IFS
+- Find bugs and diagnose model output, such as the
+  [Amazon River temperature anomaly in CMIP6 MPI-ESM1-2](https://gridlook.pages.dev/#https://storage.googleapis.com/cmip6/CMIP6/ScenarioMIP/DKRZ/MPI-ESM1-2-HR/ssp370/r1i1p1f1/Amon/tas/gn/v20190710/).
 
-## 🌍 Motivation
+| IFS DYAMOND3 precipitation over the Indian Ocean                                              | IFS DYAMOND3 cloud cover over the Pacific                                  |
+| --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| ![Precipitation rate in IFS DYAMOND3 over the Indian Ocean](assets/ifs_precip_ringshaped.jpg) | ![Cloud cover in IFS DYAMOND3 over the Pacific](assets/ifs_cloudcover.jpg) |
 
-Build an easy-to-use **visualisation tool** to
+## Technology
 
-make climate science more **explorable and tangible**.
+- TypeScript and Vue.js for the application.
+- Bulma for the interface.
+- Three.js and WebGL for rendering.
+- Zarrita for Zarr dataset access and `icechunk-js` for Icechunk repository
+  access.
 
----
+## Publication
 
-## 🚀 Features
-
-- 👀 show plotting without HPC
-- 🔎 *Simply and Interactively explore*
-    **native grid** Earth System Model (ESM) output
-- 🔗 Share *any dataset view* via URL
-- 🚅💨 no installation or compute server required
-- 🎨 *client-side* rendering and color mapping
-    **no image pregeneration**
-
-----
-
-## ☁️ Set-up
-
-Support and leverage **any Zarr dataset** stored in cloud environments.
-
-📌 **Recipe**:
-`https://gridlook.pages.dev/#` + `ZARR_URI`
-
-Where `ZARR_URI`:
-
-- ✅ Is **openly accessible**
-- 🌐 Allows **Cross-Origin Requests (CORS)**
-
-
-----
-
-## Gridlook is *Not*
-
-- ❌ A competitor to high-end visualization suites
-- ❌ A tool for generating publication-quality graphics<br>
-👉 It’s built for intuitive, efficient, interoperable **exploration**.
-
----
-
-## 🛠 Technical Details
-
-- 🧠 Built with **TypeScript**
-- 🌱 Frontend: **Vue.js** + **Bulma**
-- 🔺 Rendering: **Three.js (WebGL)**
-- 📦 Zarr handling via **Zarrita**
-
-----
-
-## Supported Grids
-
-- 🌐 Regular Grids
-- 🧭 Rotated Regular Grids
-- 💠 HEALPix
-- 🔺 Triangular (ICON)
-- 🪢 * Irregular Grids
-- 🌐 * Gaussian Reduced (e.g., ERA5)
-
-----
-
-## 📊 Examples
-
-**💠 Healpix**
-
-Support for all datasets in the [WCRP Global Hackathon HK25 catalog](https://digital-earths-global-hackathon.github.io/catalog/).
-Get to know the gridtype *healpix*
-with this ICON amip Dyamond3 simulation PT6h_inst dataset:
-
-- [Level 0](https://gridlook.pages.dev/#https://s3.eu-dkrz-1.dkrz.cloud/wrcp-hackathon/data/ICON/d3hp003.zarr/PT6H_inst_z0_atm)
-- [Level 4](https://gridlook.pages.dev/#https://s3.eu-dkrz-1.dkrz.cloud/wrcp-hackathon/data/ICON/d3hp003.zarr/PT6H_inst_z4_atm)
-- [Level 7](https://gridlook.pages.dev/#https://s3.eu-dkrz-1.dkrz.cloud/wrcp-hackathon/data/ICON/d3hp003.zarr/PT6H_inst_z7_atm)
-- [Level 11](https://gridlook.pages.dev/#https://s3.eu-dkrz-1.dkrz.cloud/wrcp-hackathon/data/ICON/d3hp003.zarr/PT6H_inst_z11_atm) (downloads much data!)
-
-----
-
-👀 Many of the following datasets have large chunks (~100MB).
-
-Mind that when you are on mobile network or using a mobile device.
-
-----
-
-2. [🔺 Triangular](https://gridlook.pages.dev/#https://eerie.cloud.dkrz.de/datasets/icon-esm-er.hist-1950.v20240618.atmos.native.2d_monthly_mean/stac)
-    Dataset: EERIE ICON hist-1950 tas on R2B8 (10km)
-3. [🌐 Regular (lat x lon)](https://gridlook.pages.dev/#https://storage.googleapis.com/cmip6/CMIP6/HighResMIP/EC-Earth-Consortium/EC-Earth3P-HR/highresSST-present/r1i1p1f1/Amon/pr/gr/v20170811/)
-    Dataset: CMIP6 EC-Earth3P-HR highresSST-present pr, 30km.
-    -> Support for CMIP
-4. [🧭 Rotated lat x lon](https://gridlook.pages.dev/#https://euro-cordex.s3.amazonaws.com/CMIP5/cordex/output/EUR-11/GERICS/MPI-M-MPI-ESM-LR/historical/r3i1p1/REMO2015/v1/mon/tas/v20190925/)
-    Dataset: CORDEX REMO2015 historical tas on EUR11(12km)
-    -> Support for CORDEX
-5. [🌐 Gaussian reduced (decreasing no of longitudes towards poles)](https://s3.eu-dkrz-1.dkrz.cloud/bm1344/gridlook/index.html#https://eerie.cloud.dkrz.de/datasets/ifs-amip-tco1279.hist.v20240901.atmos.native.2D_monthly/stac)
-    Dataset: EERIE IFS hist 10fg on TCO1279 (10km)
-    --> Support for ERA5
-6. [🪢 Irregular](https://gridlook.pages.dev/#https://cmip6-pds.s3.amazonaws.com/CMIP6/CMIP/AWI/AWI-CM-1-1-MR/historical/r1i1p1f1/Oday/tos/gn/v20181218/)
-    Dataset: CMIP6 AWI-CM-1-1-MR historical tos, 25km.
-
----
-
-## 💡 Use Cases
-
-- 📱 Embed in web apps — even works on mobile
-- 🧬 Understand model internals
-    (e.g., [ring-shaped precipitation in IFS](https://gridlook.pages.dev/#https://s3.eu-dkrz-1.dkrz.cloud/wrcp-hackathon/data/IFS-FESOM/hourly_healpix2048.zarr))
-- 🐛 Find bugs or diagnose outputs
-    (e.g., [Amazon River temperature anomaly in CMIP6 MPI-ESM1-2](https://gridlook.pages.dev/#https://storage.googleapis.com/cmip6/CMIP6/ScenarioMIP/DKRZ/MPI-ESM1-2-HR/ssp370/r1i1p1f1/Amon/tas/gn/v20190710/))
-
-----
-
-Precipitation rate in IFS Dyamond3 over the indian ocean
-![Precipitation rate in IFS Dyamond3 over the indian ocean](assets/ifs_precip_ringshaped.jpg)
-
-
-Cloud coverage in IFS Dyamond3 over the Pacific
-![Cloud coverage in IFS Dyamond3 over the Pacific](assets/ifs_cloudcover.jpg)
-
-
----
-
-## ☁️ Gridlook collections
-
-**🧊 DKRZ support for S3 and Swift datasets**
-
-STAC Integration as a DM test service:
-Buttons as Assets in STAC Items
-
-- [Dyamond3 Healpix](https://discover.dkrz.de/external/stac2.cloud.dkrz.de/fastapi/collections/dyamond)
-
-----
-
-**🧊 DKRZ support for S3 and Swift datasets**
-
-works well for the HK25 data stored at DKRZ because of **a performant institutional s3 cloud storage**
-
-----
-
-**Prepared datasets**
-
-works well for the HK25 data stored at DKRZ because we
-- rechunked datasets
-- enriched datasets (`crs`, attributes)
-- brought it to cloud
-- embedded links in catalogs
-
-----
-
-
-### ☁️ Other Cloud Providers
-
-For CORS-enabled locations:
-
-💡 Right-click `.zmetadata` to get the URL
-→ append to Gridlook URL and remove `.zmetadata`
-→ submit
-
-- **Google Cloud**
-  [CMIP6 Dataset](https://console.cloud.google.com/marketplace/product/noaa-public/cmip6)
-
-- **AWS**
-  [EURO-CORDEX Dataset](https://registry.opendata.aws/euro-cordex/)
-
-- (**Azure**
-  ❌ Not supported (e.g., [Planetary Computer](https://planetarycomputer.microsoft.com/dataset/gridmet)))
-
----
-
-## BYODataset
-
-*A minimal guide for DKRZ users:*
-
-1. Make your dataset [CF](https://cfconventions.org/) conform for gridtype identification. Add
-
-    - `grid_mapping` attribute used for *"rotated_lat_lon"* and *"healpix"*
-    - coordinates: `lat` and `lon` values
-    - better not encode `time` as *"INT64"*
-    - (`long_name` attribute to variables)
-
-
-2. Store zarr datasets in DKRZ cloud storage: [swift](https://docs.dkrz.de/doc/datastorage/swift/index.html) (until 2026) and [s3](https://docs.dkrz.de/doc/datastorage/minio/index.html) soon.
-
-```shell
-cdo -f nczarr copy INPUT OUTPUT #reformat to zarr
-module load swift #login
-swift upload BUCKET OUTPUT
-```
-
-Without temporary output in Python with [swiftspec](https://github.com/fsspec/swiftspec)
-
-```python
-import xarray as xr
-ds = xr.open_dataset(YOUR_DS_URI)
-ds.to_zarr("swift://BUCKET/DS_NAME")
-```
-
-Example: [Fsspec intro](https://github.com/eerie-project/EERIE_hackathon_2023/blob/main/nereus/tutorial_cloud_fsspec.ipynb)(EERIE Hackathon 2023)
-
-3. Bucket setting: Publish and allow CORS
-
-```bash
-swift post BUCKET -r .r:* #publish
-swift post BUCKET -m \
-  "X-Container-Meta-Access-Control-Allow-Origin:*" #set CORS
-```
-
-----
-
-**Optimal Zarr-datasets for Web-Apps**:
-
-Reduce the amount of transferred data.
-
-- Chunks!
-  - aim for 1-5 MB
-  - are loaded in parallel (it's ok to load a few)
-  - are *cached* (on client-side usually only if smaller than 50MB)
-
-- Compress it!
-  - [zarrita supports common algorithms](https://github.com/manzt/zarrita.js/blob/c0dd684dc4da79a6f42ab2a591246947bde8d143/packages/zarrita/src/codecs.ts#L26)
-
-----
-
-🎯 makes **climate science more explorable and tangible**.
-
+- [Gridlook: Interactive Visualization of Cloud-Hosted Earth System Model
+  Output on Native Grids — EGU26-9862](https://www.egu26.eu/EGU26-9862.html)
