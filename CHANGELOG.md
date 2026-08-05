@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.5.0](https://github.com/d70-t/gridlook/compare/v1.4.1...v1.5.0) (2026-08-05)
+
+
+### Features
+
+* add loco support ([#198](https://github.com/d70-t/gridlook/issues/198)) ([56b1942](https://github.com/d70-t/gridlook/commit/56b1942036a4c099da9f3a9797103a5e0616dc62))
+* added experimental gribscan codec ([12a438d](https://github.com/d70-t/gridlook/commit/12a438d40df3d6fcf43f475dadba6bd649f3a4d4))
+* **lib:** added logbins codec ([07c181a](https://github.com/d70-t/gridlook/commit/07c181af2afa595d48893a7c6ae5915e0cac00e7))
+* **lib:** added web-workers for regular grids ([e8105cd](https://github.com/d70-t/gridlook/commit/e8105cd7e763ddc02d0d9fa1f6f6b42a648cc19a))
+
+
+### Bug Fixes
+
+* **ui:** Toasts are above other UI-Elements again ([05eafcc](https://github.com/d70-t/gridlook/commit/05eafcc43d3ad145ac048320c67e011e6f2f7ba1))
+
 ## [1.4.1](https://github.com/d70-t/gridlook/compare/v1.4.0...v1.4.1) (2026-07-14)
 
 
