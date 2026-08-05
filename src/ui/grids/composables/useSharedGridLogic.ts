@@ -192,9 +192,11 @@ export function useSharedGridLogic() {
         updateLandSeaMask();
         void updateTextureLayers(true);
         configureCameraForProjection();
-      } else if (centerChanged) {
+      } else if (centerChanged && projectionHelper.value.isFlat) {
         void updateOverlayProjectionUniforms();
         updateLayerProjectionUniforms();
+      } else if (centerChanged) {
+        return;
       }
 
       for (const cb of projectionChangeCallbacks) {

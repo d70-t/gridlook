@@ -59,7 +59,18 @@ const URL_PARAM_SYNC_MAP: TUrlSyncEntry[] = [
   {
     key: "paramCameraState",
     param: URL_PARAMETERS.CAMERA_STATE,
-    skip: (v) => !v,
+  },
+  {
+    key: "paramCameraX",
+    param: URL_PARAMETERS.CAMERA_X,
+  },
+  {
+    key: "paramCameraY",
+    param: URL_PARAMETERS.CAMERA_Y,
+  },
+  {
+    key: "paramCameraZ",
+    param: URL_PARAMETERS.CAMERA_Z,
   },
   {
     key: "paramGridType",
@@ -77,7 +88,9 @@ export function useUrlSync() {
   const urlParameterStore = useUrlParameterStore();
 
   function changeURLHash(
-    entries: Partial<Record<TURLParameterValues | string, string | number>>
+    entries: Partial<
+      Record<TURLParameterValues | string, string | number | undefined>
+    >
   ) {
     const [resource, ...paramArray] = location.hash.substring(1).split("::");
     const paramString = paramArray.join("&");
