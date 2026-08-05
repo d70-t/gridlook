@@ -164,7 +164,7 @@ async function getTimeDimensionInfo() {
     const varSource = props.datasources.levels[0].time;
     timeInfo.value = await fetchTimeData(varSource, timeDimName);
   } catch (err) {
-    logError(err);
+    logError(err, "Error fetching time dimension info");
     timeInfo.value = null;
   }
 }

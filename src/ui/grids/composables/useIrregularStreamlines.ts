@@ -1,5 +1,5 @@
 import type * as THREE from "three";
-import type { ComputedRef } from "vue";
+import { onScopeDispose, type ComputedRef } from "vue";
 import type * as zarr from "zarrita";
 
 import { loadVectorComponents } from "./streamlineData.ts";
@@ -121,6 +121,11 @@ export function useIrregularStreamlines(options: TOptions) {
     currentContext = context;
     await refresh();
   }
+
+  onScopeDispose(() => {
+    currentContext = undefined;
+    requestRevision++;
+  });
 
   return { clear: layer.clear, refresh, setContext };
 }

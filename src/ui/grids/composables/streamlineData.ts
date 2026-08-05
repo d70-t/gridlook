@@ -6,6 +6,7 @@ import {
 } from "@/lib/data/variableDecoding.ts";
 import type { TVectorVariablePair } from "@/lib/data/vectorField.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
+import { getGridVariableData } from "@/lib/grids/gridDataWorkerClient.ts";
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
 
 type TDataVar = zarr.Array<zarr.DataType, zarr.AsyncReadable>;
@@ -75,12 +76,22 @@ export async function loadVectorComponents(options: TOptions) {
     options.currentIndices,
     options.spatialDimensionNames
   );
-  const [uChunk, vChunk] = await Promise.all([
-    ZarrDataManager.getVariableDataFromArray(uVariable, selection),
-    ZarrDataManager.getVariableDataFromArray(vVariable, selection),
+  const [uValues, vValues] = await Promise.all([
+    getGridVariableData({
+      source: ZarrDataManager.getDatasetSource(datasources, pair.u),
+      variable: pair.u,
+      format: datasources.zarr_format,
+      selection,
+    }),
+    getGridVariableData({
+      source: ZarrDataManager.getDatasetSource(datasources, pair.v),
+      variable: pair.v,
+      format: datasources.zarr_format,
+      selection,
+    }),
   ]);
-  const uData = castDataVarToFloat32(uChunk.data);
-  const vData = castDataVarToFloat32(vChunk.data);
+  const uData = castDataVarToFloat32(uValues);
+  const vData = castDataVarToFloat32(vValues);
   decodeVariableDataAndGetBounds(uVariable, uData);
   decodeVariableDataAndGetBounds(vVariable, vData);
   if (

@@ -69,7 +69,7 @@ const getToastTheme = (type: TToastType): TToastTheme => toastThemes[type];
   position: fixed;
   top: 1rem;
   right: 1rem;
-  z-index: 50;
+  z-index: 1050;
   display: grid;
   gap: 0.75rem;
   pointer-events: none;

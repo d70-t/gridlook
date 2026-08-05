@@ -35,6 +35,10 @@ import {
 } from "@/lib/data/vectorField.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
+  getGridVariableData,
+  terminateGridDataWorker,
+} from "@/lib/grids/gridDataWorkerClient.ts";
+import {
   GridTextureExportUserDataKey,
   getRegularLatLonGridBounds,
   TextureExportVCoordinate,
@@ -151,20 +155,24 @@ const { datasourceUpdate } = useGridDataLoader({
 
 const isLatOnly = ref(false);
 
+function getDimensionData(
+  grid: TSources["levels"][0]["grid"],
+  dimensionName: string
+) {
+  return ZarrDataManager.getVariableData(
+    grid,
+    ZarrDataManager.resolveVariablePath(varnameSelector.value, dimensionName)
+  );
+}
+
 async function fetchProjectedXYDims(
   grid: TSources["levels"][0]["grid"],
   xDim: string,
   yDim: string
 ) {
   const [xData, yData] = await Promise.all([
-    ZarrDataManager.getVariableData(
-      grid,
-      ZarrDataManager.resolveVariablePath(varnameSelector.value, xDim)
-    ),
-    ZarrDataManager.getVariableData(
-      grid,
-      ZarrDataManager.resolveVariablePath(varnameSelector.value, yDim)
-    ),
+    getDimensionData(grid, xDim),
+    getDimensionData(grid, yDim),
   ]);
   const crsWkt = await getCRSWkt(props.datasources!, varnameSelector.value);
   const converted = projectedAxisCoordinatesToLonLat(
@@ -200,24 +208,15 @@ async function getDims() {
   if (isProjectedXY) {
     await fetchProjectedXYDims(grid, lastDim, secondLastDim);
   } else if (latOnlyCheck) {
-    const latitudesData = await ZarrDataManager.getVariableData(
-      grid,
-      ZarrDataManager.resolveVariablePath(varnameSelector.value, lastDim)
-    );
+    const latitudesData = await getDimensionData(grid, lastDim);
     latitudes.value = latitudesData.data as Float32Array;
     longitudes.value = Float32Array.from({ length: 360 }, (_, i) => i - 179.5);
   } else {
     const latName = secondLastDim;
     const lonName = lastDim;
     const [latitudesData, longitudesData] = await Promise.all([
-      ZarrDataManager.getVariableData(
-        grid,
-        ZarrDataManager.resolveVariablePath(varnameSelector.value, latName)
-      ),
-      ZarrDataManager.getVariableData(
-        grid,
-        ZarrDataManager.resolveVariablePath(varnameSelector.value, lonName)
-      ),
+      getDimensionData(grid, latName),
+      getDimensionData(grid, lonName),
     ]);
     const myLongitudes = longitudesData.data as Float32Array;
     const myLatitudes = latitudesData.data as Float32Array;
@@ -824,6 +823,20 @@ async function buildDimensionConfig(
   );
 }
 
+function fetchRegularGridVariableData(
+  selection: (number | null | zarr.Slice)[]
+) {
+  return getGridVariableData({
+    source: ZarrDataManager.getDatasetSource(
+      props.datasources!,
+      varnameSelector.value
+    ),
+    variable: varnameSelector.value,
+    format: props.datasources!.zarr_format,
+    selection,
+  });
+}
+
 function setMeshMaterials(material: THREE.ShaderMaterial) {
   if (meshes.length === 0) {
     disposeMaterial(material);
@@ -937,9 +950,8 @@ async function fetchAndRenderData(
 ) {
   const { dimensionRanges, indices } = await buildDimensionConfig(datavar);
 
-  const rawData = castDataVarToFloat32(
-    (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
-  );
+  const variableData = await fetchRegularGridVariableData(indices);
+  const rawData = castDataVarToFloat32(variableData);
 
   const { min, max, missingValue, fillValue } = decodeVariableDataAndGetBounds(
     datavar,
@@ -954,7 +966,6 @@ async function fetchAndRenderData(
   updateHistogram(rawData, min, max, missingValue, fillValue);
 
   lastStreamlineIndices = indices;
-  await updateStreamlines(indices);
 
   const dimInfo = await fetchDimensionDetails(
     varnameSelector.value,
@@ -973,6 +984,7 @@ async function fetchAndRenderData(
     indices as number[]
   );
   redraw();
+  void updateStreamlines(indices);
 }
 
 onBeforeMount(async () => {
@@ -980,6 +992,8 @@ onBeforeMount(async () => {
 });
 
 onBeforeUnmount(() => {
+  streamlineRequestRevision++;
+  terminateGridDataWorker();
   for (const mesh of meshes) {
     mesh.geometry.dispose();
     getScene()?.remove(mesh);
