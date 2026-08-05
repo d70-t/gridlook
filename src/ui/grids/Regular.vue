@@ -966,7 +966,6 @@ async function fetchAndRenderData(
   updateHistogram(rawData, min, max, missingValue, fillValue);
 
   lastStreamlineIndices = indices;
-  await updateStreamlines(indices);
 
   const dimInfo = await fetchDimensionDetails(
     varnameSelector.value,
@@ -985,6 +984,7 @@ async function fetchAndRenderData(
     indices as number[]
   );
   redraw();
+  void updateStreamlines(indices);
 }
 
 onBeforeMount(async () => {
@@ -992,6 +992,7 @@ onBeforeMount(async () => {
 });
 
 onBeforeUnmount(() => {
+  streamlineRequestRevision++;
   terminateGridDataWorker();
   for (const mesh of meshes) {
     mesh.geometry.dispose();

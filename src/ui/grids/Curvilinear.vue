@@ -336,13 +336,6 @@ async function fetchAndRenderData(
     missingValue
   );
 
-  await updateStreamlines(
-    latitudesData,
-    longitudesData,
-    dimensionNames,
-    indices
-  );
-
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
   updateHistogram(rawData, min, max, missingValue, fillValue);
   store.updateVarInfo(
@@ -355,6 +348,12 @@ async function fetchAndRenderData(
     indices as number[]
   );
   redraw();
+  void updateStreamlines(
+    latitudesData,
+    longitudesData,
+    dimensionNames,
+    indices
+  );
 }
 
 onBeforeMount(async () => {

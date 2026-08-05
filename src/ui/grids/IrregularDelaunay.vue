@@ -285,20 +285,6 @@ async function fetchAndRenderData(
     missingValue
   );
 
-  const coordinates = reconcileCoordinates(
-    latitudes,
-    longitudes,
-    rawData.length
-  );
-  await streamlines.setContext({
-    ...coordinates,
-    dimensionNames: dimensions,
-    indices,
-    spatialDimensionNames: geographicDimensions.map(
-      (index) => dimensions[index]
-    ),
-  });
-
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
   updateHistogram(rawData, min, max, missingValue, fillValue);
   store.updateVarInfo(
@@ -310,6 +296,19 @@ async function fetchAndRenderData(
     },
     indices as number[]
   );
+  const coordinates = reconcileCoordinates(
+    latitudes,
+    longitudes,
+    rawData.length
+  );
+  void streamlines.setContext({
+    ...coordinates,
+    dimensionNames: dimensions,
+    indices,
+    spatialDimensionNames: geographicDimensions.map(
+      (index) => dimensions[index]
+    ),
+  });
 }
 
 onBeforeMount(async () => {

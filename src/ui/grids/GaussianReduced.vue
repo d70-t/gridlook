@@ -283,14 +283,6 @@ async function fetchAndRenderData(
     rawData
   );
 
-  await streamlines.setContext({
-    latitudes: Float32Array.from(latitudesData),
-    longitudes: Float32Array.from(longitudesData),
-    dimensionNames,
-    indices,
-    spatialDimensionNames: [dimensionNames.at(-1)!],
-  });
-
   // Update hover lookup
   setHoverLookupFromIndex(
     createSerializedGeoSampleIndex(hoverIndexData),
@@ -316,6 +308,13 @@ async function fetchAndRenderData(
   );
 
   redraw();
+  void streamlines.setContext({
+    latitudes: Float32Array.from(latitudesData),
+    longitudes: Float32Array.from(longitudesData),
+    dimensionNames,
+    indices,
+    spatialDimensionNames: [dimensionNames.at(-1)!],
+  });
 }
 
 onBeforeMount(async () => {

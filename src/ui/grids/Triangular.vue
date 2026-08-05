@@ -293,14 +293,6 @@ async function fetchAndRenderData(
     missingValue
   );
 
-  await streamlines.setContext({
-    latitudes: Float32Array.from(result.hoverIndexData.latitudes),
-    longitudes: Float32Array.from(result.hoverIndexData.longitudes),
-    dimensionNames,
-    indices,
-    spatialDimensionNames: [dimensionNames.at(-1)!],
-  });
-
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
   updateHistogram(plotData, min, max, missingValue, fillValue);
   store.updateVarInfo(
@@ -313,6 +305,13 @@ async function fetchAndRenderData(
     indices as number[]
   );
   redraw();
+  void streamlines.setContext({
+    latitudes: Float32Array.from(result.hoverIndexData.latitudes),
+    longitudes: Float32Array.from(result.hoverIndexData.longitudes),
+    dimensionNames,
+    indices,
+    spatialDimensionNames: [dimensionNames.at(-1)!],
+  });
 }
 
 onBeforeMount(async () => {

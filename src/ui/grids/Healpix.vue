@@ -28,6 +28,7 @@ import {
   resolveVectorVariablePair,
 } from "@/lib/data/vectorField.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
+import { terminateGridDataWorker } from "@/lib/grids/gridDataWorkerClient.ts";
 import {
   createTriangleWrapProjectionGeometry,
   createWrappedProjectionMesh,
@@ -892,7 +893,6 @@ async function fetchAndRenderData(
   updateHistogram(histogramSummaries, dataMin, dataMax);
 
   lastStreamlineContext = { indices, nside, cellCoord };
-  await updateStreamlines(lastStreamlineContext);
 
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
 
@@ -905,6 +905,7 @@ async function fetchAndRenderData(
     },
     indices as number[]
   );
+  void updateStreamlines(lastStreamlineContext);
 }
 
 onMounted(() => {
@@ -958,6 +959,8 @@ onBeforeMount(async () => {
 });
 
 onBeforeUnmount(() => {
+  streamlineRequestRevision++;
+  terminateGridDataWorker();
   for (let ipix = 0; ipix < HEALPIX_NUMCHUNKS; ++ipix) {
     const mesh = mainMeshes[ipix];
     if (!mesh) {

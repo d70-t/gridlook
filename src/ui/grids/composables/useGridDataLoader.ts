@@ -53,24 +53,29 @@ function createGetData(
     try {
       do {
         state.pendingUpdate.value = false;
-        const requestVarname = store.varnameSelector;
-        const datavar = await options.getDataVar(requestVarname, datasources);
-        if (state.disposed || datasources !== options.getDatasources()) {
-          shouldStopLoading = false;
-          return;
+        try {
+          const requestVarname = store.varnameSelector;
+          const datavar = await options.getDataVar(requestVarname, datasources);
+          if (state.disposed || datasources !== options.getDatasources()) {
+            shouldStopLoading = false;
+            return;
+          }
+          if (requestVarname !== store.varnameSelector) {
+            state.pendingUpdate.value = true;
+            continue;
+          }
+          if (datavar !== undefined) {
+            await options.fetchAndRenderData(datavar);
+          }
+        } catch (error) {
+          // A live source may roll over while an older timestep is loading.
+          // If a newer update is already queued, retry it instead of dropping
+          // the only notification for the newly available timestep.
+          if (!state.disposed && !state.pendingUpdate.value) {
+            logError(error, "Could not fetch data");
+          }
         }
-        if (requestVarname !== store.varnameSelector) {
-          state.pendingUpdate.value = true;
-          continue;
-        }
-        if (datavar !== undefined) {
-          await options.fetchAndRenderData(datavar);
-        }
-      } while (state.pendingUpdate.value);
-    } catch (error) {
-      if (!state.disposed) {
-        logError(error, "Could not fetch data");
-      }
+      } while (!state.disposed && state.pendingUpdate.value);
     } finally {
       state.updatingData.value = false;
       if (!state.disposed && shouldStopLoading) {
