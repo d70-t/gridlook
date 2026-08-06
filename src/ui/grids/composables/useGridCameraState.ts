@@ -1,5 +1,5 @@
 import { useDebounceFn } from "@vueuse/core";
-import { inflateSync, strFromU8, deflate } from "fflate";
+import { inflateSync } from "fflate";
 import { storeToRefs } from "pinia";
 import type * as THREE from "three";
 
@@ -10,48 +10,71 @@ export type TCameraState = {
   quaternion: number[];
 };
 
-export type GridCameraState = {
-  encodeCameraToURL: (camera: THREE.PerspectiveCamera) => void;
-  decodeCameraFromURL: () => TCameraState | null;
+export type TCameraUrlState = {
+  x: number;
+  y: number;
+  z: number;
+};
+
+export type TDecodedCameraState = TCameraState | TCameraUrlState;
+
+export type TGridCameraState = {
+  encodeCameraToURL: (camera: THREE.PerspectiveCamera, isFlat: boolean) => void;
+  decodeCameraFromURL: () => TDecodedCameraState | null;
   applyCameraState: (
     camera: THREE.PerspectiveCamera,
     data: TCameraState
   ) => void;
-  debouncedEncodeCameraToURL: (camera: THREE.PerspectiveCamera) => void;
+  debouncedEncodeCameraToURL: (
+    camera: THREE.PerspectiveCamera,
+    isFlat: boolean
+  ) => void;
 };
 
+const CAMERA_PARAM_PRECISION = 10_000;
+
+function formatCameraParam(value: number) {
+  const rounded =
+    Math.round(value * CAMERA_PARAM_PRECISION) / CAMERA_PARAM_PRECISION;
+  return String(Object.is(rounded, -0) ? 0 : rounded);
+}
+
+function parseCameraParam(value: string | undefined) {
+  if (value === undefined) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 /* eslint-disable-next-line max-lines-per-function */
-export function useGridCameraState(): GridCameraState {
+export function useGridCameraState(): TGridCameraState {
   const urlParameterStore = useUrlParameterStore();
-  const { paramCameraState } = storeToRefs(urlParameterStore);
+  const { paramCameraState, paramCameraX, paramCameraY, paramCameraZ } =
+    storeToRefs(urlParameterStore);
 
-  function encodeCameraToURL(camera: THREE.PerspectiveCamera) {
-    const state: TCameraState = {
-      position: camera.position.toArray(),
-      quaternion: camera.quaternion.toArray(),
-    };
-
-    const json = JSON.stringify(state);
-    deflate(new TextEncoder().encode(json), { level: 9 }, (err, compressed) => {
-      if (err) {
-        console.error("Compression failed, falling back to uncompressed:", err);
-        // Fallback to uncompressed base64
-        const encoded = btoa(json)
-          .replace(/\+/g, "-")
-          .replace(/\//g, "_")
-          .replace(/=+$/, "");
-        paramCameraState.value = encoded;
-      } else {
-        const encoded = btoa(strFromU8(compressed, true))
-          .replace(/\+/g, "-")
-          .replace(/\//g, "_")
-          .replace(/=+$/, "");
-        paramCameraState.value = encoded;
-      }
-    });
+  function encodeCameraToURL(camera: THREE.PerspectiveCamera, isFlat: boolean) {
+    paramCameraX.value = formatCameraParam(isFlat ? camera.position.x : 0);
+    paramCameraY.value = formatCameraParam(isFlat ? camera.position.y : 0);
+    paramCameraZ.value = formatCameraParam(
+      isFlat ? camera.position.z : camera.position.length()
+    );
+    paramCameraState.value = undefined;
   }
 
-  function decodeCameraFromURL(): TCameraState | null {
+  function decodeUrlCameraState(): TCameraUrlState | null {
+    const z = parseCameraParam(paramCameraZ.value);
+    if (z === undefined) {
+      return null;
+    }
+    return {
+      x: parseCameraParam(paramCameraX.value) ?? 0,
+      y: parseCameraParam(paramCameraY.value) ?? 0,
+      z,
+    };
+  }
+
+  function decodeLegacyCameraState(): TCameraState | null {
     const encoded = paramCameraState.value;
     if (!encoded) {
       return null;
@@ -79,6 +102,10 @@ export function useGridCameraState(): GridCameraState {
     }
   }
 
+  function decodeCameraFromURL(): TDecodedCameraState | null {
+    return decodeUrlCameraState() ?? decodeLegacyCameraState();
+  }
+
   function applyCameraState(
     camera: THREE.PerspectiveCamera,
     data: TCameraState
@@ -98,8 +125,8 @@ export function useGridCameraState(): GridCameraState {
   }
 
   const debouncedEncodeCameraToURL = useDebounceFn(
-    (camera: THREE.PerspectiveCamera) => {
-      encodeCameraToURL(camera);
+    (camera: THREE.PerspectiveCamera, isFlat: boolean) => {
+      encodeCameraToURL(camera, isFlat);
     },
     300
   );

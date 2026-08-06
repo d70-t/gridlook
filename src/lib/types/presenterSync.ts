@@ -28,6 +28,9 @@ export type TPresenterStatePayload = {
   selection?: { low: number; high: number };
   // url-parameter store fields
   paramCameraState?: string;
+  paramCameraX?: string;
+  paramCameraY?: string;
+  paramCameraZ?: string;
   paramGridType?: string;
 };
 

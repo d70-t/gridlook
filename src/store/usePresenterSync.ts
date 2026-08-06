@@ -62,7 +62,13 @@ export function usePresenterSync() {
     selection,
   } = storeToRefs(store);
 
-  const { paramCameraState, paramGridType } = storeToRefs(urlParameterStore);
+  const {
+    paramCameraState,
+    paramCameraX,
+    paramCameraY,
+    paramCameraZ,
+    paramGridType,
+  } = storeToRefs(urlParameterStore);
 
   const { data, post } = useBroadcastChannel<
     TPresenterMessage,
@@ -131,7 +137,10 @@ export function usePresenterSync() {
         selection.value && "low" in selection.value
           ? { low: selection.value.low, high: selection.value.high }
           : undefined,
-      paramCameraState: paramCameraState.value,
+      paramCameraState: paramCameraState.value ?? "",
+      paramCameraX: paramCameraX.value ?? "",
+      paramCameraY: paramCameraY.value ?? "",
+      paramCameraZ: paramCameraZ.value ?? "",
       paramGridType: paramGridType.value,
     };
   }
@@ -224,7 +233,16 @@ export function usePresenterSync() {
   /** Apply incoming URL-parameter fields to the local store. */
   function applyUrlParams(payload: TPresenterStatePayload) {
     if (payload.paramCameraState !== undefined) {
-      paramCameraState.value = payload.paramCameraState;
+      paramCameraState.value = payload.paramCameraState || undefined;
+    }
+    if (payload.paramCameraX !== undefined) {
+      paramCameraX.value = payload.paramCameraX || undefined;
+    }
+    if (payload.paramCameraY !== undefined) {
+      paramCameraY.value = payload.paramCameraY || undefined;
+    }
+    if (payload.paramCameraZ !== undefined) {
+      paramCameraZ.value = payload.paramCameraZ || undefined;
     }
     if (payload.paramGridType !== undefined) {
       paramGridType.value = payload.paramGridType || undefined;
@@ -347,6 +365,9 @@ export function usePresenterSync() {
     () => graticuleSpacing.value,
     () => JSON.stringify(selection.value),
     () => paramCameraState.value,
+    () => paramCameraX.value,
+    () => paramCameraY.value,
+    () => paramCameraZ.value,
     () => paramGridType.value,
   ];
 
