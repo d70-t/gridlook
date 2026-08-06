@@ -17,14 +17,20 @@ import {
 } from "vue";
 
 import type { THoverGeoPoint } from "./gridHoverUtils.ts";
-import type {
-  TCameraState,
-  TCameraUrlState,
-  TDecodedCameraState,
-  TGridCameraState,
+import {
+  altitudeToCameraDistance,
+  EARTH_RADIUS_METERS,
+  type TCameraState,
+  type TCameraUrlState,
+  type TGridCameraState,
 } from "./useGridCameraState.ts";
 import { useGridSnapshot } from "./useGridSnapshot.ts";
 
+import {
+  CAMERA_VERTICAL_FOV_DEGREES,
+  getCameraDistanceForVerticalSpan,
+  getVisibleVerticalSpan,
+} from "@/lib/camera/cameraSettings.ts";
 import { handleKeyDown } from "@/lib/camera/OrbitControlsAddOn.ts";
 import {
   isAzimuthalProjectionType,
@@ -52,12 +58,6 @@ type UseGridSceneOptions = {
 
 const DEFAULT_PROJECTION_CENTER: TProjectionCenter = { lat: 0, lon: 0 };
 const PROJECTION_CENTER_PRECISION = 10_000;
-
-function isCameraUrlState(
-  state: TDecodedCameraState
-): state is TCameraUrlState {
-  return "x" in state;
-}
 
 function roundProjectionCenter(value: number) {
   return (
@@ -542,9 +542,11 @@ export function useGridScene(options: UseGridSceneOptions) {
 
     // Compute the tightest distance that keeps the full projection visible,
     // accounting for the camera aspect ratio.
-    const vHalfFov = THREE.MathUtils.degToRad((cam.fov ?? 45) / 2);
+    const vHalfFov = THREE.MathUtils.degToRad(
+      (cam.fov ?? CAMERA_VERTICAL_FOV_DEGREES) / 2
+    );
     const hHalfFov = Math.atan(Math.tan(vHalfFov) * cam.aspect);
-    const zForHeight = bounds.height / 2 / Math.tan(vHalfFov);
+    const zForHeight = getCameraDistanceForVerticalSpan(bounds.height, cam.fov);
     const zForWidth = bounds.width / 2 / Math.tan(hHalfFov);
     const targetDistance = Math.max(zForHeight, zForWidth);
 
@@ -581,7 +583,9 @@ export function useGridScene(options: UseGridSceneOptions) {
   ) {
     // Compute the tightest distance at which the globe (radius 1) still fits
     // fully within the viewport on both axes, with a small 5 % margin.
-    const vHalfFov = THREE.MathUtils.degToRad((cam.fov ?? 7.5) / 2);
+    const vHalfFov = THREE.MathUtils.degToRad(
+      (cam.fov ?? CAMERA_VERTICAL_FOV_DEGREES) / 2
+    );
     const hHalfFov = Math.atan(Math.tan(vHalfFov) * cam.aspect);
     const minHalfFov = Math.min(vHalfFov, hHalfFov);
     const targetDistance = 1.05 / Math.sin(minHalfFov);
@@ -663,37 +667,22 @@ export function useGridScene(options: UseGridSceneOptions) {
     controls: OrbitControls,
     state: TCameraUrlState
   ) {
-    const distance = Math.max(state.z, controls.minDistance);
+    const distance = Math.max(
+      altitudeToCameraDistance(state.alt, projectionHelper.value.isFlat),
+      controls.minDistance
+    );
     if (projectionHelper.value.isFlat) {
       cam.quaternion.identity();
       cam.rotation.set(0, 0, 0);
-      cam.position.set(state.x, state.y, distance);
-      controls.target.set(state.x, state.y, 0);
+      const x = state.px / EARTH_RADIUS_METERS;
+      const y = state.py / EARTH_RADIUS_METERS;
+      cam.position.set(x, y, distance);
+      controls.target.set(x, y, 0);
       applyCameraTarget(cam, controls);
       return;
     }
 
     applyProjectionCenterToGlobeCamera(cam, controls, distance);
-  }
-
-  function applyDecodedCameraState(
-    cam: THREE.PerspectiveCamera,
-    controls: OrbitControls,
-    state: TDecodedCameraState
-  ) {
-    if (isCameraUrlState(state)) {
-      applyUrlCameraState(cam, controls, state);
-      return;
-    }
-
-    cameraState.applyCameraState(cam, state);
-    if (projectionHelper.value.isFlat) {
-      controls.target.set(cam.position.x, cam.position.y, 0);
-    } else {
-      controls.target.set(0, 0, 0);
-      syncProjectionCenterFromCamera(cam);
-    }
-    controls.update();
   }
 
   function applyCameraTarget(
@@ -712,7 +701,7 @@ export function useGridScene(options: UseGridSceneOptions) {
   ) {
     const state = cameraState.decodeCameraFromURL();
     if (state) {
-      applyDecodedCameraState(cam, controls, state);
+      applyUrlCameraState(cam, controls, state);
       return;
     }
 
@@ -774,7 +763,7 @@ export function useGridScene(options: UseGridSceneOptions) {
     scene = new THREE.Scene();
     const center = new THREE.Vector3();
     camera = new THREE.PerspectiveCamera(
-      7.5,
+      CAMERA_VERTICAL_FOV_DEGREES,
       window.innerWidth / window.innerHeight,
       0.1,
       1000
@@ -967,7 +956,10 @@ export function useGridScene(options: UseGridSceneOptions) {
     if (projectionHelper.value.isFlat || !orbitControls || !camera) {
       return;
     }
-    const normalizedDistance = camera.position.length() / 30;
+    // Normalize by the visible span so navigation sensitivity remains tied to
+    // apparent zoom instead of changing when the camera lens changes.
+    const normalizedDistance =
+      getVisibleVerticalSpan(camera.position.length(), camera.fov) / 4;
     orbitControls.rotateSpeed = Math.min(1, 0.01 + normalizedDistance ** 2);
   }
 
@@ -1335,10 +1327,9 @@ export function useGridScene(options: UseGridSceneOptions) {
 
   watch(
     () => [
-      urlParameterStore.paramCameraX,
-      urlParameterStore.paramCameraY,
-      urlParameterStore.paramCameraZ,
-      urlParameterStore.paramCameraState,
+      urlParameterStore.paramCameraPx,
+      urlParameterStore.paramCameraPy,
+      urlParameterStore.paramCameraAlt,
     ],
     () => {
       // This watcher is only relevant in presenter display mode where camera state is synced via URL.
@@ -1356,7 +1347,7 @@ export function useGridScene(options: UseGridSceneOptions) {
       if (!state) {
         return;
       }
-      applyDecodedCameraState(cam, controls, state);
+      applyUrlCameraState(cam, controls, state);
       redraw();
     }
   );

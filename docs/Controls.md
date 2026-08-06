@@ -58,6 +58,27 @@ If `Data Picker` is enabled, moving the pointer over the canvas also shows the v
 
 For flat projections, the projection center can also be adjusted numerically in the side panel.
 
+## Shareable Camera Parameters
+
+The URL represents a view with five projection-independent camera parameters:
+
+- `lat` and `lon` are the projection center in degrees
+- `alt` is the camera height above the spherical Earth surface at that center, in metres
+- `px` and `py` are horizontal and vertical camera-plane offsets in projected metres
+
+Positive `px` moves right in the projection plane and positive `py` moves up.
+Gridlook models Earth as a sphere with the IUGG mean radius of
+`6,371,008.8 m`. For the globe, `alt` is the camera's radial distance minus
+that radius. For flat projections it is the conceptual camera's perpendicular
+height above the projection plane. Consequently, the same `alt` remains the
+same physical height when changing projections; local map distortion can still
+make ground resolution differ between projection types.
+
+The main view uses a fixed `45°` vertical field of view. For example, at an
+`alt` of `6,000,000 m`, the corresponding tangent plane spans approximately
+`4,971 km` vertically before accounting for globe curvature or the viewport's
+aspect ratio.
+
 ## Touch Controls
 
 Touch behavior also depends on the current projection.
