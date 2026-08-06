@@ -1,14 +1,17 @@
 <script lang="ts" setup>
 import { useEventListener } from "@vueuse/core";
 import { storeToRefs } from "pinia";
-import { computed, onBeforeMount, onMounted, ref, watch, type Ref } from "vue";
+import { computed, onBeforeMount, ref, watch, type Ref } from "vue";
+
+import CollapsibleCard from "../common/CollapsibleCard.vue";
 
 import ActionControls from "./controls/ActionControls.vue";
 import BoundsControls from "./controls/BoundsControls.vue";
 import ColormapControls from "./controls/ColormapControls.vue";
 import DataInput from "./controls/DataInput.vue";
 import DimensionControl from "./controls/DimensionControl.vue";
-import MaskControls from "./controls/MaskControls.vue";
+import LayerPanel from "./controls/LayerPanel.vue";
+import PopupDialog from "./controls/PopupDialog.vue";
 import ProjectionControls from "./controls/ProjectionControls.vue";
 import VariableSelector from "./controls/VariableSelector.vue";
 
@@ -27,12 +30,17 @@ import { useUrlParameterStore } from "@/store/paramStore.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 import { MOBILE_BREAKPOINT } from "@/ui/common/viewConstants.ts";
 
-const props = defineProps<{ modelInfo?: TModelInfo; currentSource: string }>();
+const props = defineProps<{
+  modelInfo?: TModelInfo;
+  currentSource: string;
+  infoPanelOpen: boolean;
+}>();
 
 defineEmits<{
   onSnapshot: [options: TSnapshotOptions];
   onRotate: [];
   toggleDisplay: [];
+  toggleInfoPanel: [];
 }>();
 
 // Bounds management types
@@ -55,14 +63,11 @@ const {
   userBoundsLow,
   userBoundsHigh,
   projectionCenter,
+  loading,
 } = storeToRefs(store);
 
 // Bounds logic state
 const pickedBoundsMode = ref<TBoundModes>(BOUND_MODES.DATA);
-const defaultBounds = ref<TBounds>({});
-// True until the varnameSelector watcher fires for the first time.
-// Used to preserve URL-provided bounds on first load.
-const isInitialVarLoad = ref(true);
 
 // Colormap logic state
 const userHasSelectedColormap = ref<boolean>(false);
@@ -73,6 +78,7 @@ const {
   paramInvertColormap,
   paramPosterizeLevels,
   paramHideLowerBound,
+  paramHideUpperBound,
   paramMaskMode,
   paramMaskingUseTexture,
   paramProjection,
@@ -94,17 +100,17 @@ const currentBounds = computed(() => {
   if (pickedBoundsMode.value === BOUND_MODES.DATA) {
     return dataBounds.value;
   } else if (pickedBoundsMode.value === BOUND_MODES.USER) {
-    const lowEmpty =
+    const isLowEmpty =
       userBoundsLow.value === undefined ||
       (userBoundsLow.value as unknown as string) === "";
-    const highEmpty =
+    const isHighEmpty =
       userBoundsHigh.value === undefined ||
       (userBoundsHigh.value as unknown as string) === "";
     const lo = (
-      lowEmpty ? dataBounds.value.low : userBoundsLow.value
+      isLowEmpty ? dataBounds.value.low : userBoundsLow.value
     ) as number;
     const hi = (
-      highEmpty ? dataBounds.value.high : userBoundsHigh.value
+      isHighEmpty ? dataBounds.value.high : userBoundsHigh.value
     ) as number;
     // Always deliver a normalised (non-inverted) range downstream so that
     // nothing breaks when the user types high < low.  The BoundsControls
@@ -149,10 +155,9 @@ watch(
     // default_range config.  On subsequent variable changes we always want to
     // reset to the new variable's defaults.
     const preserveUrlBounds =
-      isInitialVarLoad.value &&
+      store.isNewDataset() &&
       userBoundsLow.value !== undefined &&
       userBoundsHigh.value !== undefined;
-    isInitialVarLoad.value = false;
 
     if (!preserveUrlBounds) {
       store.resetUserBounds();
@@ -167,17 +172,14 @@ watch(
       pickedBoundsMode.value = BOUND_MODES.USER;
     }
     setDefaultColormap();
-    store.updateBounds(currentBounds.value as TBounds);
   }
 );
 
-watch(
-  () => currentBounds.value,
-  () => {
-    store.updateBounds(currentBounds.value as TBounds);
-  },
-  { deep: true }
-);
+watch(currentBounds, (bounds) => {
+  if (bounds) {
+    store.updateBounds(bounds as TBounds);
+  }
+});
 
 function onPickedBoundsModeChange(newMode: TBoundModes) {
   if (newMode === BOUND_MODES.USER) {
@@ -209,59 +211,34 @@ function toggleMobileMenu() {
 
 onBeforeMount(() => {
   isMobileView.value = window.innerWidth < MOBILE_BREAKPOINT;
+  initPanelVisibility();
   useEventListener(window, "resize", () => {
     isMobileView.value = window.innerWidth < MOBILE_BREAKPOINT;
   });
 });
 
-// INITIALIZATION
-if (paramMaskingUseTexture.value) {
-  if (paramMaskingUseTexture.value === "false") {
-    landSeaMaskUseTexture.value = false;
-  } else if (paramMaskingUseTexture.value === "true") {
-    landSeaMaskUseTexture.value = true;
+function initPanelVisibility() {
+  const initiallyVisible = isMobileView.value
+    ? !mobileMenuCollapsed.value
+    : !menuCollapsed.value;
+  store.setControlPanelVisible(initiallyVisible);
+}
+
+function initDatasetControls() {
+  if (!props.modelInfo) {
+    return;
   }
-}
-
-if (paramMaskMode.value) {
-  landSeaMaskChoice.value =
-    paramMaskMode.value as typeof landSeaMaskChoice.value;
-}
-
-if (paramProjection.value) {
-  const projection = paramProjection.value as TProjectionType;
-  if (Object.values(PROJECTION_TYPES).includes(projection)) {
-    store.projectionMode = projection;
-  }
-}
-
-if (paramProjectionCenterLat.value || paramProjectionCenterLon.value) {
-  const lat = parseFloat(paramProjectionCenterLat.value ?? "0");
-  const lon = parseFloat(paramProjectionCenterLon.value ?? "0");
-  projectionCenter.value = {
-    lat: clamp(lat, -90, 90),
-    lon: clamp(lon, -180, 180),
-  };
-}
-
-if (paramBoundHigh.value && paramBoundLow.value) {
-  const low = parseFloat(paramBoundLow.value);
-  const high = parseFloat(paramBoundHigh.value);
-  userBoundsLow.value = low;
-  userBoundsHigh.value = high;
-  pickedBoundsMode.value = BOUND_MODES.USER;
-}
-
-// Initialize bounds and colormap when component mounts
-onMounted(() => {
   setDefaultBounds();
   store.updateBounds(currentBounds.value as TBounds);
+  initFromParams();
+}
 
+// eslint-disable-next-line max-lines-per-function
+function initFromParams() {
   if (paramColormap.value) {
     colormap.value = paramColormap.value;
     userHasSelectedColormap.value = true;
   }
-
   if (paramInvertColormap.value) {
     // explicitely check for string values "true" and "false"
     if (paramInvertColormap.value === "false") {
@@ -270,23 +247,54 @@ onMounted(() => {
       invertColormap.value = true;
     }
   }
-
   if (paramPosterizeLevels.value) {
     const levels = Number(paramPosterizeLevels.value);
     if (!isNaN(levels) && levels >= 0 && levels <= 32) {
       posterizeLevels.value = levels;
     }
   }
-
   if (paramHideLowerBound.value === "true") {
     store.hideLowerBound = true;
   }
+  if (paramHideUpperBound.value === "true") {
+    store.hideUpperBound = true;
+  }
+  if (paramMaskingUseTexture.value) {
+    if (paramMaskingUseTexture.value === "false") {
+      landSeaMaskUseTexture.value = false;
+    } else if (paramMaskingUseTexture.value === "true") {
+      landSeaMaskUseTexture.value = true;
+    }
+  }
+  if (paramMaskMode.value) {
+    landSeaMaskChoice.value =
+      paramMaskMode.value as typeof landSeaMaskChoice.value;
+  }
+  if (paramProjection.value) {
+    const projection = paramProjection.value as TProjectionType;
+    if (Object.values(PROJECTION_TYPES).includes(projection)) {
+      store.projectionMode = projection;
+    }
+  }
+  if (paramProjectionCenterLat.value || paramProjectionCenterLon.value) {
+    const lat = parseFloat(paramProjectionCenterLat.value ?? "0");
+    const lon = parseFloat(paramProjectionCenterLon.value ?? "0");
+    projectionCenter.value = {
+      lat: clamp(lat, -90, 90),
+      lon: clamp(lon, -180, 180),
+    };
+  }
+  if (paramBoundHigh.value && paramBoundLow.value) {
+    const low = parseFloat(paramBoundLow.value);
+    const high = parseFloat(paramBoundHigh.value);
+    userBoundsLow.value = low;
+    userBoundsHigh.value = high;
+    pickedBoundsMode.value = BOUND_MODES.USER;
+  }
+}
 
-  // Initialize control panel visibility
-  const initiallyVisible = isMobileView.value
-    ? !mobileMenuCollapsed.value
-    : !menuCollapsed.value;
-  store.setControlPanelVisible(initiallyVisible);
+defineExpose({
+  initForDataset: initDatasetControls,
 });
 </script>
 
@@ -304,6 +312,26 @@ onMounted(() => {
         <span class="ellipsis" :title="modelInfo.title">
           {{ modelInfo.title }}
         </span>
+        <button
+          type="button"
+          class="borderless-btn dataset-info-trigger ml-1"
+          :class="{ 'has-text-info': infoPanelOpen }"
+          :title="
+            infoPanelOpen
+              ? 'Close Dataset Info panel'
+              : 'Open Dataset Info panel'
+          "
+          aria-label="Dataset Info"
+          :aria-expanded="infoPanelOpen"
+          @click="() => $emit('toggleInfoPanel')"
+        >
+          <span class="icon">
+            <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+          </span>
+        </button>
+      </div>
+      <div v-else-if="loading" class="title-bar">
+        <progress class="progress is-info" max="100"></progress>
       </div>
       <div v-else class="title-bar">No data available</div>
       <DataInput :current-source="currentSource" />
@@ -323,53 +351,89 @@ onMounted(() => {
     </div>
   </div>
 
-  <template v-if="modelInfo">
-    <Transition name="slide">
-      <nav v-show="!isHidden" id="main_controls" class="gl_controls">
-        <div class="full-panel">
-          <div class="box m-2 p-2">
-            <div class="section-title">Variable</div>
-            <VariableSelector
-              v-model="varnameSelector"
-              :model-info="modelInfo"
-            />
-            <DimensionControl />
+  <Transition name="slide">
+    <nav
+      v-show="!isHidden && (modelInfo || loading)"
+      id="main_controls"
+      class="gl_controls"
+    >
+      <div class="full-panel">
+        <CollapsibleCard title="Variable">
+          <VariableSelector
+            v-if="modelInfo"
+            v-model="varnameSelector"
+            :model-info="modelInfo"
+          />
+          <DimensionControl />
+        </CollapsibleCard>
+
+        <CollapsibleCard title="Appearance">
+          <div class="section-title">Colormap</div>
+          <BoundsControls
+            :picked-bounds-mode="pickedBoundsMode"
+            :data-bounds="dataBounds"
+            :bound-modes="BOUND_MODES"
+            @update:picked-bounds-mode="
+              onPickedBoundsModeChange($event as TBoundModes)
+            "
+          />
+          <ColormapControls
+            v-if="modelInfo"
+            :model-info="modelInfo"
+            :data-bounds="dataBounds"
+            @colormap-user-selected="userHasSelectedColormap = true"
+            @force-user-bounds="pickedBoundsMode = BOUND_MODES.USER"
+          />
+          <div class="section-title mt-2">Projections</div>
+          <ProjectionControls />
+          <div class="section-title mt-2 is-flex is-align-items-center">
+            Layers and Masks
+            <div class="ml-2">
+              <PopupDialog dialog-class="layer-help-dialog">
+                <template #trigger="{ toggle, open }">
+                  <button
+                    class="button is-ghost p-0 has-text-black"
+                    type="button"
+                    title="Layer help"
+                    aria-label="Layer help"
+                    :aria-expanded="open"
+                    @click.stop="toggle"
+                  >
+                    <span class="icon is-small">
+                      <i
+                        class="fa-solid fa-circle-question"
+                        aria-hidden="true"
+                      ></i>
+                    </span>
+                  </button>
+                </template>
+
+                <template #default>
+                  <p class="dialog-section-label">Layers</p>
+                  <p class="is-size-7 mb-2">
+                    Drag layers up or down to change their drawing order.
+                  </p>
+                  <p class="has-text-danger is-light is-size-7 mb-0">
+                    <strong class="has-text-danger">Warning:</strong> Custom
+                    layers are stored only in this browser and cannot be shared
+                    via URL.
+                  </p>
+                </template>
+              </PopupDialog>
+            </div>
           </div>
-          <div class="box m-2 p-2">
-            <div class="section-title">Colormap</div>
-            <BoundsControls
-              :picked-bounds-mode="pickedBoundsMode"
-              :data-bounds="dataBounds"
-              :default-bounds="defaultBounds"
-              :current-bounds="currentBounds"
-              :bound-modes="BOUND_MODES"
-              @update:picked-bounds-mode="
-                onPickedBoundsModeChange($event as TBoundModes)
-              "
-            />
-            <ColormapControls
-              :model-info="modelInfo"
-              :data-bounds="dataBounds"
-              @colormap-user-selected="userHasSelectedColormap = true"
-              @force-user-bounds="pickedBoundsMode = BOUND_MODES.USER"
-            />
-            <div class="section-title mt-2">Projections</div>
-            <ProjectionControls />
-            <div class="section-title">Masks</div>
-            <MaskControls />
-          </div>
-          <div class="box m-2 p-2">
-            <div class="section-title">Actions</div>
-            <ActionControls
-              @on-snapshot="(opts) => $emit('onSnapshot', opts)"
-              @on-rotate="() => $emit('onRotate')"
-              @toggle-display="() => $emit('toggleDisplay')"
-            />
-          </div>
-        </div>
-      </nav>
-    </Transition>
-  </template>
+          <LayerPanel :model-info="modelInfo" />
+        </CollapsibleCard>
+        <CollapsibleCard title="Actions">
+          <ActionControls
+            @on-snapshot="(opts) => $emit('onSnapshot', opts)"
+            @on-rotate="() => $emit('onRotate')"
+            @toggle-display="() => $emit('toggleDisplay')"
+          />
+        </CollapsibleCard>
+      </div>
+    </nav>
+  </Transition>
 </template>
 
 <style lang="scss">
@@ -387,14 +451,25 @@ onMounted(() => {
   order: 2;
 }
 
-.section-title {
-  font-weight: 700 !important;
-  text-transform: uppercase !important;
-  font-size: 0.75rem !important;
-  padding-right: 0.5rem !important;
-  padding-left: 0.5rem !important;
-  padding-top: 0.5rem !important;
-  color: var(--bulma-grey) !important;
+.dataset-info-trigger {
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  font-size: 1.6rem;
+  opacity: 0.8;
+
+  &:hover {
+    color: inherit;
+    background: rgb(255 255 255 / 12%);
+    opacity: 1;
+  }
+
+  &.has-text-info {
+    color: var(--bulma-info) !important;
+    opacity: 1;
+  }
 }
 
 .header-container {

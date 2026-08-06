@@ -2,42 +2,61 @@
 import * as healpix from "@hscmap/healpix";
 import { storeToRefs } from "pinia";
 import * as THREE from "three";
-import { computed, onBeforeMount, onMounted, ref, watch } from "vue";
+import { onBeforeMount, onBeforeUnmount, onMounted, ref } from "vue";
 import * as zarr from "zarrita";
 
 import {
   useGridHoverLookup,
   type TGridHoverLookupResult,
 } from "./composables/gridHoverUtils.ts";
+import { loadVectorComponents } from "./composables/streamlineData.ts";
+import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
+import { useStreamlineLayer } from "./composables/useStreamlineLayer.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
-import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
+import { healpixNestedPixelIndex } from "@/lib/data/healpix.ts";
 import {
   castDataVarToFloat32,
-  getDataBounds,
-  mapMissingAndFillToNaN,
-} from "@/lib/data/zarrUtils.ts";
+  decodeVariableDataAndGetBounds,
+  decodeVariableDataInPlace,
+  getFillValue,
+  getMissingValue,
+} from "@/lib/data/variableDecoding.ts";
+import {
+  RegularVectorField,
+  resolveVectorVariablePair,
+} from "@/lib/data/vectorField.ts";
+import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
+import { terminateGridDataWorker } from "@/lib/grids/gridDataWorkerClient.ts";
+import {
+  createTriangleWrapProjectionGeometry,
+  createWrappedProjectionMesh,
+  setupProjectionGeometryWrap,
+  updateProjectionMeshes,
+} from "@/lib/projection/projectionEdgeQuality.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import {
   getColormapScaleOffset,
   makeGpuProjectedTextureMaterial,
   updateProjectionUniforms,
 } from "@/lib/shaders/gridShaders.ts";
-import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
+import type {
+  TDimensionRange,
+  TSources,
+  TZarrDggsMetadata,
+} from "@/lib/types/GlobeTypes.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import {
   HOVERED_GRID_POINT_STATUS,
-  UPDATE_MODE,
   useGlobeControlStore,
-  type TUpdateMode,
 } from "@/store/store.ts";
+import { useLog } from "@/ui/common/useLog.ts";
 import {
   HISTOGRAM_SUMMARY_BINS,
   buildHistogramSummary,
   type THistogramSummary,
 } from "@/utils/histogram.ts";
-import { useLog } from "@/utils/logging.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -46,20 +65,24 @@ const props = defineProps<{
 // By convention, HEALPIX uses -1.6375e+30 to mark invalid or unseen pixels.
 const HEALPIX_UNSEEN = -1.6375e30;
 
+function getHealpixMissingAndFillValues(
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
+) {
+  const missingValue = getMissingValue(datavar);
+  const fillValue = getFillValue(datavar);
+  if (Number.isNaN(missingValue)) {
+    return { missingValue: HEALPIX_UNSEEN, fillValue };
+  }
+  if (Number.isNaN(fillValue)) {
+    return { missingValue, fillValue: HEALPIX_UNSEEN };
+  }
+  return { missingValue, fillValue };
+}
+
 const store = useGlobeControlStore();
 const { logError } = useLog();
-const {
-  varnameSelector,
-  colormap,
-  invertColormap,
-  posterizeLevels,
-  selection,
-  dimSlidersValues,
-  isInitializingVariable,
-  varinfo,
-  projectionMode,
-  projectionCenter,
-} = storeToRefs(store);
+const { varnameSelector, colormap, invertColormap, dimSlidersValues, varinfo } =
+  storeToRefs(store);
 
 const urlParameterStore = useUrlParameterStore();
 const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
@@ -71,13 +94,17 @@ const {
   makeSnapshot,
   toggleRotate,
   applyCameraPreset,
-  resetDataVars,
   getDataVar,
   fetchDimensionDetails,
   updateLandSeaMask,
   updateColormap,
   updateHistogram,
   projectionHelper,
+  isSceneInMotion,
+  onProjectionChange,
+  onMotionStateChange,
+  onColormapChange,
+  registerAnimationCallback,
   canvas,
   box,
   hoveredGeoPoint,
@@ -86,98 +113,66 @@ const {
 const { setHoverLookup, clearHoverLookup } =
   useGridHoverLookup(hoveredGeoPoint);
 
-const pendingUpdate = ref(false);
-const updatingData = ref(false);
 const hoverData = ref<Float32Array | null>(null);
 const hoverCellIndexMap = ref<Map<number, number> | null>(null);
 const hoverNside = ref<number | null>(null);
+const selectedDimensionNames = ref<string[]>([]);
+
+type TStreamlineContext = {
+  indices: (number | null | zarr.Slice)[];
+  nside: number;
+  cellCoord?: number[];
+};
+
+let lastStreamlineContext: TStreamlineContext | undefined;
+let streamlineRequestRevision = 0;
 
 const HEALPIX_NUMCHUNKS = 12;
 
-let mainMeshes: THREE.Mesh<
-  THREE.BufferGeometry<THREE.NormalBufferAttributes>,
-  THREE.Material,
-  THREE.Object3DEventMap
->[] = new Array(HEALPIX_NUMCHUNKS);
+let mainMeshes: Array<THREE.Mesh | undefined> = new Array(HEALPIX_NUMCHUNKS);
 
-watch(
-  () => varnameSelector.value,
-  () => {
-    getData();
-  }
-);
+onColormapChange(() => updateColormap(mainMeshes));
 
-watch(
-  () => dimSlidersValues.value,
-  async () => {
-    if (isInitializingVariable.value) {
-      isInitializingVariable.value = false;
-      return;
-    }
-    await getData(UPDATE_MODE.SLIDER_TOGGLE);
-    updateColormap(mainMeshes);
-  },
-  { deep: true }
-);
+onProjectionChange(updateMeshProjectionUniforms);
+onMotionStateChange(updateMeshProjectionUniforms);
 
-watch(
-  () => props.datasources,
-  () => {
-    datasourceUpdate();
-  }
-);
-
-const bounds = computed(() => {
-  return selection.value;
+const streamlines = useStreamlineLayer({
+  getScene,
+  redraw,
+  projectionHelper,
+  onProjectionChange,
+  registerAnimationCallback,
 });
-
-watch(
-  [
-    () => bounds.value,
-    () => invertColormap.value,
-    () => colormap.value,
-    () => posterizeLevels.value,
-    () => store.hideLowerBound,
-  ],
-  () => {
-    updateColormap(mainMeshes);
-  }
-);
-
-// GPU projection: update shader uniforms instead of rebuilding geometry
-watch(
-  [() => projectionMode.value, () => projectionCenter.value],
-  () => {
-    updateMeshProjectionUniforms();
-  },
-  { deep: true }
-);
 
 /**
  * Update projection uniforms on all mesh materials.
  * This is the fast path - no geometry rebuild needed.
  */
 function updateMeshProjectionUniforms() {
-  const helper = projectionHelper.value;
+  updateProjectionMeshes(mainMeshes, {
+    redraw,
+    projectionHelper: projectionHelper.value,
+    isSceneInMotion: isSceneInMotion.value,
+  });
+}
 
-  for (const mesh of mainMeshes) {
-    const material = mesh.material as THREE.ShaderMaterial;
-    if (material.uniforms?.projectionType) {
-      updateProjectionUniforms(material, helper);
+const { datasourceUpdate } = useGridDataLoader({
+  getDatasources: () => props.datasources,
+  getDataVar,
+  fetchAndRenderData,
+  clearHoverLookup,
+  prepareDatasource: fetchGrid,
+  updateLandSeaMask,
+  updateColormap: () => updateColormap(mainMeshes),
+  refreshStreamlines: async (reuseCached) => {
+    if (reuseCached && streamlines.showCached()) {
+      return;
     }
-  }
-  redraw();
-}
-
-async function datasourceUpdate() {
-  resetDataVars();
-  clearHoverLookup();
-  if (props.datasources !== undefined) {
-    await Promise.all([fetchGrid(), getData()]);
-    updateLandSeaMask();
-    updateColormap(mainMeshes);
-  }
-}
+    if (lastStreamlineContext) {
+      await updateStreamlines(lastStreamlineContext);
+    }
+  },
+});
 
 function fetchGrid() {
   const gridStep = 64 + 1;
@@ -189,8 +184,13 @@ function fetchGrid() {
         gridStep,
         projectionHelper.value
       );
-      mainMeshes[ipix].geometry.dispose();
-      mainMeshes[ipix].geometry = geometry;
+      const mesh = mainMeshes[ipix];
+      if (!mesh) {
+        continue;
+      }
+      mesh.geometry.dispose();
+      setupProjectionGeometryWrap(geometry);
+      mesh.geometry = geometry;
     }
     // Update projection uniforms after geometry change
     updateMeshProjectionUniforms();
@@ -200,17 +200,97 @@ function fetchGrid() {
   }
 }
 
-async function getNside() {
-  const crs = await ZarrDataManager.getCRSInfo(
-    props.datasources!,
-    varnameSelector.value
+function coerceNside(value: unknown): number | null {
+  const nside = typeof value === "number" ? value : Number(value);
+  return Number.isInteger(nside) && nside > 0 ? nside : null;
+}
+
+async function nsideFromDggsMetadata(): Promise<number | null> {
+  try {
+    const group = await ZarrDataManager.getParentGroup(
+      props.datasources!,
+      varnameSelector.value
+    );
+    const metadata = (group.attrs?.dggs as TZarrDggsMetadata) ?? {};
+    const level = metadata.refinement_level;
+    if (level !== null && level !== undefined) {
+      return Math.pow(2, Number(level));
+    }
+  } catch {
+    // no dggs metadata found
+  }
+  return null;
+}
+
+/**
+ * Derive nside from the length of the (last) cell dimension, assuming a global
+ * grid where `ncells = 12 * nside^2`. Returns null unless that yields an exact
+ * positive integer nside, so it never misfires on limited-area data.
+ */
+function nsideFromCellCount(
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
+): number | null {
+  const ncells = datavar.shape[datavar.shape.length - 1];
+  if (!ncells) {
+    return null;
+  }
+  return coerceNside(Math.sqrt(ncells / 12));
+}
+
+async function getNside(
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
+): Promise<number> {
+  // Preferred: `healpix_nside` on the grid-mapping / CRS variable.
+  try {
+    const crs = await ZarrDataManager.getCRSInfo(
+      props.datasources!,
+      varnameSelector.value
+    );
+    const fromCrs = coerceNside(crs.attrs["healpix_nside"]);
+    if (fromCrs !== null) {
+      return fromCrs;
+    }
+    // CRS variable exists but has no usable nside; fall through to dggs.
+  } catch {
+    // No CRS variable; fall through to dggs metadata.
+  }
+
+  // Fallback: derive nside from the group's DGGS refinement level.
+  const fromDggs = await nsideFromDggsMetadata();
+  if (fromDggs !== null) {
+    return fromDggs;
+  }
+
+  // Last resort: infer nside from a global grid's cell count (12 * nside^2).
+  const fromShape = nsideFromCellCount(datavar);
+  if (fromShape !== null) {
+    return fromShape;
+  }
+
+  throw new Error(
+    "Could not determine HEALPix nside: no valid `healpix_nside` on the " +
+      "grid-mapping variable, no `dggs.refinement_level` on the group, and " +
+      "the cell-dimension length is not 12 * nside^2."
   );
-  // FIXME: could probably have other names
-  const nside = crs.attrs["healpix_nside"] as number;
-  return nside;
 }
 
 async function getCells() {
+  let cellCoord = "cell";
+  try {
+    const group = await ZarrDataManager.getParentGroup(
+      props.datasources!,
+      varnameSelector.value
+    );
+    const metadata = (group.attrs["dggs"] as TZarrDggsMetadata) ?? {};
+
+    const coordinate = metadata["coordinate"];
+    if (coordinate) {
+      cellCoord = coordinate;
+    }
+  } catch {
+    // no dggs metadata found, continue with the default cell coordinate
+  }
+
   try {
     const rawCells = (
       await ZarrDataManager.getVariableData(
@@ -218,7 +298,7 @@ async function getCells() {
           props.datasources!,
           varnameSelector.value
         ),
-        "cell"
+        ZarrDataManager.resolveVariablePath(varnameSelector.value, cellCoord)
       )
     ).data as ArrayLike<number | bigint>;
 
@@ -370,14 +450,13 @@ async function getHealpixData(
     dataSlice
   );
 
-  let { min, max, missingValue, fillValue } = getDataBounds(datavar, dataSlice);
-  if (isNaN(missingValue)) {
-    missingValue = HEALPIX_UNSEEN;
-  } else if (isNaN(fillValue)) {
-    fillValue = HEALPIX_UNSEEN;
-  }
-  mapMissingAndFillToNaN(dataSlice, missingValue, fillValue);
-  ({ min, max } = getDataBounds(datavar, dataSlice));
+  const { missingValue, fillValue } = getHealpixMissingAndFillValues(datavar);
+  const { min, max } = decodeVariableDataAndGetBounds(
+    datavar,
+    dataSlice,
+    missingValue,
+    fillValue
+  );
 
   // Filter out missing and fill values before building histogram
   return {
@@ -414,7 +493,7 @@ function createGeometry(
   latLonValues: Float32Array,
   indices: number[]
 ) {
-  const geometry = new THREE.BufferGeometry();
+  const geometry = new THREE.InstancedBufferGeometry();
   geometry.setIndex(indices);
   geometry.setAttribute(
     "position",
@@ -426,7 +505,7 @@ function createGeometry(
     "latLon",
     new THREE.Float32BufferAttribute(latLonValues, 2)
   );
-  return geometry;
+  return createTriangleWrapProjectionGeometry(geometry);
 }
 
 function generateHealpixIndices(positionValues: Float32Array, steps: number) {
@@ -563,42 +642,14 @@ function data2texture(
   return texture;
 }
 
-async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
-  store.startLoading();
-  if (updatingData.value) {
-    pendingUpdate.value = true;
-    return;
-  }
-
-  updatingData.value = true;
-  try {
-    do {
-      pendingUpdate.value = false;
-      const datavar = await getDataVar(
-        varnameSelector.value,
-        props.datasources!
-      );
-      if (datavar) {
-        await fetchAndRenderData(datavar, updateMode);
-      }
-      updatingData.value = false;
-    } while (pendingUpdate.value);
-  } catch (error) {
-    logError(error, "Could not fetch data");
-    updatingData.value = false;
-  } finally {
-    store.stopLoading();
-  }
-}
-
 async function prepareDimensionData(
-  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
-  updateMode: TUpdateMode
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
   const dimensionNames = await ZarrDataManager.getDimensionNames(
     props.datasources!,
     varnameSelector.value
   );
+  selectedDimensionNames.value = dimensionNames;
   const { dimensionRanges, indices } = buildDimensionRangesAndIndices(
     datavar,
     dimensionNames,
@@ -607,11 +658,92 @@ async function prepareDimensionData(
     paramDimMaxBounds.value,
     dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
     [datavar.shape.length - 1],
-    varinfo.value?.dimRanges,
-    updateMode === UPDATE_MODE.SLIDER_TOGGLE
+    varinfo.value?.dimRanges
   );
 
   return { dimensionRanges, indices };
+}
+
+function makeHealpixVectorField(
+  nside: number,
+  cellCoord: number[] | undefined,
+  uValues: Float32Array,
+  vValues: Float32Array
+) {
+  const cellIndex = cellCoord
+    ? new Map(cellCoord.map((pixel, index) => [pixel, index]))
+    : undefined;
+  const latitudes = Float32Array.from({ length: 179 }, (_, i) => i - 89);
+  const longitudes = Float32Array.from({ length: 360 }, (_, i) => i - 180);
+  const uData = new Float32Array(latitudes.length * longitudes.length);
+  const vData = new Float32Array(uData.length);
+  for (let y = 0; y < latitudes.length; y++) {
+    for (let x = 0; x < longitudes.length; x++) {
+      const outputIndex = y * longitudes.length + x;
+      const pixel = healpixNestedPixelIndex(nside, latitudes[y], longitudes[x]);
+      const inputIndex = cellIndex ? cellIndex.get(pixel) : pixel;
+      const u = inputIndex === undefined ? NaN : uValues[inputIndex];
+      const v = inputIndex === undefined ? NaN : vValues[inputIndex];
+      uData[outputIndex] = u === HEALPIX_UNSEEN ? NaN : u;
+      vData[outputIndex] = v === HEALPIX_UNSEEN ? NaN : v;
+    }
+  }
+  return new RegularVectorField(latitudes, longitudes, uData, vData);
+}
+
+// eslint-disable-next-line max-lines-per-function
+async function updateStreamlines(context: TStreamlineContext) {
+  const requestRevision = ++streamlineRequestRevision;
+  const variableNames = Object.keys(
+    props.datasources?.levels[0]?.datasources ?? {}
+  );
+  const pair = resolveVectorVariablePair(
+    variableNames,
+    varnameSelector.value,
+    store.streamlineSelection
+  );
+  if (!pair || !props.datasources) {
+    streamlines.clear();
+    return;
+  }
+  if (!store.isStreamlineLayerEnabled()) {
+    streamlines.setAvailablePair(pair);
+    return;
+  }
+  try {
+    const expectedDataLength =
+      context.cellCoord?.length ?? 12 * context.nside * context.nside;
+    const components = await loadVectorComponents({
+      pair,
+      datasources: props.datasources,
+      getDataVar,
+      currentDimensionNames: selectedDimensionNames.value,
+      currentIndices: context.indices,
+      spatialDimensionNames: [selectedDimensionNames.value.at(-1)!],
+      expectedDataLength,
+    });
+    if (requestRevision !== streamlineRequestRevision) {
+      return;
+    }
+    if (!components) {
+      streamlines.clear();
+      return;
+    }
+    streamlines.setField(
+      makeHealpixVectorField(
+        context.nside,
+        context.cellCoord,
+        components.uData,
+        components.vData
+      ),
+      pair
+    );
+  } catch (error) {
+    if (requestRevision === streamlineRequestRevision) {
+      streamlines.clear();
+      logError(error, "Could not render vector streamlines");
+    }
+  }
 }
 
 async function getDimensionValues(
@@ -652,7 +784,11 @@ async function processHealpixChunks(
         indices
       );
       if (texData === undefined) {
-        const material = mainMeshes[ipix].material as THREE.ShaderMaterial;
+        const mesh = mainMeshes[ipix];
+        if (!mesh) {
+          return;
+        }
+        const material = mesh.material as THREE.ShaderMaterial;
         material.uniforms.data.value.dispose();
         return;
       }
@@ -661,7 +797,11 @@ async function processHealpixChunks(
       dataMin = dataMin > texData.min ? texData.min : dataMin;
       dataMax = dataMax < texData.max ? texData.max : dataMax;
 
-      const material = mainMeshes[ipix].material as THREE.ShaderMaterial;
+      const mesh = mainMeshes[ipix];
+      if (!mesh) {
+        return;
+      }
+      const material = mesh.material as THREE.ShaderMaterial;
       material.uniforms.data.value.dispose();
       material.uniforms.data.value = texData.texture;
 
@@ -679,12 +819,12 @@ function healpixHoverLookup(
   if (!hoverData.value || hoverNside.value === null) {
     return null;
   }
-  const theta = THREE.MathUtils.degToRad(90 - lat);
   const normalizedLon = ProjectionHelper.normalizeLongitude(lon);
-  const phi = THREE.MathUtils.degToRad(
-    normalizedLon < 0 ? normalizedLon + 360 : normalizedLon
+  const pixelIndex = healpixNestedPixelIndex(
+    hoverNside.value,
+    lat,
+    normalizedLon
   );
-  const pixelIndex = healpix.ang2pix_nest(hoverNside.value, theta, phi);
   const dataIndex = hoverCellIndexMap.value
     ? hoverCellIndexMap.value.get(pixelIndex)
     : pixelIndex;
@@ -716,27 +856,23 @@ function healpixHoverLookup(
 }
 
 async function fetchAndRenderData(
-  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
-  updateMode: TUpdateMode
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
-  const { dimensionRanges, indices } = await prepareDimensionData(
-    datavar,
-    updateMode
-  );
+  const { dimensionRanges, indices } = await prepareDimensionData(datavar);
 
   const cellCoord = await getCells();
-  const nside = await getNside();
+  const nside = await getNside(datavar);
   hoverNside.value = nside;
   hoverData.value = castDataVarToFloat32(
     (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
   );
-  let { missingValue, fillValue } = getDataBounds(datavar, hoverData.value);
-  if (isNaN(missingValue)) {
-    missingValue = HEALPIX_UNSEEN;
-  } else if (isNaN(fillValue)) {
-    fillValue = HEALPIX_UNSEEN;
-  }
-  mapMissingAndFillToNaN(hoverData.value, missingValue, fillValue);
+  const { missingValue, fillValue } = getHealpixMissingAndFillValues(datavar);
+  decodeVariableDataInPlace(
+    hoverData.value,
+    datavar.attrs,
+    missingValue,
+    fillValue
+  );
   if (cellCoord) {
     const cellIndexMap = new Map<number, number>();
     for (let index = 0; index < cellCoord.length; index++) {
@@ -756,6 +892,8 @@ async function fetchAndRenderData(
 
   updateHistogram(histogramSummaries, dataMin, dataMax);
 
+  lastStreamlineContext = { indices, nside, cellCoord };
+
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
 
   store.updateVarInfo(
@@ -765,20 +903,23 @@ async function fetchAndRenderData(
       bounds: { low: dataMin, high: dataMax },
       dimRanges: dimensionRanges,
     },
-    indices as number[],
-    updateMode
+    indices as number[]
   );
+  void updateStreamlines(lastStreamlineContext);
 }
 
 onMounted(() => {
   for (let ipix = 0; ipix < HEALPIX_NUMCHUNKS; ++ipix) {
-    getScene()!.add(mainMeshes[ipix]);
+    const mesh = mainMeshes[ipix];
+    if (mesh) {
+      getScene()!.add(mesh);
+    }
   }
 });
 
 onBeforeMount(async () => {
-  const low = bounds.value?.low as number;
-  const high = bounds.value?.high as number;
+  const low = store.selection?.low as number;
+  const high = store.selection?.high as number;
   const { addOffset, scaleFactor } = getColormapScaleOffset(
     low,
     high,
@@ -794,6 +935,7 @@ onBeforeMount(async () => {
       addOffset,
       scaleFactor
     );
+    material.uniforms.useTriangleWrapCull.value = 1;
     // Set initial projection uniforms
     const helper = projectionHelper.value;
     updateProjectionUniforms(material, helper);
@@ -804,11 +946,37 @@ onBeforeMount(async () => {
       gridStep,
       projectionHelper.value
     );
-    mainMeshes[ipix] = new THREE.Mesh(geometry, material);
+    const mesh = createWrappedProjectionMesh(
+      geometry,
+      material,
+      projectionHelper.value.type
+    );
+    mainMeshes[ipix] = mesh;
     // Disable frustum culling - GPU projection changes actual positions
-    mainMeshes[ipix].frustumCulled = false;
+    mesh.frustumCulled = false;
   }
   await datasourceUpdate();
+});
+
+onBeforeUnmount(() => {
+  streamlineRequestRevision++;
+  terminateGridDataWorker();
+  for (let ipix = 0; ipix < HEALPIX_NUMCHUNKS; ++ipix) {
+    const mesh = mainMeshes[ipix];
+    if (!mesh) {
+      continue;
+    }
+    mesh.geometry.dispose();
+    const mat = mesh.material as THREE.ShaderMaterial;
+    if (mat) {
+      if (mat.uniforms?.data?.value?.dispose) {
+        mat.uniforms.data.value.dispose();
+      }
+      mat.dispose();
+    }
+    getScene()?.remove(mesh);
+    mainMeshes[ipix] = undefined;
+  }
 });
 
 defineExpose({

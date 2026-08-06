@@ -1,6 +1,11 @@
-import { useBroadcastChannel, useEventListener } from "@vueuse/core";
+import {
+  useBroadcastChannel,
+  useEventListener,
+  useIntervalFn,
+  useTimeoutFn,
+} from "@vueuse/core";
 import { storeToRefs } from "pinia";
-import { ref, watch, computed, onScopeDispose, type Ref } from "vue";
+import { ref, watch, computed, type Ref } from "vue";
 
 import {
   PRESENTER_CHANNEL,
@@ -15,7 +20,6 @@ import { useGlobeControlStore } from "@/store/store.ts";
 const presenterRole: Ref<TPresenterRole | null> = ref(null);
 const presenterWindowOpen = ref(false);
 let presenterWindow: Window | null = null;
-let presenterWindowMonitorId: number | null = null;
 
 /** Whether the current window is in "display" mode (no controls, receives state). */
 export const isDisplayMode = computed(
@@ -52,6 +56,8 @@ export function usePresenterSync() {
     isRotating,
     showCoastLines,
     showGraticules,
+    coastlineResolution,
+    graticuleSpacing,
     dimSlidersValues,
     selection,
   } = storeToRefs(store);
@@ -65,36 +71,35 @@ export function usePresenterSync() {
     name: PRESENTER_CHANNEL,
   });
 
-  function stopMonitoringPresenterWindow() {
-    if (presenterWindowMonitorId === null) {
-      return;
-    }
-    window.clearInterval(presenterWindowMonitorId);
-    presenterWindowMonitorId = null;
-  }
+  const {
+    pause: stopMonitoringPresenterWindow,
+    resume: startMonitoringPresenterWindow,
+  } = useIntervalFn(
+    () => {
+      const isOpen = presenterWindow !== null && !presenterWindow.closed;
+      presenterWindowOpen.value = isOpen;
+      if (isOpen) {
+        return;
+      }
+      presenterWindow = null;
+      if (presenterRole.value === PresenterRole.CONTROLLER) {
+        presenterRole.value = null;
+      }
+      stopMonitoringPresenterWindow();
+    },
+    500,
+    { immediate: false }
+  );
 
-  function syncPresenterWindowState() {
-    const isOpen = presenterWindow !== null && !presenterWindow.closed;
-    presenterWindowOpen.value = isOpen;
-    if (isOpen) {
-      return;
-    }
-    presenterWindow = null;
-    if (presenterRole.value === PresenterRole.CONTROLLER) {
-      presenterRole.value = null;
-    }
-    stopMonitoringPresenterWindow();
-  }
-
-  function startMonitoringPresenterWindow() {
-    if (presenterWindowMonitorId !== null) {
-      return;
-    }
-    presenterWindowMonitorId = window.setInterval(
-      syncPresenterWindowState,
-      500
-    );
-  }
+  const { start: scheduleInitialSync } = useTimeoutFn(
+    () => {
+      if (isPresenterActive.value) {
+        sendFullState();
+      }
+    },
+    1500,
+    { immediate: false }
+  );
 
   /** Gather the full current state for broadcasting. */
   function gatherState(opts?: {
@@ -117,6 +122,8 @@ export function usePresenterSync() {
       isRotating: isRotating.value,
       showCoastLines: showCoastLines.value,
       showGraticules: showGraticules.value,
+      coastlineResolution: coastlineResolution.value,
+      graticuleSpacing: graticuleSpacing.value,
       dimSlidersValues: opts?.includeDimSlidersValues
         ? gatherDimSlidersValues()
         : undefined,
@@ -170,13 +177,7 @@ export function usePresenterSync() {
     if (payload.userBoundsHigh !== undefined) {
       userBoundsHigh.value = payload.userBoundsHigh;
     }
-    if (payload.landSeaMaskChoice !== undefined) {
-      landSeaMaskChoice.value =
-        payload.landSeaMaskChoice as typeof landSeaMaskChoice.value;
-    }
-    if (payload.landSeaMaskUseTexture !== undefined) {
-      landSeaMaskUseTexture.value = payload.landSeaMaskUseTexture;
-    }
+    applyLayerState(payload);
     if (payload.projectionMode !== undefined) {
       projectionMode.value =
         payload.projectionMode as typeof projectionMode.value;
@@ -188,17 +189,35 @@ export function usePresenterSync() {
     if (payload.isRotating !== undefined) {
       isRotating.value = payload.isRotating;
     }
+    if (payload.dimSlidersValues !== undefined) {
+      dimSlidersValues.value = payload.dimSlidersValues;
+    }
+    if (payload.selection !== undefined) {
+      selection.value = payload.selection;
+    }
+  }
+
+  function applyLayerState(payload: TPresenterStatePayload) {
+    if (payload.landSeaMaskChoice !== undefined) {
+      landSeaMaskChoice.value =
+        payload.landSeaMaskChoice as typeof landSeaMaskChoice.value;
+    }
+    if (payload.landSeaMaskUseTexture !== undefined) {
+      landSeaMaskUseTexture.value = payload.landSeaMaskUseTexture;
+    }
     if (payload.showCoastLines !== undefined) {
       showCoastLines.value = payload.showCoastLines;
     }
     if (payload.showGraticules !== undefined) {
       showGraticules.value = payload.showGraticules;
     }
-    if (payload.dimSlidersValues !== undefined) {
-      dimSlidersValues.value = payload.dimSlidersValues;
+    if (payload.coastlineResolution !== undefined) {
+      coastlineResolution.value =
+        payload.coastlineResolution as typeof coastlineResolution.value;
     }
-    if (payload.selection !== undefined) {
-      selection.value = payload.selection;
+    if (payload.graticuleSpacing !== undefined) {
+      graticuleSpacing.value =
+        payload.graticuleSpacing as typeof graticuleSpacing.value;
     }
   }
 
@@ -324,6 +343,8 @@ export function usePresenterSync() {
     () => isRotating.value,
     () => showCoastLines.value,
     () => showGraticules.value,
+    () => coastlineResolution.value,
+    () => graticuleSpacing.value,
     () => JSON.stringify(selection.value),
     () => paramCameraState.value,
     () => paramGridType.value,
@@ -407,11 +428,7 @@ export function usePresenterSync() {
     startMonitoringPresenterWindow();
 
     // Send full state so the display window starts in sync
-    setTimeout(() => {
-      if (isPresenterActive.value) {
-        sendFullState();
-      }
-    }, 1500);
+    scheduleInitialSync();
   }
 
   function closeDisplayWindow() {
@@ -433,10 +450,6 @@ export function usePresenterSync() {
     }
     openDisplayWindow();
   }
-
-  onScopeDispose(() => {
-    stopMonitoringPresenterWindow();
-  });
 
   /** Activate display mode (called when ?mode=display is detected). */
   function enterDisplayMode() {

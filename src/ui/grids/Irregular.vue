@@ -1,65 +1,52 @@
 <script lang="ts" setup>
 import { storeToRefs } from "pinia";
 import * as THREE from "three";
-import { computed, onBeforeMount, ref, watch } from "vue";
+import { computed, onBeforeMount, onBeforeUnmount, ref } from "vue";
 import * as zarr from "zarrita";
 
-import {
-  createGeoSampleIndex,
-  useGridHoverLookup,
-} from "./composables/gridHoverUtils.ts";
+import { useGridHoverLookup } from "./composables/gridHoverUtils.ts";
+import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
+import { useIrregularStreamlines } from "./composables/useIrregularStreamlines.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
+import { getLatLonData } from "@/lib/data/coordinateVariables.ts";
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
 import { reconcileCoordinates } from "@/lib/data/irregularGridHelpers.ts";
-import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   castDataVarToFloat32,
-  getDataBounds,
-  getLatLonData,
-  mapMissingAndFillToNaN,
-} from "@/lib/data/zarrUtils.ts";
+  decodeVariableDataAndGetBounds,
+} from "@/lib/data/variableDecoding.ts";
+import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
+import {
+  getGridVariableData,
+  terminateGridDataWorker,
+} from "@/lib/grids/gridDataWorkerClient.ts";
+import type { TGridPointBatch } from "@/lib/grids/gridWorkerTypes.ts";
+import {
+  buildIrregularGrid,
+  terminateIrregularWorker,
+} from "@/lib/grids/irregularWorkerClient.ts";
+import { createSerializedGeoSampleIndex } from "@/lib/grids/serializedGeoSampleIndex.ts";
 import {
   makeGpuProjectedPointMaterial,
   updateProjectionUniforms,
 } from "@/lib/shaders/gridShaders.ts";
 import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
-import {
-  UPDATE_MODE,
-  useGlobeControlStore,
-  type TUpdateMode,
-} from "@/store/store.ts";
-import { useLog } from "@/utils/logging.ts";
+import { useGlobeControlStore } from "@/store/store.ts";
 
 const props = defineProps<{
   datasources?: TSources;
 }>();
 
 const store = useGlobeControlStore();
-const { logError } = useLog();
-const {
-  dimSlidersValues,
-  colormap,
-  varnameSelector,
-  invertColormap,
-  posterizeLevels,
-  selection,
-  isInitializingVariable,
-  varinfo,
-  projectionMode,
-  projectionCenter,
-} = storeToRefs(store);
-
+const { dimSlidersValues, colormap, varnameSelector, invertColormap, varinfo } =
+  storeToRefs(store);
 const urlParameterStore = useUrlParameterStore();
 const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
   storeToRefs(urlParameterStore);
 
-const pendingUpdate = ref(false);
-const updatingData = ref(false);
-
 const estimatedSpacing = ref(0);
-
 const BATCH_SIZE = 500000;
 let points: THREE.Points[] = [];
 
@@ -75,6 +62,9 @@ const {
   updateLandSeaMask,
   updateColormap,
   projectionHelper,
+  onProjectionChange,
+  onColormapChange,
+  registerAnimationCallback,
   redraw,
   canvas,
   box,
@@ -85,68 +75,13 @@ const {
 const { setHoverLookupFromIndex, clearHoverLookup } =
   useGridHoverLookup(hoveredGeoPoint);
 
-watch(
-  () => varnameSelector.value,
-  () => {
-    getData();
-  }
-);
+onColormapChange(() => updateColormap(points));
+onProjectionChange(updatePointsProjectionUniforms);
 
-watch(
-  () => dimSlidersValues.value,
-  async () => {
-    if (isInitializingVariable.value) {
-      isInitializingVariable.value = false;
-      return;
-    }
-    await getData(UPDATE_MODE.SLIDER_TOGGLE);
-    updateColormap(points);
-  },
-  { deep: true }
-);
-
-watch(
-  () => props.datasources,
-  () => {
-    datasourceUpdate();
-  }
-);
-
-const bounds = computed(() => {
-  return selection.value;
-});
-
-watch(
-  [
-    () => bounds.value,
-    () => invertColormap.value,
-    () => colormap.value,
-    () => posterizeLevels.value,
-    () => store.hideLowerBound,
-  ],
-  () => {
-    updateColormap(points);
-  }
-);
-
-// GPU projection: update shader uniforms instead of rebuilding geometry
-watch(
-  [() => projectionMode.value, () => projectionCenter.value],
-  () => {
-    updatePointsProjectionUniforms();
-  },
-  { deep: true }
-);
-
-/**
- * Update projection uniforms on the points material.
- * This is the fast path - no geometry rebuild needed.
- */
 function updatePointsProjectionUniforms() {
   const helper = projectionHelper.value;
-
-  for (const p of points) {
-    const material = p.material as THREE.ShaderMaterial;
+  for (const pointBatch of points) {
+    const material = pointBatch.material as THREE.ShaderMaterial;
     if (material.uniforms?.projectionType) {
       updateProjectionUniforms(material, helper);
     }
@@ -155,222 +90,93 @@ function updatePointsProjectionUniforms() {
 }
 
 const colormapMaterial = computed(() => {
-  // Use GPU-projected material
-  const material = invertColormap.value
+  return invertColormap.value
     ? makeGpuProjectedPointMaterial(colormap.value, 1.0, -1.0)
     : makeGpuProjectedPointMaterial(colormap.value, 0.0, 1.0);
-
-  return material;
 });
 
-async function datasourceUpdate() {
-  clearHoverLookup();
-  if (props.datasources !== undefined) {
-    await Promise.all([getData()]);
-    updateLandSeaMask();
-    updateColormap(points);
-  }
-}
+const streamlines = useIrregularStreamlines({
+  getDatasources: () => props.datasources,
+  getPreferredVariable: () => varnameSelector.value,
+  getDataVar,
+  getScene,
+  redraw,
+  projectionHelper,
+  onProjectionChange,
+  registerAnimationCallback,
+});
 
-function estimateAverageSpacing(
-  positions: Float32Array,
-  sampleSize = 5000
-): number {
-  const numPoints = positions.length / 3;
-  const stride = Math.max(1, Math.floor(numPoints / sampleSize));
-
-  let totalDistance = 0;
-  let totalWeight = 0;
-
-  for (let i = 0; i < numPoints; i += stride) {
-    const idx = i * 3;
-    const x1 = positions[idx];
-    const y1 = positions[idx + 1];
-    const z1 = positions[idx + 2];
-
-    // Latitude weighting
-    const lat = Math.asin(z1);
-    const weight = Math.cos(lat);
-    if (weight < 0.1) {
-      continue;
-    }
-
-    let minDist = Infinity;
-
-    // Check local neighborhood (points before and after)
-    const neighborhoodSize = 50;
-    const start = Math.max(0, i - neighborhoodSize);
-    const end = Math.min(numPoints, i + neighborhoodSize);
-
-    for (let j = start; j < end; j++) {
-      if (i === j) {
-        continue;
-      }
-
-      const jdx = j * 3;
-      const x2 = positions[jdx];
-      const y2 = positions[jdx + 1];
-      const z2 = positions[jdx + 2];
-
-      const dx = x2 - x1;
-      const dy = y2 - y1;
-      const dz = z2 - z1;
-      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-
-      if (dist > 0 && dist < minDist) {
-        minDist = dist;
-      }
-    }
-
-    if (minDist !== Infinity) {
-      totalDistance += minDist * weight;
-      totalWeight += weight;
-    }
-  }
-
-  return totalWeight > 0 ? totalDistance / totalWeight : 0.01;
-}
+const { datasourceUpdate } = useGridDataLoader({
+  getDatasources: () => props.datasources,
+  getDataVar,
+  fetchAndRenderData,
+  clearHoverLookup,
+  updateLandSeaMask,
+  updateColormap: () => updateColormap(points),
+  refreshStreamlines: streamlines.refresh,
+});
 
 function cleanupPoints(totalBatches: number) {
   if (points.length <= totalBatches) {
     return;
   }
-  for (const p of points) {
-    p.geometry.dispose();
-    getScene()?.remove(p);
+  for (const pointBatch of points) {
+    pointBatch.geometry.dispose();
+    getScene()?.remove(pointBatch);
   }
   points.length = 0;
 }
 
-function updateBatch(
-  batchIndex: number,
-  positions: Float32Array,
-  latLonValues: Float32Array,
-  data: Float32Array,
-  start: number,
-  end: number
-) {
+function updateBatch(batch: TGridPointBatch) {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute(
     "position",
-    new THREE.BufferAttribute(
-      new Float32Array(positions.subarray(start * 3, end * 3)),
-      3
-    )
+    new THREE.BufferAttribute(batch.positionValues, 3)
   );
   geometry.setAttribute(
     "latLon",
-    new THREE.BufferAttribute(
-      new Float32Array(latLonValues.subarray(start * 2, end * 2)),
-      2
-    )
+    new THREE.BufferAttribute(batch.latLonValues, 2)
   );
   geometry.setAttribute(
     "data_value",
-    new THREE.BufferAttribute(new Float32Array(data.subarray(start, end)), 1)
+    new THREE.BufferAttribute(batch.dataValues, 1)
   );
   geometry.computeBoundingSphere();
-
-  if (points[batchIndex]) {
-    points[batchIndex].geometry.dispose();
-    points[batchIndex].geometry = geometry;
-  } else {
-    const p = new THREE.Points(geometry, colormapMaterial.value);
-    p.frustumCulled = false;
-    points.push(p);
-    getScene()?.add(p);
+  if (points[batch.batchIndex]) {
+    points[batch.batchIndex].geometry.dispose();
+    points[batch.batchIndex].geometry = geometry;
+    return;
   }
-}
-
-function getGrid(
-  latitudesVar: zarr.Chunk<zarr.DataType>,
-  longitudesVar: zarr.Chunk<zarr.DataType>,
-  data: Float32Array
-) {
-  const N = data.length;
-  const { latitudes, longitudes } = reconcileCoordinates(
-    latitudesVar,
-    longitudesVar,
-    N
-  );
-
-  const totalBatches = Math.ceil(N / BATCH_SIZE);
-  cleanupPoints(totalBatches);
-
-  const positions = new Float32Array(N * 3);
-  const latLonValues = new Float32Array(N * 2);
-  const helper = projectionHelper.value;
-
-  for (let i = 0; i < N; i++) {
-    helper.projectLatLonToArrays(
-      latitudes[i],
-      longitudes[i],
-      positions,
-      i * 3,
-      latLonValues,
-      i * 2
-    );
-  }
-
-  estimatedSpacing.value = estimateAverageSpacing(positions);
-
-  for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
-    const start = batchIndex * BATCH_SIZE;
-    const end = Math.min(start + BATCH_SIZE, N);
-    updateBatch(batchIndex, positions, latLonValues, data, start, end);
-  }
-
-  // Update projection uniforms after geometry change
-  updatePointsProjectionUniforms();
-  updateLOD();
+  const pointBatch = new THREE.Points(geometry, colormapMaterial.value);
+  pointBatch.frustumCulled = false;
+  points.push(pointBatch);
+  getScene()?.add(pointBatch);
 }
 
 function updateLOD() {
-  const avgSpacing = estimatedSpacing.value;
-  const globeRadius = 1;
   const camera = getCamera();
   if (!camera) {
     return;
   }
-  const cameraDistance = camera.position.length();
-  const viewportHeight = window.innerHeight;
-
-  // Use logarithmic scaling for better distribution across orders of magnitude
-  // This maps:
-  // 0.00007 → ~0.15
-  // 0.003   → ~0.70
-  const logSpacing = Math.log10(avgSpacing);
-  const normalizedSpacing = Math.max(0.2, Math.min(1.0, (logSpacing + 4) / 3)); // Tune these numbers
-
-  const zoomFactor = globeRadius / cameraDistance;
-
-  // Use avgSpacing directly in base calculation for better scaling
+  const zoomFactor = 1 / camera.position.length();
+  const normalizedSpacing = Math.max(
+    0.2,
+    Math.min(1.0, (Math.log10(estimatedSpacing.value) + 4) / 3)
+  );
   const basePointSize =
-    avgSpacing * viewportHeight * zoomFactor * normalizedSpacing * 400; // Tune multiplier
-
-  // Adjust min/max with both zoom and density
+    estimatedSpacing.value *
+    window.innerHeight *
+    zoomFactor *
+    normalizedSpacing *
+    400;
   const minPointSize = Math.max(0.8, 3.0 * zoomFactor * normalizedSpacing);
   const maxPointSize = Math.min(25.0, 80.0 * zoomFactor * normalizedSpacing);
-
-  for (const p of points) {
-    const material = p.material as THREE.ShaderMaterial;
+  for (const pointBatch of points) {
+    const material = pointBatch.material as THREE.ShaderMaterial;
     material.uniforms.basePointSize.value = basePointSize;
     material.uniforms.minPointSize.value = minPointSize;
     material.uniforms.maxPointSize.value = maxPointSize;
   }
-}
-
-async function getDimensionValues(
-  dimensionRanges: TDimensionRange[],
-  indices: (number | zarr.Slice | null)[]
-) {
-  const dimValues = await fetchDimensionDetails(
-    varnameSelector.value,
-    props.datasources!,
-    dimensionRanges,
-    indices
-  );
-  return dimValues;
 }
 
 function getGeographicDimensionIndices(
@@ -378,94 +184,126 @@ function getGeographicDimensionIndices(
   latitudesAttrs: zarr.Attributes,
   longitudesAttrs: zarr.Attributes
 ) {
-  const geoDims: number[] = [];
-  for (let i = 0; i < dimensions.length; i++) {
-    let latDims = latitudesAttrs.dimensionNames as string[];
-    let lonDims = longitudesAttrs.dimensionNames as string[];
-    if (latDims.includes(dimensions[i])) {
-      geoDims.push(i);
-    } else if (lonDims.includes(dimensions[i])) {
-      geoDims.push(i);
+  const geographicDimensions: number[] = [];
+  for (let index = 0; index < dimensions.length; index++) {
+    const latitudeDimensions = latitudesAttrs.dimensionNames as string[];
+    const longitudeDimensions = longitudesAttrs.dimensionNames as string[];
+    if (
+      latitudeDimensions.includes(dimensions[index]) ||
+      longitudeDimensions.includes(dimensions[index])
+    ) {
+      geographicDimensions.push(index);
     }
   }
-  return geoDims;
-}
-
-function updateHoverLookup(
-  rawData: Float32Array,
-  latitudes: zarr.Chunk<zarr.DataType>,
-  longitudes: zarr.Chunk<zarr.DataType>,
-  fillValue: number,
-  missingValue: number
-) {
-  const { latitudes: reconLats, longitudes: reconLons } = reconcileCoordinates(
-    latitudes,
-    longitudes,
-    rawData.length
-  );
-  setHoverLookupFromIndex(
-    createGeoSampleIndex(
-      Array.from(rawData, (value, index) => ({
-        lat: reconLats[index],
-        lon: reconLons[index],
-        value,
-      }))
-    ),
-    fillValue,
-    missingValue
-  );
+  return geographicDimensions;
 }
 
 async function buildDimensionConfig(
-  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
-  updateMode: TUpdateMode
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
   const { latitudes, longitudes, latitudesAttrs, longitudesAttrs } =
-    await getLatLonData(datavar, props.datasources);
+    await getLatLonData(varnameSelector.value, datavar, props.datasources);
   const dimensions = await ZarrDataManager.getDimensionNames(
     props.datasources!,
     varnameSelector.value
   );
-  const geoDims = getGeographicDimensionIndices(
+  const geographicDimensions = getGeographicDimensionIndices(
     dimensions,
     latitudesAttrs,
     longitudesAttrs!
   );
-  const { dimensionRanges, indices } = buildDimensionRangesAndIndices(
+  const config = buildDimensionRangesAndIndices(
     datavar,
     dimensions,
     paramDimIndices.value,
     paramDimMinBounds.value,
     paramDimMaxBounds.value,
     dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
-    geoDims,
-    varinfo.value?.dimRanges,
-    updateMode === UPDATE_MODE.SLIDER_TOGGLE
+    geographicDimensions,
+    varinfo.value?.dimRanges
   );
-  return { latitudes, longitudes, dimensionRanges, indices };
+  return {
+    latitudes,
+    longitudes: longitudes!,
+    dimensions,
+    geographicDimensions,
+    ...config,
+  };
 }
 
-async function fetchAndRenderData(
-  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
-  updateMode: TUpdateMode
+function fetchIrregularVariableData(selection: (number | null | zarr.Slice)[]) {
+  return getGridVariableData({
+    source: ZarrDataManager.getDatasetSource(
+      props.datasources!,
+      varnameSelector.value
+    ),
+    variable: varnameSelector.value,
+    format: props.datasources!.zarr_format,
+    selection,
+  });
+}
+
+async function getDimensionValues(
+  dimensionRanges: TDimensionRange[],
+  indices: (number | zarr.Slice | null)[]
 ) {
-  const { latitudes, longitudes, dimensionRanges, indices } =
-    await buildDimensionConfig(datavar, updateMode);
-
-  let rawData = castDataVarToFloat32(
-    (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
+  return await fetchDimensionDetails(
+    varnameSelector.value,
+    props.datasources!,
+    dimensionRanges,
+    indices
   );
+}
 
-  let { min, max, fillValue, missingValue } = getDataBounds(datavar, rawData);
-  rawData = mapMissingAndFillToNaN(rawData, missingValue, fillValue);
-  getGrid(latitudes, longitudes!, rawData);
-
-  // Update hover lookup
-  updateHoverLookup(rawData, latitudes, longitudes!, fillValue, missingValue);
+/* eslint-disable-next-line max-lines-per-function */
+async function fetchAndRenderData(
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
+) {
+  const {
+    latitudes,
+    longitudes,
+    dimensionRanges,
+    indices,
+    dimensions,
+    geographicDimensions,
+  } = await buildDimensionConfig(datavar);
+  const rawData = castDataVarToFloat32(
+    await fetchIrregularVariableData(indices)
+  );
+  const { min, max, fillValue, missingValue } = decodeVariableDataAndGetBounds(
+    datavar,
+    rawData
+  );
+  const helper = projectionHelper.value;
+  const result = await buildIrregularGrid(
+    {
+      latitudes: latitudes.data as Float32Array,
+      longitudes: longitudes.data as Float32Array,
+      latitudeShape: [...latitudes.shape],
+      longitudeShape: [...longitudes.shape],
+      data: rawData,
+      batchSize: BATCH_SIZE,
+      projectionType: helper.type,
+      projectionCenter: { lat: helper.center.lat, lon: helper.center.lon },
+    },
+    {
+      onMetadata: (metadata) => {
+        cleanupPoints(metadata.totalBatches);
+        estimatedSpacing.value = metadata.estimatedSpacing;
+      },
+      onBatch: updateBatch,
+    }
+  );
+  updatePointsProjectionUniforms();
+  updateLOD();
+  setHoverLookupFromIndex(
+    createSerializedGeoSampleIndex(result.hoverIndexData),
+    fillValue,
+    missingValue
+  );
 
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
   updateHistogram(rawData, min, max, missingValue, fillValue);
-
   store.updateVarInfo(
     {
       attrs: datavar.attrs,
@@ -473,34 +311,21 @@ async function fetchAndRenderData(
       bounds: { low: min, high: max },
       dimRanges: dimensionRanges,
     },
-    indices as number[],
-    updateMode
+    indices as number[]
   );
-}
-
-async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
-  store.startLoading();
-  try {
-    if (updatingData.value) {
-      pendingUpdate.value = true;
-      return;
-    }
-    updatingData.value = true;
-    do {
-      pendingUpdate.value = false;
-      const localVarname = varnameSelector.value;
-      const datavar = await getDataVar(localVarname, props.datasources!);
-      if (datavar !== undefined) {
-        await fetchAndRenderData(datavar, updateMode);
-      }
-      updatingData.value = false;
-    } while (pendingUpdate.value);
-  } catch (error) {
-    logError(error, "Could not fetch data");
-    updatingData.value = false;
-  } finally {
-    store.stopLoading();
-  }
+  const coordinates = reconcileCoordinates(
+    latitudes,
+    longitudes,
+    rawData.length
+  );
+  void streamlines.setContext({
+    ...coordinates,
+    dimensionNames: dimensions,
+    indices,
+    spatialDimensionNames: geographicDimensions.map(
+      (index) => dimensions[index]
+    ),
+  });
 }
 
 onBeforeMount(async () => {
@@ -508,11 +333,12 @@ onBeforeMount(async () => {
   registerUpdateLOD(updateLOD);
 });
 
-defineExpose({
-  makeSnapshot,
-  toggleRotate,
-  applyCameraPreset,
+onBeforeUnmount(() => {
+  terminateIrregularWorker();
+  terminateGridDataWorker();
 });
+
+defineExpose({ makeSnapshot, toggleRotate, applyCameraPreset });
 </script>
 
 <template>

@@ -4,12 +4,16 @@ const URL_PARAMETERS = {
   INVERT_COLORMAP: "invertcolormap",
   POSTERIZE_LEVELS: "posterizelevels",
   HIDE_LOWER_BOUND: "hidelowerbound",
+  HIDE_UPPER_BOUND: "hideupperbound",
   DISTRACTION_FREE: "distractionFree",
   USER_BOUNDS_LOW: "boundlow",
   USER_BOUNDS_HIGH: "boundhigh",
   CAMERA_STATE: "camerastate",
   MASK_MODE: "maskmode",
   MASK_USE_TEXTURE: "maskusetexture",
+  STREAMLINES: "streamlines",
+  STREAMLINE_U: "streamlineu",
+  STREAMLINE_V: "streamlinev",
   PROJECTION: "projection",
   PROJECTION_CENTER_LAT: "projectionCenterLat",
   PROJECTION_CENTER_LON: "projectionCenterLon",
@@ -18,6 +22,7 @@ const URL_PARAMETERS = {
   DIM_INDICES: "dimIndices",
   DIM_MIN_BOUNDS: "dimMinBounds",
   DIM_MAX_BOUNDS: "dimMaxBounds",
+  LIVE: "live",
 } as const;
 
 type TURLParameterValues = (typeof URL_PARAMETERS)[keyof typeof URL_PARAMETERS];

@@ -1,10 +1,19 @@
 <script lang="ts" setup>
 import { storeToRefs } from "pinia";
-import Select from "primevue/select";
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
+import {
+  SelectListbox,
+  SelectOption,
+  SelectPopover,
+  SelectRoot,
+  SelectTrailingIcon,
+  SelectTrigger,
+  SelectValue,
+} from "vue3-select-component";
+import "vue3-select-component/styles.css";
 
 import ColorBar from "./ColorBar.vue";
-import { roundToDataPrecision } from "./colorbarUtils.ts";
+import { percentileFromBins, roundToDataPrecision } from "./colorbarUtils.ts";
 
 import type { TColorMap } from "@/lib/shaders/colormapShaders.ts";
 import type { TBounds, TModelInfo } from "@/lib/types/GlobeTypes.ts";
@@ -26,10 +35,21 @@ const {
   invertColormap,
   posterizeLevels,
   hideLowerBound,
+  hideUpperBound,
   selection,
   histogram,
   fullHistogram,
+  histogramSummary,
 } = storeToRefs(store);
+
+type TColormapOption = {
+  label: TColorMap;
+  value: TColorMap;
+};
+
+const colormapOptions = computed<TColormapOption[]>(() =>
+  props.modelInfo.colormaps.map((value) => ({ label: value, value }))
+);
 
 const previousValue = ref(posterizeLevels.value);
 
@@ -109,10 +129,26 @@ function handleDropdownChange() {
 function handleOptionHover(option: TColorMap) {
   colormap.value = option;
 }
+
+function handleAutoContrast() {
+  if (!histogramSummary.value || !props.dataBounds) {
+    return;
+  }
+  const { bins, min, max } = histogramSummary.value;
+  const low = percentileFromBins(bins, min, max, 2);
+  const high = percentileFromBins(bins, min, max, 98);
+  store.updateLowUserBound(
+    roundToDataPrecision(low, props.dataBounds.low, props.dataBounds.high)
+  );
+  store.updateHighUserBound(
+    roundToDataPrecision(high, props.dataBounds.low, props.dataBounds.high)
+  );
+  emit("forceUserBounds");
+}
 </script>
 
 <template>
-  <div class="column">
+  <div class="column mb-5">
     <ColorBar
       :colormap="colormap"
       :invert-colormap="invertColormap"
@@ -130,7 +166,9 @@ function handleOptionHover(option: TColorMap) {
     <!-- Posterize control -->
     <div class="columns is-mobile is-vcentered compact-row mt-2 mb-4 px-1">
       <div class="column is-one-third">
-        <label for="posterize_levels" class="label is-small">Posterize</label>
+        <label for="posterize_levels" class="label is-small"
+          >Discrete Colors</label
+        >
       </div>
       <div class="column slider-column">
         <input
@@ -152,63 +190,106 @@ function handleOptionHover(option: TColorMap) {
     </div>
 
     <!-- Row: Colormap selector + options -->
-    <div class="columns is-mobile is-vcentered compact-row px-1">
-      <div class="column colormap-column">
-        <Select
-          v-model="colormap"
-          :options="modelInfo.colormaps"
-          class="colormap-select"
-          @show="handleDropdownShow"
-          @hide="handleDropdownHide"
-          @change="handleDropdownChange"
+    <SelectRoot
+      v-model="colormap"
+      :options="colormapOptions"
+      class="colormap-select mb-4"
+      data-assembled-select
+      @menu-opened="handleDropdownShow"
+      @menu-closed="handleDropdownHide"
+      @option-selected="handleDropdownChange"
+    >
+      <SelectTrigger>
+        <SelectValue>
+          <div class="cm-option">
+            <img :src="swatchSrc(colormap)" class="cm-swatch" alt="" />
+            <span class="cm-name">{{ colormap }}</span>
+          </div>
+        </SelectValue>
+        <SelectTrailingIcon>
+          <i class="fa-solid fa-angle-down is-size-5"></i>
+        </SelectTrailingIcon>
+      </SelectTrigger>
+
+      <SelectPopover>
+        <SelectListbox>
+          <SelectOption
+            v-for="option in colormapOptions"
+            :key="option.value"
+            :value="option.value"
+            :label="option.label"
+            @mouseenter="handleOptionHover(option.value)"
+          >
+            <div class="cm-option w-100">
+              <img :src="swatchSrc(option.value)" class="cm-swatch" alt="" />
+              <span class="cm-name">{{ option.label }}</span>
+            </div>
+          </SelectOption>
+        </SelectListbox>
+      </SelectPopover>
+    </SelectRoot>
+    <div class="columns is-mobile is-multiline is-vcentered compact-row px-1">
+      <div class="column is-half">
+        <button
+          id="invert_colormap"
+          type="button"
+          class="button is-small w-100"
+          :class="{ 'is-info': invertColormap }"
+          :aria-pressed="invertColormap"
+          title="Invert colormap"
+          @click="invertColormap = !invertColormap"
         >
-          <template #value="{ value }">
-            <div class="cm-option">
-              <img
-                :src="swatchSrc(value as TColorMap)"
-                class="cm-swatch"
-                alt=""
-              />
-              <span class="cm-name">{{ value }}</span>
-            </div>
-          </template>
-          <template #option="{ option }">
-            <div
-              class="cm-option"
-              @mouseenter="handleOptionHover(option as TColorMap)"
-            >
-              <img
-                :src="swatchSrc(option as TColorMap)"
-                class="cm-swatch"
-                alt=""
-              />
-              <span class="cm-name">{{ option }}</span>
-            </div>
-          </template>
-        </Select>
+          <span class="icon">
+            <i class="fa-solid fa-arrow-right-arrow-left"></i>
+          </span>
+          <span>Invert</span>
+        </button>
       </div>
-      <div class="column is-narrow">
-        <label class="checkbox">
-          <input
-            id="invert_colormap"
-            v-model="invertColormap"
-            type="checkbox"
-          />
-          invert
-        </label>
+      <div class="column is-half">
+        <button
+          type="button"
+          class="button is-small w-100"
+          title="Set bounds to the 2nd - 98th percentile of the data"
+          :disabled="!histogramSummary || !dataBounds"
+          @click="handleAutoContrast"
+        >
+          <span class="icon">
+            <i class="fa-solid fa-circle-half-stroke"></i>
+          </span>
+          <span> Auto Contrast </span>
+        </button>
       </div>
-      <div class="column is-narrow">
-        <label
-          class="checkbox"
+      <div class="column is-half">
+        <button
+          id="hide_lower_bound"
+          type="button"
+          class="button is-small w-100"
+          :class="{ 'is-info': hideLowerBound }"
+          :aria-pressed="hideLowerBound"
           title="Hide values at or below the lower bound (useful with globe mask, e.g. for precipitation)"
+          @click="hideLowerBound = !hideLowerBound"
         >
-          <input
-            id="hide_lower_bound"
-            v-model="hideLowerBound"
-            type="checkbox"
-          />
-          hide min
-        </label>
+          <span class="icon">
+            <i class="fa-solid fa-eye-slash"></i>
+          </span>
+          <span>Hide low</span>
+        </button>
+      </div>
+      <div class="column is-half">
+        <button
+          id="hide_upper_bound"
+          type="button"
+          class="button is-small w-100"
+          :class="{ 'is-info': hideUpperBound }"
+          :aria-pressed="hideUpperBound"
+          title="Hide values at or above the upper bound"
+          @click="hideUpperBound = !hideUpperBound"
+        >
+          <span class="icon">
+            <i class="fa-solid fa-eye-slash"></i>
+          </span>
+          <span>Hide high</span>
+        </button>
       </div>
     </div>
   </div>
@@ -227,51 +308,30 @@ function handleOptionHover(option: TColorMap) {
   align-items: center;
 }
 
-.colormap-column {
-  min-width: 0;
-  overflow: hidden;
-}
-
 .colormap-select {
   width: 100%;
   font-size: 1rem;
   font-family: inherit;
+  --vs-min-height: 2.5em;
+  --vs-padding-y: 0;
+  --vs-padding-x: 0.625em;
+  --vs-border: 1px solid var(--bulma-border, #dbdbdb);
+  --vs-border-radius: 4px;
+  --vs-background-color: var(--bulma-scheme-main, #fff);
+  --vs-text-color: var(--bulma-text, #363636);
+  --vs-outline-color: rgb(66, 88, 255);
+  --vs-outline-width: 3px;
+  --vs-trailing-icon-color: var(--bulma-link);
 }
 
-:deep(.p-select) {
-  width: 100%;
-  height: 2.5em;
-  border: 1px solid var(--bulma-border, #dbdbdb);
-  border-radius: 4px;
-  background-color: var(--bulma-scheme-main, #fff);
-  padding: 0 0.625em;
-  font-size: 1rem;
-  color: var(--bulma-text, #363636);
-  cursor: pointer;
-  transition: border-color 0.15s ease;
-
-  &:hover {
-    border-color: var(--bulma-border-hover, #b5b5b5) !important;
-  }
-
-  &.p-focus {
-    border-color: rgb(66, 88, 255) !important;
-    box-shadow: rgba(66, 88, 255, 0.25) 0px 0px 0px 3px !important;
-  }
+:deep([data-select-trigger][aria-expanded="true"]),
+:deep([data-select-trigger]:focus-visible) {
+  box-shadow: rgba(66, 88, 255, 0.25) 0 0 0 3px;
 }
 
-:deep(.p-select-label) {
-  padding: 0;
+:deep([data-select-value]) {
   line-height: 1;
-  display: flex;
-  align-items: center;
   height: 100%;
-  overflow: hidden;
-}
-
-:deep(.p-select-dropdown) {
-  width: 1.75em;
-  color: var(--bulma-link);
 }
 
 .cm-option {
@@ -293,5 +353,15 @@ function handleOptionHover(option: TColorMap) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+:global([data-select-popover]) {
+  --vs-border: 1px solid var(--bulma-border, #dbdbdb);
+  --vs-border-radius: 4px;
+  --vs-menu-background-color: var(--bulma-scheme-main, #fff);
+  --vs-menu-z-index: 1000;
+  --vs-option-hover-background-color: var(--bulma-scheme-main-bis, #fafafa);
+  --vs-option-focused-background-color: var(--bulma-scheme-main-ter, #f5f5f5);
+  --vs-option-selected-background-color: var(--bulma-info-soft, #eef6fc);
 }
 </style>

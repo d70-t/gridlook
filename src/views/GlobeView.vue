@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { useEventListener } from "@vueuse/core";
 import { storeToRefs } from "pinia";
-import { computed, onMounted, ref, watch, type Ref } from "vue";
+import { computed, nextTick, onMounted, ref, watch, type Ref } from "vue";
 
 import type {
   TModelInfo,
@@ -14,6 +14,10 @@ import {
   GRID_TYPES,
   type T_GRID_TYPES,
 } from "@/lib/data/gridTypeDetector.ts";
+import {
+  fetchCurrentTimestep,
+  liveStoreBaseUrl,
+} from "@/lib/data/liveTimestep.ts";
 import { indexFromIndex, indexFromZarr } from "@/lib/data/sourceIndexing.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { PROJECTION_TYPES, clamp } from "@/lib/projection/projectionUtils.ts";
@@ -24,6 +28,7 @@ import {
 import { PresenterRole } from "@/lib/types/presenterSync.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
+import { useLiveTimestep } from "@/store/useLiveTimestep.ts";
 import {
   usePresenterSync,
   isDisplayMode,
@@ -31,6 +36,7 @@ import {
 } from "@/store/usePresenterSync.ts";
 import { useUrlSync } from "@/store/useUrlSync.ts";
 import Toast from "@/ui/common/Toast.vue";
+import { useLog } from "@/ui/common/useLog.ts";
 import { isMobileDevice } from "@/ui/common/viewConstants.ts";
 import type { TCameraState } from "@/ui/grids/composables/useGridCameraState.ts";
 import GridCurvilinear from "@/ui/grids/Curvilinear.vue";
@@ -41,10 +47,10 @@ import GridIrregularDelaunay from "@/ui/grids/IrregularDelaunay.vue";
 import GridRegular from "@/ui/grids/Regular.vue";
 import GridTriangular from "@/ui/grids/Triangular.vue";
 import AboutView from "@/ui/overlays/AboutModal.vue";
+import { toggleTimeAnimation } from "@/ui/overlays/controls/useTimeAnimation.ts";
 import GlobeControls from "@/ui/overlays/Controls.vue";
 import HoverReadout from "@/ui/overlays/HoverReadout.vue";
 import InfoPanel from "@/ui/overlays/InfoPanel.vue";
-import { useLog } from "@/utils/logging.ts";
 
 const props = defineProps<{ src: string }>();
 
@@ -90,13 +96,24 @@ if (urlParams.get("mode") === PresenterRole.DISPLAY) {
 const { varnameSelector, loading, colormap, invertColormap } =
   storeToRefs(store);
 
-const { paramVarname, paramGridType, paramDistractionFree } =
-  storeToRefs(urlParameterStore);
+const {
+  paramVarname,
+  paramGridType,
+  paramDistractionFree,
+  paramLive,
+  paramStreamlines,
+  paramStreamlineU,
+  paramStreamlineV,
+} = storeToRefs(urlParameterStore);
 
 type TGlobeHandle = {
   makeSnapshot: (options: TSnapshotOptions) => void;
   toggleRotate: () => void;
   applyCameraPreset: (state: TCameraState) => void;
+};
+
+type TControlsHandle = {
+  initForDataset: () => void;
 };
 
 const HYPERGLOBE_CAMERA_PRESET: TCameraState = {
@@ -105,16 +122,19 @@ const HYPERGLOBE_CAMERA_PRESET: TCameraState = {
 };
 
 const globe: Ref<TGlobeHandle | null> = ref(null);
+const controls: Ref<TControlsHandle | null> = ref(null);
 const distractionFree = ref(false);
 const hyperglobeModeActive = ref(false);
 const panelVisibleBeforeDistractionFree = ref(true);
 const globeKey = ref(0);
-const globeControlKey = ref(0);
 const isInitialized = ref(false);
 const sourceValid = ref(false);
 const datasources: Ref<TSources | undefined> = ref(undefined);
 const detectedGridType: Ref<T_GRID_TYPES | undefined> = ref(undefined);
 const infoPanelOpen = ref(false);
+
+// Auto-follow the newest timestep of a live dataset (see useLiveTimestep).
+useLiveTimestep(datasources);
 
 const distractionFreeFromUrl = paramDistractionFree.value === "true";
 
@@ -163,54 +183,51 @@ const currentGlobeComponent = computed(() => {
   return gridMapping[activeGridType.value as keyof typeof gridMapping];
 });
 
-async function setGridType() {
-  if (!isInitialized.value) {
-    return;
-  }
+let gridTypeUpdateId = 0;
+let sourceUpdateId = 0;
+
+async function setGridType(forceRerender = false) {
+  const updateId = ++gridTypeUpdateId;
+  const previousGridType = detectedGridType.value;
   const localGridType = await getGridType(
     sourceValid.value,
     varnameSelector.value,
     datasources.value,
     logError
   );
+  if (updateId !== gridTypeUpdateId) {
+    return;
+  }
   detectedGridType.value = localGridType;
   if (localGridType === GRID_TYPES.ERROR) {
     store.stopLoading();
+  }
+  if (forceRerender || localGridType !== previousGridType) {
+    globeKey.value += 1;
   }
 }
 
 watch(
   () => props.src,
   async () => {
-    // Rerender controls and globe and reset store
-    // if new data is provided
-    detectedGridType.value = undefined;
-    globeKey.value += 1;
-    globeControlKey.value += 1;
-    if (isDisplayMode.value || isPresenterActive.value) {
-      // In display/presenter mode we want to preserve some state across source changes
-      store.resetExcept([
-        "projectionMode",
-        "projectionCenter",
-        "catalogData",
-        "catalogUrl",
-      ]);
-    } else {
-      store.resetExcept(["catalogData", "catalogUrl"]);
-    }
-    // stop loading is handled in the grid components after data load
-    store.startLoading();
-    await updateSrc();
+    await loadCurrentSource();
   }
 );
 
 watch(
   () => varnameSelector.value,
-  async () => {
-    if (!varnameSelector.value || varnameSelector.value === "-") {
+  async (varname, oldVarname) => {
+    if (
+      !isInitialized.value ||
+      !varname ||
+      varname === "-" ||
+      varname === oldVarname
+    ) {
       return;
     }
-    await setGridType();
+    store.startLoading();
+    detectedGridType.value = undefined;
+    await setGridType(true);
   }
 );
 
@@ -245,20 +262,83 @@ function prepareDefaults(src: string, index: TSources) {
   }
 }
 
-const updateSrc = async () => {
+function resetForSourceChange(resetStore: boolean) {
+  isInitialized.value = false;
+  gridTypeUpdateId += 1;
+  detectedGridType.value = undefined;
+  datasources.value = undefined;
+
+  if (resetStore) {
+    if (isDisplayMode.value || isPresenterActive.value) {
+      // In display/presenter mode we want to preserve some state across source changes
+      store.resetExcept([
+        "projectionMode",
+        "projectionCenter",
+        "catalogData",
+        "catalogUrl",
+        "controlPanelVisible",
+        "layerStack",
+      ]);
+    } else {
+      store.resetExcept([
+        "catalogData",
+        "catalogUrl",
+        "controlPanelVisible",
+        "layerStack",
+      ]);
+    }
+  }
+
+  // stop loading is handled in the grid components after data load
+  store.startLoading();
+}
+
+async function initControlsFromSource() {
+  await nextTick();
+  controls.value?.initForDataset();
+}
+
+function initStreamlinesFromParams() {
+  store.setStreamlineLayerEnabled(paramStreamlines.value === "true");
+  if (paramStreamlineU.value || paramStreamlineV.value) {
+    store.setStreamlineSelection({
+      automatic: false,
+      u: paramStreamlineU.value || undefined,
+      v: paramStreamlineV.value || undefined,
+    });
+  } else {
+    store.resetStreamlineSelection();
+  }
+}
+
+async function loadCurrentSource(resetStore = true) {
+  const updateId = ++sourceUpdateId;
+  resetForSourceChange(resetStore);
+  await updateSrc(updateId);
+  if (updateId !== sourceUpdateId) {
+    return;
+  }
+  initStreamlinesFromParams();
+  await initControlsFromSource();
+  isInitialized.value = true;
+  await setGridType(true);
+}
+
+async function updateSrc(updateId: number) {
   const src = props.src;
   ZarrDataManager.invalidateCache();
+  sourceValid.value = false;
+  store.isInitializingVariable = true;
   // FIXME: Trying zarr and json-index in parallel and picking the first that
   // works. If both fail, we log the last error which is from the json-index.
   // This leads to confusing error messages if the zarr source is supposed to
   // work but fails for some reason.
-  const indices = await Promise.allSettled([
-    indexFromZarr(src),
-    indexFromIndex(src),
-  ]);
+  const indexPromises = [indexFromZarr(src), indexFromIndex(src)];
+  const indices = await Promise.allSettled(indexPromises);
   let lastError = null;
-  store.isInitializingVariable = true;
-  sourceValid.value = false;
+  if (updateId !== sourceUpdateId || src !== props.src) {
+    return;
+  }
   for (const index of indices) {
     if (index.status === "fulfilled") {
       sourceValid.value = true;
@@ -268,12 +348,47 @@ const updateSrc = async () => {
       lastError = index.reason;
     }
   }
-  if (!sourceValid.value && lastError) {
-    store.stopLoading();
-    logError(lastError, "Failed to fetch data");
-    setGridType();
+  store.setLive(paramLive.value === "true");
+  if (store.live && sourceValid.value && datasources.value) {
+    await seedLiveTimestep(datasources.value, updateId);
   }
-};
+  store.signifyDatasetChange();
+  if (!sourceValid.value && lastError) {
+    logError(lastError, "Failed to fetch data");
+  }
+}
+
+/**
+ * Fetch the currently-available timestep of a live dataset and use it as the
+ * initial time index, so the first render requests a chunk that actually
+ * exists. Best-effort: on failure the live controller will still recover by
+ * retrying once it starts. Bounded by a timeout so a stuck endpoint cannot
+ * block the whole dataset from loading.
+ */
+async function seedLiveTimestep(sources: TSources, updateId: number) {
+  const baseUrl = liveStoreBaseUrl(sources);
+  if (!baseUrl) {
+    return;
+  }
+  const abortController = new AbortController();
+  const timeout = setTimeout(() => abortController.abort(), 10000);
+  try {
+    const current = await fetchCurrentTimestep(baseUrl, abortController.signal);
+    if (updateId !== sourceUpdateId) {
+      return;
+    }
+    urlParameterStore.paramDimIndices["time"] = String(current);
+    store.setLiveTimestep(current);
+  } catch (error) {
+    logError(
+      error,
+      `Live dataset: could not reach ${baseUrl}/current-timestep ` +
+        `(check the endpoint is served next to the store and CORS-enabled)`
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 const makeSnapshot = (options: TSnapshotOptions) => {
   if (globe.value) {
@@ -353,11 +468,7 @@ const applyHyperglobePresenter = () => {
 };
 
 onMounted(async () => {
-  // stop loading is handled in the grid components after data load
-  store.startLoading();
-  await updateSrc();
-  isInitialized.value = true;
-  await setGridType();
+  await loadCurrentSource(false);
 });
 
 // Prevent the long-press context menu on touch-enabled devices (e.g. touchscreen
@@ -387,6 +498,9 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
     return;
   }
   const key = e.key.toLowerCase();
+  if (key === " " && tag === "button") {
+    return;
+  }
   if (key === "r") {
     toggleRotate();
   } else if (key === "d") {
@@ -395,6 +509,9 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
     applyHyperglobePreset();
   } else if (key === "h" && !isMobileDevice()) {
     applyHyperglobePresenter();
+  } else if (key === " ") {
+    e.preventDefault();
+    toggleTimeAnimation();
   }
 });
 </script>
@@ -404,12 +521,14 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
     <Toast />
     <div v-show="!distractionFree && !isDisplayMode">
       <GlobeControls
-        :key="globeControlKey"
+        ref="controls"
         :model-info="modelInfo"
         :current-source="props.src"
+        :info-panel-open="infoPanelOpen"
         @on-snapshot="makeSnapshot"
         @on-rotate="toggleRotate"
         @toggle-display="toggleDisplayWindow"
+        @toggle-info-panel="toggleInfoPanel"
       />
     </div>
 
@@ -429,14 +548,15 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
         </div>
       </div>
     </section>
-    <div v-else-if="detectedGridType !== undefined" class="grid-canvas-wrapper">
+    <div v-else class="grid-canvas-wrapper">
       <currentGlobeComponent
+        v-if="detectedGridType !== undefined"
         ref="globe"
         :key="globeKey"
         :datasources="datasources"
         :is-rotated="detectedGridType === GRID_TYPES.REGULAR_ROTATED"
       />
-      <HoverReadout />
+      <HoverReadout v-if="detectedGridType !== undefined" />
     </div>
     <div
       v-if="!isDisplayMode"
@@ -448,7 +568,6 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
         :grid-type="detectedGridType"
         :is-open="infoPanelOpen"
         @close="infoPanelOpen = false"
-        @toggle="toggleInfoPanel"
         @select-grid-type="selectGridType"
       />
       <AboutView />

@@ -1,63 +1,53 @@
 <script lang="ts" setup>
 import { storeToRefs } from "pinia";
 import * as THREE from "three";
-import { computed, onBeforeMount, ref, watch } from "vue";
+import { computed, onBeforeMount, onBeforeUnmount } from "vue";
 import type * as zarr from "zarrita";
 
-import {
-  createGeoSampleIndex,
-  useGridHoverLookup,
-} from "./composables/gridHoverUtils.ts";
+import { useGridHoverLookup } from "./composables/gridHoverUtils.ts";
+import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
+import { useIrregularStreamlines } from "./composables/useIrregularStreamlines.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
+import { getLatLonData } from "@/lib/data/coordinateVariables.ts";
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
-import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   castDataVarToFloat32,
-  getDataBounds,
-  getLatLonData,
-  mapMissingAndFillToNaN,
-} from "@/lib/data/zarrUtils.ts";
-import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
+  decodeVariableDataAndGetBounds,
+} from "@/lib/data/variableDecoding.ts";
+import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
-  makeGpuProjectedMeshMaterial,
-  updateProjectionUniforms,
-} from "@/lib/shaders/gridShaders.ts";
+  buildGaussianReducedGrid,
+  terminateGaussianReducedWorker,
+} from "@/lib/grids/gaussianReducedWorkerClient.ts";
+import {
+  getGridVariableData,
+  terminateGridDataWorker,
+} from "@/lib/grids/gridDataWorkerClient.ts";
+import type { TGridGeometryBatch } from "@/lib/grids/gridWorkerTypes.ts";
+import { createSerializedGeoSampleIndex } from "@/lib/grids/serializedGeoSampleIndex.ts";
+import {
+  createWrappedProjectionMesh,
+  setupProjectionGeometryWrap,
+  updateProjectionMeshes,
+} from "@/lib/projection/projectionEdgeQuality.ts";
+import { makeInvertableGpuMeshMaterial } from "@/lib/shaders/gridShaders.ts";
 import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
-import {
-  UPDATE_MODE,
-  useGlobeControlStore,
-  type TUpdateMode,
-} from "@/store/store.ts";
-import { useLog } from "@/utils/logging.ts";
+import { useGlobeControlStore } from "@/store/store.ts";
 
 const props = defineProps<{
   datasources?: TSources;
 }>();
 
 const store = useGlobeControlStore();
-const { logError } = useLog();
 
-const {
-  dimSlidersValues,
-  colormap,
-  varnameSelector,
-  invertColormap,
-  posterizeLevels,
-  selection,
-  isInitializingVariable,
-  varinfo,
-  projectionMode,
-  projectionCenter,
-} = storeToRefs(store);
+const { dimSlidersValues, colormap, varnameSelector, invertColormap, varinfo } =
+  storeToRefs(store);
 
 const urlParameterStore = useUrlParameterStore();
 const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
   storeToRefs(urlParameterStore);
-
-const pendingUpdate = ref(false);
-const updatingData = ref(false);
 
 let meshes: THREE.Mesh[] = [];
 
@@ -72,6 +62,11 @@ const {
   updateLandSeaMask,
   updateColormap,
   projectionHelper,
+  isSceneInMotion,
+  onProjectionChange,
+  onMotionStateChange,
+  onColormapChange,
+  registerAnimationCallback,
   canvas,
   box,
   updateHistogram,
@@ -81,84 +76,60 @@ const {
 const { setHoverLookupFromIndex, clearHoverLookup } =
   useGridHoverLookup(hoveredGeoPoint);
 
-watch(
-  () => varnameSelector.value,
-  () => {
-    getData();
-  }
-);
+onColormapChange(() => updateColormap(meshes));
 
-watch(
-  () => dimSlidersValues.value,
-  async () => {
-    if (isInitializingVariable.value) {
-      isInitializingVariable.value = false;
-      return;
-    }
-    await getData(UPDATE_MODE.SLIDER_TOGGLE);
-    updateColormap(meshes);
-  },
-  { deep: true }
-);
-
-const bounds = computed(() => {
-  return selection.value;
-});
-
-watch(
-  [
-    () => bounds.value,
-    () => invertColormap.value,
-    () => colormap.value,
-    () => posterizeLevels.value,
-    () => store.hideLowerBound,
-  ],
-  () => {
-    updateColormap(meshes);
-  }
-);
-
-watch([() => projectionMode.value, () => projectionCenter.value], () => {
-  updateMeshProjectionUniforms();
-});
+onProjectionChange(updateMeshProjectionUniforms);
+onMotionStateChange(updateMeshProjectionUniforms);
 
 function updateMeshProjectionUniforms() {
-  const helper = projectionHelper.value;
-
-  for (const mesh of meshes) {
-    updateProjectionUniforms(mesh.material as THREE.ShaderMaterial, helper);
-  }
-  redraw();
+  updateProjectionMeshes(meshes, {
+    redraw,
+    projectionHelper: projectionHelper.value,
+    isSceneInMotion: isSceneInMotion.value,
+  });
 }
 
 const colormapMaterial = computed(() => {
-  if (invertColormap.value) {
-    return makeGpuProjectedMeshMaterial(colormap.value, 1.0, -1.0);
-  } else {
-    return makeGpuProjectedMeshMaterial(colormap.value, 0.0, 1.0);
-  }
+  return makeInvertableGpuMeshMaterial(colormap.value, invertColormap.value);
 });
 
-async function datasourceUpdate() {
-  clearHoverLookup();
-  if (props.datasources !== undefined) {
-    await Promise.all([getData()]);
-    updateLandSeaMask();
-    updateColormap(meshes);
-  }
-}
+const streamlines = useIrregularStreamlines({
+  getDatasources: () => props.datasources,
+  getPreferredVariable: () => varnameSelector.value,
+  getDataVar,
+  getScene,
+  redraw,
+  projectionHelper,
+  onProjectionChange,
+  registerAnimationCallback,
+});
+
+const { datasourceUpdate } = useGridDataLoader({
+  getDatasources: () => props.datasources,
+  getDataVar,
+  fetchAndRenderData,
+  clearHoverLookup,
+  updateLandSeaMask,
+  updateColormap: () => updateColormap(meshes),
+  refreshStreamlines: streamlines.refresh,
+});
 
 const BATCH_SIZE = 64; // Adjust based on memory and browser limits
 
 function updateOrCreateMesh(
   batchIndex: number,
-  geometry: THREE.BufferGeometry
+  geometry: THREE.InstancedBufferGeometry
 ) {
+  setupProjectionGeometryWrap(geometry);
   if (meshes[batchIndex]) {
     meshes[batchIndex].geometry.dispose();
     meshes[batchIndex].geometry = geometry;
   } else {
-    const mesh = new THREE.Mesh(geometry, colormapMaterial.value);
+    const mesh = createWrappedProjectionMesh(
+      geometry,
+      colormapMaterial.value,
+      projectionHelper.value.type
+    );
     mesh.frustumCulled = false;
     meshes.push(mesh);
     getScene()?.add(mesh);
@@ -183,7 +154,7 @@ function createBatchGeometry(
   latLonValues: Float32Array,
   indices: Uint32Array
 ) {
-  const geometry = new THREE.BufferGeometry();
+  const geometry = new THREE.InstancedBufferGeometry();
 
   geometry.setAttribute(
     "position",
@@ -197,143 +168,18 @@ function createBatchGeometry(
   return geometry;
 }
 
-function initializeArrays(totalCells: number) {
-  const latLonValues = new Float32Array(totalCells * 4 * 2); // 4 vertices, 2 values (lat, lon)
-  const positionValues = new Float32Array(totalCells * 4 * 3); // 4 vertices, 3 values (x, y, z)
-  const dataValues = new Float32Array(totalCells * 4);
-  const indices = new Uint32Array(totalCells * 6);
-
-  return { positionValues, dataValues, latLonValues, indices };
-}
-
 const EPSILON = 0.002; // Small overlap in degrees to avoid z-fighting
 
-function createQuadVertices(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number,
-  positionValues: Float32Array,
-  latLonValues: Float32Array,
-  positionOffset: number,
-  latLonOffset: number
-) {
-  const helper = projectionHelper.value;
-  // Vertex 0: top-left
-  helper.projectLatLonToArrays(
-    lat1,
-    lon1 + EPSILON,
-    positionValues,
-    positionOffset,
-    latLonValues,
-    latLonOffset
+function updateGaussianReducedBatch(batch: TGridGeometryBatch) {
+  updateOrCreateMesh(
+    batch.batchIndex,
+    createBatchGeometry(
+      batch.positionValues,
+      batch.dataValues,
+      batch.latLonValues,
+      batch.indices
+    )
   );
-
-  // Vertex 1: top-right
-  helper.projectLatLonToArrays(
-    lat1,
-    lon1 - lon2 - EPSILON,
-    positionValues,
-    positionOffset + 3,
-    latLonValues,
-    latLonOffset + 2
-  );
-
-  // Vertex 2: bottom-right
-  helper.projectLatLonToArrays(
-    lat2 - EPSILON,
-    lon1 - lon2 - EPSILON,
-    positionValues,
-    positionOffset + 6,
-    latLonValues,
-    latLonOffset + 4
-  );
-
-  // Vertex 3: bottom-left
-  helper.projectLatLonToArrays(
-    lat2 - EPSILON,
-    lon1 + EPSILON,
-    positionValues,
-    positionOffset + 9,
-    latLonValues,
-    latLonOffset + 6
-  );
-}
-
-// Precompute total number of cells (quads) in this batch
-function getTotalCellNumber(
-  rows: Record<number, { lon: number; value: number }[]>,
-  lStart: number,
-  lEnd: number,
-  uniqueLats: number[]
-) {
-  let totalCells = 0;
-  for (let l = lStart; l < lEnd; l++) {
-    totalCells += rows[uniqueLats[l]].length;
-  }
-  return totalCells;
-}
-
-function getCellData(row1: { lon: number; value: number }[], i: number) {
-  const cell = row1[i];
-  const nextCell = row1[(i + 1) % row1.length];
-  const lon1 = cell.lon;
-  const lon2 = nextCell.lon;
-  // wrap-around adjustment
-  const dLon = (lon2 - lon1 + 360) % 360;
-  return { cell, lon1, lon2: dLon, nextCell };
-}
-
-function buildBatchGeometryData(
-  rows: Record<number, { lon: number; value: number }[]>,
-  uniqueLats: number[],
-  lStart: number,
-  lEnd: number
-) {
-  const totalCells = getTotalCellNumber(rows, lStart, lEnd, uniqueLats);
-  const { positionValues, dataValues, latLonValues, indices } =
-    initializeArrays(totalCells);
-
-  let latLonOffset = 0;
-  let positionOffset = 0;
-  let idxOffset = 0;
-  let cellIndex = 0;
-
-  for (let l = lStart; l < lEnd; l++) {
-    const lat1 = uniqueLats[l];
-    const lat2 = uniqueLats[l + 1];
-    const row = rows[lat1];
-
-    for (let i = 0; i < row.length; i++) {
-      const { cell, lon1, lon2 } = getCellData(row, i);
-
-      createQuadVertices(
-        lat1,
-        lon1,
-        lat2,
-        lon2,
-        positionValues,
-        latLonValues,
-        positionOffset,
-        latLonOffset
-      );
-
-      // Data value
-      dataValues.fill(cell.value, cellIndex * 4, cellIndex * 4 + 4);
-
-      // Indices for two triangles
-      const v = cellIndex * 4;
-      indices.set([v, v + 1, v + 2, v, v + 2, v + 3], idxOffset);
-
-      // Offsets
-      latLonOffset += 8; // 4 vertices * 2 values each
-      positionOffset += 12; // 4 vertices * 3 values each
-      idxOffset += 6;
-      cellIndex++;
-    }
-  }
-
-  return createBatchGeometry(positionValues, dataValues, latLonValues, indices);
 }
 
 function buildGaussianReducedGeometry(
@@ -341,63 +187,22 @@ function buildGaussianReducedGeometry(
   longitudes: Float64Array,
   data: Float32Array
 ) {
-  const { rows, uniqueLats } = buildRows(latitudes, longitudes, data);
-  const totalBatches = Math.ceil((uniqueLats.length - 1) / BATCH_SIZE);
-  cleanupMeshes(totalBatches);
-
-  for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
-    const lStart = batchIndex * BATCH_SIZE;
-    const lEnd = Math.min(lStart + BATCH_SIZE, uniqueLats.length - 1);
-    const geometry = buildBatchGeometryData(rows, uniqueLats, lStart, lEnd);
-
-    updateOrCreateMesh(batchIndex, geometry);
-  }
-}
-
-function buildGaussianReducedHoverIndex(
-  latitudes: Float64Array,
-  longitudes: Float64Array,
-  data: Float32Array
-) {
-  const { rows, uniqueLats } = buildRows(latitudes, longitudes, data);
-  const samples: { lat: number; lon: number; value: number }[] = [];
-
-  for (let l = 0; l < uniqueLats.length - 1; l++) {
-    const lat1 = uniqueLats[l];
-    const lat2 = uniqueLats[l + 1];
-    const row = rows[lat1];
-
-    for (let i = 0; i < row.length; i++) {
-      const { cell, lon2: dLon } = getCellData(row, i);
-      samples.push({
-        lat: (lat1 + lat2) / 2,
-        lon: ProjectionHelper.normalizeLongitude(cell.lon - dLon / 2),
-        value: cell.value,
-      });
+  const helper = projectionHelper.value;
+  return buildGaussianReducedGrid(
+    {
+      latitudes,
+      longitudes,
+      data,
+      batchSize: BATCH_SIZE,
+      epsilon: EPSILON,
+      projectionType: helper.type,
+      projectionCenter: { lat: helper.center.lat, lon: helper.center.lon },
+    },
+    {
+      onMetadata: cleanupMeshes,
+      onBatch: updateGaussianReducedBatch,
     }
-  }
-
-  return createGeoSampleIndex(samples);
-}
-
-function buildRows(
-  latitudes: Float64Array,
-  longitudes: Float64Array,
-  data: Float32Array
-) {
-  const rows: Record<number, { lon: number; value: number }[]> = {};
-  for (let i = 0; i < latitudes.length; i++) {
-    const lat = latitudes[i];
-    if (!rows[lat]) {
-      rows[lat] = [];
-    }
-    rows[lat].push({ lon: longitudes[i], value: data[i] });
-  }
-
-  const uniqueLats = Object.keys(rows)
-    .map(Number)
-    .sort((a, b) => b - a);
-  return { rows, uniqueLats };
+  );
 }
 
 async function getDimensionValues(
@@ -414,54 +219,73 @@ async function getDimensionValues(
 }
 
 async function buildDimensionConfig(
-  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
-  updateMode: TUpdateMode
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
   const dimensionNames = await ZarrDataManager.getDimensionNames(
     props.datasources!,
     varnameSelector.value
   );
-  return buildDimensionRangesAndIndices(
-    datavar,
+  return {
+    ...buildDimensionRangesAndIndices(
+      datavar,
+      dimensionNames,
+      paramDimIndices.value,
+      paramDimMinBounds.value,
+      paramDimMaxBounds.value,
+      dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
+      [datavar.shape.length - 1],
+      varinfo.value?.dimRanges
+    ),
     dimensionNames,
-    paramDimIndices.value,
-    paramDimMinBounds.value,
-    paramDimMaxBounds.value,
-    dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
-    [datavar.shape.length - 1],
-    varinfo.value?.dimRanges,
-    updateMode === UPDATE_MODE.SLIDER_TOGGLE
-  );
+  };
+}
+
+function fetchGaussianReducedVariableData(
+  selection: (number | null | zarr.Slice)[]
+) {
+  return getGridVariableData({
+    source: ZarrDataManager.getDatasetSource(
+      props.datasources!,
+      varnameSelector.value
+    ),
+    variable: varnameSelector.value,
+    format: props.datasources!.zarr_format,
+    selection,
+  });
 }
 
 async function fetchAndRenderData(
-  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
-  updateMode: TUpdateMode
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
-  const { dimensionRanges, indices } = await buildDimensionConfig(
-    datavar,
-    updateMode
-  );
+  const { dimensionRanges, indices, dimensionNames } =
+    await buildDimensionConfig(datavar);
 
-  let rawData = castDataVarToFloat32(
-    (await ZarrDataManager.getVariableDataFromArray(datavar, indices)).data
-  );
+  const variableData = await fetchGaussianReducedVariableData(indices);
+
+  const rawData = castDataVarToFloat32(variableData);
 
   const { latitudes, longitudes } = await getLatLonData(
+    varnameSelector.value,
     datavar,
     props.datasources
   );
   const latitudesData = latitudes.data as Float64Array;
   const longitudesData = longitudes!.data as Float64Array;
 
-  let { min, max, missingValue, fillValue } = getDataBounds(datavar, rawData);
-  rawData = mapMissingAndFillToNaN(rawData, missingValue, fillValue);
+  const { min, max, missingValue, fillValue } = decodeVariableDataAndGetBounds(
+    datavar,
+    rawData
+  );
 
-  buildGaussianReducedGeometry(latitudesData, longitudesData, rawData);
+  const hoverIndexData = await buildGaussianReducedGeometry(
+    latitudesData,
+    longitudesData,
+    rawData
+  );
 
   // Update hover lookup
   setHoverLookupFromIndex(
-    buildGaussianReducedHoverIndex(latitudesData, longitudesData, rawData),
+    createSerializedGeoSampleIndex(hoverIndexData),
     fillValue,
     missingValue
   );
@@ -470,6 +294,7 @@ async function fetchAndRenderData(
   updateMeshProjectionUniforms();
 
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
+
   updateHistogram(rawData, min, max, missingValue, fillValue);
 
   store.updateVarInfo(
@@ -479,41 +304,26 @@ async function fetchAndRenderData(
       bounds: { low: min, high: max },
       dimRanges: dimensionRanges,
     },
-    indices as number[],
-    updateMode
+    indices as number[]
   );
+
   redraw();
-}
-
-async function getData(updateMode: TUpdateMode = UPDATE_MODE.INITIAL_LOAD) {
-  store.startLoading();
-  if (updatingData.value) {
-    pendingUpdate.value = true;
-    return;
-  }
-  updatingData.value = true;
-
-  try {
-    do {
-      pendingUpdate.value = false;
-      const localVarname = varnameSelector.value;
-      const datavar = await getDataVar(localVarname, props.datasources!);
-
-      if (datavar !== undefined) {
-        await fetchAndRenderData(datavar, updateMode);
-      }
-      updatingData.value = false;
-    } while (pendingUpdate.value);
-  } catch (error) {
-    logError(error, "Could not fetch data");
-    updatingData.value = false;
-  } finally {
-    store.stopLoading();
-  }
+  void streamlines.setContext({
+    latitudes: Float32Array.from(latitudesData),
+    longitudes: Float32Array.from(longitudesData),
+    dimensionNames,
+    indices,
+    spatialDimensionNames: [dimensionNames.at(-1)!],
+  });
 }
 
 onBeforeMount(async () => {
   await datasourceUpdate();
+});
+
+onBeforeUnmount(() => {
+  terminateGaussianReducedWorker();
+  terminateGridDataWorker();
 });
 
 defineExpose({

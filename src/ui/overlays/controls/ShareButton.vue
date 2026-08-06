@@ -1,11 +1,12 @@
 <script lang="ts" setup>
-import { useToast } from "primevue/usetoast";
 import QRCode from "qrcode";
 import { ref, watch } from "vue";
 
 import PopupDialog from "./PopupDialog.vue";
 
-const toast = useToast();
+import { ToastType, useToast } from "@/ui/common/useToast.ts";
+
+const { addToast } = useToast();
 const dialogOpen = ref(false);
 const currentUrl = ref("");
 const qrCodeDataUrl = ref("");
@@ -33,11 +34,10 @@ async function generateQrCode(url: string) {
     });
   } catch {
     qrCodeDataUrl.value = "";
-    toast.add({
-      summary: "QR code unavailable",
+    addToast("QR code unavailable", {
       detail: "Could not generate a QR code for this URL",
-      severity: "warn",
-      life: 4000,
+      duration: 4000,
+      type: ToastType.WARNING,
     });
   } finally {
     isGeneratingQr.value = false;
@@ -95,18 +95,16 @@ async function shareUrl() {
   // Fall back to clipboard
   try {
     await navigator.clipboard.writeText(url);
-    toast.add({
-      summary: "Link copied",
+    addToast("Link copied", {
       detail: "The URL has been copied to your clipboard",
-      severity: "success",
-      life: 4000,
+      duration: 4000,
+      type: ToastType.SUCCESS,
     });
   } catch {
-    toast.add({
-      summary: "Failed to copy",
+    addToast("Failed to copy", {
       detail: "Could not copy the URL to clipboard",
-      severity: "error",
-      life: 4000,
+      duration: 4000,
+      type: ToastType.DANGER,
     });
   }
   close();

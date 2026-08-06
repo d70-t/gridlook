@@ -22,6 +22,8 @@ export type TPresenterStatePayload = {
   isRotating?: boolean;
   showCoastLines?: boolean;
   showGraticules?: boolean;
+  coastlineResolution?: string;
+  graticuleSpacing?: number;
   dimSlidersValues?: (number | null)[];
   selection?: { low: number; high: number };
   // url-parameter store fields

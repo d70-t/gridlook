@@ -1,34 +1,33 @@
 import { storeToRefs } from "pinia";
 import type * as THREE from "three";
 import { computed, ref, watch } from "vue";
-import type * as zarr from "zarrita";
 
 import { useGridCameraState } from "./useGridCameraState.ts";
-import { useGridDataAccess } from "./useGridDataAccess.ts";
+import { useGridHistogram } from "./useGridHistogram.ts";
 import { useGridOverlays } from "./useGridOverlays.ts";
 import { useGridScene } from "./useGridScene.ts";
 
+import { fetchDimensionDetails } from "@/lib/data/dimensionData.ts";
+import {
+  fetchDataVariable,
+  getVariableDatasource,
+} from "@/lib/data/variableData.ts";
+import { exportGridAsGeoTiffTexture } from "@/lib/layers/gridExport.ts";
+import { saveTexture } from "@/lib/layers/textureStore.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import { availableColormaps } from "@/lib/shaders/colormapShaders.ts";
 import { getColormapScaleOffset } from "@/lib/shaders/gridShaders.ts";
-import type {
-  TDimensionRange,
-  TSources,
-  TDimInfo,
-} from "@/lib/types/GlobeTypes.ts";
+import type { TSources } from "@/lib/types/GlobeTypes.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
-import {
-  HISTOGRAM_SUMMARY_BINS,
-  buildHistogramSummary,
-  isHistogramSummary,
-  mergeHistogramSummaries,
-  rebinHistogramSummary,
-  type THistogramSummary,
-} from "@/utils/histogram.ts";
+import { useLog } from "@/ui/common/useLog.ts";
+
+type TVoidFunction = () => void;
+type TAsyncVoidFunction = () => Promise<void>;
 
 /* eslint-disable-next-line max-lines-per-function */
 export function useSharedGridLogic() {
   const store = useGlobeControlStore();
+  const { logError } = useLog();
   const {
     showCoastLines,
     showGraticules,
@@ -39,6 +38,7 @@ export function useSharedGridLogic() {
     invertColormap,
     posterizeLevels,
     hideLowerBound,
+    hideUpperBound,
     controlPanelVisible,
     projectionMode,
     projectionCenter,
@@ -52,20 +52,40 @@ export function useSharedGridLogic() {
   });
 
   const cameraState = useGridCameraState();
-  let updateCoastlines: () => Promise<void> = async () => {};
-  let updateGraticules: () => Promise<void> = async () => {};
+  const isSceneInMotion = ref(false);
+
+  const projectionChangeCallbacks: TVoidFunction[] = [];
+  const motionStateCallbacks: TVoidFunction[] = [];
+  const colormapChangeCallbacks: TVoidFunction[] = [];
+
+  function onProjectionChange(callback: TVoidFunction) {
+    projectionChangeCallbacks.push(callback);
+  }
+
+  function onMotionStateChange(callback: TVoidFunction) {
+    motionStateCallbacks.push(callback);
+  }
+
+  function onColormapChange(callback: TVoidFunction) {
+    colormapChangeCallbacks.push(callback);
+  }
+
+  let updateCoastlines: TAsyncVoidFunction = async () => {};
+  let updateGraticules: TAsyncVoidFunction = async () => {};
+  let syncTextureLayersOnReady: TAsyncVoidFunction = async () => {};
 
   const {
     canvas,
     box,
     getScene,
     getCamera,
-    getResizeObserver,
+    getRenderer,
     redraw,
     toggleRotate,
     makeSnapshot,
     applyCameraPreset,
     registerUpdateLOD,
+    registerAnimationCallback,
     updateBaseSurface,
     configureCameraForProjection,
     hoveredGeoPoint,
@@ -74,9 +94,16 @@ export function useSharedGridLogic() {
     projectionCenter,
     controlPanelVisible,
     cameraState,
+    onMotionStateChange: (isInMotion) => {
+      isSceneInMotion.value = isInMotion;
+      for (const cb of motionStateCallbacks) {
+        cb();
+      }
+    },
     onReady: () => {
       updateCoastlines();
       updateGraticules();
+      void syncTextureLayersOnReady();
     },
   });
 
@@ -84,7 +111,8 @@ export function useSharedGridLogic() {
     updateCoastlines: updateCoastlinesInternal,
     updateGraticules: updateGraticulesInternal,
     updateLandSeaMask,
-    updateLandSeaMaskProjectionUniforms,
+    updateTextureLayers,
+    updateLayerProjectionUniforms,
     updateOverlayProjectionUniforms,
   } = useGridOverlays({
     projectionHelper,
@@ -98,32 +126,52 @@ export function useSharedGridLogic() {
 
   updateCoastlines = updateCoastlinesInternal;
   updateGraticules = updateGraticulesInternal;
+  syncTextureLayersOnReady = () => updateTextureLayers();
 
-  const { resetDataVars, getDataVar, getTimeInfo, getDimensionInfo } =
-    useGridDataAccess();
-
-  const bounds = computed(() => {
-    return selection.value;
-  });
-
-  watch(
-    () => showCoastLines.value,
-    () => {
-      updateCoastlines();
-    }
-  );
-
-  watch(
-    () => showGraticules.value,
-    () => {
-      updateGraticules();
-    }
-  );
+  // the mask mode may already be set from the URL before the grid mounts
+  store.positionMaskLayerForMode(landSeaMaskChoice.value);
 
   watch(
     [() => landSeaMaskChoice.value, () => landSeaMaskUseTexture.value],
-    () => {
+    ([newChoice], [oldChoice]) => {
+      if (newChoice !== oldChoice) {
+        store.positionMaskLayerForMode(newChoice);
+      }
       updateLandSeaMask();
+    }
+  );
+
+  // covers reordering, add/remove, visibility and mask-mode changes
+  watch(
+    () => store.layerStack,
+    () => {
+      void updateTextureLayers();
+    },
+    { deep: true }
+  );
+
+  watch(
+    () => store.gridExportRequest,
+    async () => {
+      const renderer = getRenderer();
+      const scene = getScene();
+      if (!renderer || !scene) {
+        return;
+      }
+      store.gridExportLoading = true;
+      try {
+        const blob = await exportGridAsGeoTiffTexture(renderer, scene);
+        const stored = await saveTexture(
+          `Image: ${store.varnameDisplay}.tif`,
+          blob
+        );
+        store.addTextureLayer(stored.id, stored.name);
+        redraw();
+      } catch (error) {
+        logError(error, "Couldn't export the grid as a texture layer");
+      } finally {
+        store.gridExportLoading = false;
+      }
     }
   );
 
@@ -142,10 +190,15 @@ export function useSharedGridLogic() {
         updateBaseSurface();
         void updateOverlayProjectionUniforms(true);
         updateLandSeaMask();
+        void updateTextureLayers(true);
         configureCameraForProjection();
       } else if (centerChanged) {
         void updateOverlayProjectionUniforms();
-        updateLandSeaMaskProjectionUniforms();
+        updateLayerProjectionUniforms();
+      }
+
+      for (const cb of projectionChangeCallbacks) {
+        cb();
       }
     },
     { deep: true }
@@ -155,8 +208,8 @@ export function useSharedGridLogic() {
     if (!meshes) {
       return;
     }
-    const low = bounds.value?.low as number;
-    const high = bounds.value?.high as number;
+    const low = selection.value?.low as number;
+    const high = selection.value?.high as number;
     const { addOffset, scaleFactor } = getColormapScaleOffset(
       low,
       high,
@@ -179,174 +232,70 @@ export function useSharedGridLogic() {
           ? low
           : -1e38;
       }
+      if (material.uniforms.hideAboveValue) {
+        material.uniforms.hideAboveValue.value = hideUpperBound.value
+          ? high
+          : 1e38;
+      }
       material.needsUpdate = true;
     }
     redraw();
   }
 
-  async function fetchDimensionDetails(
-    currentVariable: string,
-    datasources: TSources,
-    dimensionRanges: TDimensionRange[],
-    dimSlidersValues: (number | zarr.Slice | null)[]
-  ): Promise<TDimInfo[]> {
-    const array: TDimInfo[] = [];
-    for (let i = 0; i < dimensionRanges.length; i++) {
-      const dim = dimensionRanges[i];
-      if (dim?.name === "time") {
-        const timeInfo = await getTimeInfo(
-          datasources,
-          dimensionRanges,
-          i,
-          dimSlidersValues[i] as number
-        );
-        array.push(timeInfo);
-      } else {
-        const dimInfo = await getDimensionInfo(
-          datasources.levels[0].datasources[currentVariable],
-          dim!,
-          dimSlidersValues[i] as number
-        );
-        array.push(dimInfo);
-      }
-    }
-    return array;
-  }
-
-  const lastHistogramSummary = ref<THistogramSummary | null>(null);
-
-  const DISPLAY_BIN_COUNT = 50;
-
-  function getSelectionBinCount() {
-    return posterizeLevels.value > 1
-      ? posterizeLevels.value
-      : DISPLAY_BIN_COUNT;
-  }
-
-  function recomputeHistogramFromSummary(
-    summary: THistogramSummary,
-    low: number,
-    high: number
-  ) {
-    if (
-      low !== undefined &&
-      high !== undefined &&
-      isFinite(low) &&
-      isFinite(high)
-    ) {
-      const histogram = rebinHistogramSummary(
-        summary,
-        getSelectionBinCount(),
-        low,
-        high
-      );
-      store.updateHistogram(histogram);
-    } else {
-      store.updateHistogram(undefined);
-    }
-  }
-
-  // Watch posterizeLevels and recompute histogram with new bin count
   watch(
-    () => posterizeLevels.value,
+    [
+      () => selection.value,
+      () => invertColormap.value,
+      () => colormap.value,
+      () => posterizeLevels.value,
+      () => hideLowerBound.value,
+      () => hideUpperBound.value,
+    ],
     () => {
-      if (
-        lastHistogramSummary.value &&
-        bounds.value?.low !== undefined &&
-        bounds.value?.high !== undefined
-      ) {
-        const low = bounds.value?.low as number;
-        const high = bounds.value?.high as number;
-        recomputeHistogramFromSummary(lastHistogramSummary.value, low, high);
-      } else {
-        store.updateHistogram(undefined);
+      for (const cb of colormapChangeCallbacks) {
+        cb();
       }
     }
   );
 
-  // Watch bounds and recompute histogram with new range
-  watch(
-    () => bounds.value,
-    (newBounds) => {
-      if (
-        lastHistogramSummary.value &&
-        newBounds.low !== undefined &&
-        newBounds.high !== undefined
-      ) {
-        const low = newBounds.low;
-        const high = newBounds.high;
-        recomputeHistogramFromSummary(lastHistogramSummary.value, low, high);
-      } else {
-        store.updateHistogram(undefined);
-      }
-    },
-    { deep: true }
-  );
-
-  function updateHistogram(
-    data: ArrayLike<number> | THistogramSummary[] | undefined,
-    min: number,
-    max: number,
-    missingValue?: number,
-    fillValue?: number
-  ) {
-    if (!data || data.length === 0 || !isFinite(min) || !isFinite(max)) {
-      store.updateHistogram(undefined);
-      store.updateFullHistogram(undefined);
-      lastHistogramSummary.value = null;
-      return;
+  async function getDataVar(myVarname: string, datasources: TSources) {
+    const myDatasource = getVariableDatasource(datasources, myVarname);
+    if (!myDatasource) {
+      return undefined;
     }
-
-    let summary: THistogramSummary;
-    if (isHistogramSummary(data[0])) {
-      // Data is already a histogram summary
-      summary = mergeHistogramSummaries(
-        data as THistogramSummary[],
-        min,
-        max,
-        HISTOGRAM_SUMMARY_BINS
+    try {
+      return await fetchDataVariable(myVarname, datasources);
+    } catch (error) {
+      logError(
+        error,
+        `Couldn't fetch variable ${myVarname} from store: ${myDatasource.store} and dataset: ${myDatasource.dataset}`
       );
-    } else {
-      summary = buildHistogramSummary(
-        data as ArrayLike<number>,
-        min,
-        max,
-        HISTOGRAM_SUMMARY_BINS,
-        fillValue,
-        missingValue
-      );
+      return undefined;
     }
-
-    // Full-range histogram: fixed over [min, max], never changes with bounds
-    const fullHist = rebinHistogramSummary(
-      summary,
-      DISPLAY_BIN_COUNT,
-      min,
-      max
-    );
-    store.updateFullHistogram(fullHist);
-
-    // Selection-range histogram: over current bounds
-    recomputeHistogramFromSummary(summary, bounds.value.low, bounds.value.high);
-    lastHistogramSummary.value = summary;
   }
+
+  const { updateHistogram } = useGridHistogram();
 
   return {
     getScene,
     getCamera,
-    getResizeObserver,
+    getRenderer,
     redraw,
     toggleRotate,
     makeSnapshot,
     applyCameraPreset,
-    resetDataVars,
     getDataVar,
     fetchDimensionDetails,
     registerUpdateLOD,
+    registerAnimationCallback,
     updateLandSeaMask,
     updateColormap,
     updateHistogram,
     projectionHelper,
+    isSceneInMotion,
+    onProjectionChange,
+    onMotionStateChange,
+    onColormapChange,
     canvas,
     box,
     hoveredGeoPoint,

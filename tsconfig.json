@@ -1,11 +1,11 @@
 {
   "extends": "@vue/tsconfig/tsconfig.dom.json",
-  "include": ["env.d.ts", "src/**/*", "src/**/*.vue"],
+  "include": ["env.d.ts", "src/**/*", "src/**/*.vue", "tests/**/*.ts"],
   "compilerOptions": {
     "target": "ES2022",
     "useDefineForClassFields": true,
     "module": "es2022",
-    "types": ["vite/client", "node"],
+    "types": ["vite/client", "vite-plugin-glsl/ext", "node"],
     "skipLibCheck": true,
     "paths": {
       "@/*": ["./src/*"]

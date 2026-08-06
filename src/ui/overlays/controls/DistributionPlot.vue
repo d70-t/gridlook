@@ -17,11 +17,9 @@ import {
   nextTick,
 } from "vue";
 
-import {
-  computeBinTooltip,
-  formatValue,
-  type BinTooltip,
-} from "./colorbarUtils.ts";
+import { computeBinTooltip, type BinTooltip } from "./colorbarUtils.ts";
+
+import { formatValue } from "@/utils/formatValue.ts";
 
 // ---------------------------------------------------------------------------
 // Props & emits

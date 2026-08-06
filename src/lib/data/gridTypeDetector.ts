@@ -1,9 +1,17 @@
 import * as zarr from "zarrita";
 
+import {
+  getCRSWkt,
+  getLatLonData,
+  isLatitudeName,
+  isLongitudeName,
+  isProjectedXName,
+  isProjectedYName,
+  isWebMercatorCRS,
+} from "./coordinateVariables.ts";
 import { ZarrDataManager } from "./ZarrDataManager.ts";
-import { getLatLonData, isLatitudeName, isLongitudeName } from "./zarrUtils.ts";
 
-import type { TSources } from "@/lib/types/GlobeTypes.ts";
+import type { TSources, TZarrDggsMetadata } from "@/lib/types/GlobeTypes.ts";
 
 export const GRID_TYPES = {
   REGULAR: "regular",
@@ -40,14 +48,23 @@ export const GRID_TYPE_DISPLAY_OVERRIDES: Partial<
 };
 
 async function checkTriangularGrid(
-  datasources: TSources | undefined
-): Promise<boolean> {
+  datasources: TSources | undefined,
+  variable: string
+): Promise<T_GRID_TYPES | null> {
   try {
     const gridsource = datasources!.levels[0].grid;
-    await ZarrDataManager.getVariableInfo(gridsource, "vertex_of_cell");
-    return true;
+    const resolvedPath = ZarrDataManager.resolveVariablePath(
+      variable,
+      "vertex_of_cell"
+    );
+    await ZarrDataManager.getVariableInfo(
+      gridsource,
+      resolvedPath,
+      datasources?.zarr_format
+    );
+    return GRID_TYPES.TRIANGULAR;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -75,6 +92,12 @@ function checkCurvilinear(
 }
 
 function checkGaussianGrid(latitudes: Float64Array, longitudes: Float64Array) {
+  // Quick O(1) check: a Gaussian-reduced grid stores all cells for a given
+  // latitude row consecutively, so the first two entries share the same lat.
+  // If they differ, this is definitely not a Gaussian-reduced grid.
+  if (latitudes.length < 2 || latitudes[0] !== latitudes[1]) {
+    return false;
+  }
   const uniqueLatsNum = new Set(latitudes).size;
   const uniqueLonsNum = new Set(longitudes).size;
 
@@ -86,14 +109,49 @@ function checkGaussianGrid(latitudes: Float64Array, longitudes: Float64Array) {
 
 // Check if grid is regular based on dimension names
 // Also accepts lat-only grids (e.g., zonally averaged data)
-function checkRegularGridFromDimensions(dimensions: string[]): boolean {
-  const hasLatLon =
-    dimensions.length >= 2 &&
-    isLatitudeName(dimensions[dimensions.length - 2]) &&
-    isLongitudeName(dimensions[dimensions.length - 1]);
-  const hasLatOnly =
-    dimensions.length >= 1 && isLatitudeName(dimensions[dimensions.length - 1]);
-  return hasLatLon || hasLatOnly;
+async function checkRegularGridFromDimensions(
+  datasources: TSources,
+  varnameSelector: string
+): Promise<T_GRID_TYPES | null> {
+  const dimensions = await ZarrDataManager.getDimensionNames(
+    datasources!,
+    varnameSelector
+  );
+
+  const latitudeIndex = dimensions.findIndex((dim) => isLatitudeName(dim));
+  const longitudeIndex = dimensions.findIndex((dim) => isLongitudeName(dim));
+  const hasLatLon = latitudeIndex !== -1 && longitudeIndex !== -1;
+  const hasLatOnly = latitudeIndex !== -1 && longitudeIndex === -1;
+
+  if (hasLatLon || hasLatOnly) {
+    return GRID_TYPES.REGULAR;
+  }
+
+  return null;
+}
+
+// Check if grid uses projected x/y coordinates (e.g. EPSG:3857 with spatial_ref)
+function checkProjectedXYDimensions(dimensions: string[]): boolean {
+  return dimensions.some(isProjectedXName) && dimensions.some(isProjectedYName);
+}
+
+async function determineProjectedXYGridType(
+  datasources: TSources | undefined,
+  variable: string,
+  dimensions: string[]
+): Promise<T_GRID_TYPES | null> {
+  if (!checkProjectedXYDimensions(dimensions)) {
+    return null;
+  }
+  if (!datasources) {
+    return GRID_TYPES.REGULAR;
+  }
+
+  const crsWkt = await getCRSWkt(datasources, variable);
+  if (crsWkt && !isWebMercatorCRS(crsWkt)) {
+    return GRID_TYPES.CURVILINEAR;
+  }
+  return GRID_TYPES.REGULAR;
 }
 
 // Attempt to determine grid type from CRS information
@@ -110,6 +168,11 @@ async function determineGridTypeFromCRS(
     if (checkRegularRotatedGrid(crs)) {
       return GRID_TYPES.REGULAR_ROTATED;
     }
+    // Polar stereographic datasets are routed to CURVILINEAR so that
+    // computePolarStereoLatLon2D can produce proper 2-D lat/lon arrays.
+    if (crs.attrs?.grid_mapping_name === "polar_stereographic") {
+      return GRID_TYPES.CURVILINEAR;
+    }
   } catch {
     // CRS check failed, return null to continue with other checks
   }
@@ -117,27 +180,86 @@ async function determineGridTypeFromCRS(
   return null;
 }
 
+function determineGridTypeFromDGGSZarrConvention(
+  metadata: TZarrDggsMetadata
+): T_GRID_TYPES | null {
+  if (metadata["name"] !== "healpix") {
+    // unsupported DGGS, for now
+    return GRID_TYPES.ERROR;
+  }
+
+  return GRID_TYPES.HEALPIX;
+}
+
+async function determineGridTypeFromZarrConvention(
+  datasources: TSources,
+  varnameSelector: string
+): Promise<T_GRID_TYPES | null> {
+  const group = await ZarrDataManager.getParentGroup(
+    datasources,
+    varnameSelector,
+    datasources?.zarr_format
+  );
+  const metadata = group.attrs;
+
+  if (!("zarr_conventions" in metadata)) {
+    return null;
+  }
+
+  const dggsMetadata: TZarrDggsMetadata | unknown = metadata["dggs"];
+  if (dggsMetadata) {
+    return determineGridTypeFromDGGSZarrConvention(
+      dggsMetadata as TZarrDggsMetadata
+    );
+  }
+
+  return null;
+}
+
 // Determine grid type from lat/lon data analysis
 async function determineGridTypeFromData(
-  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
-  datasources: TSources | undefined
+  datasources: TSources,
+  varnameSelector: string
 ): Promise<T_GRID_TYPES | null> {
-  const { latitudes, longitudes } = await getLatLonData(datavar, datasources);
-  if (latitudes === null || longitudes === null) {
-    return null; // Cannot determine grid type without lat/lon data
-  }
-  const latitudesData = latitudes.data as Float64Array;
-  const longitudesData = longitudes.data as Float64Array;
+  const dimensions = await ZarrDataManager.getDimensionNames(
+    datasources!,
+    varnameSelector
+  );
 
-  if (checkCurvilinear(latitudes, longitudes)) {
-    return GRID_TYPES.CURVILINEAR;
+  try {
+    const datavar = await ZarrDataManager.getVariableInfo(
+      ZarrDataManager.getDatasetSource(datasources!, varnameSelector),
+      varnameSelector,
+      datasources?.zarr_format
+    );
+
+    const { latitudes, longitudes } = await getLatLonData(
+      varnameSelector,
+      datavar,
+      datasources
+    );
+    if (latitudes === null || longitudes === null) {
+      return null; // Cannot determine grid type without lat/lon data
+    }
+    const latitudesData = latitudes.data as Float64Array;
+    const longitudesData = longitudes.data as Float64Array;
+
+    if (checkCurvilinear(latitudes, longitudes)) {
+      return GRID_TYPES.CURVILINEAR;
+    }
+    if (checkGaussianGrid(latitudesData, longitudesData)) {
+      return GRID_TYPES.GAUSSIAN_REDUCED;
+    }
+    // as long as we have lat/lon pairs, we can very likely display something as
+    // an irregular grid
+    return GRID_TYPES.IRREGULAR;
+  } catch {
+    return await determineProjectedXYGridType(
+      datasources,
+      varnameSelector,
+      dimensions
+    );
   }
-  if (checkGaussianGrid(latitudesData, longitudesData)) {
-    return GRID_TYPES.GAUSSIAN_REDUCED;
-  }
-  // as long as we have lat/lon pairs, we can very likely display something as
-  // an irregular grid
-  return GRID_TYPES.IRREGULAR;
 }
 
 export async function getGridType(
@@ -152,37 +274,31 @@ export async function getGridType(
     return GRID_TYPES.ERROR;
   }
 
-  if (await checkTriangularGrid(datasources)) {
-    return GRID_TYPES.TRIANGULAR;
-  }
+  const gridDetectionFunctions: ((
+    datasources: TSources,
+    varnameSelector: string
+  ) => Promise<T_GRID_TYPES | null>)[] = [
+    // Check triangular grids
+    checkTriangularGrid,
+    // Check CRS-based grid types
+    determineGridTypeFromCRS,
+    // zarr convention metadata
+    determineGridTypeFromZarrConvention,
+    checkRegularGridFromDimensions,
+    determineGridTypeFromData,
+  ];
 
   try {
-    const datavar = await ZarrDataManager.getVariableInfo(
-      ZarrDataManager.getDatasetSource(datasources!, varnameSelector),
-      varnameSelector
-    );
-
-    // Check CRS-based grid types
-    const crsGridType = await determineGridTypeFromCRS(
-      datasources!,
-      varnameSelector
-    );
-    if (crsGridType) {
-      return crsGridType;
+    for (const gridDetectionFunction of gridDetectionFunctions) {
+      const gridType = await gridDetectionFunction(
+        datasources!,
+        varnameSelector
+      );
+      if (gridType) {
+        return gridType;
+      }
     }
 
-    const dimensions = await ZarrDataManager.getDimensionNames(
-      datasources!,
-      varnameSelector
-    );
-    if (checkRegularGridFromDimensions(dimensions)) {
-      return GRID_TYPES.REGULAR;
-    }
-
-    const dataGridType = await determineGridTypeFromData(datavar, datasources);
-    if (dataGridType) {
-      return dataGridType;
-    }
     logError("No matching grid type found", "Could not determine grid type");
     return GRID_TYPES.ERROR;
   } catch (error) {

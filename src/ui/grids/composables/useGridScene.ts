@@ -1,4 +1,8 @@
-import { useEventListener } from "@vueuse/core";
+import {
+  useDebounceFn,
+  useEventListener,
+  useResizeObserver,
+} from "@vueuse/core";
 import * as d3 from "d3-geo";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
@@ -18,6 +22,8 @@ import { useGridSnapshot } from "./useGridSnapshot.ts";
 
 import { handleKeyDown } from "@/lib/camera/OrbitControlsAddOn.ts";
 import {
+  isAzimuthalProjectionType,
+  MERCATOR_LAT_LIMIT,
   PROJECTION_TYPES,
   ProjectionHelper,
   type TProjectionCenter,
@@ -35,6 +41,7 @@ type UseGridSceneOptions = {
   projectionCenter: Ref<TProjectionCenter | undefined>;
   controlPanelVisible: Ref<boolean>;
   cameraState: GridCameraState;
+  onMotionStateChange?: (isInMotion: boolean) => void;
   onReady?: () => void | Promise<void>;
 };
 
@@ -45,6 +52,7 @@ export function useGridScene(options: UseGridSceneOptions) {
     projectionCenter,
     controlPanelVisible,
     cameraState,
+    onMotionStateChange,
     onReady,
   } = options;
 
@@ -61,21 +69,22 @@ export function useGridScene(options: UseGridSceneOptions) {
   let camera: THREE.PerspectiveCamera | undefined = undefined;
   let renderer: THREE.WebGLRenderer | undefined = undefined;
   let orbitControls: OrbitControls | undefined = undefined;
-  let resizeObserver: ResizeObserver | undefined = undefined;
   let updateLOD: (() => void) | undefined = undefined;
   let baseSurface: THREE.Mesh | undefined = undefined;
   let pickSurface: THREE.Mesh | undefined = undefined;
   let mouseDown = false;
+  let wheelActive = false;
   const raycaster = new THREE.Raycaster();
   const hoveredGeoPoint = shallowRef<THoverGeoPoint | null>(null);
   let lastPointerPosition: { clientX: number; clientY: number } | null = null;
+  let touchPickStart: { clientX: number; clientY: number } | null = null;
+  let touchPickMoved = false;
 
   let projectionDragActive = false;
   let dragStartX = 0;
   let dragStartY = 0;
   let dragStartCenterLon = 0;
   let dragStartCenterLat = 0;
-
   let init = true;
   let currentOffset = 0;
   // Counts consecutive frames where OrbitControls reported no camera change.
@@ -85,8 +94,28 @@ export function useGridScene(options: UseGridSceneOptions) {
   // the next time anything triggers a render (click, bounds change, etc.).
   let idleFrameCount = 0;
   const IDLE_FRAMES_BEFORE_STOP = 30; // ~500 ms at 60 fps – outlasts any realistic damping
+  const WHEEL_END_DELAY_MS = 120;
+  const debouncedEndWheelInteraction = useDebounceFn(() => {
+    wheelActive = false;
+    animationLoop();
+  }, WHEEL_END_DELAY_MS);
+  const FLAT_CROP_RENDER_ORDER = 5;
+  const FLAT_CROP_Z_OFFSET = 0.06;
+  const FLAT_BOUNDARY_STEP_DEGREES = 0.25;
+  const TOUCH_PICK_TAP_MAX_DISTANCE_PX = 10;
   let targetOffset = 0;
   let isInitialLoad = true;
+  let isInMotion = false;
+  let lastAnimationTime: number | undefined = undefined;
+  const animationCallbacks = new Set<(deltaSeconds: number) => void>();
+
+  function setMotionState(next: boolean) {
+    if (isInMotion === next) {
+      return;
+    }
+    isInMotion = next;
+    onMotionStateChange?.(next);
+  }
 
   function getScene() {
     return scene;
@@ -104,10 +133,6 @@ export function useGridScene(options: UseGridSceneOptions) {
     return orbitControls;
   }
 
-  function getResizeObserver() {
-    return resizeObserver;
-  }
-
   function getBaseSurface() {
     return baseSurface;
   }
@@ -116,12 +141,20 @@ export function useGridScene(options: UseGridSceneOptions) {
     updateLOD = func;
   }
 
-  function setResizeObserver(observer: ResizeObserver) {
-    resizeObserver = observer;
+  function registerAnimationCallback(callback: (deltaSeconds: number) => void) {
+    animationCallbacks.add(callback);
+    lastAnimationTime = undefined;
+    animationLoop();
+    return () => {
+      animationCallbacks.delete(callback);
+      if (animationCallbacks.size === 0) {
+        lastAnimationTime = undefined;
+      }
+    };
   }
 
   function redraw() {
-    if (store.isRotating) {
+    if (store.isRotating || projectionDragActive || mouseDown || wheelActive) {
       return;
     }
     render();
@@ -258,13 +291,32 @@ export function useGridScene(options: UseGridSceneOptions) {
     };
   }
 
-  function cleanupSurface(mesh: THREE.Mesh | undefined) {
+  function disposeObject3D(object: THREE.Object3D) {
+    const geometries = new Set<THREE.BufferGeometry>();
+    const materials = new Set<THREE.Material>();
+
+    object.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) {
+        return;
+      }
+      geometries.add(child.geometry);
+      if (Array.isArray(child.material)) {
+        child.material.forEach((material) => materials.add(material));
+      } else {
+        materials.add(child.material);
+      }
+    });
+
+    geometries.forEach((geometry) => geometry.dispose());
+    materials.forEach((material) => material.dispose());
+  }
+
+  function cleanupSurface(mesh: THREE.Object3D | undefined) {
     if (!scene || !mesh) {
       return;
     }
     scene.remove(mesh);
-    mesh.geometry.dispose();
-    (mesh.material as THREE.Material).dispose();
+    disposeObject3D(mesh);
   }
 
   function makePickMaterial(doubleSided = false) {
@@ -278,18 +330,139 @@ export function useGridScene(options: UseGridSceneOptions) {
     return material;
   }
 
+  function appendBoundaryPoint(points: THREE.Vector2[], x: number, y: number) {
+    const point = new THREE.Vector2(x, y);
+    const previous = points[points.length - 1];
+    if (previous && previous.distanceToSquared(point) < 1e-10) {
+      return;
+    }
+    points.push(point);
+  }
+
+  function projectBoundaryPoint(
+    projection: d3.GeoProjection,
+    bounds: ReturnType<typeof getProjectedBounds>,
+    points: THREE.Vector2[],
+    lon: number,
+    lat: number
+  ) {
+    const projected = projection([lon, lat]);
+    if (
+      !projected ||
+      !Number.isFinite(projected[0]) ||
+      !Number.isFinite(projected[1])
+    ) {
+      return;
+    }
+    appendBoundaryPoint(
+      points,
+      projected[0] - bounds.centerX,
+      -projected[1] - bounds.centerY
+    );
+  }
+
+  function createFlatBoundaryPoints(
+    bounds: ReturnType<typeof getProjectedBounds>
+  ) {
+    const helper = projectionHelper.value;
+    if (isAzimuthalProjectionType(helper.type)) {
+      return [];
+    }
+
+    const projection = new ProjectionHelper(helper.type, {
+      lat: 0,
+      lon: 0,
+    }).getD3Projection();
+    if (!projection) {
+      return [];
+    }
+
+    const points: THREE.Vector2[] = [];
+    const maxLat =
+      helper.type === PROJECTION_TYPES.MERCATOR ? MERCATOR_LAT_LIMIT : 90;
+
+    for (let lon = -180; lon <= 180; lon += FLAT_BOUNDARY_STEP_DEGREES) {
+      projectBoundaryPoint(projection, bounds, points, lon, maxLat);
+    }
+    for (
+      let lat = maxLat - FLAT_BOUNDARY_STEP_DEGREES;
+      lat >= -maxLat;
+      lat -= FLAT_BOUNDARY_STEP_DEGREES
+    ) {
+      projectBoundaryPoint(projection, bounds, points, 180, lat);
+    }
+    for (
+      let lon = 180 - FLAT_BOUNDARY_STEP_DEGREES;
+      lon >= -180;
+      lon -= FLAT_BOUNDARY_STEP_DEGREES
+    ) {
+      projectBoundaryPoint(projection, bounds, points, lon, -maxLat);
+    }
+    for (
+      let lat = -maxLat + FLAT_BOUNDARY_STEP_DEGREES;
+      lat <= maxLat;
+      lat += FLAT_BOUNDARY_STEP_DEGREES
+    ) {
+      projectBoundaryPoint(projection, bounds, points, -180, lat);
+    }
+
+    return points;
+  }
+
+  function createFlatCropGeometry(
+    bounds: ReturnType<typeof getProjectedBounds>,
+    scaledWidth: number,
+    scaledHeight: number
+  ) {
+    const boundaryPoints = createFlatBoundaryPoints(bounds);
+    if (boundaryPoints.length < 3) {
+      return undefined;
+    }
+
+    const halfWidth = scaledWidth / 2;
+    const halfHeight = scaledHeight / 2;
+    const outerShape = new THREE.Shape([
+      new THREE.Vector2(-halfWidth, -halfHeight),
+      new THREE.Vector2(halfWidth, -halfHeight),
+      new THREE.Vector2(halfWidth, halfHeight),
+      new THREE.Vector2(-halfWidth, halfHeight),
+    ]);
+    outerShape.holes.push(new THREE.Path(boundaryPoints));
+    return new THREE.ShapeGeometry(outerShape);
+  }
+
+  function createBackgroundMaterial() {
+    return new THREE.MeshBasicMaterial({
+      color: 0x000000,
+      side: THREE.DoubleSide,
+    });
+  }
+
   function createFlatSurfaces() {
     const bounds = getProjectedBounds();
     const width = Math.max(bounds.width, 1);
     const height = Math.max(bounds.height, 1);
     const scaledWidth = width * 1.05;
     const scaledHeight = height * 1.05;
-
+    const backgroundMaterial = createBackgroundMaterial();
     baseSurface = new THREE.Mesh(
       new THREE.PlaneGeometry(scaledWidth, scaledHeight),
-      new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide })
+      backgroundMaterial
     );
+    baseSurface.renderOrder = -10;
     baseSurface.position.set(bounds.centerX, bounds.centerY, -0.05);
+
+    const cropGeometry = createFlatCropGeometry(
+      bounds,
+      scaledWidth,
+      scaledHeight
+    );
+    if (cropGeometry) {
+      const cropSurface = new THREE.Mesh(cropGeometry, backgroundMaterial);
+      cropSurface.renderOrder = FLAT_CROP_RENDER_ORDER;
+      cropSurface.position.z = FLAT_CROP_Z_OFFSET;
+      baseSurface.add(cropSurface);
+    }
 
     pickSurface = new THREE.Mesh(
       new THREE.PlaneGeometry(scaledWidth, scaledHeight),
@@ -299,10 +472,14 @@ export function useGridScene(options: UseGridSceneOptions) {
   }
 
   function createGlobeSurfaces() {
+    const backgroundMaterial = new THREE.MeshBasicMaterial({
+      color: 0x000000,
+    });
     baseSurface = new THREE.Mesh(
       new THREE.SphereGeometry(0.99, 64, 64),
-      new THREE.MeshBasicMaterial({ color: 0x000000 })
+      backgroundMaterial
     );
+    baseSurface.renderOrder = -10;
     baseSurface.rotation.x = Math.PI / 2;
 
     pickSurface = new THREE.Mesh(
@@ -389,6 +566,9 @@ export function useGridScene(options: UseGridSceneOptions) {
     const targetDistance = 1.05 / Math.sin(minHalfFov);
 
     cam.up.set(0, 0, 1);
+    cam.near = 0.1;
+    cam.far = 1000;
+    cam.updateProjectionMatrix();
     controls.enablePan = false;
     controls.enableRotate = true;
     controls.enableDamping = true;
@@ -574,8 +754,6 @@ export function useGridScene(options: UseGridSceneOptions) {
       box.value.getBoundingClientRect();
 
     if (boxWidth !== width.value || boxHeight !== height.value) {
-      getResizeObserver()?.unobserve(box.value);
-
       const aspect = boxWidth / boxHeight;
       getCamera()!.aspect = aspect;
       getCamera()!.updateProjectionMatrix();
@@ -590,10 +768,6 @@ export function useGridScene(options: UseGridSceneOptions) {
 
       updateCameraForPanel();
       redraw();
-
-      if (box.value) {
-        getResizeObserver()!.observe(box.value);
-      }
     }
   }
 
@@ -658,8 +832,29 @@ export function useGridScene(options: UseGridSceneOptions) {
     animationLoop();
   }
 
-  function animationLoop() {
+  function runAnimationCallbacks(timestamp: number) {
+    const deltaSeconds = Math.min(
+      Math.max((timestamp - (lastAnimationTime ?? timestamp)) / 1000, 0),
+      0.1
+    );
+    lastAnimationTime = timestamp;
+    for (const callback of animationCallbacks) {
+      callback(deltaSeconds);
+    }
+  }
+
+  function updateRotationSpeed() {
+    if (projectionHelper.value.isFlat || !orbitControls || !camera) {
+      return;
+    }
+    const normalizedDistance = camera.position.length() / 30;
+    orbitControls.rotateSpeed = Math.min(1, 0.01 + normalizedDistance ** 2);
+  }
+
+  function animationLoop(timestamp = performance.now()) {
     cancelAnimationFrame(frameId.value);
+
+    runAnimationCallbacks(timestamp);
 
     // Rotate 2D projection center longitude
     if (store.isRotating && projectionHelper.value.isFlat) {
@@ -668,19 +863,22 @@ export function useGridScene(options: UseGridSceneOptions) {
       projectionCenter.value = { lat: center.lat, lon: newLon };
     }
 
-    // Update rotation speed based on camera distance
-    if (!projectionHelper.value.isFlat && orbitControls && camera) {
-      const distance = camera.position.length();
-      const normalizedDistance = distance / 30;
-      orbitControls.rotateSpeed = Math.min(1, 0.01 + normalizedDistance ** 2);
-    }
+    updateRotationSpeed();
 
     const controlsUpdated = render();
+    const userInteractionActive = mouseDown || wheelActive;
+    setMotionState(
+      userInteractionActive || store.isRotating || controlsUpdated
+    );
     if (lastPointerPosition) {
       refreshHover();
     }
     const cam = getCamera();
-    if (!mouseDown && !store.isRotating) {
+    if (
+      !userInteractionActive &&
+      !store.isRotating &&
+      animationCallbacks.size === 0
+    ) {
       if (controlsUpdated) {
         // Controls are still moving (damping draining) – reset idle counter.
         idleFrameCount = 0;
@@ -693,6 +891,7 @@ export function useGridScene(options: UseGridSceneOptions) {
       if (idleFrameCount >= IDLE_FRAMES_BEFORE_STOP) {
         // Damping is fully drained – safe to stop the loop.
         idleFrameCount = 0;
+        setMotionState(false);
         if (cam) {
           cameraState.debouncedEncodeCameraToURL(cam);
         }
@@ -700,7 +899,7 @@ export function useGridScene(options: UseGridSceneOptions) {
       }
     } else {
       idleFrameCount = 0;
-      if (isPresenterActive.value && cam && mouseDown) {
+      if (isPresenterActive.value && cam && userInteractionActive) {
         cameraState.encodeCameraToURL(cam);
       }
     }
@@ -710,6 +909,7 @@ export function useGridScene(options: UseGridSceneOptions) {
   function onInteractionStart() {
     mouseDown = true;
     idleFrameCount = 0;
+    setMotionState(true);
     animationLoop();
   }
 
@@ -718,22 +918,78 @@ export function useGridScene(options: UseGridSceneOptions) {
     animationLoop();
   }
 
+  function onWheelInteraction() {
+    wheelActive = true;
+    idleFrameCount = 0;
+    setMotionState(true);
+    debouncedEndWheelInteraction();
+    animationLoop();
+  }
+
+  function updateHoverPosition(clientX: number, clientY: number) {
+    if (!isHoverActive()) {
+      return;
+    }
+    lastPointerPosition = { clientX, clientY };
+    refreshHover();
+  }
+
+  function onTouchPickStart(event: TouchEvent) {
+    const touch = event.touches[0];
+    touchPickStart =
+      event.touches.length === 1 && touch
+        ? { clientX: touch.clientX, clientY: touch.clientY }
+        : null;
+    touchPickMoved = false;
+  }
+
+  function onTouchPickMove(event: TouchEvent) {
+    const touch = event.touches[0];
+    if (!touchPickStart || !touch) {
+      return;
+    }
+    const deltaX = touch.clientX - touchPickStart.clientX;
+    const deltaY = touch.clientY - touchPickStart.clientY;
+    if (
+      deltaX * deltaX + deltaY * deltaY >
+      TOUCH_PICK_TAP_MAX_DISTANCE_PX * TOUCH_PICK_TAP_MAX_DISTANCE_PX
+    ) {
+      touchPickMoved = true;
+    }
+  }
+
+  function onTouchPickEnd(event: TouchEvent) {
+    const touch = event.changedTouches[0];
+    if (!touchPickStart || touchPickMoved || !touch) {
+      touchPickStart = null;
+      return;
+    }
+    updateHoverPosition(touch.clientX, touch.clientY);
+    touchPickStart = null;
+  }
+
   function setupHoverListeners() {
     useEventListener(
       canvas.value,
       "mousemove",
       (event: MouseEvent) => {
-        if (!isHoverActive()) {
-          return;
-        }
-        lastPointerPosition = {
-          clientX: event.clientX,
-          clientY: event.clientY,
-        };
-        refreshHover();
+        updateHoverPosition(event.clientX, event.clientY);
       },
       { passive: true }
     );
+
+    useEventListener(canvas.value, "touchstart", onTouchPickStart, {
+      passive: true,
+    });
+    useEventListener(canvas.value, "touchmove", onTouchPickMove, {
+      passive: true,
+    });
+    useEventListener(canvas.value, "touchend", onTouchPickEnd, {
+      passive: true,
+    });
+    useEventListener(canvas.value, "touchcancel", () => {
+      touchPickStart = null;
+    });
 
     useEventListener(
       canvas.value,
@@ -749,15 +1005,9 @@ export function useGridScene(options: UseGridSceneOptions) {
   function setupInteractionListeners() {
     setupHoverListeners();
 
-    useEventListener(
-      canvas.value,
-      "wheel",
-      () => {
-        onInteractionStart();
-        onInteractionEnd();
-      },
-      { passive: true }
-    );
+    useEventListener(canvas.value, "wheel", onWheelInteraction, {
+      passive: true,
+    });
 
     useEventListener(canvas.value, "mouseup", onInteractionEnd, {
       passive: true,
@@ -881,18 +1131,26 @@ export function useGridScene(options: UseGridSceneOptions) {
     setupKeyboardListeners();
 
     initEssentials();
-    setResizeObserver(new ResizeObserver(onCanvasResize));
-    getResizeObserver()?.observe(box.value!);
     void onReady?.();
   });
 
+  useResizeObserver(box, onCanvasResize);
+
   onBeforeUnmount(() => {
+    if (frameId.value) {
+      cancelAnimationFrame(frameId.value);
+      frameId.value = 0;
+    }
+    animationCallbacks.clear();
+    orbitControls?.dispose();
+    orbitControls = undefined;
+    cleanupSurface(baseSurface);
+    cleanupSurface(pickSurface);
+    baseSurface = undefined;
+    pickSurface = undefined;
     scene?.clear();
     camera?.clear();
     renderer?.dispose();
-    if (box.value) {
-      getResizeObserver()?.unobserve(box.value!);
-    }
     scene = undefined;
     renderer = undefined;
     camera = undefined;
@@ -982,12 +1240,13 @@ export function useGridScene(options: UseGridSceneOptions) {
     box,
     getScene,
     getCamera,
-    getResizeObserver,
+    getRenderer,
     redraw,
     toggleRotate,
     makeSnapshot,
     applyCameraPreset,
     registerUpdateLOD,
+    registerAnimationCallback,
     updateBaseSurface,
     configureCameraForProjection,
     hoveredGeoPoint,

@@ -1,19 +1,18 @@
-import { useToast } from "primevue/usetoast";
+import { ToastType, useToast } from "./useToast.ts";
 
-import { getErrorMessage, toNormalizedError } from "./errorHandling.ts";
+import { getErrorMessage, toNormalizedError } from "@/utils/errorHandling.ts";
 
 export function useLog() {
-  const toast = useToast();
+  const { addToast } = useToast();
 
   function logError(maybeError: unknown, context?: string) {
     const error = toNormalizedError(maybeError);
     console.error(context, error, error?.stack);
     const prefix = context ?? "Error";
-    toast.add({
-      summary: prefix,
+    addToast(prefix, {
       detail: `${getErrorMessage(error)}`,
-      severity: "error",
-      life: 4000,
+      duration: 4000,
+      type: ToastType.DANGER,
     });
   }
 

@@ -161,8 +161,7 @@ export function buildDimensionRangesAndIndices(
   presetMaxBounds: Record<string, string>,
   oldSliderValues: (number | null)[] | null,
   indicesToIgnore: number[],
-  oldDimRanges: TDimensionRange[] | undefined,
-  keepOldValues: boolean
+  oldDimRanges: TDimensionRange[] | undefined
 ) {
   let dimensionRanges: TDimensionRange[] = [];
   dimensionRanges = createDimensionRanges(
@@ -188,8 +187,6 @@ export function buildDimensionRangesAndIndices(
         return d.startPos;
       }
     });
-  } else if (keepOldValues) {
-    indices = oldSliderValues;
   } else {
     indices = calculateIndices(dimensionRanges, oldSliderValues, oldDimRanges);
   }

@@ -18,6 +18,11 @@
       "tag": "regular"
     },
     {
+      "title": "111km AWI-CM-1-1-MR day sfcWind",
+      "url": "https://storage.googleapis.com/cmip6/CMIP6/ScenarioMIP/AWI/AWI-CM-1-1-MR/ssp585/r1i1p1f1/day/sfcWind/gn/v20190529/",
+      "tag": "regular"
+    },
+    {
       "title": "50km tripolar historical NOAA GFDL-ESM4 Omon tos",
       "url": "https://storage.googleapis.com/cmip6/CMIP6/CMIP/NOAA-GFDL/GFDL-ESM4/historical/r2i1p1f1/Omon/tos/gn/v20180701/",
       "tag": "curvilinear"
@@ -28,14 +33,14 @@
       "tag": "irregular"
     },
     {
-      "title": "WCRP Hackathon - P1D_mean_z7_atm",
-      "url": "https://s3.eu-dkrz-1.dkrz.cloud/wrcp-hackathon/data/ICON/d3hp003.zarr/P1D_mean_z7_atm",
-      "tag": "healpix"
-    },
-    {
       "title": "dpp0066 - 2d_ml @ R02B06",
       "url": "https://gridlook.pages.dev/static/index_mr_dpp0066.json",
       "tag": "triangular"
+    },
+    {
+      "title": "50km eerie-future-ssp245-v20240618_P1M_mean_7 pr ts",
+      "url": "https://s3.waterpark.dkrz.de/eerie/eerie-future-ssp245-v20240618_P1M_mean_7.zarr",
+      "tag": "healpix"
     }
   ]
 }

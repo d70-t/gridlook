@@ -4,12 +4,17 @@ import * as zarr from "zarrita";
 
 dayjs.extend(utc);
 
+const unitsRegEx = /([a-zA-Z]+) since (.+)$/i;
+
+export function isTimeUnits(units: unknown): units is string {
+  return typeof units === "string" && unitsRegEx.test(units);
+}
+
 /**
  * Parses CF-style time units string (e.g., "seconds since 2020-01-01T00:00:00")
  * Returns the interval unit and reference datetime.
  */
 function parseTimeUnits(units: string): { interval: string; ref: Dayjs } {
-  const unitsRegEx = /([a-zA-Z]+) since (.+)$/i;
   const regExMatch = units.match(unitsRegEx);
   if (!regExMatch) {
     throw new Error("time units not recognized");

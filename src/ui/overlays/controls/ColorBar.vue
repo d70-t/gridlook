@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useResizeObserver } from "@vueuse/core";
 import { storeToRefs } from "pinia";
 import * as THREE from "three";
 import {
@@ -10,11 +11,7 @@ import {
   nextTick,
 } from "vue";
 
-import {
-  formatValue,
-  computeBinTooltip,
-  type BinTooltip,
-} from "./colorbarUtils.ts";
+import { computeBinTooltip, type BinTooltip } from "./colorbarUtils.ts";
 
 import {
   availableColormaps,
@@ -24,6 +21,7 @@ import { makeCompressedColormapLutMaterial } from "@/lib/shaders/gridShaders.ts"
 import { useGlobeControlStore } from "@/store/store.ts";
 import RangeSlider from "@/ui/common/RangeSlider.vue";
 import DistributionPlot from "@/ui/overlays/controls/DistributionPlot.vue";
+import { formatValue } from "@/utils/formatValue.ts";
 
 const props = withDefaults(
   defineProps<{
@@ -75,7 +73,6 @@ let scene: THREE.Scene | undefined;
 let renderer: THREE.WebGLRenderer | undefined;
 let camera: THREE.PerspectiveCamera | undefined;
 let lutMesh: THREE.Mesh | undefined;
-let resizeObserver: ResizeObserver | undefined;
 let frameId = 0;
 
 const store = useGlobeControlStore();
@@ -254,7 +251,7 @@ const hoveredValueLabel = computed(() => {
   if (!point) {
     return null;
   }
-  return point.value === null ? "No data" : point.value.toFixed(5);
+  return point.value === null ? "No data" : formatValue(point.value);
 });
 
 const hoveredMarkerStyle = computed(() => {
@@ -634,21 +631,15 @@ watch(() => props.histogram, drawSelectionHistogram);
 // Lifecycle
 // ---------------------------------------------------------------------------
 
+useResizeObserver(widgetRef, onResize);
+
 onMounted(() => {
   initThreeJs();
-  resizeObserver = new ResizeObserver(onResize);
-  if (widgetRef.value) {
-    resizeObserver.observe(widgetRef.value);
-  }
   onResize();
 });
 
 onBeforeUnmount(() => {
   cancelAnimationFrame(frameId);
-  if (widgetRef.value) {
-    resizeObserver?.unobserve(widgetRef.value);
-  }
-  resizeObserver?.disconnect();
   lutMesh?.geometry.dispose();
   (lutMesh?.material as THREE.ShaderMaterial)?.dispose();
   scene?.clear();
