@@ -57,20 +57,16 @@ const GLOBE_URL_SYNC_MAP: TUrlSyncEntry[] = [
 
 const URL_PARAM_SYNC_MAP: TUrlSyncEntry[] = [
   {
-    key: "paramCameraState",
-    param: URL_PARAMETERS.CAMERA_STATE,
+    key: "paramCameraPx",
+    param: URL_PARAMETERS.CAMERA_PX,
   },
   {
-    key: "paramCameraX",
-    param: URL_PARAMETERS.CAMERA_X,
+    key: "paramCameraPy",
+    param: URL_PARAMETERS.CAMERA_PY,
   },
   {
-    key: "paramCameraY",
-    param: URL_PARAMETERS.CAMERA_Y,
-  },
-  {
-    key: "paramCameraZ",
-    param: URL_PARAMETERS.CAMERA_Z,
+    key: "paramCameraAlt",
+    param: URL_PARAMETERS.CAMERA_ALT,
   },
   {
     key: "paramGridType",
@@ -199,8 +195,8 @@ export function useUrlSync() {
         return;
       }
       changeURLHash({
-        [URL_PARAMETERS.PROJECTION_CENTER_LAT]: center.lat,
-        [URL_PARAMETERS.PROJECTION_CENTER_LON]: center.lon,
+        [URL_PARAMETERS.LAT]: center.lat,
+        [URL_PARAMETERS.LON]: center.lon,
       });
     },
     { debounce: 200 }
