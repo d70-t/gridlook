@@ -4,7 +4,7 @@ import KDBush from "kdbush";
 export type TVectorVariablePair = {
   u: string;
   v: string;
-  kind: "u/v" | "ua/va" | "uas/vas" | "u10/v10" | "custom";
+  kind: "u/v" | "ua/va" | "uas/vas" | "u10/v10" | "uo/vo" | "custom";
 };
 
 export type TVectorVariableSelection = {
@@ -12,6 +12,29 @@ export type TVectorVariableSelection = {
   u?: string;
   v?: string;
 };
+
+export type TStreamlineLevelInfo = {
+  dimensionName: string;
+  values: (number | bigint | string)[];
+  units?: string;
+  longName?: string;
+};
+
+export function levelAxesAreIdentical(
+  left: TStreamlineLevelInfo,
+  right: TStreamlineLevelInfo
+) {
+  const leftUnits = left.units?.trim() ?? "";
+  const rightUnits = right.units?.trim() ?? "";
+  return (
+    left.dimensionName === right.dimensionName &&
+    leftUnits === rightUnits &&
+    left.values.length === right.values.length &&
+    left.values.every(
+      (value, index) => String(value) === String(right.values[index])
+    )
+  );
+}
 
 type TAxisBracket = {
   lowIndex: number;
@@ -52,6 +75,7 @@ const VECTOR_PAIR_NAMES = [
   { u: "ua", v: "va", kind: "ua/va" },
   { u: "uas", v: "vas", kind: "uas/vas" },
   { u: "u10", v: "v10", kind: "u10/v10" },
+  { u: "uo", v: "vo", kind: "uo/vo" },
 ] as const;
 
 const DEGREES_TO_RADIANS = Math.PI / 180;
@@ -170,8 +194,21 @@ export function detectVectorVariablePair(
 export function resolveVectorVariablePair(
   variableNames: string[],
   preferredVariable: string,
-  selection: TVectorVariableSelection
+  selection: TVectorVariableSelection,
+  activePair?: TVectorVariablePair
 ): TVectorVariablePair | undefined {
+  const activePairMatchesSelection =
+    activePair &&
+    (selection.automatic ||
+      (selection.u === activePair.u && selection.v === activePair.v));
+  if (
+    activePairMatchesSelection &&
+    variableNames.includes(activePair.u) &&
+    variableNames.includes(activePair.v)
+  ) {
+    return activePair;
+  }
+
   const preferredGroup = getVariableGroup(preferredVariable);
   const groupVariableNames = variableNames.filter(
     (name) => getVariableGroup(name) === preferredGroup
@@ -470,166 +507,20 @@ function offsetUnitVector(
   });
 }
 
-function fourthOrderUnitVector(
-  point: TUnitVector,
-  seconds: number,
-  k1: TVectorDerivative,
-  k2: TVectorDerivative,
-  k3: TVectorDerivative,
-  k4: TVectorDerivative
-) {
-  const scale = seconds / 6;
-
-  return normalizeUnitVector({
-    x: point.x + scale * (k1.x + 2 * k2.x + 2 * k3.x + k4.x),
-    y: point.y + scale * (k1.y + 2 * k2.y + 2 * k3.y + k4.y),
-    z: point.z + scale * (k1.z + 2 * k2.z + 2 * k3.z + k4.z),
-  });
-}
-
-function thirdOrderUnitVector(
-  point: TUnitVector,
-  seconds: number,
-  k1: TVectorDerivative,
-  k2: TVectorDerivative,
-  k3: TVectorDerivative
-) {
-  const scale = seconds / 6;
-
-  return normalizeUnitVector({
-    x: point.x + scale * (k1.x + 4 * k2.x + k3.x),
-    y: point.y + scale * (k1.y + 4 * k2.y + k3.y),
-    z: point.z + scale * (k1.z + 4 * k2.z + k3.z),
-  });
-}
-
-function fourthOrderDerivatives(
-  field: TStreamlineVectorField,
-  point: TUnitVector,
-  seconds: number
-) {
-  const k1 = vectorDerivative(field, point);
-
-  if (!k1) {
-    return undefined;
-  }
-
-  const p2 = offsetUnitVector(point, k1, seconds / 2);
-  const k2 = vectorDerivative(field, p2);
-
-  if (!k2) {
-    return undefined;
-  }
-
-  const p3 = offsetUnitVector(point, k2, seconds / 2);
-  const k3 = vectorDerivative(field, p3);
-
-  if (!k3) {
-    return undefined;
-  }
-
-  const p4 = offsetUnitVector(point, k3, seconds);
-  const k4 = vectorDerivative(field, p4);
-
-  if (!k4) {
-    return undefined;
-  }
-
-  return {
-    k1,
-    k2,
-    k3,
-    k4,
-  };
-}
-
-function angularDistanceDegrees(a: TUnitVector, b: TUnitVector) {
-  const dot = clamp(a.x * b.x + a.y * b.y + a.z * b.z, -1, 1);
-
-  return Math.acos(dot) * RADIANS_TO_DEGREES;
-}
-
-function integrateRungeKutta43(
+function advanceVectorField(
   field: TStreamlineVectorField,
   latitude: number,
   longitude: number,
   seconds: number
 ) {
   const point = geographicToUnitVector(latitude, longitude);
-
-  const derivatives = fourthOrderDerivatives(field, point, seconds);
-
-  if (!derivatives) {
+  const derivative = vectorDerivative(field, point);
+  if (!derivative) {
     return undefined;
   }
-
-  const { k1, k2, k3, k4 } = derivatives;
-
-  const thirdStage = normalizeUnitVector({
-    x: point.x + seconds * (-k1.x + 2 * k2.x),
-    y: point.y + seconds * (-k1.y + 2 * k2.y),
-    z: point.z + seconds * (-k1.z + 2 * k2.z),
-  });
-
-  const k3Third = vectorDerivative(field, thirdStage);
-
-  if (!k3Third) {
-    return undefined;
-  }
-
-  const fourth = fourthOrderUnitVector(point, seconds, k1, k2, k3, k4);
-
-  const third = thirdOrderUnitVector(point, seconds, k1, k2, k3Third);
-
-  return {
-    fourth,
-    error: angularDistanceDegrees(fourth, third),
-  };
-}
-
-function advanceVectorField(
-  field: TStreamlineVectorField,
-  latitude: number,
-  longitude: number,
-  seconds: number,
-  subdivisionDepth = 0
-) {
-  const step = integrateRungeKutta43(field, latitude, longitude, seconds);
-
-  if (!step) {
-    return undefined;
-  }
-
-  const errorTolerance = Math.max(0.002, Math.abs(seconds) * 0.04);
-
-  if (
-    step.error > errorTolerance &&
-    subdivisionDepth < 2 &&
-    Math.abs(seconds) > 0.004
-  ) {
-    const firstHalf = advanceVectorField(
-      field,
-      latitude,
-      longitude,
-      seconds / 2,
-      subdivisionDepth + 1
-    );
-
-    if (!firstHalf) {
-      return undefined;
-    }
-
-    return advanceVectorField(
-      field,
-      firstHalf.latitude,
-      firstHalf.longitude,
-      seconds / 2,
-      subdivisionDepth + 1
-    );
-  }
-
-  const geographic = unitVectorToGeographic(step.fourth);
-
+  const geographic = unitVectorToGeographic(
+    offsetUnitVector(point, derivative, seconds)
+  );
   return positionInField(field, geographic.latitude, geographic.longitude);
 }
 
@@ -1108,14 +999,6 @@ export class IrregularVectorField implements TStreamlineVectorField {
   }
 
   randomPosition(random = Math.random) {
-    const index = Math.min(
-      Math.floor(random() * this.latitudes.length),
-      this.latitudes.length - 1
-    );
-
-    return {
-      latitude: this.latitudes[index],
-      longitude: this.longitudes[index],
-    };
+    return this.regularField.randomPosition(random);
   }
 }

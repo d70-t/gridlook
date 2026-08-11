@@ -1,25 +1,65 @@
 <script lang="ts" setup>
-import { useDebounceFn } from "@vueuse/core";
 import { storeToRefs } from "pinia";
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 
 import DatetimePicker from "./DatetimePicker.vue";
 import { useTimeAnimation } from "./useTimeAnimation.ts";
 
+import { verticalCoordinateScore } from "@/lib/data/dimensionData.ts";
 import { decodeTime, isTimeUnits } from "@/lib/data/timeHandling.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 
 const store = useGlobeControlStore();
-const { varinfo, dimSlidersValues, live, livePaused, liveConnected } =
-  storeToRefs(store);
+const {
+  varinfo,
+  dimSlidersValues,
+  live,
+  livePaused,
+  liveConnected,
+  streamlineLevelIndex,
+  streamlineLevelInfo,
+  streamlineMagnitudeDisplayed,
+} = storeToRefs(store);
 
 const { isPlaying, canAnimate, toggle, cycleSpeed, speedLabel } =
   useTimeAnimation();
 
-// Local copies for debounced updates (excluding time dimension)
+// Local slider state with debounced store updates.
 const localSliders = ref<(number | null)[]>([]);
-const debouncedUpdaters = ref<Array<(value: number) => void>>([]);
+const localDisplayedMagnitudeLevel = ref(streamlineLevelIndex.value);
+const MAGNITUDE_LEVEL_UPDATE = "magnitude-level";
+const pendingUpdates = new Map<
+  number | typeof MAGNITUDE_LEVEL_UPDATE,
+  ReturnType<typeof setTimeout>
+>();
 
+function cancelPendingUpdate(key: number | typeof MAGNITUDE_LEVEL_UPDATE) {
+  const pendingUpdate = pendingUpdates.get(key);
+  if (pendingUpdate !== undefined) {
+    clearTimeout(pendingUpdate);
+    pendingUpdates.delete(key);
+  }
+}
+
+function scheduleUpdate(
+  key: number | typeof MAGNITUDE_LEVEL_UPDATE,
+  update: () => void
+) {
+  cancelPendingUpdate(key);
+  pendingUpdates.set(
+    key,
+    setTimeout(() => {
+      pendingUpdates.delete(key);
+      update();
+    }, 550)
+  );
+}
+
+function cancelAllPendingUpdates() {
+  for (const key of [...pendingUpdates.keys()]) {
+    cancelPendingUpdate(key);
+  }
+}
 function getTimeUnits(index: number): string | undefined {
   const dimInfo = varinfo.value?.dimInfo[index];
   return dimInfo && "attrs" in dimInfo && isTimeUnits(dimInfo.attrs.units)
@@ -31,13 +71,71 @@ function isTimeDimension(index: number): boolean {
   return getTimeUnits(index) !== undefined;
 }
 
+const displayedMagnitudeLevelInfo = computed(() =>
+  streamlineMagnitudeDisplayed.value ? streamlineLevelInfo.value : undefined
+);
+
+function scalarVerticalDimensionScore(index: number) {
+  const range = varinfo.value?.dimRanges[index];
+  const info = varinfo.value?.dimInfo[index];
+  if (!range || !info || !("attrs" in info) || isTimeDimension(index)) {
+    return -1;
+  }
+  return verticalCoordinateScore(range.name, info.attrs);
+}
+
+// A derived magnitude belongs to the vector components, not to the scalar
+// variable that happened to be selected before it. Replace that scalar's
+// vertical control with the vector level control while the magnitude is shown.
+const replacedScalarLevelIndex = computed(() => {
+  const levelInfo = displayedMagnitudeLevelInfo.value;
+  if (!streamlineMagnitudeDisplayed.value || !varinfo.value) {
+    return -1;
+  }
+  if (levelInfo) {
+    const exactIndex = varinfo.value.dimRanges.findIndex(
+      (range) => range?.name === levelInfo.dimensionName
+    );
+    if (exactIndex !== -1) {
+      return exactIndex;
+    }
+  }
+  const candidates = varinfo.value.dimRanges
+    .map((range, index) => ({
+      range,
+      index,
+      score: scalarVerticalDimensionScore(index),
+    }))
+    .filter(({ range, score }) => range !== null && score >= 0)
+    .sort((a, b) => b.score - a.score);
+  if (candidates[0]?.score && candidates[0].score > 0) {
+    return candidates[0].index;
+  }
+  return candidates.length === 1 ? candidates[0].index : -1;
+});
+
+function displayedMagnitudeLevelName() {
+  return displayedMagnitudeLevelInfo.value?.dimensionName ?? "Level";
+}
+
+function displayedMagnitudeLevelValue() {
+  return (
+    displayedMagnitudeLevelInfo.value?.values[
+      localDisplayedMagnitudeLevel.value
+    ] ?? "-"
+  );
+}
+
 const hasValidDimensions = computed(() => {
   return (
     varinfo.value &&
-    varinfo.value.dimRanges.length > 1 &&
-    varinfo.value.dimRanges.some(
-      (range, index) => range && (range.maxBound > 0 || isTimeDimension(index))
-    )
+    (Boolean(displayedMagnitudeLevelInfo.value) ||
+      varinfo.value.dimRanges.some(
+        (range, index) =>
+          index !== replacedScalarLevelIndex.value &&
+          range &&
+          (range.maxBound > 0 || isTimeDimension(index))
+      ))
   );
 });
 
@@ -47,23 +145,30 @@ watch(
   () => {
     const newRanges = varinfo.value?.dimRanges;
     if (newRanges) {
-      // Initialize local sliders fordimensions (skip index 0 which is time)
+      cancelAllPendingUpdates();
+
+      // Initialize local sliders from the active dimension indices.
       localSliders.value = newRanges.map(
         (range, index) =>
           dimSlidersValues.value[index] ?? range?.startPos ?? null
       );
-
-      // Create stable debounced functions for dimensions
-      debouncedUpdaters.value = newRanges.map((_, index) => {
-        return useDebounceFn((value: number) => {
-          if (dimSlidersValues.value[index] !== undefined) {
-            dimSlidersValues.value[index] = value;
-          }
-        }, 550);
-      });
     }
   },
   { immediate: true }
+);
+
+// Keep the controls aligned when another UI element (for example the coupled
+// streamline level selector) changes a dimension directly in the store.
+watch(
+  () => [...dimSlidersValues.value],
+  (values) => {
+    values.forEach((value, index) => {
+      if (localSliders.value[index] !== value) {
+        cancelPendingUpdate(index);
+        localSliders.value[index] = value;
+      }
+    });
+  }
 );
 
 // Watch for local changes and update store with debouncing
@@ -76,12 +181,38 @@ watch(
         value !== undefined &&
         value !== dimSlidersValues.value[index]
       ) {
-        debouncedUpdaters.value[index](value);
+        scheduleUpdate(index, () => {
+          if (dimSlidersValues.value[index] !== undefined) {
+            dimSlidersValues.value[index] = value;
+          }
+        });
       }
     });
   },
   { deep: true }
 );
+
+watch(
+  streamlineLevelIndex,
+  (index) => {
+    cancelPendingUpdate(MAGNITUDE_LEVEL_UPDATE);
+    localDisplayedMagnitudeLevel.value = index;
+  },
+  { immediate: true }
+);
+
+watch(localDisplayedMagnitudeLevel, (index) => {
+  if (index === streamlineLevelIndex.value) {
+    return;
+  }
+  scheduleUpdate(MAGNITUDE_LEVEL_UPDATE, () => {
+    store.setStreamlineLevelIndex(index);
+  });
+});
+
+onBeforeUnmount(() => {
+  cancelAllPendingUpdates();
+});
 
 // Handler for datetime picker
 function onDatetimeIndexUpdate(dimensionIndex: number, index: number) {
@@ -94,15 +225,23 @@ function formatCurrentValue(index: number) {
   if (!dimInfo || !("current" in dimInfo)) {
     return "-";
   }
+  const selectedIndex =
+    localSliders.value[index] ?? dimSlidersValues.value[index];
+  const current =
+    typeof selectedIndex === "number" &&
+    selectedIndex >= 0 &&
+    selectedIndex < dimInfo.values.length
+      ? dimInfo.values[selectedIndex]
+      : dimInfo.current;
   if (!isTimeDimension(index)) {
-    return dimInfo.current;
+    return current;
   }
-  if (typeof dimInfo.current === "object") {
-    return dimInfo.current.format();
+  if (typeof current === "object") {
+    return current.format();
   }
-  const current = Number(dimInfo.current);
-  return Number.isFinite(current)
-    ? decodeTime(current, dimInfo.attrs).format()
+  const numericCurrent = Number(current);
+  return Number.isFinite(numericCurrent)
+    ? decodeTime(numericCurrent, dimInfo.attrs).format()
     : "-";
 }
 
@@ -128,7 +267,11 @@ function isLiveTime(index: number): boolean {
   >
     <template v-for="(range, index) in varinfo!.dimRanges" :key="index">
       <div
-        v-if="range && (range.maxBound > 0 || isTimeDimension(index))"
+        v-if="
+          index !== replacedScalarLevelIndex &&
+          range &&
+          (range.maxBound > 0 || isTimeDimension(index))
+        "
         class="control"
         :class="{ 'mb-4': index + 1 < varinfo.dimInfo.length }"
       >
@@ -247,6 +390,52 @@ function isLiveTime(index: number): boolean {
         </div>
       </div>
     </template>
+    <div v-if="displayedMagnitudeLevelInfo" class="control">
+      <div class="mb-2 w-100 is-flex is-justify-content-space-between">
+        <div class="is-flex is-align-items-center" style="gap: 0.5rem">
+          {{ capitalize(displayedMagnitudeLevelName()) }}:
+        </div>
+        <div class="is-flex">
+          <input
+            v-model.number="localDisplayedMagnitudeLevel"
+            class="input"
+            type="number"
+            min="0"
+            :max="displayedMagnitudeLevelInfo.values.length - 1"
+            style="width: 8em"
+          />
+          <div class="my-2 ml-2">
+            / {{ displayedMagnitudeLevelInfo.values.length - 1 }}
+          </div>
+        </div>
+      </div>
+
+      <input
+        v-model.number="localDisplayedMagnitudeLevel"
+        class="w-100"
+        type="range"
+        min="0"
+        :max="displayedMagnitudeLevelInfo.values.length - 1"
+      />
+
+      <div class="w-100 is-flex is-justify-content-space-between">
+        <div>Current value</div>
+        <div class="has-text-right">
+          <span>{{ displayedMagnitudeLevelValue() }}</span>
+          <br />
+        </div>
+      </div>
+      <div
+        v-if="
+          displayedMagnitudeLevelInfo.longName ||
+          displayedMagnitudeLevelInfo.units
+        "
+        class="has-text-right"
+      >
+        {{ displayedMagnitudeLevelInfo.longName ?? "-" }} /
+        {{ displayedMagnitudeLevelInfo.units ?? "-" }}
+      </div>
+    </div>
   </div>
   <div v-else></div>
 </template>

@@ -10,6 +10,10 @@ import {
   resolveVectorVariablePair,
   type TVectorVariablePair,
 } from "@/lib/data/vectorField.ts";
+import {
+  createVectorMagnitudeData,
+  type TVectorMagnitudeData,
+} from "@/lib/data/vectorMagnitude.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
@@ -39,13 +43,28 @@ type TOptions = {
   registerAnimationCallback: (
     callback: (deltaSeconds: number) => void
   ) => () => void;
+  showMagnitude: (result: TVectorMagnitudeData) => void | Promise<void>;
 };
+
+function requestKey(
+  context: TIrregularStreamlineContext,
+  pair: TVectorVariablePair,
+  levelIndex: number
+) {
+  return JSON.stringify({
+    indices: context.indices,
+    spatialDimensions: context.spatialDimensionNames,
+    pair: [pair.u, pair.v],
+    levelIndex,
+  });
+}
 
 async function createVectorField(
   options: TOptions,
   datasources: TSources,
   context: TIrregularStreamlineContext,
-  pair: TVectorVariablePair
+  pair: TVectorVariablePair,
+  selectedLevelIndex: number
 ) {
   const components = await loadVectorComponents({
     pair,
@@ -55,14 +74,27 @@ async function createVectorField(
     currentIndices: context.indices,
     spatialDimensionNames: context.spatialDimensionNames,
     expectedDataLength: context.latitudes.length,
+    selectedLevelIndex,
   });
   return components
-    ? new IrregularVectorField(
-        context.latitudes,
-        context.longitudes,
-        components.uData,
-        components.vData
-      )
+    ? {
+        field: new IrregularVectorField(
+          context.latitudes,
+          context.longitudes,
+          components.uData,
+          components.vData
+        ),
+        levelInfo: components.levelInfo,
+        magnitudeInfo: components.magnitudeInfo,
+        magnitude:
+          components.magnitudeInfo && components.canDeriveMagnitude
+            ? createVectorMagnitudeData(
+                components.uData,
+                components.vData,
+                components.magnitudeInfo
+              )
+            : undefined,
+      }
     : undefined;
 }
 
@@ -73,42 +105,81 @@ export function useIrregularStreamlines(options: TOptions) {
   const layer = useStreamlineLayer(options);
   let currentContext: TIrregularStreamlineContext | undefined;
   let requestRevision = 0;
+  let cachedMagnitude: TVectorMagnitudeData | undefined;
+  let cachedRequestKey: string | undefined;
 
+  // eslint-disable-next-line max-lines-per-function
   async function refresh(reuseCached = false) {
-    if (reuseCached && layer.showCached()) {
-      return;
-    }
     const revision = ++requestRevision;
     const datasources = options.getDatasources();
     const context = currentContext;
     const pair = resolveVectorVariablePair(
       Object.keys(datasources?.levels[0]?.datasources ?? {}),
       options.getPreferredVariable(),
-      store.streamlineSelection
+      store.streamlineSelection,
+      store.isStreamlineLayerEnabled() ? store.streamlinePair : undefined
     );
+    const key =
+      context && pair
+        ? requestKey(context, pair, store.streamlineLevelIndex)
+        : undefined;
+    if (reuseCached && key === cachedRequestKey && layer.showCached()) {
+      if (store.streamlineMagnitudeDisplayed && cachedMagnitude) {
+        await options.showMagnitude(cachedMagnitude);
+      }
+      return;
+    }
     if (!datasources || !context || !pair) {
+      cachedMagnitude = undefined;
+      cachedRequestKey = undefined;
+      store.setStreamlineMagnitudeInfo(undefined);
       layer.clear();
       return;
     }
     if (!store.isStreamlineLayerEnabled()) {
-      layer.setAvailablePair(pair);
+      if (key === cachedRequestKey) {
+        store.setStreamlinePair(pair);
+      } else {
+        cachedMagnitude = undefined;
+        cachedRequestKey = undefined;
+        store.setStreamlineMagnitudeInfo(undefined);
+        layer.setAvailablePair(pair);
+      }
       return;
     }
+    store.streamlineLoading = true;
     try {
-      const field = await createVectorField(
+      const result = await createVectorField(
         options,
         datasources,
         context,
-        pair
+        pair,
+        store.streamlineLevelIndex
       );
       if (revision !== requestRevision) {
         return;
       }
-      if (!field) {
+      store.setStreamlineLevelInfo(result?.levelInfo);
+      if (!result) {
+        cachedMagnitude = undefined;
+        cachedRequestKey = undefined;
+        store.setStreamlineMagnitudeInfo(undefined);
         layer.clear();
         return;
       }
-      layer.setField(field, pair);
+      const rendered = await layer.setField(result.field, pair);
+      if (!rendered || revision !== requestRevision) {
+        return;
+      }
+      store.setStreamlineMagnitudeInfo(
+        result.magnitudeInfo,
+        Boolean(result.magnitude)
+      );
+      cachedMagnitude = result.magnitude;
+      cachedRequestKey = key;
+      if (store.streamlineMagnitudeDisplayed && result.magnitude) {
+        await options.showMagnitude(result.magnitude);
+      }
     } catch (error) {
       if (revision === requestRevision) {
         layer.clear();
@@ -124,8 +195,15 @@ export function useIrregularStreamlines(options: TOptions) {
 
   onScopeDispose(() => {
     currentContext = undefined;
+    cachedMagnitude = undefined;
     requestRevision++;
+    store.streamlineLoading = false;
   });
 
-  return { clear: layer.clear, refresh, setContext };
+  function suspend() {
+    requestRevision++;
+    store.streamlineLoading = false;
+  }
+
+  return { clear: layer.clear, refresh, setContext, suspend };
 }

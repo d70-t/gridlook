@@ -1,9 +1,12 @@
 import { defineStore } from "pinia";
 
-import type {
-  TVectorVariablePair,
-  TVectorVariableSelection,
+import {
+  levelAxesAreIdentical,
+  type TStreamlineLevelInfo,
+  type TVectorVariablePair,
+  type TVectorVariableSelection,
 } from "@/lib/data/vectorField.ts";
+import type { TVectorMagnitudeInfo } from "@/lib/data/vectorMagnitude.ts";
 import {
   LAND_SEA_MASK_MODES,
   type TLandSeaMaskMode,
@@ -197,11 +200,19 @@ export const useGlobeControlStore = defineStore("globeControl", {
       gridExportRequest: 0 as number,
       gridExportLoading: false,
       streamlineAvailable: false,
+      streamlineLoading: false,
       streamlinePair: undefined as TVectorVariablePair | undefined,
       streamlineSelection: {
         automatic: true,
       } as TVectorVariableSelection,
+      streamlineLevelInfo: undefined as TStreamlineLevelInfo | undefined,
+      streamlineLevelIndex: 0,
       streamlineSelectionRevision: 0,
+      streamlineMagnitudeRequested: false,
+      streamlineMagnitudeDisplayed: false,
+      streamlineMagnitudeInfo: undefined as TVectorMagnitudeInfo | undefined,
+      streamlineMagnitudeDerivable: false,
+      streamlineScalarRevision: 0,
       // will get incremented each time a new dataset OR a new variable in the
       // same dataset is loaded; used to trigger reactivity in child components
       // that need to reload data when the variable changes
@@ -366,7 +377,11 @@ export const useGlobeControlStore = defineStore("globeControl", {
     toggleLayerVisibility(id: string) {
       const layer = this.layerStack.find((entry) => entry.id === id);
       if (layer) {
-        layer.visible = !layer.visible;
+        if (id === BUILTIN_LAYER_IDS.STREAMLINES) {
+          this.setStreamlineLayerEnabled(!layer.visible);
+        } else {
+          layer.visible = !layer.visible;
+        }
       }
     },
     isStreamlineLayerEnabled() {
@@ -382,6 +397,8 @@ export const useGlobeControlStore = defineStore("globeControl", {
       );
       if (layer) {
         layer.visible = enabled;
+        this.streamlineMagnitudeRequested = enabled;
+        this.streamlineMagnitudeDisplayed = enabled;
       }
     },
     // moves the entry so it ends up at index `toIndex` of the resulting array
@@ -427,9 +444,69 @@ export const useGlobeControlStore = defineStore("globeControl", {
         return;
       }
       this.streamlineSelection = selection;
+      this.streamlineLevelInfo = undefined;
+      this.streamlineLevelIndex = 0;
       this.streamlineSelectionRevision++;
     },
+    setStreamlineLevelInfo(info?: TStreamlineLevelInfo) {
+      const previous = this.streamlineLevelInfo;
+      const sameLevelAxis = Boolean(
+        previous && info && levelAxesAreIdentical(previous, info)
+      );
+      if (sameLevelAxis || (!previous && !info)) {
+        return;
+      }
+      this.streamlineLevelInfo = info;
+      this.streamlineLevelIndex = 0;
+    },
+    setStreamlineLevelIndex(index: number, refresh = true) {
+      const maximum = Math.max(
+        0,
+        (this.streamlineLevelInfo?.values.length ?? 1) - 1
+      );
+      const nextIndex = Math.min(maximum, Math.max(0, Math.trunc(index)));
+      if (this.streamlineLevelIndex === nextIndex) {
+        return;
+      }
+      this.streamlineLevelIndex = nextIndex;
+      if (refresh) {
+        this.streamlineSelectionRevision++;
+      }
+    },
+    setStreamlineMagnitudeDisplayed(displayed: boolean, refresh = false) {
+      this.streamlineMagnitudeRequested = displayed;
+      if (this.streamlineMagnitudeDisplayed === displayed) {
+        return;
+      }
+      this.streamlineMagnitudeDisplayed = displayed;
+      if (refresh) {
+        this.streamlineScalarRevision++;
+      }
+    },
+    setStreamlineMagnitudeInfo(info?: TVectorMagnitudeInfo, derivable = false) {
+      this.streamlineMagnitudeInfo = info
+        ? {
+            standardName: info.standardName,
+            longName: info.longName,
+            units: info.units,
+          }
+        : undefined;
+      this.streamlineMagnitudeDerivable = Boolean(info && derivable);
+      const shouldDisplay =
+        this.streamlineMagnitudeRequested && this.streamlineMagnitudeDerivable;
+      if (this.streamlineMagnitudeDisplayed === shouldDisplay) {
+        return;
+      }
+      this.streamlineMagnitudeDisplayed = shouldDisplay;
+      if (!shouldDisplay && this.varnameDisplay !== this.varnameSelector) {
+        this.streamlineScalarRevision++;
+      }
+    },
     resetStreamlineSelection() {
+      this.streamlinePair = undefined;
+      this.streamlineAvailable = false;
+      this.streamlineLevelInfo = undefined;
+      this.streamlineLevelIndex = 0;
       this.setStreamlineSelection({ automatic: true });
     },
     setHoveredGridPoint(point: THoveredGridPoint) {

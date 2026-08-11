@@ -13,6 +13,7 @@ import { loadVectorComponents } from "./composables/streamlineData.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 import { useStreamlineLayer } from "./composables/useStreamlineLayer.ts";
+import { showVectorMagnitudeScalarInfo } from "./composables/vectorMagnitudeScalar.ts";
 
 import {
   getCRSWkt,
@@ -33,6 +34,10 @@ import {
   RegularVectorField,
   resolveVectorVariablePair,
 } from "@/lib/data/vectorField.ts";
+import {
+  createVectorMagnitudeData,
+  type TVectorMagnitudeData,
+} from "@/lib/data/vectorMagnitude.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   getGridVariableData,
@@ -105,6 +110,8 @@ const isProjectedGrid = ref(false);
 const selectedDimensionNames = ref<string[]>([]);
 let lastStreamlineIndices: (number | null | zarr.Slice)[] | undefined;
 let streamlineRequestRevision = 0;
+let cachedMagnitude: TVectorMagnitudeData | undefined;
+let cachedStreamlineKey: string | undefined;
 
 const BATCH_SIZE = 60;
 const MAX_GEO_RESOLUTION = 512;
@@ -144,12 +151,13 @@ const { datasourceUpdate } = useGridDataLoader({
   updateLandSeaMask,
   updateColormap: () => updateColormap(meshes),
   refreshStreamlines: async (reuseCached) => {
-    if (reuseCached && streamlines.showCached()) {
-      return;
-    }
     if (lastStreamlineIndices) {
-      await updateStreamlines(lastStreamlineIndices);
+      await updateStreamlines(lastStreamlineIndices, reuseCached);
     }
+  },
+  suspendStreamlines: () => {
+    streamlineRequestRevision++;
+    store.streamlineLoading = false;
   },
 });
 
@@ -860,6 +868,15 @@ function updateMeshMaterials(rawData: Float32Array) {
   updateColormap(meshes);
 }
 
+async function showMagnitude(scalar: TVectorMagnitudeData) {
+  updateMeshMaterials(scalar.data);
+  const hoverIndex = await buildHoverSamples(scalar.data);
+  setHoverLookupFromIndex(hoverIndex, NaN, NaN);
+  updateHistogram(scalar.data, scalar.min, scalar.max);
+  showVectorMagnitudeScalarInfo(store, scalar);
+  redraw();
+}
+
 async function makeVectorField(uData: Float32Array, vData: Float32Array) {
   if (!props.isRotated) {
     return new RegularVectorField(
@@ -893,28 +910,57 @@ async function makeVectorField(uData: Float32Array, vData: Float32Array) {
   );
 }
 
+function selectedVectorPair() {
+  return resolveVectorVariablePair(
+    Object.keys(props.datasources?.levels[0]?.datasources ?? {}),
+    varnameSelector.value,
+    store.streamlineSelection,
+    store.isStreamlineLayerEnabled() ? store.streamlinePair : undefined
+  );
+}
+
+// eslint-disable-next-line max-lines-per-function
 async function updateStreamlines(
-  selectedIndices: (number | null | zarr.Slice)[]
+  selectedIndices: (number | null | zarr.Slice)[],
+  reuseCached = false
 ) {
   const requestRevision = ++streamlineRequestRevision;
-  const variableNames = Object.keys(
-    props.datasources?.levels[0]?.datasources ?? {}
-  );
-  const pair = resolveVectorVariablePair(
-    variableNames,
-    varnameSelector.value,
-    store.streamlineSelection
-  );
-  const supportedGrid = !isLatOnly.value;
-  if (!pair || !supportedGrid || !props.datasources) {
+  const pair = selectedVectorPair();
+  if (!pair || isLatOnly.value || !props.datasources) {
+    cachedMagnitude = undefined;
+    cachedStreamlineKey = undefined;
+    store.setStreamlineMagnitudeInfo(undefined);
     streamlines.clear();
     return;
   }
+  const requestKey = JSON.stringify({
+    indices: selectedIndices,
+    pair: [pair.u, pair.v],
+    level: store.streamlineLevelIndex,
+  });
+  if (
+    reuseCached &&
+    requestKey === cachedStreamlineKey &&
+    streamlines.showCached()
+  ) {
+    if (store.streamlineMagnitudeDisplayed && cachedMagnitude) {
+      await showMagnitude(cachedMagnitude);
+    }
+    return;
+  }
   if (!store.isStreamlineLayerEnabled()) {
-    streamlines.setAvailablePair(pair);
+    if (requestKey === cachedStreamlineKey) {
+      store.setStreamlinePair(pair);
+    } else {
+      cachedMagnitude = undefined;
+      cachedStreamlineKey = undefined;
+      store.setStreamlineMagnitudeInfo(undefined);
+      streamlines.setAvailablePair(pair);
+    }
     return;
   }
 
+  store.streamlineLoading = true;
   try {
     const components = await loadVectorComponents({
       pair,
@@ -924,11 +970,19 @@ async function updateStreamlines(
       currentIndices: selectedIndices,
       spatialDimensionNames: selectedDimensionNames.value.slice(-2),
       expectedDataLength: latitudes.value.length * longitudes.value.length,
+      selectedLevelIndex: store.streamlineLevelIndex,
     });
     if (requestRevision !== streamlineRequestRevision) {
       return;
     }
+    store.setStreamlineLevelInfo(components?.levelInfo);
+    store.setStreamlineMagnitudeInfo(
+      components?.magnitudeInfo,
+      components?.canDeriveMagnitude
+    );
     if (!components) {
+      cachedMagnitude = undefined;
+      cachedStreamlineKey = undefined;
       streamlines.clear();
       return;
     }
@@ -936,7 +990,22 @@ async function updateStreamlines(
     if (requestRevision !== streamlineRequestRevision) {
       return;
     }
-    streamlines.setField(field, pair);
+    const rendered = await streamlines.setField(field, pair);
+    if (!rendered || requestRevision !== streamlineRequestRevision) {
+      return;
+    }
+    cachedMagnitude =
+      components.magnitudeInfo && components.canDeriveMagnitude
+        ? createVectorMagnitudeData(
+            components.uData,
+            components.vData,
+            components.magnitudeInfo
+          )
+        : undefined;
+    cachedStreamlineKey = requestKey;
+    if (store.streamlineMagnitudeDisplayed && cachedMagnitude) {
+      await showMagnitude(cachedMagnitude);
+    }
   } catch (error) {
     if (requestRevision === streamlineRequestRevision) {
       streamlines.clear();

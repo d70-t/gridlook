@@ -8,12 +8,14 @@ import { useGridHoverLookup } from "./composables/gridHoverUtils.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useIrregularStreamlines } from "./composables/useIrregularStreamlines.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
+import { showVectorMagnitudeScalarInfo } from "./composables/vectorMagnitudeScalar.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
 import {
   castDataVarToFloat32,
   decodeVariableDataAndGetBounds,
 } from "@/lib/data/variableDecoding.ts";
+import type { TVectorMagnitudeData } from "@/lib/data/vectorMagnitude.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   getGridVariableData,
@@ -90,7 +92,30 @@ const streamlines = useIrregularStreamlines({
   projectionHelper,
   onProjectionChange,
   registerAnimationCallback,
+  showMagnitude,
 });
+
+async function showMagnitude(scalar: TVectorMagnitudeData) {
+  const result = await buildTriangularData(
+    { data: scalar.data, batchSize: BATCH_SIZE },
+    {
+      onMetadata: () => undefined,
+      onBatch: (batch) => {
+        if (!("positionValues" in batch)) {
+          updateDataBatch(batch);
+        }
+      },
+    }
+  );
+  setHoverLookupFromIndex(
+    createSerializedGeoSampleIndex(result.hoverIndexData),
+    NaN,
+    NaN
+  );
+  updateHistogram(scalar.data, scalar.min, scalar.max);
+  showVectorMagnitudeScalarInfo(store, scalar);
+  redraw();
+}
 
 function updateMeshProjectionUniforms() {
   updateProjectionMeshes(meshes, {
@@ -115,6 +140,7 @@ const { datasourceUpdate } = useGridDataLoader({
   updateLandSeaMask,
   updateColormap: () => updateColormap(meshes),
   refreshStreamlines: streamlines.refresh,
+  suspendStreamlines: streamlines.suspend,
 });
 
 function cleanupMeshes() {

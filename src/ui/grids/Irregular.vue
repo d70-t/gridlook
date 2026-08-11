@@ -8,6 +8,7 @@ import { useGridHoverLookup } from "./composables/gridHoverUtils.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useIrregularStreamlines } from "./composables/useIrregularStreamlines.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
+import { showVectorMagnitudeScalarInfo } from "./composables/vectorMagnitudeScalar.ts";
 
 import { getLatLonData } from "@/lib/data/coordinateVariables.ts";
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
@@ -16,6 +17,7 @@ import {
   castDataVarToFloat32,
   decodeVariableDataAndGetBounds,
 } from "@/lib/data/variableDecoding.ts";
+import type { TVectorMagnitudeData } from "@/lib/data/vectorMagnitude.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   getGridVariableData,
@@ -49,6 +51,14 @@ const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
 const estimatedSpacing = ref(0);
 const BATCH_SIZE = 500000;
 let points: THREE.Points[] = [];
+let magnitudeCoordinates:
+  | {
+      latitudes: Float32Array;
+      longitudes: Float32Array;
+      latitudeShape: number[];
+      longitudeShape: number[];
+    }
+  | undefined;
 
 const {
   getScene,
@@ -104,7 +114,41 @@ const streamlines = useIrregularStreamlines({
   projectionHelper,
   onProjectionChange,
   registerAnimationCallback,
+  showMagnitude,
 });
+
+async function showMagnitude(scalar: TVectorMagnitudeData) {
+  if (!magnitudeCoordinates) {
+    return;
+  }
+  const helper = projectionHelper.value;
+  const result = await buildIrregularGrid(
+    {
+      ...magnitudeCoordinates,
+      data: scalar.data,
+      batchSize: BATCH_SIZE,
+      projectionType: helper.type,
+      projectionCenter: { lat: helper.center.lat, lon: helper.center.lon },
+    },
+    {
+      onMetadata: (metadata) => {
+        cleanupPoints(metadata.totalBatches);
+        estimatedSpacing.value = metadata.estimatedSpacing;
+      },
+      onBatch: updateBatch,
+    }
+  );
+  updatePointsProjectionUniforms();
+  updateLOD();
+  setHoverLookupFromIndex(
+    createSerializedGeoSampleIndex(result.hoverIndexData),
+    NaN,
+    NaN
+  );
+  updateHistogram(scalar.data, scalar.min, scalar.max);
+  showVectorMagnitudeScalarInfo(store, scalar);
+  redraw();
+}
 
 const { datasourceUpdate } = useGridDataLoader({
   getDatasources: () => props.datasources,
@@ -114,6 +158,7 @@ const { datasourceUpdate } = useGridDataLoader({
   updateLandSeaMask,
   updateColormap: () => updateColormap(points),
   refreshStreamlines: streamlines.refresh,
+  suspendStreamlines: streamlines.suspend,
 });
 
 function cleanupPoints(totalBatches: number) {
@@ -294,6 +339,12 @@ async function fetchAndRenderData(
       onBatch: updateBatch,
     }
   );
+  magnitudeCoordinates = {
+    latitudes: latitudes.data as Float32Array,
+    longitudes: longitudes.data as Float32Array,
+    latitudeShape: [...latitudes.shape],
+    longitudeShape: [...longitudes.shape],
+  };
   updatePointsProjectionUniforms();
   updateLOD();
   setHoverLookupFromIndex(

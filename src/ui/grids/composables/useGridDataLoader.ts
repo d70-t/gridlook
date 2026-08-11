@@ -28,6 +28,7 @@ type TGridDataLoaderOptions = {
   prepareDatasource?: () => void | Promise<void>;
   resetDataVars?: () => void;
   refreshStreamlines?: (reuseCached?: boolean) => void | Promise<void>;
+  suspendStreamlines?: () => void;
 };
 
 function createGetData(
@@ -104,6 +105,7 @@ function createDatasourceUpdate(
   };
 }
 
+// eslint-disable-next-line max-lines-per-function
 function registerGridDataLoaderWatches(
   options: TGridDataLoaderOptions,
   store: TGlobeControlStore,
@@ -134,12 +136,32 @@ function registerGridDataLoaderWatches(
     }
   );
   watch(
+    () => store.streamlineScalarRevision,
+    async () => {
+      try {
+        if (store.streamlineMagnitudeDisplayed) {
+          await options.refreshStreamlines?.(true);
+        } else {
+          await getData();
+          options.updateColormap();
+        }
+      } catch (error) {
+        logError(error, "Could not change the displayed streamline scalar");
+      }
+    }
+  );
+  watch(
     () => store.isStreamlineLayerEnabled(),
     async (enabled) => {
       if (!enabled) {
+        store.setStreamlineMagnitudeDisplayed(false);
+        options.suspendStreamlines?.();
+        await getData();
+        options.updateColormap();
         return;
       }
       try {
+        store.setStreamlineMagnitudeDisplayed(true);
         await options.refreshStreamlines?.(true);
       } catch (error) {
         logError(error, "Could not enable vector streamlines");
