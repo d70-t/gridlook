@@ -12,7 +12,25 @@ const props = defineProps<{
 }>();
 
 const store = useGlobeControlStore();
-const { loading } = storeToRefs(store);
+const { loading, varinfo } = storeToRefs(store);
+
+const DISPLAYED_MAGNITUDE_VALUE = "__displayed_vector_magnitude__";
+
+const streamlinesEnabled = computed(() => store.isStreamlineLayerEnabled());
+const magnitudeOptionAvailable = computed(
+  () => streamlinesEnabled.value && store.streamlineMagnitudeDerivable
+);
+const hasDisplayedScalarOverride = computed(
+  () => magnitudeOptionAvailable.value && store.streamlineMagnitudeDisplayed
+);
+
+const displayedScalarUnits = computed(() => varinfo.value?.attrs?.units ?? "-");
+
+const displayedVariableValue = computed(() =>
+  hasDisplayedScalarOverride.value
+    ? DISPLAYED_MAGNITUDE_VALUE
+    : selectedBasename.value
+);
 
 const groups = computed(() => {
   const groups: Record<string, string[]> = {};
@@ -71,7 +89,14 @@ function onGroupChange(event: Event) {
 }
 
 function updateModel(basename: string, group = selectedGroup.value) {
-  store.selectVariable(group === "/" ? basename : `${group}/${basename}`);
+  if (basename === DISPLAYED_MAGNITUDE_VALUE) {
+    store.setStreamlineMagnitudeDisplayed(true, true);
+    return;
+  }
+  const variable = group === "/" ? basename : `${group}/${basename}`;
+  const needsReload = store.varnameSelector === variable;
+  store.setStreamlineMagnitudeDisplayed(false, needsReload);
+  store.selectVariable(variable);
 }
 
 const currentVar = computed(() => props.modelInfo.vars[model.value]);
@@ -79,10 +104,20 @@ const currentVar = computed(() => props.modelInfo.vars[model.value]);
 const currentVarAttrs = computed(() => currentVar.value?.attrs);
 
 const currentVarUnits = computed(() => {
-  return currentVarAttrs.value?.units ?? "-";
+  return hasDisplayedScalarOverride.value
+    ? displayedScalarUnits.value
+    : (currentVarAttrs.value?.units ?? "-");
 });
 
 const currentVarLabel = computed(() => {
+  if (hasDisplayedScalarOverride.value) {
+    return (
+      varinfo.value?.attrs?.long_name ??
+      varinfo.value?.attrs?.standard_name ??
+      store.streamlineMagnitudeInfo?.longName ??
+      "Vector magnitude"
+    );
+  }
   return (
     currentVarAttrs.value?.long_name ??
     currentVarAttrs.value?.standard_name ??
@@ -123,10 +158,20 @@ function getOptionLabel(varname: string): string {
       </div>
       <div class="select is-fullwidth mb-2" :class="{ 'is-loading': loading }">
         <select
-          :value="selectedBasename"
+          :value="displayedVariableValue"
           class="form-control"
           @change="updateModel(($event.target as HTMLSelectElement).value)"
         >
+          <option
+            v-if="magnitudeOptionAvailable"
+            :value="DISPLAYED_MAGNITUDE_VALUE"
+          >
+            {{
+              store.streamlineMagnitudeInfo?.standardName ?? "vector_magnitude"
+            }}
+            -
+            {{ store.streamlineMagnitudeInfo?.longName }} (derived)
+          </option>
           <option
             v-for="varname in groupVariables"
             :key="varname"

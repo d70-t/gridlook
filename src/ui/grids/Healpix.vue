@@ -15,6 +15,7 @@ import { loadVectorComponents } from "./composables/streamlineData.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 import { useStreamlineLayer } from "./composables/useStreamlineLayer.ts";
+import { showVectorMagnitudeScalarInfo } from "./composables/vectorMagnitudeScalar.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
 import {
@@ -26,6 +27,10 @@ import {
   RegularVectorField,
   resolveVectorVariablePair,
 } from "@/lib/data/vectorField.ts";
+import {
+  createVectorMagnitudeData,
+  type TVectorMagnitudeData,
+} from "@/lib/data/vectorMagnitude.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   getGridVariableData,
@@ -34,6 +39,7 @@ import {
 import {
   HEALPIX_NUMCHUNKS,
   buildHealpixRegionCoordinates,
+  buildHealpixTexture,
   decodeHealpixFaceXY,
   getHealpixFaceDataRect,
   getHealpixFaceRange,
@@ -133,6 +139,8 @@ type TStreamlineContext = {
 
 let lastStreamlineContext: TStreamlineContext | undefined;
 let streamlineRequestRevision = 0;
+let cachedMagnitude: TVectorMagnitudeData | undefined;
+let cachedStreamlineKey: string | undefined;
 
 let disposed = false;
 
@@ -171,12 +179,13 @@ const { datasourceUpdate } = useGridDataLoader({
   updateLandSeaMask,
   updateColormap: () => updateColormap(mainMeshes),
   refreshStreamlines: async (reuseCached) => {
-    if (reuseCached && streamlines.showCached()) {
-      return;
-    }
     if (lastStreamlineContext) {
-      await updateStreamlines(lastStreamlineContext);
+      await updateStreamlines(lastStreamlineContext, reuseCached);
     }
+  },
+  suspendStreamlines: () => {
+    streamlineRequestRevision++;
+    store.streamlineLoading = false;
   },
 });
 
@@ -395,6 +404,44 @@ function fitCameraToCells(grid: healpixGeo.Grid, cells: number[] | undefined) {
   fitCameraToDataset(regions);
 }
 
+function showMagnitude(scalar: TVectorMagnitudeData) {
+  if (!lastStreamlineContext) {
+    return;
+  }
+  const { grid, cellCoord } = lastStreamlineContext;
+  for (let faceIndex = 0; faceIndex < HEALPIX_NUMCHUNKS; faceIndex++) {
+    const mesh = mainMeshes[faceIndex];
+    if (!mesh) {
+      continue;
+    }
+    const range = getHealpixFaceRange(faceIndex, grid.nside, cellCoord);
+    const { dataValues, width, height, dataRect } = buildHealpixTexture(
+      scalar.data.subarray(range.start, range.end),
+      faceIndex,
+      grid.nside,
+      range.cells
+    );
+    const material = mesh.material as THREE.ShaderMaterial;
+    material.uniforms.data.value.dispose();
+    const texture = new THREE.DataTexture(
+      dataValues,
+      width,
+      height,
+      THREE.RedFormat,
+      THREE.FloatType,
+      THREE.UVMapping
+    );
+    texture.needsUpdate = true;
+    material.uniforms.data.value = texture;
+    material.uniforms.dataUvOffset.value.set(dataRect.u, dataRect.v);
+    material.uniforms.dataUvScale.value.set(dataRect.width, dataRect.height);
+    mesh.userData.dataRect = dataRect;
+  }
+  updateHistogram(scalar.data, scalar.min, scalar.max);
+  showVectorMagnitudeScalarInfo(store, scalar);
+  redraw();
+}
+
 async function prepareDimensionData(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
@@ -471,7 +518,10 @@ function makeHealpixVectorField(
 }
 
 // eslint-disable-next-line max-lines-per-function
-async function updateStreamlines(context: TStreamlineContext) {
+async function updateStreamlines(
+  context: TStreamlineContext,
+  reuseCached = false
+) {
   const requestRevision = ++streamlineRequestRevision;
   const variableNames = Object.keys(
     props.datasources?.levels[0]?.datasources ?? {}
@@ -479,18 +529,53 @@ async function updateStreamlines(context: TStreamlineContext) {
   const pair = resolveVectorVariablePair(
     variableNames,
     varnameSelector.value,
-    store.streamlineSelection
+    store.streamlineSelection,
+    store.isStreamlineLayerEnabled() ? store.streamlinePair : undefined
   );
   if (!pair || !props.datasources) {
+    cachedMagnitude = undefined;
+    cachedStreamlineKey = undefined;
+    store.setStreamlineMagnitudeInfo(undefined);
     streamlines.clear();
     return;
   }
-  if (!store.isStreamlineLayerEnabled()) {
-    streamlines.setAvailablePair(pair);
+  const requestKey = JSON.stringify({
+    indices: context.indices,
+    nside: context.grid.nside,
+    cells: context.cellCoord
+      ? [
+          context.cellCoord.length,
+          context.cellCoord[0],
+          context.cellCoord.at(-1),
+        ]
+      : undefined,
+    pair: [pair.u, pair.v],
+    level: store.streamlineLevelIndex,
+  });
+  if (
+    reuseCached &&
+    requestKey === cachedStreamlineKey &&
+    streamlines.showCached()
+  ) {
+    if (store.streamlineMagnitudeDisplayed && cachedMagnitude) {
+      showMagnitude(cachedMagnitude);
+    }
     return;
   }
   const nside = context.grid.nside;
 
+  if (!store.isStreamlineLayerEnabled()) {
+    if (requestKey === cachedStreamlineKey) {
+      store.setStreamlinePair(pair);
+    } else {
+      cachedMagnitude = undefined;
+      cachedStreamlineKey = undefined;
+      store.setStreamlineMagnitudeInfo(undefined);
+      streamlines.setAvailablePair(pair);
+    }
+    return;
+  }
+  store.streamlineLoading = true;
   try {
     const expectedDataLength = context.cellCoord?.length ?? 12 * nside * nside;
     const components = await loadVectorComponents({
@@ -501,23 +586,47 @@ async function updateStreamlines(context: TStreamlineContext) {
       currentIndices: context.indices,
       spatialDimensionNames: [selectedDimensionNames.value.at(-1)!],
       expectedDataLength,
+      selectedLevelIndex: store.streamlineLevelIndex,
     });
     if (requestRevision !== streamlineRequestRevision) {
       return;
     }
+    store.setStreamlineLevelInfo(components?.levelInfo);
+    store.setStreamlineMagnitudeInfo(
+      components?.magnitudeInfo,
+      components?.canDeriveMagnitude
+    );
     if (!components) {
+      cachedMagnitude = undefined;
+      cachedStreamlineKey = undefined;
       streamlines.clear();
       return;
     }
-    streamlines.setField(
+    const rendered = await streamlines.setField(
       makeHealpixVectorField(
         context.grid,
         context.cellCoord,
         components.uData,
         components.vData
       ),
-      pair
+      pair,
+      () => requestRevision === streamlineRequestRevision
     );
+    if (!rendered || requestRevision !== streamlineRequestRevision) {
+      return;
+    }
+    cachedMagnitude =
+      components.magnitudeInfo && components.canDeriveMagnitude
+        ? createVectorMagnitudeData(
+            components.uData,
+            components.vData,
+            components.magnitudeInfo
+          )
+        : undefined;
+    cachedStreamlineKey = requestKey;
+    if (store.streamlineMagnitudeDisplayed && cachedMagnitude) {
+      showMagnitude(cachedMagnitude);
+    }
   } catch (error) {
     if (requestRevision === streamlineRequestRevision) {
       streamlines.clear();

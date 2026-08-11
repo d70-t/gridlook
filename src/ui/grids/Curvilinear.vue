@@ -8,6 +8,7 @@ import { useGridHoverLookup } from "./composables/gridHoverUtils.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useIrregularStreamlines } from "./composables/useIrregularStreamlines.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
+import { showVectorMagnitudeScalarInfo } from "./composables/vectorMagnitudeScalar.ts";
 
 import {
   getLatLonData,
@@ -20,6 +21,7 @@ import {
   castDataVarToFloat32,
   decodeVariableDataAndGetBounds,
 } from "@/lib/data/variableDecoding.ts";
+import type { TVectorMagnitudeData } from "@/lib/data/vectorMagnitude.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   buildCurvilinearGrid,
@@ -54,6 +56,12 @@ const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
   storeToRefs(urlParameterStore);
 
 let meshes: THREE.Mesh[] = [];
+let magnitudeContext:
+  | {
+      datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>;
+      dimensionNames: string[];
+    }
+  | undefined;
 
 const {
   getScene,
@@ -111,7 +119,29 @@ const streamlines = useIrregularStreamlines({
   projectionHelper,
   onProjectionChange,
   registerAnimationCallback,
+  showMagnitude,
 });
+
+async function showMagnitude(scalar: TVectorMagnitudeData) {
+  if (!magnitudeContext) {
+    return;
+  }
+  const { hoverIndexData } = await buildGridInWorker(
+    magnitudeContext.datavar,
+    scalar.data,
+    magnitudeContext.dimensionNames,
+    NaN,
+    NaN
+  );
+  setHoverLookupFromIndex(
+    createSerializedGeoSampleIndex(hoverIndexData),
+    NaN,
+    NaN
+  );
+  updateHistogram(scalar.data, scalar.min, scalar.max);
+  showVectorMagnitudeScalarInfo(store, scalar);
+  redraw();
+}
 
 const { datasourceUpdate } = useGridDataLoader({
   getDatasources: () => props.datasources,
@@ -121,6 +151,7 @@ const { datasourceUpdate } = useGridDataLoader({
   updateLandSeaMask,
   updateColormap: () => updateColormap(meshes),
   refreshStreamlines: streamlines.refresh,
+  suspendStreamlines: streamlines.suspend,
 });
 
 const BATCH_SIZE = 30;
@@ -316,6 +347,7 @@ async function fetchAndRenderData(
 ) {
   const { dimensionNames, dimensionRanges, indices } =
     await buildDimensionConfig(datavar);
+  magnitudeContext = { datavar, dimensionNames };
 
   const rawData = castDataVarToFloat32(
     await fetchCurvilinearVariableData(indices)

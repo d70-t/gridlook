@@ -57,6 +57,7 @@ export function useStreamlineLayer(options: TOptions) {
   let layer: StreamlineParticleLayer | undefined;
   let stopAnimation: (() => void) | undefined;
   let disposed = false;
+  let buildRevision = 0;
 
   function updateAppearance() {
     if (!layer) {
@@ -73,7 +74,7 @@ export function useStreamlineLayer(options: TOptions) {
     options.redraw();
   }
 
-  function disposeObject() {
+  function removeLayerObject() {
     stopAnimation?.();
     stopAnimation = undefined;
     if (layer) {
@@ -81,6 +82,20 @@ export function useStreamlineLayer(options: TOptions) {
       layer.dispose();
       layer = undefined;
     }
+  }
+
+  function disposeObject() {
+    buildRevision++;
+    store.streamlineLoading = false;
+    removeLayerObject();
+  }
+
+  function installLayer(nextLayer: StreamlineParticleLayer) {
+    nextLayer.updateProjection(options.projectionHelper.value);
+    removeLayerObject();
+    layer = nextLayer;
+    options.getScene()?.add(layer.object);
+    updateAppearance();
   }
 
   function clear() {
@@ -96,15 +111,40 @@ export function useStreamlineLayer(options: TOptions) {
     store.setStreamlinePair(pair);
   }
 
-  function setField(field: TStreamlineVectorField, pair: TVectorVariablePair) {
-    if (disposed) {
-      return;
+  async function setField(
+    field: TStreamlineVectorField,
+    pair: TVectorVariablePair,
+    isCurrent: () => boolean
+  ) {
+    if (disposed || !isCurrent()) {
+      return false;
     }
     disposeObject();
+    const revision = buildRevision;
     store.setStreamlinePair(pair);
-    layer = new StreamlineParticleLayer(field, options.projectionHelper.value);
-    options.getScene()?.add(layer.object);
-    updateAppearance();
+    store.streamlineLoading = true;
+    try {
+      const isCancelled = () =>
+        disposed ||
+        revision !== buildRevision ||
+        !isCurrent() ||
+        !store.isStreamlineLayerEnabled();
+      const nextLayer = await StreamlineParticleLayer.create(
+        field,
+        options.projectionHelper.value,
+        isCancelled
+      );
+      if (!nextLayer || isCancelled()) {
+        nextLayer?.dispose();
+        return false;
+      }
+      installLayer(nextLayer);
+      return true;
+    } finally {
+      if (revision === buildRevision && isCurrent()) {
+        store.streamlineLoading = false;
+      }
+    }
   }
 
   function showCached() {
@@ -122,7 +162,10 @@ export function useStreamlineLayer(options: TOptions) {
   watch(() => store.layerStack, updateAppearance, { deep: true });
   onScopeDispose(() => {
     disposed = true;
-    clear();
+    // Scalar-variable changes remount the grid renderer. Dispose its GPU
+    // objects without clearing the independently selected streamline pair;
+    // the replacement renderer will rebuild the layer from that pair.
+    disposeObject();
   });
 
   return { clear, setAvailablePair, setField, showCached };
