@@ -7,12 +7,12 @@ import {
 } from "@/lib/camera/cameraSettings.ts";
 
 describe("camera field of view", () => {
-  it("uses a conventional 45 degree vertical lens", () => {
-    expect(CAMERA_VERTICAL_FOV_DEGREES).toBe(45);
+  it("uses a narrow 7.5 degree vertical lens", () => {
+    expect(CAMERA_VERTICAL_FOV_DEGREES).toBe(7.5);
   });
 
-  it("shows about 4971 km vertically at 6000 km above a plane", () => {
-    expect(getVisibleVerticalSpan(6_000_000)).toBeCloseTo(4_970_563, -1);
+  it("shows about 787 km vertically at 6000 km above a plane", () => {
+    expect(getVisibleVerticalSpan(6_000_000)).toBeCloseTo(786_522, -1);
   });
 
   it("converts between visible span and camera distance", () => {
