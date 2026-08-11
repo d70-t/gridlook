@@ -124,6 +124,12 @@ export function useGridScene(options: UseGridSceneOptions) {
   const FLAT_CROP_Z_OFFSET = 0.06;
   const FLAT_BOUNDARY_STEP_DEGREES = 0.25;
   const TOUCH_PICK_TAP_MAX_DISTANCE_PX = 10;
+  // Overlay layers (coastlines, custom texture layers, streamline particles)
+  // render above the globe surface out to radius 1.006. The globe camera's
+  // near plane (0.1, see configureGlobeProjectionCamera) would clip through
+  // those layers once the camera gets closer than ~1.106, so the zoom floor
+  // needs headroom beyond that to keep them visible.
+  const GLOBE_MIN_CAMERA_DISTANCE = 1.12;
   let targetOffset = 0;
   let isInMotion = false;
   let updatingProjectionCenterFromCamera = false;
@@ -603,7 +609,7 @@ export function useGridScene(options: UseGridSceneOptions) {
       MIDDLE: THREE.MOUSE.DOLLY,
       RIGHT: THREE.MOUSE.PAN,
     };
-    controls.minDistance = 1.1;
+    controls.minDistance = GLOBE_MIN_CAMERA_DISTANCE;
     controls.maxDistance = 1000;
     applyProjectionCenterToGlobeCamera(cam, controls, targetDistance);
   }
@@ -778,7 +784,7 @@ export function useGridScene(options: UseGridSceneOptions) {
     camera.lookAt(center);
 
     orbitControls = new OrbitControls(camera, renderer.domElement);
-    orbitControls.minDistance = 1.1;
+    orbitControls.minDistance = GLOBE_MIN_CAMERA_DISTANCE;
     orbitControls.enablePan = false;
 
     updateBaseSurface();

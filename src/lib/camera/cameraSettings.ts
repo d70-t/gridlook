@@ -1,4 +1,4 @@
-export const CAMERA_VERTICAL_FOV_DEGREES = 45;
+export const CAMERA_VERTICAL_FOV_DEGREES = 7.5;
 
 export function getVisibleVerticalSpan(
   distance: number,
