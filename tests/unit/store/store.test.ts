@@ -8,6 +8,7 @@ vi.stubGlobal("localStorage", {
 });
 
 const { createPinia, setActivePinia } = await import("pinia");
+const { LAND_SEA_MASK_MODES } = await import("@/lib/layers/landSeaMask.ts");
 const { BUILTIN_LAYER_IDS, LAYER_OPACITY, useGlobeControlStore } =
   await import("@/store/store.ts");
 
@@ -50,4 +51,34 @@ it("sets streamline layer visibility explicitly", () => {
   expect(store.isStreamlineLayerEnabled()).toBe(true);
   store.setStreamlineLayerEnabled(false);
   expect(store.isStreamlineLayerEnabled()).toBe(false);
+});
+
+it("sets volume layer visibility and selection", () => {
+  const store = useGlobeControlStore();
+
+  expect(store.isVolumeLayerEnabled()).toBe(false);
+  store.setVolumeSelections([
+    { variable: "clw", color: "#ffffff", opacity: 0.8 },
+  ]);
+  store.setVolumeLayerEnabled(true);
+  expect(store.isVolumeLayerEnabled()).toBe(true);
+  expect(store.volumeSelections).toEqual([
+    { variable: "clw", color: "#ffffff", opacity: 0.8 },
+  ]);
+  store.setVolumeLayerEnabled(false);
+  expect(store.isVolumeLayerEnabled()).toBe(false);
+});
+
+it("positions the full land-and-sea mask above the scalar grid", () => {
+  const store = useGlobeControlStore();
+
+  store.positionMaskLayerForMode(LAND_SEA_MASK_MODES.LAND_AND_SEA);
+
+  const maskIndex = store.layerStack.findIndex(
+    (layer) => layer.id === BUILTIN_LAYER_IDS.MASK
+  );
+  const gridIndex = store.layerStack.findIndex(
+    (layer) => layer.id === BUILTIN_LAYER_IDS.GRID
+  );
+  expect(maskIndex).toBeLessThan(gridIndex);
 });
