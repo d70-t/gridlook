@@ -196,12 +196,13 @@ export class ZarrDataManager {
 
   static getVariableDataFromArray(
     array: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
-    selection?: (number | null | zarr.Slice)[]
+    selection?: (number | null | zarr.Slice)[],
+    options?: zarr.GetOptions
   ) {
     if (selection && selection.length > 0) {
-      return zarr.get(array, selection);
+      return zarr.get(array, selection, options);
     }
-    return zarr.get(array);
+    return zarr.get(array, null, options);
   }
 
   static async getCRSInfo(
