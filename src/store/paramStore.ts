@@ -15,10 +15,9 @@ export const useUrlParameterStore = defineStore("urlParams", {
   state: () => {
     return {
       paramVarname: undefined as string | undefined,
-      paramCameraState: undefined as string | undefined,
-      paramCameraX: undefined as string | undefined,
-      paramCameraY: undefined as string | undefined,
-      paramCameraZ: undefined as string | undefined,
+      paramCameraPx: undefined as string | undefined,
+      paramCameraPy: undefined as string | undefined,
+      paramCameraAlt: undefined as string | undefined,
       paramColormap: undefined as TColorMap | undefined,
       paramInvertColormap: undefined as string | undefined,
       paramPosterizeLevels: undefined as string | undefined,
@@ -36,8 +35,8 @@ export const useUrlParameterStore = defineStore("urlParams", {
       paramBoundLow: undefined as string | undefined,
       paramBoundHigh: undefined as string | undefined,
       paramProjection: undefined as string | undefined,
-      paramProjectionCenterLat: undefined as string | undefined,
-      paramProjectionCenterLon: undefined as string | undefined,
+      paramLat: undefined as string | undefined,
+      paramLon: undefined as string | undefined,
       paramGridType: undefined as string | undefined,
       paramCatalog: undefined as string | undefined,
       paramLive: undefined as string | undefined,
@@ -46,10 +45,9 @@ export const useUrlParameterStore = defineStore("urlParams", {
   actions: {
     resetExceptCamera() {
       const keysToKeep = [
-        "paramCameraState",
-        "paramCameraX",
-        "paramCameraY",
-        "paramCameraZ",
+        "paramCameraPx",
+        "paramCameraPy",
+        "paramCameraAlt",
       ] as const;
       const state = this as Record<keyof typeof this.$state, unknown>;
       const saved = Object.fromEntries(
@@ -73,10 +71,9 @@ export const useUrlParameterStore = defineStore("urlParams", {
 export const STORE_PARAM_MAPPING = {
   colormap: "paramColormap",
   varname: "paramVarname",
-  camerastate: "paramCameraState",
-  x: "paramCameraX",
-  y: "paramCameraY",
-  z: "paramCameraZ",
+  px: "paramCameraPx",
+  py: "paramCameraPy",
+  alt: "paramCameraAlt",
   invertcolormap: "paramInvertColormap",
   posterizelevels: "paramPosterizeLevels",
   hidelowerbound: "paramHideLowerBound",
@@ -91,8 +88,8 @@ export const STORE_PARAM_MAPPING = {
   dimMinBounds: "paramDimMinBounds",
   dimMaxBounds: "paramDimMaxBounds",
   projection: "paramProjection",
-  projectionCenterLat: "paramProjectionCenterLat",
-  projectionCenterLon: "paramProjectionCenterLon",
+  lat: "paramLat",
+  lon: "paramLon",
   boundlow: "paramBoundLow",
   boundhigh: "paramBoundHigh",
   gridtype: "paramGridType",

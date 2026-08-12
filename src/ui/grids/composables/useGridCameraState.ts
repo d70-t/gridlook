@@ -1,5 +1,4 @@
 import { useDebounceFn } from "@vueuse/core";
-import { inflateSync } from "fflate";
 import { storeToRefs } from "pinia";
 import type * as THREE from "three";
 
@@ -11,16 +10,14 @@ export type TCameraState = {
 };
 
 export type TCameraUrlState = {
-  x: number;
-  y: number;
-  z: number;
+  px: number;
+  py: number;
+  alt: number;
 };
-
-export type TDecodedCameraState = TCameraState | TCameraUrlState;
 
 export type TGridCameraState = {
   encodeCameraToURL: (camera: THREE.PerspectiveCamera, isFlat: boolean) => void;
-  decodeCameraFromURL: () => TDecodedCameraState | null;
+  decodeCameraFromURL: () => TCameraUrlState | null;
   applyCameraState: (
     camera: THREE.PerspectiveCamera,
     data: TCameraState
@@ -31,11 +28,12 @@ export type TGridCameraState = {
   ) => void;
 };
 
-const CAMERA_PARAM_PRECISION = 10_000;
+// The renderer models Earth as a unit sphere. URL camera coordinates use the
+// IUGG mean Earth radius to expose that sphere in physical metres.
+export const EARTH_RADIUS_METERS = 6_371_008.8;
 
 function formatCameraParam(value: number) {
-  const rounded =
-    Math.round(value * CAMERA_PARAM_PRECISION) / CAMERA_PARAM_PRECISION;
+  const rounded = Math.round(value);
   return String(Object.is(rounded, -0) ? 0 : rounded);
 }
 
@@ -47,63 +45,43 @@ function parseCameraParam(value: string | undefined) {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+export function cameraDistanceToAltitude(distance: number, isFlat: boolean) {
+  return (distance - (isFlat ? 0 : 1)) * EARTH_RADIUS_METERS;
+}
+
+export function altitudeToCameraDistance(altitude: number, isFlat: boolean) {
+  return altitude / EARTH_RADIUS_METERS + (isFlat ? 0 : 1);
+}
+
 /* eslint-disable-next-line max-lines-per-function */
 export function useGridCameraState(): TGridCameraState {
   const urlParameterStore = useUrlParameterStore();
-  const { paramCameraState, paramCameraX, paramCameraY, paramCameraZ } =
+  const { paramCameraPx, paramCameraPy, paramCameraAlt } =
     storeToRefs(urlParameterStore);
 
   function encodeCameraToURL(camera: THREE.PerspectiveCamera, isFlat: boolean) {
-    paramCameraX.value = formatCameraParam(isFlat ? camera.position.x : 0);
-    paramCameraY.value = formatCameraParam(isFlat ? camera.position.y : 0);
-    paramCameraZ.value = formatCameraParam(
-      isFlat ? camera.position.z : camera.position.length()
+    paramCameraPx.value = formatCameraParam(
+      isFlat ? camera.position.x * EARTH_RADIUS_METERS : 0
     );
-    paramCameraState.value = undefined;
+    paramCameraPy.value = formatCameraParam(
+      isFlat ? camera.position.y * EARTH_RADIUS_METERS : 0
+    );
+    const distance = isFlat ? camera.position.z : camera.position.length();
+    paramCameraAlt.value = formatCameraParam(
+      cameraDistanceToAltitude(distance, isFlat)
+    );
   }
 
-  function decodeUrlCameraState(): TCameraUrlState | null {
-    const z = parseCameraParam(paramCameraZ.value);
-    if (z === undefined) {
+  function decodeCameraFromURL(): TCameraUrlState | null {
+    const alt = parseCameraParam(paramCameraAlt.value);
+    if (alt === undefined) {
       return null;
     }
     return {
-      x: parseCameraParam(paramCameraX.value) ?? 0,
-      y: parseCameraParam(paramCameraY.value) ?? 0,
-      z,
+      px: parseCameraParam(paramCameraPx.value) ?? 0,
+      py: parseCameraParam(paramCameraPy.value) ?? 0,
+      alt,
     };
-  }
-
-  function decodeLegacyCameraState(): TCameraState | null {
-    const encoded = paramCameraState.value;
-    if (!encoded) {
-      return null;
-    }
-
-    try {
-      const base64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
-      const paddingLength = (4 - (base64.length % 4)) % 4;
-      const paddedBase64 = `${base64}${"=".repeat(paddingLength)}`;
-      const binary = atob(paddedBase64);
-
-      const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
-
-      // Try decompressing first (new format)
-      try {
-        const decompressed = inflateSync(bytes);
-        const json = new TextDecoder().decode(decompressed);
-        return JSON.parse(json);
-      } catch {
-        // Fall back to legacy uncompressed base64
-        return JSON.parse(binary);
-      }
-    } catch {
-      return null;
-    }
-  }
-
-  function decodeCameraFromURL(): TDecodedCameraState | null {
-    return decodeUrlCameraState() ?? decodeLegacyCameraState();
   }
 
   function applyCameraState(
