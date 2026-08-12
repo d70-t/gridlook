@@ -115,7 +115,7 @@ type TControlsHandle = {
 };
 
 const HYPERGLOBE_CAMERA_PRESET: TCameraState = {
-  // Preserve the preset's established framing with the main camera's wider FOV.
+  // Preserve the preset's established framing for the app's default vertical FOV.
   position: [0, 0, getCameraDistanceForVerticalSpan(4.33)],
   quaternion: [0, 0, 0, 1],
 };
