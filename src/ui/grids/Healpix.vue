@@ -11,6 +11,7 @@ import {
 } from "./composables/gridHoverUtils.ts";
 import { loadVectorComponents } from "./composables/streamlineData.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
+import { useHealpixVolume } from "./composables/useHealpixVolume.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 import { useStreamlineLayer } from "./composables/useStreamlineLayer.ts";
 
@@ -90,6 +91,7 @@ const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
 
 const {
   getScene,
+  getRenderer,
   redraw,
   makeSnapshot,
   toggleRotate,
@@ -142,6 +144,17 @@ const streamlines = useStreamlineLayer({
   projectionHelper,
   onProjectionChange,
   registerAnimationCallback,
+});
+
+const volume = useHealpixVolume({
+  getDatasources: () => props.datasources,
+  getScene,
+  getRenderer,
+  redraw,
+  projectionHelper,
+  isSceneInMotion,
+  onProjectionChange,
+  onMotionStateChange,
 });
 
 /**
@@ -855,6 +868,7 @@ function healpixHoverLookup(
   };
 }
 
+// eslint-disable-next-line max-lines-per-function
 async function fetchAndRenderData(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
@@ -893,6 +907,12 @@ async function fetchAndRenderData(
   updateHistogram(histogramSummaries, dataMin, dataMax);
 
   lastStreamlineContext = { indices, nside, cellCoord };
+  volume.setContext({
+    dimensionNames: selectedDimensionNames.value,
+    indices,
+    nside,
+    cellCoordinates: cellCoord,
+  });
 
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
 
