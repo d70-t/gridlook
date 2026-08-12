@@ -74,9 +74,9 @@ height above the projection plane. Consequently, the same `alt` remains the
 same physical height when changing projections; local map distortion can still
 make ground resolution differ between projection types.
 
-The main view uses a fixed `45°` vertical field of view. For example, at an
+The main view uses a fixed `7.5°` vertical field of view. For example, at an
 `alt` of `6,000,000 m`, the corresponding tangent plane spans approximately
-`4,971 km` vertically before accounting for globe curvature or the viewport's
+`787 km` vertically before accounting for globe curvature or the viewport's
 aspect ratio.
 
 ## Touch Controls
