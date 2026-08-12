@@ -8,7 +8,13 @@ import {
 } from "../utils/urlParams.ts";
 
 import { useUrlParameterStore } from "./paramStore.ts";
-import { useGlobeControlStore, type TGlobeControlStoreKeys } from "./store.ts";
+import {
+  BUILTIN_LAYER_IDS,
+  useGlobeControlStore,
+  type TGlobeControlStoreKeys,
+} from "./store.ts";
+
+import { encodeVolumeUrlState } from "@/lib/volume/volumeUrlState.ts";
 
 type TUrlSyncEntry = {
   key:
@@ -137,6 +143,35 @@ export function useUrlSync() {
     (enabled) => {
       changeURLHash({
         [URL_PARAMETERS.STREAMLINES]: enabled ? "true" : "",
+      });
+    }
+  );
+
+  watch(
+    () => store.isVolumeLayerEnabled(),
+    (enabled) => {
+      changeURLHash({
+        [URL_PARAMETERS.VOLUME]: enabled ? "true" : "",
+      });
+    }
+  );
+
+  watchDebounced(
+    () => encodeVolumeUrlState(store.volumeSelections),
+    (state) => {
+      changeURLHash({ [URL_PARAMETERS.VOLUME_STATE]: state });
+    },
+    { debounce: 100 }
+  );
+
+  watch(
+    () =>
+      store.layerStack.find((layer) => layer.id === BUILTIN_LAYER_IDS.VOLUME)
+        ?.opacity,
+    (opacity) => {
+      changeURLHash({
+        [URL_PARAMETERS.VOLUME_OPACITY]:
+          typeof opacity === "number" && opacity < 1 ? opacity : "",
       });
     }
   );
