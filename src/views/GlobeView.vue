@@ -9,6 +9,7 @@ import type {
   TSources,
 } from "../lib/types/GlobeTypes.ts";
 
+import { getCameraDistanceForVerticalSpan } from "@/lib/camera/cameraSettings.ts";
 import {
   getGridType,
   GRID_TYPES,
@@ -80,12 +81,9 @@ if (urlParams.get("mode") === PresenterRole.DISPLAY) {
   ) {
     store.projectionMode = proj as typeof store.projectionMode;
   }
-  if (
-    urlParameterStore.paramProjectionCenterLat ||
-    urlParameterStore.paramProjectionCenterLon
-  ) {
-    const lat = parseFloat(urlParameterStore.paramProjectionCenterLat ?? "0");
-    const lon = parseFloat(urlParameterStore.paramProjectionCenterLon ?? "0");
+  if (urlParameterStore.paramLat || urlParameterStore.paramLon) {
+    const lat = parseFloat(urlParameterStore.paramLat ?? "0");
+    const lon = parseFloat(urlParameterStore.paramLon ?? "0");
     store.projectionCenter = {
       lat: clamp(lat, -90, 90),
       lon: clamp(lon, -180, 180),
@@ -117,7 +115,8 @@ type TControlsHandle = {
 };
 
 const HYPERGLOBE_CAMERA_PRESET: TCameraState = {
-  position: [0, 0, 33],
+  // Preserve the preset's established framing for the app's default vertical FOV.
+  position: [0, 0, getCameraDistanceForVerticalSpan(4.33)],
   quaternion: [0, 0, 0, 1],
 };
 

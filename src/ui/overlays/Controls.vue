@@ -82,8 +82,8 @@ const {
   paramMaskMode,
   paramMaskingUseTexture,
   paramProjection,
-  paramProjectionCenterLat,
-  paramProjectionCenterLon,
+  paramLat,
+  paramLon,
   paramBoundLow,
   paramBoundHigh,
 } = storeToRefs(urlParameterStore);
@@ -276,9 +276,9 @@ function initFromParams() {
       store.projectionMode = projection;
     }
   }
-  if (paramProjectionCenterLat.value || paramProjectionCenterLon.value) {
-    const lat = parseFloat(paramProjectionCenterLat.value ?? "0");
-    const lon = parseFloat(paramProjectionCenterLon.value ?? "0");
+  if (paramLat.value || paramLon.value) {
+    const lat = parseFloat(paramLat.value ?? "0");
+    const lon = parseFloat(paramLon.value ?? "0");
     projectionCenter.value = {
       lat: clamp(lat, -90, 90),
       lon: clamp(lon, -180, 180),

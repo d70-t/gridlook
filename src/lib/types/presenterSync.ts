@@ -27,7 +27,9 @@ export type TPresenterStatePayload = {
   dimSlidersValues?: (number | null)[];
   selection?: { low: number; high: number };
   // url-parameter store fields
-  paramCameraState?: string;
+  paramCameraPx?: string;
+  paramCameraPy?: string;
+  paramCameraAlt?: string;
   paramGridType?: string;
 };
 

@@ -220,8 +220,8 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
 
   function renderGlobeToCtx(
     ctx: CanvasRenderingContext2D,
-    w: number,
-    h: number,
+    width: number,
+    height: number,
     background: TSnapshotBackground
   ) {
     const renderer = getRenderer();
@@ -236,7 +236,9 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
     renderer.getClearColor(clearColor);
     const clearAlpha = renderer.getClearAlpha();
 
-    const rt = new THREE.WebGLRenderTarget(w, h);
+    const rt = new THREE.WebGLRenderTarget(width, height, {
+      colorSpace: THREE.SRGBColorSpace,
+    });
     const origVisible = baseSurface ? baseSurface.visible : true;
     const mat = baseSurface?.material as THREE.MeshBasicMaterial | undefined;
     const origColor = mat ? mat.color.getHex() : null;
@@ -265,7 +267,7 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
       mat.color.setHex(origColor);
     }
 
-    blitRtToCtx(ctx, rt, w, h);
+    blitRtToCtx(ctx, rt, width, height);
     render(); // restore live canvas
   }
 
