@@ -98,7 +98,7 @@ function handleBoundsHighUpdate(value: number) {
 // ---------------------------------------------------------------------------
 
 function swatchSrc(cm: TColorMap): string {
-  return `/static/colormaps/${cm}.webp`;
+  return `${import.meta.env.BASE_URL}static/colormaps/${cm}.webp`;
 }
 
 // ---------------------------------------------------------------------------
