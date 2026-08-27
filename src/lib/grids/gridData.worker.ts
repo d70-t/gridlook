@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
 
+import { flattenErrorMessage } from "@/lib/data/codecErrors.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   GridDataWorkerMessageType,
@@ -35,7 +36,7 @@ workerScope.onmessage = async (event: MessageEvent<TGridDataWorkerRequest>) => {
     const response: TGridDataWorkerResponse = {
       requestId,
       type: GridDataWorkerMessageType.ERROR,
-      message: error instanceof Error ? error.message : String(error),
+      message: flattenErrorMessage(error),
     };
     workerScope.postMessage(response);
   }
