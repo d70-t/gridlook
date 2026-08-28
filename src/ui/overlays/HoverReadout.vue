@@ -43,7 +43,7 @@ function loadColormapImage(name: string): Promise<void> {
       resolve();
     };
     img.onerror = () => resolve();
-    img.src = `/static/colormaps/${name}.webp`;
+    img.src = `${import.meta.env.BASE_URL}static/colormaps/${name}.webp`;
   });
 }
 
