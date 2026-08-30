@@ -2,13 +2,11 @@ import { describe, expect, it } from "vitest";
 import { get, open } from "zarrita";
 
 import "@/lib/data/codecs.ts";
-import {
-  explainDataError,
-  flattenErrorMessage,
-} from "@/lib/data/codecErrors.ts";
+import { explainCodecError } from "@/lib/data/codecErrors.ts";
+import { flattenErrorMessage } from "@/utils/errorHandling.ts";
 
 /**
- * Every error fed to `explainDataError` here is one zarrita actually threw,
+ * Every error fed to `explainCodecError` here is one zarrita actually threw,
  * not a hand-written stand-in, so the patterns stay tied to the real messages.
  *
  * Each case is checked twice: once as thrown, and once after the round trip
@@ -69,18 +67,18 @@ describe("an unregistered codec", () => {
   }
 
   it("names the codec in the heading", async () => {
-    const explanation = explainDataError(await unknownCodecError());
+    const explanation = explainCodecError(await unknownCodecError());
     expect(explanation?.heading).toBe("Unsupported codec: numcodecs.quantize");
   });
 
   it("says the network is not the problem", async () => {
-    const explanation = explainDataError(await unknownCodecError());
+    const explanation = explainCodecError(await unknownCodecError());
     expect(explanation?.detail).toContain("numcodecs.quantize");
     expect(explanation?.detail).toContain("connection are fine");
   });
 
   it("is still recognised after the worker flattens it", async () => {
-    const explanation = explainDataError(
+    const explanation = explainCodecError(
       throughWorker(await unknownCodecError())
     );
     expect(explanation?.heading).toBe("Unsupported codec: numcodecs.quantize");
@@ -98,19 +96,19 @@ describe("a registered codec that rejects the chunk", () => {
   }
 
   it("names the codec that failed", async () => {
-    const explanation = explainDataError(await codecPipelineError());
+    const explanation = explainCodecError(await codecPipelineError());
     expect(explanation?.heading).toBe("Codec failed: numcodecs.fletcher32");
   });
 
   it("keeps the reason zarrita put on the cause", async () => {
-    const explanation = explainDataError(await codecPipelineError());
+    const explanation = explainCodecError(await codecPipelineError());
     expect(explanation?.detail).toContain("checksum mismatch");
   });
 
   it("keeps the reason across the worker boundary", async () => {
     // Without `flattenErrorMessage` the cause is dropped by structured clone
     // and the reader is told only that some codec failed.
-    const explanation = explainDataError(
+    const explanation = explainCodecError(
       throughWorker(await codecPipelineError())
     );
     expect(explanation?.heading).toBe("Codec failed: numcodecs.fletcher32");
@@ -133,7 +131,7 @@ describe("a data type this browser cannot represent", () => {
   }
 
   it("names the data type and the browsers that support it", async () => {
-    const explanation = explainDataError(await unsupportedDataTypeError());
+    const explanation = explainCodecError(await unsupportedDataTypeError());
     expect(explanation?.heading).toBe("Unsupported data type: float16");
     expect(explanation?.detail).toContain("Safari 26");
   });
@@ -150,21 +148,6 @@ describe("errors that are not codec problems", () => {
   ];
 
   it.each(UNRELATED)("passes through %s", (error) => {
-    expect(explainDataError(error)).toBeUndefined();
-  });
-});
-
-describe("flattenErrorMessage", () => {
-  it("returns the message when there is no cause", () => {
-    expect(flattenErrorMessage(new Error("plain"))).toBe("plain");
-  });
-
-  it("appends the cause when there is one", () => {
-    const error = new Error("outer", { cause: new Error("inner") });
-    expect(flattenErrorMessage(error)).toBe("outer — inner");
-  });
-
-  it("stringifies a non-error", () => {
-    expect(flattenErrorMessage("oops")).toBe("oops");
+    expect(explainCodecError(error)).toBeUndefined();
   });
 });

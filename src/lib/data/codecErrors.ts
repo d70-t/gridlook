@@ -20,7 +20,7 @@ import * as zarr from "zarrita";
  * reaches the UI its class and fields are gone.
  */
 
-export type TDataErrorExplanation = {
+export type TCodecErrorExplanation = {
   heading: string;
   detail: string;
 };
@@ -65,7 +65,7 @@ function unsupportedDataType(error: unknown) {
   return messageOf(error).match(UNSUPPORTED_DATA_TYPE)?.[1];
 }
 
-function explainUnknownCodec(codec: string): TDataErrorExplanation {
+function explainUnknownCodec(codec: string): TCodecErrorExplanation {
   return {
     heading: `Unsupported codec: ${codec}`,
     detail:
@@ -78,7 +78,7 @@ function explainUnknownCodec(codec: string): TDataErrorExplanation {
 function explainCodecFailure(
   codec: string,
   cause: string | undefined
-): TDataErrorExplanation {
+): TCodecErrorExplanation {
   return {
     heading: `Codec failed: ${codec}`,
     detail: cause
@@ -88,7 +88,7 @@ function explainCodecFailure(
   };
 }
 
-function explainUnsupportedDataType(dataType: string): TDataErrorExplanation {
+function explainUnsupportedDataType(dataType: string): TCodecErrorExplanation {
   const isFloat16 = dataType.startsWith("float16");
   return {
     heading: `Unsupported data type: ${dataType}`,
@@ -104,9 +104,9 @@ function explainUnsupportedDataType(dataType: string): TDataErrorExplanation {
  * terms. Returns `undefined` for everything else, so callers fall back to
  * whatever they showed before.
  */
-export function explainDataError(
+export function explainCodecError(
   error: unknown
-): TDataErrorExplanation | undefined {
+): TCodecErrorExplanation | undefined {
   const missingCodec = unknownCodecName(error);
   if (missingCodec) {
     return explainUnknownCodec(missingCodec);
@@ -123,21 +123,4 @@ export function explainDataError(
   }
 
   return undefined;
-}
-
-/**
- * Flatten an error to a string that survives `postMessage`.
- *
- * zarrita reports a codec that threw as a `CodecPipelineError` naming the
- * codec, with the reason it threw — a checksum mismatch, a truncated chunk —
- * on `cause`. Structured-cloning an Error keeps neither the subclass nor the
- * cause, so a worker that posts back only `error.message` drops the reason
- * before anyone can read it. Appending the cause keeps both halves.
- */
-export function flattenErrorMessage(error: unknown): string {
-  if (!(error instanceof Error)) {
-    return String(error);
-  }
-  const cause = error.cause instanceof Error ? error.cause.message : undefined;
-  return cause ? `${error.message} — ${cause}` : error.message;
 }

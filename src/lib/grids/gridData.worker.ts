@@ -1,12 +1,12 @@
 /// <reference lib="webworker" />
 
-import { flattenErrorMessage } from "@/lib/data/codecErrors.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   GridDataWorkerMessageType,
   type TGridDataWorkerRequest,
   type TGridDataWorkerResponse,
 } from "@/lib/grids/gridDataWorkerProtocol.ts";
+import { flattenErrorMessage } from "@/utils/errorHandling.ts";
 
 const workerScope = self as unknown as DedicatedWorkerGlobalScope;
 
