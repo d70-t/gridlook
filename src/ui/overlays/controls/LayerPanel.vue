@@ -3,6 +3,7 @@ import { storeToRefs } from "pinia";
 import { computed, onMounted, ref } from "vue";
 
 import PopupDialog from "./PopupDialog.vue";
+import VolumeControls from "./VolumeControls.vue";
 
 import { getVariableGroup } from "@/lib/data/vectorField.ts";
 import {
@@ -20,6 +21,7 @@ import {
   saveTexture,
 } from "@/lib/layers/textureStore.ts";
 import type { TModelInfo } from "@/lib/types/GlobeTypes.ts";
+import { getHealpixVolumeVariablesForGroup } from "@/lib/volume/volumeVariables.ts";
 import {
   COASTLINE_RESOLUTIONS,
   GRATICULE_SPACINGS,
@@ -46,6 +48,9 @@ const {
   showGraticules,
   streamlinePair,
   streamlineSelection,
+  volumeLoading,
+  volumeProgress,
+  volumeAvailable,
   varnameDisplay,
   varnameSelector,
 } = storeToRefs(store);
@@ -65,6 +70,13 @@ const vectorVariables = computed(() =>
     )
     .sort((a, b) => a.localeCompare(b))
 );
+
+const volumeVariables = computed(() => {
+  return getHealpixVolumeVariablesForGroup(
+    props.modelInfo,
+    varnameSelector.value
+  );
+});
 
 function vectorVariableLabel(name: string) {
   return name.slice(name.lastIndexOf("/") + 1);
@@ -92,12 +104,15 @@ const LAYER_ICONS: Record<TLayerKind, string> = {
   [LAYER_KINDS.GRID]: "fa-border-all",
   [LAYER_KINDS.MASK]: "fa-mask",
   [LAYER_KINDS.STREAMLINES]: "fa-wind",
+  [LAYER_KINDS.VOLUME]: "fa-cloud",
   [LAYER_KINDS.TEXTURE]: "fa-image",
 };
 
 const MASK_LAYER_OPTIONS = {
   GLOBE: "globe",
   GLOBE_SIMPLE: "globe_simple",
+  LAND_AND_SEA: "land_and_sea",
+  LAND_AND_SEA_SIMPLE: "land_and_sea_simple",
   LAND: "land",
   LAND_SIMPLE: "land_simple",
   SEA: "sea",
@@ -122,6 +137,14 @@ const MASK_LAYER_OPTION_CONFIG: Record<
   },
   [MASK_LAYER_OPTIONS.GLOBE_SIMPLE]: {
     mode: LAND_SEA_MASK_MODES.GLOBE,
+    useTexture: false,
+  },
+  [MASK_LAYER_OPTIONS.LAND_AND_SEA]: {
+    mode: LAND_SEA_MASK_MODES.LAND_AND_SEA,
+    useTexture: true,
+  },
+  [MASK_LAYER_OPTIONS.LAND_AND_SEA_SIMPLE]: {
+    mode: LAND_SEA_MASK_MODES.LAND_AND_SEA,
     useTexture: false,
   },
   [MASK_LAYER_OPTIONS.LAND]: {
@@ -150,6 +173,11 @@ function getMaskLayerOption(
     return useTexture
       ? MASK_LAYER_OPTIONS.GLOBE
       : MASK_LAYER_OPTIONS.GLOBE_SIMPLE;
+  }
+  if (mode === LAND_SEA_MASK_MODES.LAND_AND_SEA) {
+    return useTexture
+      ? MASK_LAYER_OPTIONS.LAND_AND_SEA
+      : MASK_LAYER_OPTIONS.LAND_AND_SEA_SIMPLE;
   }
   if (mode === LAND_SEA_MASK_MODES.SEA) {
     return useTexture ? MASK_LAYER_OPTIONS.SEA : MASK_LAYER_OPTIONS.SEA_SIMPLE;
@@ -234,6 +262,11 @@ async function downloadLayer(layer: TLayerEntry) {
 }
 
 function onDragStart(event: DragEvent, layer: TLayerEntry) {
+  if (isLayerControl(event.target) || isLayerControl(document.activeElement)) {
+    event.preventDefault();
+    endDrag();
+    return;
+  }
   draggedId.value = layer.id;
   event.dataTransfer!.effectAllowed = "move";
 }
@@ -253,7 +286,9 @@ function onDrop(index: number) {
 function isLayerControl(target: EventTarget | null) {
   return (
     target instanceof Element &&
-    Boolean(target.closest(".layer-actions, .streamline-components"))
+    Boolean(
+      target.closest(".layer-actions, .streamline-components, .volume-controls")
+    )
   );
 }
 
@@ -317,10 +352,16 @@ function isLayerVisible(layer: TLayerEntry) {
 }
 
 function isLayerAvailable(layer: TLayerEntry) {
+  if (layer.kind === LAYER_KINDS.VOLUME) {
+    return volumeAvailable.value && volumeVariables.value.length > 0;
+  }
   return layer.kind !== LAYER_KINDS.STREAMLINES || Boolean(props.modelInfo);
 }
 
 function canToggleLayer(layer: TLayerEntry) {
+  if (layer.kind === LAYER_KINDS.VOLUME) {
+    return volumeAvailable.value && volumeVariables.value.length > 0;
+  }
   return layer.kind !== LAYER_KINDS.STREAMLINES || Boolean(props.modelInfo);
 }
 
@@ -345,6 +386,8 @@ function toggleLayer(layer: TLayerEntry) {
     store.updateTextureLayer(layer.id, { visible: !layer.visible });
   } else if (layer.kind === LAYER_KINDS.STREAMLINES) {
     store.toggleLayerVisibility(layer.id);
+  } else if (layer.kind === LAYER_KINDS.VOLUME) {
+    store.toggleLayerVisibility(layer.id);
   }
 }
 
@@ -352,6 +395,7 @@ function canChangeLayerOpacity(layer: TLayerEntry) {
   return (
     layer.kind === LAYER_KINDS.MASK ||
     layer.kind === LAYER_KINDS.STREAMLINES ||
+    layer.kind === LAYER_KINDS.VOLUME ||
     layer.kind === LAYER_KINDS.TEXTURE
   );
 }
@@ -377,6 +421,9 @@ function getLayerName(layer: TLayerEntry) {
   }
   if (layer.kind === LAYER_KINDS.STREAMLINES) {
     return "Streamlines integrated by RK4/3";
+  }
+  if (layer.kind === LAYER_KINDS.VOLUME) {
+    return "Ray-marched HEALPix volume";
   }
   return layer.name;
 }
@@ -411,6 +458,16 @@ function getLayerName(layer: TLayerEntry) {
         </span>
         <span class="layer-name is-size-7" :title="getLayerName(layer)">
           {{ layer.name }}
+          <span
+            v-if="layer.kind === LAYER_KINDS.VOLUME && volumeLoading"
+            class="volume-progress ml-1"
+            title="Preparing volume"
+          >
+            <span class="icon is-small">
+              <i class="fa-solid fa-circle-notch fa-spin"></i>
+            </span>
+            <span>{{ volumeProgress ?? 0 }}%</span>
+          </span>
           <template
             v-if="layer.kind === LAYER_KINDS.GRID && varnameDisplay !== '-'"
           >
@@ -448,6 +505,12 @@ function getLayerName(layer: TLayerEntry) {
                 <option :value="MASK_LAYER_OPTIONS.GLOBE">Globe</option>
                 <option :value="MASK_LAYER_OPTIONS.GLOBE_SIMPLE">
                   Globe simple
+                </option>
+                <option :value="MASK_LAYER_OPTIONS.LAND_AND_SEA">
+                  Land and sea
+                </option>
+                <option :value="MASK_LAYER_OPTIONS.LAND_AND_SEA_SIMPLE">
+                  Land and sea simple
                 </option>
                 <option :value="MASK_LAYER_OPTIONS.LAND">Land</option>
                 <option :value="MASK_LAYER_OPTIONS.LAND_SIMPLE">
@@ -622,6 +685,11 @@ function getLayerName(layer: TLayerEntry) {
             </span>
           </label>
         </div>
+        <VolumeControls
+          v-if="layer.kind === LAYER_KINDS.VOLUME && isLayerVisible(layer)"
+          class="volume-controls"
+          :model-info="modelInfo"
+        />
       </li>
     </ul>
     <div class="buttons">
@@ -718,6 +786,17 @@ function getLayerName(layer: TLayerEntry) {
   }
 }
 
+.volume-controls {
+  flex-basis: 100%;
+  padding-left: 1.65rem;
+}
+
+.volume-progress {
+  display: inline-flex;
+  align-items: center;
+  font-variant-numeric: tabular-nums;
+}
+
 .layer-name {
   flex: 1;
   min-width: 4rem;
@@ -759,5 +838,12 @@ function getLayerName(layer: TLayerEntry) {
 .layer-opacity-value {
   min-width: 2.5rem;
   justify-content: center;
+}
+
+@media (max-width: 480px) {
+  .volume-controls,
+  .streamline-components {
+    padding-left: 0;
+  }
 }
 </style>

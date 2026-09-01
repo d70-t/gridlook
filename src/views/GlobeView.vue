@@ -27,8 +27,13 @@ import {
   type TColorMap,
 } from "@/lib/shaders/colormapShaders.ts";
 import { PresenterRole } from "@/lib/types/presenterSync.ts";
+import { decodeVolumeUrlState } from "@/lib/volume/volumeUrlState.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
-import { useGlobeControlStore } from "@/store/store.ts";
+import {
+  BUILTIN_LAYER_IDS,
+  LAYER_OPACITY,
+  useGlobeControlStore,
+} from "@/store/store.ts";
 import { useLiveTimestep } from "@/store/useLiveTimestep.ts";
 import {
   usePresenterSync,
@@ -102,6 +107,9 @@ const {
   paramStreamlines,
   paramStreamlineU,
   paramStreamlineV,
+  paramVolume,
+  paramVolumeState,
+  paramVolumeOpacity,
 } = storeToRefs(urlParameterStore);
 
 type TGlobeHandle = {
@@ -310,6 +318,19 @@ function initStreamlinesFromParams() {
   }
 }
 
+function initVolumeFromParams() {
+  store.setVolumeSelections(decodeVolumeUrlState(paramVolumeState.value));
+  store.setVolumeLayerEnabled(paramVolume.value === "true");
+  const opacity =
+    paramVolumeOpacity.value === undefined || paramVolumeOpacity.value === ""
+      ? LAYER_OPACITY.MAX
+      : Number(paramVolumeOpacity.value);
+  store.updateLayerOpacity(
+    BUILTIN_LAYER_IDS.VOLUME,
+    Number.isFinite(opacity) ? opacity : LAYER_OPACITY.MAX
+  );
+}
+
 async function loadCurrentSource(resetStore = true) {
   const updateId = ++sourceUpdateId;
   resetForSourceChange(resetStore);
@@ -318,6 +339,7 @@ async function loadCurrentSource(resetStore = true) {
     return;
   }
   initStreamlinesFromParams();
+  initVolumeFromParams();
   await initControlsFromSource();
   isInitialized.value = true;
   await setGridType(true);

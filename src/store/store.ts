@@ -41,6 +41,7 @@ export const LAYER_KINDS = {
   GRID: "grid",
   MASK: "mask",
   STREAMLINES: "streamlines",
+  VOLUME: "volume",
   TEXTURE: "texture",
 } as const;
 
@@ -68,6 +69,7 @@ export const BUILTIN_LAYER_IDS = {
   GRID: "grid",
   MASK: "mask",
   STREAMLINES: "streamlines",
+  VOLUME: "volume",
 } as const;
 
 export const LAYER_OPACITY = {
@@ -86,6 +88,12 @@ export type TLayerEntry = {
   maskMode: TLandSeaMaskMode;
 };
 
+export type TVolumeSelection = {
+  variable: string;
+  color: string;
+  opacity: number;
+};
+
 export function normalizeLayerOpacity(opacity: number) {
   if (!Number.isFinite(opacity)) {
     return LAYER_OPACITY.MAX;
@@ -99,9 +107,18 @@ export function normalizeLayerOpacity(opacity: number) {
   return opacity;
 }
 
+// eslint-disable-next-line max-lines-per-function
 function builtinLayerStack(): TLayerEntry[] {
   // ordered top → bottom, as displayed in the layer panel
   return [
+    {
+      id: BUILTIN_LAYER_IDS.VOLUME,
+      kind: LAYER_KINDS.VOLUME,
+      name: "Volume",
+      visible: false,
+      opacity: LAYER_OPACITY.MAX,
+      maskMode: LAND_SEA_MASK_MODES.OFF,
+    },
     {
       id: BUILTIN_LAYER_IDS.STREAMLINES,
       kind: LAYER_KINDS.STREAMLINES,
@@ -208,6 +225,10 @@ export const useGlobeControlStore = defineStore("globeControl", {
       // if the value is even, the change is a new dataset; if odd, it's a
       // variable change within the same dataset
       newDatasetSignifier: 0 as number,
+      volumeSelections: [] as TVolumeSelection[],
+      volumeLoading: false,
+      volumeProgress: undefined as number | undefined,
+      volumeAvailable: false,
     };
   },
   actions: {
@@ -218,6 +239,9 @@ export const useGlobeControlStore = defineStore("globeControl", {
         this.newDatasetSignifier += 1;
       }
       this.resetStreamlineSelection();
+      this.volumeSelections = [];
+      this.volumeLoading = false;
+      this.volumeProgress = undefined;
     },
     signifyVariableChange() {
       if (this.newDatasetSignifier % 2 === 0) {
@@ -383,6 +407,27 @@ export const useGlobeControlStore = defineStore("globeControl", {
       if (layer) {
         layer.visible = enabled;
       }
+    },
+    isVolumeLayerEnabled() {
+      return Boolean(
+        this.layerStack.find((entry) => entry.id === BUILTIN_LAYER_IDS.VOLUME)
+          ?.visible
+      );
+    },
+    setVolumeLayerEnabled(enabled: boolean) {
+      const layer = this.layerStack.find(
+        (entry) => entry.id === BUILTIN_LAYER_IDS.VOLUME
+      );
+      if (layer) {
+        layer.visible = enabled;
+      }
+    },
+    setVolumeSelections(selections: TVolumeSelection[]) {
+      this.volumeSelections = selections.slice(0, 4).map((selection) => ({
+        variable: selection.variable,
+        color: selection.color,
+        opacity: normalizeLayerOpacity(selection.opacity),
+      }));
     },
     // moves the entry so it ends up at index `toIndex` of the resulting array
     moveLayer(id: string, toIndex: number) {

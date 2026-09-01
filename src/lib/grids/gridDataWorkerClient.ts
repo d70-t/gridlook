@@ -13,11 +13,13 @@ export type TGridDataRequest = {
   variable: string;
   format: TZarrFormat;
   selection: (number | null | zarr.Slice)[];
+  onProgress?: (completed: number, total: number) => void;
 };
 
 type TPendingRequest = {
   resolve: (data: zarr.TypedArray<zarr.DataType>) => void;
   reject: (reason?: unknown) => void;
+  onProgress?: (completed: number, total: number) => void;
 };
 
 let worker: Worker | null = null;
@@ -34,6 +36,10 @@ function rejectPendingRequests(error: Error) {
 function handleWorkerMessage(message: TGridDataWorkerResponse) {
   const pending = pendingRequests.get(message.requestId);
   if (!pending) {
+    return;
+  }
+  if (message.type === GridDataWorkerMessageType.PROGRESS) {
+    pending.onProgress?.(message.completed, message.total);
     return;
   }
   pendingRequests.delete(message.requestId);
@@ -73,6 +79,7 @@ export function getGridVariableData(request: TGridDataRequest) {
     },
     variable: request.variable,
     format: request.format,
+    reportProgress: Boolean(request.onProgress),
     selection: request.selection.map((selection) =>
       typeof selection === "object" && selection !== null
         ? { ...selection }
@@ -81,7 +88,11 @@ export function getGridVariableData(request: TGridDataRequest) {
   };
 
   return new Promise<zarr.TypedArray<zarr.DataType>>((resolve, reject) => {
-    pendingRequests.set(requestId, { resolve, reject });
+    pendingRequests.set(requestId, {
+      resolve,
+      reject,
+      onProgress: request.onProgress,
+    });
     getWorker().postMessage(message);
   });
 }
