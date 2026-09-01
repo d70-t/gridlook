@@ -95,3 +95,37 @@ it("reports a fetch failure when no newer update is queued", async () => {
   expect(useGlobeControlStore().loading).toBe(false);
   scope.stop();
 });
+
+it("restores the selected scalar data when streamlines are disabled", async () => {
+  const sources = {} as TSources;
+  const store = useGlobeControlStore();
+  const fetchAndRenderData = vi.fn().mockResolvedValue(undefined);
+  const refreshStreamlines = vi.fn().mockResolvedValue(undefined);
+  const suspendStreamlines = vi.fn();
+  const updateColormap = vi.fn();
+  const scope = effectScope();
+  scope.run(() =>
+    useGridDataLoader({
+      getDatasources: () => sources,
+      getDataVar: vi.fn().mockResolvedValue({}),
+      fetchAndRenderData,
+      clearHoverLookup: vi.fn(),
+      updateLandSeaMask: vi.fn(),
+      updateColormap,
+      refreshStreamlines,
+      suspendStreamlines,
+    })
+  );
+
+  store.setStreamlineLayerEnabled(true);
+  await vi.waitFor(() => expect(refreshStreamlines).toHaveBeenCalledWith(true));
+  fetchAndRenderData.mockClear();
+  updateColormap.mockClear();
+
+  store.setStreamlineLayerEnabled(false);
+  await vi.waitFor(() => expect(fetchAndRenderData).toHaveBeenCalledOnce());
+
+  expect(suspendStreamlines).toHaveBeenCalledOnce();
+  expect(updateColormap).toHaveBeenCalledOnce();
+  scope.stop();
+});

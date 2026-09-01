@@ -4,8 +4,29 @@ import {
   IrregularVectorField,
   RegularVectorField,
   detectVectorVariablePair,
+  levelAxesAreIdentical,
   resolveVectorVariablePair,
 } from "@/lib/data/vectorField.ts";
+
+describe("levelAxesAreIdentical", () => {
+  const pressureAxis = {
+    dimensionName: "plev",
+    values: [1000, 850, 700],
+    units: "hPa",
+  };
+
+  it("accepts equal dimension names, ordered values, and units", () => {
+    expect(levelAxesAreIdentical(pressureAxis, { ...pressureAxis })).toBe(true);
+  });
+
+  it.each([
+    [{ ...pressureAxis, dimensionName: "level" }],
+    [{ ...pressureAxis, values: [700, 850, 1000] }],
+    [{ ...pressureAxis, units: "Pa" }],
+  ])("rejects a different vertical axis", (differentAxis) => {
+    expect(levelAxesAreIdentical(pressureAxis, differentAxis)).toBe(false);
+  });
+});
 
 describe("detectVectorVariablePair", () => {
   it("detects u/v before ua/va", () => {
@@ -46,6 +67,14 @@ describe("detectVectorVariablePair", () => {
       u: "u10",
       v: "v10",
       kind: "u10/v10",
+    });
+  });
+
+  it("detects common ocean-current uo/vo components", () => {
+    expect(detectVectorVariablePair(["temperature", "uo", "vo"])).toEqual({
+      u: "uo",
+      v: "vo",
+      kind: "uo/vo",
     });
   });
 });
@@ -108,6 +137,28 @@ describe("resolveVectorVariablePair selection", () => {
       })
     ).toBeUndefined();
   });
+
+  it("preserves an active automatic pair across scalar-variable changes", () => {
+    expect(
+      resolveVectorVariablePair(
+        ["atmosphere/u", "atmosphere/v", "ocean/uo", "ocean/vo"],
+        "ocean/temperature",
+        { automatic: true },
+        { u: "atmosphere/u", v: "atmosphere/v", kind: "u/v" }
+      )
+    ).toEqual({ u: "atmosphere/u", v: "atmosphere/v", kind: "u/v" });
+  });
+
+  it("replaces the active pair when components are selected explicitly", () => {
+    expect(
+      resolveVectorVariablePair(
+        ["u", "v", "uo", "vo"],
+        "temperature",
+        { automatic: false, u: "uo", v: "vo" },
+        { u: "u", v: "v", kind: "u/v" }
+      )
+    ).toEqual({ u: "uo", v: "vo", kind: "custom" });
+  });
 });
 
 describe("IrregularVectorField", () => {
@@ -135,6 +186,21 @@ describe("IrregularVectorField", () => {
     const next = field.advance(0, 0, 0.1);
     expect(next?.latitude).toBeCloseTo(0);
     expect(next?.longitude).toBeGreaterThan(0);
+  });
+
+  it("seeds by geographic area instead of native-cell order", () => {
+    const field = new IrregularVectorField(
+      new Float32Array([-5, -5, 5, 5]),
+      new Float32Array([-5, 5, -5, 5]),
+      new Float32Array(4).fill(1),
+      new Float32Array(4).fill(1)
+    );
+    const randomValues = [0.5, 0.5];
+
+    const seed = field.randomPosition(() => randomValues.shift()!);
+
+    expect(seed.latitude).toBeCloseTo(0);
+    expect(seed.longitude).toBeCloseTo(0);
   });
 });
 

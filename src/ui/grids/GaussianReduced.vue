@@ -8,6 +8,7 @@ import { useGridHoverLookup } from "./composables/gridHoverUtils.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useIrregularStreamlines } from "./composables/useIrregularStreamlines.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
+import { showVectorMagnitudeScalarInfo } from "./composables/vectorMagnitudeScalar.ts";
 
 import { getLatLonData } from "@/lib/data/coordinateVariables.ts";
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
@@ -15,6 +16,7 @@ import {
   castDataVarToFloat32,
   decodeVariableDataAndGetBounds,
 } from "@/lib/data/variableDecoding.ts";
+import type { TVectorMagnitudeData } from "@/lib/data/vectorMagnitude.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   buildGaussianReducedGrid,
@@ -50,6 +52,9 @@ const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
   storeToRefs(urlParameterStore);
 
 let meshes: THREE.Mesh[] = [];
+let magnitudeCoordinates:
+  | { latitudes: Float64Array; longitudes: Float64Array }
+  | undefined;
 
 const {
   getScene,
@@ -102,7 +107,28 @@ const streamlines = useIrregularStreamlines({
   projectionHelper,
   onProjectionChange,
   registerAnimationCallback,
+  showMagnitude,
 });
+
+async function showMagnitude(scalar: TVectorMagnitudeData) {
+  if (!magnitudeCoordinates) {
+    return;
+  }
+  const hoverIndexData = await buildGaussianReducedGeometry(
+    magnitudeCoordinates.latitudes,
+    magnitudeCoordinates.longitudes,
+    scalar.data
+  );
+  setHoverLookupFromIndex(
+    createSerializedGeoSampleIndex(hoverIndexData),
+    NaN,
+    NaN
+  );
+  updateMeshProjectionUniforms();
+  updateHistogram(scalar.data, scalar.min, scalar.max);
+  showVectorMagnitudeScalarInfo(store, scalar);
+  redraw();
+}
 
 const { datasourceUpdate } = useGridDataLoader({
   getDatasources: () => props.datasources,
@@ -112,6 +138,7 @@ const { datasourceUpdate } = useGridDataLoader({
   updateLandSeaMask,
   updateColormap: () => updateColormap(meshes),
   refreshStreamlines: streamlines.refresh,
+  suspendStreamlines: streamlines.suspend,
 });
 
 const BATCH_SIZE = 64; // Adjust based on memory and browser limits
@@ -254,6 +281,7 @@ function fetchGaussianReducedVariableData(
   });
 }
 
+// eslint-disable-next-line max-lines-per-function
 async function fetchAndRenderData(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
@@ -271,6 +299,10 @@ async function fetchAndRenderData(
   );
   const latitudesData = latitudes.data as Float64Array;
   const longitudesData = longitudes!.data as Float64Array;
+  magnitudeCoordinates = {
+    latitudes: latitudesData,
+    longitudes: longitudesData,
+  };
 
   const { min, max, missingValue, fillValue } = decodeVariableDataAndGetBounds(
     datavar,

@@ -10,6 +10,32 @@ import type {
   TSources,
 } from "@/lib/types/GlobeTypes.ts";
 
+export function verticalCoordinateScore(
+  dimensionName: string,
+  attrs: zarr.Attributes
+) {
+  const name = dimensionName.toLowerCase();
+  const standardName = String(attrs.standard_name ?? "").toLowerCase();
+  if (String(attrs.axis ?? "").toUpperCase() === "Z") {
+    return 100;
+  }
+  if (["up", "down"].includes(String(attrs.positive).toLowerCase())) {
+    return 90;
+  }
+  if (
+    /(height|depth|altitude|pressure|vertical|model_level|sigma|hybrid)/.test(
+      standardName
+    )
+  ) {
+    return 80;
+  }
+  return /(^|_)(z|lev|level|plev|depth|height|altitude|pressure)(_|$)/.test(
+    name
+  )
+    ? 70
+    : 0;
+}
+
 async function getTimeInfo(
   datasources: TSources,
   dimensionRanges: TDimensionRange[],
