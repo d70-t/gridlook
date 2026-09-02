@@ -37,3 +37,20 @@ export function getErrorMessage(error: unknown) {
   // strip quotation marks added by JSON.stringify
   return errorMessage.replace(/^"(.*)"$/, "$1");
 }
+
+/**
+ * Flatten an error to a string that survives `postMessage`.
+ *
+ * zarrita reports a codec that threw as a `CodecPipelineError` naming the
+ * codec, with the reason it threw — a checksum mismatch, a truncated chunk —
+ * on `cause`. Structured-cloning an Error keeps neither the subclass nor the
+ * cause, so a worker that posts back only `error.message` drops the reason
+ * before anyone can read it. Appending the cause keeps both halves.
+ */
+export function flattenErrorMessage(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return String(error);
+  }
+  const cause = error.cause instanceof Error ? error.cause.message : undefined;
+  return cause ? `${error.message} — ${cause}` : error.message;
+}
