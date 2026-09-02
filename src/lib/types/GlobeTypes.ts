@@ -7,6 +7,7 @@ export const ZARR_FORMAT = {
   V2: 2,
   V3: 3,
   ICECHUNK: -1, // Not a standard Zarr format, but used internally to indicate icechunk stores
+  NETCDF: -2, // Not a Zarr format; keeps the existing datasource interface small
 } as const;
 
 export type TZarrFormat = (typeof ZARR_FORMAT)[keyof typeof ZARR_FORMAT];
@@ -49,9 +50,13 @@ export type TZarrDggsMetadata = {
   coordinate: string | null;
 };
 
-export type TDataSource = {
+export type TDatasetSource = {
   store: string;
   dataset: string;
+  file?: File;
+};
+
+export type TDataSource = TDatasetSource & {
   default_colormap?: {
     name: TColorMap;
     inverted: boolean;
@@ -76,14 +81,8 @@ export type TSources = {
   default_var?: string;
   levels: {
     name?: string;
-    grid: {
-      store: string;
-      dataset: string;
-    };
-    time: {
-      store: string;
-      dataset: string;
-    };
+    grid: TDatasetSource;
+    time: TDatasetSource;
     datasources: Record<string, TDataSource>;
   }[];
 };

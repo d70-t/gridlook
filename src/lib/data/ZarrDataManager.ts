@@ -12,6 +12,7 @@ import {
 import {
   ZARR_FORMAT,
   type TDataSource,
+  type TDatasetSource,
   type TSources,
   type TZarrFormat,
 } from "@/lib/types/GlobeTypes.ts";
@@ -32,13 +33,61 @@ export type TZarrVariableMetadata = {
   variable: string;
 };
 
-type TDatasetSource = Pick<TDataSource, "dataset" | "store">;
+type TNetCDFNode = {
+  readonly format: typeof ZARR_FORMAT.NETCDF;
+};
+
+type TNetCDFGroup = TNetCDFNode & {
+  readonly attrs: zarr.Attributes;
+};
+
+type TNetCDFArray = TNetCDFNode & {
+  readonly attrs: zarr.Attributes;
+  readonly chunks: number[];
+  readonly dimensionNames: string[];
+  readonly dtype: zarr.DataType;
+  readonly fillValue: zarr.Scalar<zarr.DataType> | null;
+  readonly shape: number[];
+};
+
+type TNetCDFBackend = {
+  getArray(
+    array: TNetCDFArray,
+    selection?: (number | null | zarr.Slice)[]
+  ): Promise<zarr.Chunk<zarr.DataType>>;
+  invalidateCache(): Promise<void>;
+  openArray(group: TNetCDFGroup, variable: string): Promise<TNetCDFArray>;
+  openGroup(file: File, store: string, path: string): Promise<TNetCDFGroup>;
+  resolveGroup(group: TNetCDFGroup, path: string): Promise<TNetCDFGroup>;
+};
 
 export class ZarrDataManager {
   private static pendingStore: Promise<
     zarr.Location<zarr.AsyncReadable>
   > | null = null;
   private static fetchStorePath: string | null = null;
+
+  private static netCDFBackend: TNetCDFBackend | null = null;
+
+  private static isNetCDFNode(value: unknown): value is TNetCDFNode {
+    return (
+      typeof value === "object" &&
+      value !== null &&
+      "format" in value &&
+      value.format === ZARR_FORMAT.NETCDF
+    );
+  }
+
+  private static getNetCDFBackend() {
+    if (!this.netCDFBackend) {
+      throw new Error("The NetCDF reader is not initialized.");
+    }
+    return this.netCDFBackend;
+  }
+
+  static registerNetCDFBackend(backend: TNetCDFBackend) {
+    this.netCDFBackend = backend;
+  }
 
   private static normalizeStorePath(store: string) {
     return store.replace(/\/+$/, "");
@@ -75,7 +124,18 @@ export class ZarrDataManager {
   private static async getDataset(
     datasource: TDatasetSource,
     format?: TZarrFormat
-  ): Promise<zarr.Group<zarr.AsyncReadable>> {
+  ): Promise<zarr.Group<zarr.AsyncReadable> | TNetCDFGroup> {
+    if (datasource.file || format === ZARR_FORMAT.NETCDF) {
+      if (!datasource.file) {
+        throw new Error("The local NetCDF file is no longer available.");
+      }
+      return await this.getNetCDFBackend().openGroup(
+        datasource.file,
+        datasource.store,
+        datasource.dataset
+      );
+    }
+
     const storePath = this.normalizeStorePath(datasource.store);
     if (!this.pendingStore || this.fetchStorePath !== storePath) {
       this.fetchStorePath = storePath;
@@ -108,10 +168,13 @@ export class ZarrDataManager {
   }
 
   private static async getVariable(
-    store: zarr.Group<zarr.AsyncReadable>,
+    store: zarr.Group<zarr.AsyncReadable> | TNetCDFGroup,
     variable: string,
     format?: TZarrFormat
-  ): Promise<zarr.Array<zarr.DataType, zarr.AsyncReadable>> {
+  ): Promise<zarr.Array<zarr.DataType, zarr.AsyncReadable> | TNetCDFArray> {
+    if (this.isNetCDFNode(store)) {
+      return await this.getNetCDFBackend().openArray(store, variable);
+    }
     const fetchPromise = (async () => {
       if (format === ZARR_FORMAT.V2) {
         return await zarr.open.v2(store.resolve(variable), { kind: "array" });
@@ -127,7 +190,9 @@ export class ZarrDataManager {
   }
 
   static async getDatasetGroup(datasource: TDatasetSource) {
-    return await this.getDataset(datasource);
+    return (await this.getDataset(
+      datasource
+    )) as zarr.Group<zarr.AsyncReadable>;
   }
 
   static async getGroup(
@@ -138,7 +203,14 @@ export class ZarrDataManager {
     const dataset = await this.getDataset(datasource, format);
     const normalizedGroupPath = this.normalizeDatasetPath(groupPath);
     if (!normalizedGroupPath) {
-      return dataset;
+      return dataset as zarr.Group<zarr.AsyncReadable>;
+    }
+
+    if (this.isNetCDFNode(dataset)) {
+      return (await this.getNetCDFBackend().resolveGroup(
+        dataset,
+        normalizedGroupPath
+      )) as unknown as zarr.Group<zarr.AsyncReadable>;
     }
 
     const target = dataset.resolve(normalizedGroupPath);
@@ -157,7 +229,7 @@ export class ZarrDataManager {
   ): Promise<zarr.Array<zarr.DataType, zarr.AsyncReadable>> {
     const group = await this.getDataset(datasource, format);
     const array = await this.getVariable(group, variable, format);
-    return array;
+    return array as zarr.Array<zarr.DataType, zarr.AsyncReadable>;
   }
 
   static async getParentGroup(
@@ -188,16 +260,19 @@ export class ZarrDataManager {
     selection?: (number | null | zarr.Slice)[]
   ) {
     const array = await this.getVariableInfo(datasource, variable);
-    if (selection && selection.length > 0) {
-      return await zarr.get(array, selection);
-    }
-    return await zarr.get(array);
+    return await this.getVariableDataFromArray(array, selection);
   }
 
   static getVariableDataFromArray(
     array: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
     selection?: (number | null | zarr.Slice)[]
   ) {
+    if (this.isNetCDFNode(array)) {
+      return this.getNetCDFBackend().getArray(
+        array as unknown as TNetCDFArray,
+        selection
+      );
+    }
     if (selection && selection.length > 0) {
       return zarr.get(array, selection);
     }
@@ -284,5 +359,6 @@ export class ZarrDataManager {
   static invalidateCache() {
     this.pendingStore = null;
     this.fetchStorePath = null;
+    void this.netCDFBackend?.invalidateCache();
   }
 }

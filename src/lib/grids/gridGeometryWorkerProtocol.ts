@@ -16,13 +16,22 @@ export const GridGeometryWorkerMessageType = {
 type TGridGeometryWorkerMessageType =
   (typeof GridGeometryWorkerMessageType)[keyof typeof GridGeometryWorkerMessageType];
 
+export type TGridGeometryWorkerRequestBase = {
+  requestId: number;
+  type: typeof GridGeometryWorkerMessageType.BUILD;
+};
+
+export type TGridGeometryWorkerMetadata = {
+  totalBatches: number;
+};
+
 type TGridGeometryWorkerResponseBase = {
   requestId: number;
   type: TGridGeometryWorkerMessageType;
 };
 
 export type TGridGeometryWorkerResponse<
-  TMetadata,
+  TMetadata extends TGridGeometryWorkerMetadata,
   TBatch extends TGridWorkerBatch = TGridGeometryBatch,
 > =
   | (TGridGeometryWorkerResponseBase & {

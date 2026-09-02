@@ -179,25 +179,93 @@ function createIndex(
   datasources: Record<string, TDataSource>,
   src: string,
   zarrFormat: TZarrFormat,
-  datasetPath = ""
+  datasetPath = "",
+  file?: File
 ): TSources {
+  const datasetSource = {
+    store: src,
+    dataset: datasetPath,
+    ...(file ? { file } : {}),
+  };
   return {
     name: title,
     zarr_format: zarrFormat, // eslint-disable-line camelcase
     levels: [
       {
         time: {
-          store: src,
-          dataset: datasetPath,
+          ...datasetSource,
         },
         grid: {
-          store: src,
-          dataset: datasetPath,
+          ...datasetSource,
         },
         datasources,
       },
     ],
   };
+}
+
+type TNetCDFModule = typeof import("./netCDF.ts");
+
+function registerNetCDFBackend(netCDF: TNetCDFModule) {
+  ZarrDataManager.registerNetCDFBackend({
+    getArray: netCDF.getNetCDFArray,
+    invalidateCache: netCDF.invalidateNetCDFCache,
+    openArray: netCDF.openNetCDFArray,
+    openGroup: netCDF.openNetCDFGroup,
+    resolveGroup: netCDF.resolveNetCDFGroup,
+  });
+}
+
+export async function indexFromNetCDF(
+  file: File,
+  src: string
+): Promise<TSources> {
+  const netCDF = await import("./netCDF.ts");
+  registerNetCDFBackend(netCDF);
+  const { listNetCDFArrays } = netCDF;
+  const arrays = await listNetCDFArrays(file, src);
+  const dimensions = new Set<string>();
+  for (const array of arrays) {
+    const varname = array.path.replace(/^\/+/, "");
+    searchDimensionsAndCoordinates(
+      dimensions,
+      array as unknown as zarr.Array<zarr.DataType, zarr.AsyncReadable>,
+      varname
+    );
+  }
+
+  const datasources: Record<string, TDataSource> = {};
+  for (const array of arrays) {
+    const varname = array.path.replace(/^\/+/, "");
+    datasources[varname] = {
+      store: src,
+      dataset: "",
+      file,
+      hidden:
+        dimensions.has(varname) ||
+        !isValidVariable(varname, array.shape, array.dimensionNames),
+      attrs: {
+        ...array.attrs,
+        dimensionNames: array.dimensionNames,
+      },
+      shape: array.shape,
+      dtype: String(array.dtype),
+    };
+  }
+
+  const root = await ZarrDataManager.getDatasetGroup({
+    store: src,
+    dataset: "",
+    file,
+  });
+  return createIndex(
+    String(root.attrs.title ?? file.name),
+    datasources,
+    src,
+    ZARR_FORMAT.NETCDF,
+    "",
+    file
+  );
 }
 
 export async function indexFromIcechunk(src: string): Promise<TSources> {

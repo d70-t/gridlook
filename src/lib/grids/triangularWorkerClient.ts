@@ -35,27 +35,34 @@ export function buildTriangularGeometry(
     onBatch: (batch: TTriangularWorkerBatch) => void;
   }
 ) {
-  return client.build(
-    (requestId) => ({
+  return client.build((requestId) => {
+    const vertexOfCell = copyGridWorkerArray(request.vertexOfCell);
+    const vertexX = copyGridWorkerArray(request.vertexX);
+    const vertexY = copyGridWorkerArray(request.vertexY);
+    const vertexZ = copyGridWorkerArray(request.vertexZ);
+    return {
       message: {
         ...request,
         requestId,
         type: GridGeometryWorkerMessageType.BUILD,
         operation: TriangularWorkerOperation.GEOMETRY,
+        vertexOfCell,
+        vertexX,
+        vertexY,
+        vertexZ,
         projectionCenter: {
           lat: request.projectionCenter.lat,
           lon: request.projectionCenter.lon,
         },
       },
       transfer: [
-        request.vertexOfCell.buffer,
-        request.vertexX.buffer,
-        request.vertexY.buffer,
-        request.vertexZ.buffer,
+        vertexOfCell.buffer,
+        vertexX.buffer,
+        vertexY.buffer,
+        vertexZ.buffer,
       ],
-    }),
-    callbacks
-  );
+    };
+  }, callbacks);
 }
 
 export function buildTriangularData(
