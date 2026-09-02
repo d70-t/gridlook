@@ -1,6 +1,8 @@
 import type * as THREE from "three";
 import { onScopeDispose, watch, type ComputedRef } from "vue";
 
+import { getLayerRenderOrder } from "./useGridOverlays.ts";
+
 import type {
   TStreamlineVectorField,
   TVectorVariablePair,
@@ -29,17 +31,6 @@ function findLayerEntry(store: TStore) {
   return store.layerStack.find(
     (entry) => entry.id === BUILTIN_LAYER_IDS.STREAMLINES
   );
-}
-
-function getRenderOrder(store: TStore) {
-  const gridIndex = store.layerStack.findIndex(
-    (entry) => entry.id === BUILTIN_LAYER_IDS.GRID
-  );
-  const flowIndex = store.layerStack.findIndex(
-    (entry) => entry.id === BUILTIN_LAYER_IDS.STREAMLINES
-  );
-  const delta = gridIndex - flowIndex;
-  return delta > 0 ? 10 + delta : Math.max(delta, -9);
 }
 
 function syncAnimation(
@@ -72,7 +63,9 @@ export function useStreamlineLayer(options: TOptions) {
       return;
     }
     const entry = findLayerEntry(store);
-    layer.setRenderOrder(getRenderOrder(store));
+    layer.setRenderOrder(
+      getLayerRenderOrder(store.layerStack, BUILTIN_LAYER_IDS.STREAMLINES)
+    );
     layer.setOpacity(entry?.opacity ?? LAYER_OPACITY.MAX);
     const visible = Boolean(entry?.visible && store.streamlineAvailable);
     layer.object.visible = visible;
