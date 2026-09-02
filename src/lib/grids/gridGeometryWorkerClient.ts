@@ -1,5 +1,6 @@
 import {
   GridGeometryWorkerMessageType,
+  type TGridGeometryWorkerMetadata,
   type TGridGeometryWorkerResponse,
 } from "./gridGeometryWorkerProtocol.ts";
 import type {
@@ -18,36 +19,41 @@ type TWorkerRequest<TRequest> = {
   transfer: Transferable[];
 };
 
-type TBuildResult<TMetadata> = {
+type TBuildResult<TMetadata extends TGridGeometryWorkerMetadata> = {
   metadata: TMetadata;
   hoverIndexData: TSerializedGeoSampleIndexData;
 };
 
-type TActiveBuild<TMetadata, TBatch> = {
+type TActiveBuild<TMetadata extends TGridGeometryWorkerMetadata, TBatch> = {
   requestId: number;
   worker: Worker;
   callbacks: TGridGeometryBuildCallbacks<TMetadata, TBatch>;
   metadata: TMetadata | null;
+  receivedBatchIndexes: Set<number>;
   hoverIndexData: TSerializedGeoSampleIndexData | null;
   resolve: (value: TBuildResult<TMetadata>) => void;
   reject: (reason?: unknown) => void;
 };
 
-export function copyGridWorkerArray<TArray extends Float32Array | Float64Array>(
-  array: TArray
-): TArray {
+export function copyGridWorkerArray<
+  TArray extends Int32Array | Float32Array | Float64Array,
+>(array: TArray): TArray {
   return array.slice() as TArray;
 }
 
 /* eslint-disable-next-line max-lines-per-function */
 export function createGridGeometryWorkerClient<
   TRequest,
-  TMetadata,
+  TMetadata extends TGridGeometryWorkerMetadata,
   TBatch extends TGridWorkerBatch = TGridGeometryBatch,
 >(createWorker: () => Worker, keepWorkerAlive = false) {
   let activeBuild: TActiveBuild<TMetadata, TBatch> | null = null;
   let nextRequestId = 0;
   let worker: Worker | null = null;
+
+  function toError(error: unknown) {
+    return error instanceof Error ? error : new Error(String(error));
+  }
 
   function terminate() {
     if (activeBuild) {
@@ -58,20 +64,46 @@ export function createGridGeometryWorkerClient<
     worker = null;
   }
 
-  function fail(error: Error) {
-    if (!activeBuild) {
+  function fail(activeWorker: Worker, error: Error) {
+    if (worker !== activeWorker && activeBuild?.worker !== activeWorker) {
       return;
     }
-    const { worker: activeWorker, reject } = activeBuild;
-    activeBuild = null;
+    const failedBuild =
+      activeBuild?.worker === activeWorker ? activeBuild : null;
+    if (failedBuild) {
+      activeBuild = null;
+      failedBuild.reject(error);
+    }
     activeWorker.terminate();
-    worker = null;
-    reject(error);
+    if (worker === activeWorker) {
+      worker = null;
+    }
   }
 
   function finish() {
-    if (!activeBuild?.metadata || !activeBuild.hoverIndexData) {
-      fail(new Error("Grid geometry worker returned incomplete results."));
+    if (
+      !activeBuild ||
+      activeBuild.metadata === null ||
+      activeBuild.hoverIndexData === null
+    ) {
+      if (activeBuild) {
+        fail(
+          activeBuild.worker,
+          new Error("Grid geometry worker returned incomplete results.")
+        );
+      }
+      return;
+    }
+    if (
+      activeBuild.receivedBatchIndexes.size !==
+      activeBuild.metadata.totalBatches
+    ) {
+      fail(
+        activeBuild.worker,
+        new Error(
+          `Grid geometry worker returned ${activeBuild.receivedBatchIndexes.size} of ${activeBuild.metadata.totalBatches} batches.`
+        )
+      );
       return;
     }
     const {
@@ -83,28 +115,118 @@ export function createGridGeometryWorkerClient<
     activeBuild = null;
     if (!keepWorkerAlive) {
       activeWorker.terminate();
-      worker = null;
+      if (worker === activeWorker) {
+        worker = null;
+      }
     }
     resolve({ metadata, hoverIndexData });
   }
 
-  function handleMessage(
-    message: TGridGeometryWorkerResponse<TMetadata, TBatch>
+  function setMetadata(
+    activeWorker: Worker,
+    build: TActiveBuild<TMetadata, TBatch>,
+    metadata: TMetadata
   ) {
-    if (activeBuild?.requestId !== message.requestId) {
+    if (
+      !Number.isSafeInteger(metadata.totalBatches) ||
+      metadata.totalBatches < 0
+    ) {
+      fail(
+        activeWorker,
+        new Error("Grid geometry worker returned an invalid batch count.")
+      );
       return;
     }
-    if (message.type === GridGeometryWorkerMessageType.METADATA) {
-      activeBuild.metadata = message.metadata;
-      activeBuild.callbacks.onMetadata(message.metadata);
-    } else if (message.type === GridGeometryWorkerMessageType.BATCH) {
-      activeBuild.callbacks.onBatch(message.batch);
-    } else if (message.type === GridGeometryWorkerMessageType.HOVER_INDEX) {
-      activeBuild.hoverIndexData = message.hoverIndexData;
-    } else if (message.type === GridGeometryWorkerMessageType.ERROR) {
-      fail(new Error(message.message));
-    } else {
-      finish();
+    if (build.metadata !== null) {
+      fail(
+        activeWorker,
+        new Error("Grid geometry worker returned duplicate metadata.")
+      );
+      return;
+    }
+    build.metadata = metadata;
+    build.callbacks.onMetadata(metadata);
+  }
+
+  function handleBatch(
+    activeWorker: Worker,
+    build: TActiveBuild<TMetadata, TBatch>,
+    batch: TBatch
+  ) {
+    if (build.metadata === null) {
+      fail(
+        activeWorker,
+        new Error("Grid geometry worker returned a batch before metadata.")
+      );
+      return;
+    }
+    if (
+      !Number.isSafeInteger(batch.batchIndex) ||
+      batch.batchIndex < 0 ||
+      batch.batchIndex >= build.metadata.totalBatches
+    ) {
+      fail(
+        activeWorker,
+        new Error("Grid geometry worker returned an invalid batch index.")
+      );
+      return;
+    }
+    if (build.receivedBatchIndexes.has(batch.batchIndex)) {
+      fail(
+        activeWorker,
+        new Error("Grid geometry worker returned a duplicate batch.")
+      );
+      return;
+    }
+    build.receivedBatchIndexes.add(batch.batchIndex);
+    build.callbacks.onBatch(batch);
+  }
+
+  function handleMessage(activeWorker: Worker, message: unknown) {
+    if (typeof message !== "object" || message === null) {
+      fail(
+        activeWorker,
+        new Error("Grid geometry worker returned an invalid response.")
+      );
+      return;
+    }
+    const response = message as TGridGeometryWorkerResponse<TMetadata, TBatch>;
+    if (
+      !activeBuild ||
+      activeBuild.worker !== activeWorker ||
+      activeBuild.requestId !== response.requestId
+    ) {
+      fail(
+        activeWorker,
+        new Error("Grid geometry worker returned an unexpected response.")
+      );
+      return;
+    }
+    switch (response.type) {
+      case GridGeometryWorkerMessageType.METADATA:
+        setMetadata(activeWorker, activeBuild, response.metadata);
+        break;
+      case GridGeometryWorkerMessageType.BATCH:
+        handleBatch(activeWorker, activeBuild, response.batch);
+        break;
+      case GridGeometryWorkerMessageType.HOVER_INDEX:
+        activeBuild.hoverIndexData = response.hoverIndexData;
+        break;
+      case GridGeometryWorkerMessageType.ERROR:
+        fail(activeWorker, new Error(response.message));
+        break;
+      case GridGeometryWorkerMessageType.DONE:
+        finish();
+        break;
+      default:
+        fail(
+          activeWorker,
+          new Error(
+            `Unknown grid geometry worker message: ${String(
+              (message as { type?: unknown }).type
+            )}`
+          )
+        );
     }
   }
 
@@ -116,7 +238,11 @@ export function createGridGeometryWorkerClient<
       terminate();
     }
     const requestId = ++nextRequestId;
-    worker ??= createWorker();
+    try {
+      worker ??= createWorker();
+    } catch (error) {
+      return Promise.reject(toError(error));
+    }
     const activeWorker = worker;
     return new Promise<TBuildResult<TMetadata>>((resolve, reject) => {
       activeBuild = {
@@ -124,26 +250,33 @@ export function createGridGeometryWorkerClient<
         worker: activeWorker,
         callbacks,
         metadata: null,
+        receivedBatchIndexes: new Set(),
         hoverIndexData: null,
         resolve,
         reject,
       };
-      activeWorker.onmessage = (
-        event: MessageEvent<TGridGeometryWorkerResponse<TMetadata, TBatch>>
-      ) => {
+      activeWorker.onmessage = (event: MessageEvent<unknown>) => {
         try {
-          handleMessage(event.data);
+          handleMessage(activeWorker, event.data);
         } catch (error) {
-          fail(error instanceof Error ? error : new Error(String(error)));
+          fail(activeWorker, toError(error));
         }
       };
       activeWorker.onerror = (event) => {
-        if (activeBuild?.requestId === requestId) {
-          fail(new Error(event.message));
-        }
+        fail(activeWorker, new Error(event.message));
       };
-      const request = createRequest(requestId);
-      activeWorker.postMessage(request.message, request.transfer);
+      activeWorker.onmessageerror = () => {
+        fail(
+          activeWorker,
+          new Error("Could not deserialize a grid geometry worker message.")
+        );
+      };
+      try {
+        const request = createRequest(requestId);
+        activeWorker.postMessage(request.message, request.transfer);
+      } catch (error) {
+        fail(activeWorker, toError(error));
+      }
     });
   }
 

@@ -60,12 +60,14 @@ const estimatedSizeMB = computed(() => {
         <table class="table is-narrow is-fullwidth is-size-7">
           <tbody>
             <tr v-if="zarrFormat">
-              <td><strong>Zarr format version</strong></td>
+              <td><strong>Data format</strong></td>
               <td>
                 {{
-                  zarrFormat === ZARR_FORMAT.ICECHUNK
-                    ? "3 (icechunk)"
-                    : zarrFormat
+                  zarrFormat === ZARR_FORMAT.NETCDF
+                    ? "NetCDF"
+                    : zarrFormat === ZARR_FORMAT.ICECHUNK
+                      ? "Zarr 3 (icechunk)"
+                      : `Zarr ${zarrFormat}`
                 }}
               </td>
             </tr>

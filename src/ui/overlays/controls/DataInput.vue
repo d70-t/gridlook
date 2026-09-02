@@ -3,6 +3,7 @@ import { nextTick, onMounted, ref, watch } from "vue";
 
 import CatalogPanel from "./CatalogPanel.vue";
 
+import { isNetCDFFile, registerLocalNetCDF } from "@/lib/data/localNetCDF.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 import Modal from "@/ui/common/Modal.vue";
 import { fetchCatalog, type TCatalogEntry } from "@/utils/catalog.ts";
@@ -15,6 +16,7 @@ const visible = ref(false);
 const checking = ref(false);
 const dataPath = ref("");
 const datasetInput = ref<HTMLInputElement | null>(null);
+const localFileInput = ref<HTMLInputElement | null>(null);
 
 const syncPath = () => {
   dataPath.value = props.currentSource?.trim() ?? "";
@@ -84,6 +86,21 @@ function onCatalogSelect(entry: TCatalogEntry) {
   close();
 }
 
+function selectLocalNetCDF() {
+  localFileInput.value?.click();
+}
+
+function onLocalFileSelected(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file || !isNetCDFFile(file)) {
+    return;
+  }
+  location.hash = `#${registerLocalNetCDF(file)}`;
+  close();
+}
+
 onMounted(async () => {
   if (store.catalogUrl && !store.catalogData) {
     try {
@@ -134,7 +151,18 @@ onMounted(async () => {
     />
 
     <template #footer>
-      <div class="buttons">
+      <input
+        ref="localFileInput"
+        class="is-hidden"
+        type="file"
+        accept=".nc,.nc4,.cdf,application/x-netcdf"
+        @change="onLocalFileSelected"
+      />
+      <button type="button" class="button" @click="selectLocalNetCDF">
+        <span class="icon"><i class="fa-solid fa-file"></i></span>
+        <span>Local NetCDF</span>
+      </button>
+      <div class="buttons ml-auto">
         <button
           type="button"
           class="button"
