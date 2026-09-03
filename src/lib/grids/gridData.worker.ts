@@ -6,6 +6,7 @@ import {
   type TGridDataWorkerRequest,
   type TGridDataWorkerResponse,
 } from "@/lib/grids/gridDataWorkerProtocol.ts";
+import { serializeGridDataChunk } from "@/lib/grids/gridDataWorkerUtils.ts";
 
 const workerScope = self as unknown as DedicatedWorkerGlobalScope;
 
@@ -17,18 +18,18 @@ workerScope.onmessage = async (event: MessageEvent<TGridDataWorkerRequest>) => {
       variable,
       format
     );
-    const chunk = await ZarrDataManager.getVariableDataFromArray(
-      array,
-      selection
+    const { data, shape } = serializeGridDataChunk(
+      await ZarrDataManager.getVariableDataFromArray(array, selection)
     );
     const response: TGridDataWorkerResponse = {
       requestId,
       type: GridDataWorkerMessageType.RESULT,
-      data: chunk.data,
+      data,
+      shape,
     };
     const transfer =
-      ArrayBuffer.isView(chunk.data) && chunk.data.buffer instanceof ArrayBuffer
-        ? [chunk.data.buffer]
+      ArrayBuffer.isView(data) && data.buffer instanceof ArrayBuffer
+        ? [data.buffer]
         : [];
     workerScope.postMessage(response, transfer);
   } catch (error) {
