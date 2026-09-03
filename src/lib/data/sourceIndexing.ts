@@ -16,6 +16,65 @@ import { ZarrDataManager } from "./ZarrDataManager.ts";
 
 import trim from "@/utils/trim.ts";
 
+/*
+  Matches strings like "a: foo b: bar" and rewrites them into a map {a: foo, b: bar}
+  Returns an empty Map if strings does not match this pattern
+ */
+function parseFormulaTerms(value: unknown): Map<string, string> {
+  if (typeof value !== "string") {
+    return new Map();
+  }
+
+  const normalised = value.replace(/\s*:\s*/g, ":").trim();
+  if (normalised === "") {
+    return new Map();
+  }
+
+  const terms = new Map<string, string>();
+
+  for (const token of normalised.split(/\s+/)) {
+    const parts = token.split(":");
+
+    // Exactly one colon, and neither side empty.
+    if (parts.length !== 2 || parts[0] === "" || parts[1] === "") {
+      continue; // malformed pair - skip it, keep the rest
+    }
+
+    const [term, variableName] = parts;
+    terms.set(term, variableName);
+  }
+
+  return terms;
+}
+
+export function hideFormulaTermVariablesWithoutStandardName(
+  datasources: Record<string, TDataSource>
+) {
+  const collectedFormulaTerms = new Set<string>();
+  for (const [contextVariable, datasource] of Object.entries(datasources)) {
+    const formulaTermVariables = parseFormulaTerms(
+      datasource.attrs?.formula_terms
+    );
+    for (const formulaTermVariable of formulaTermVariables.values()) {
+      if (collectedFormulaTerms.has(formulaTermVariable)) {
+        continue;
+      }
+      collectedFormulaTerms.add(formulaTermVariable);
+      const variablePath = ZarrDataManager.resolveVariablePath(
+        contextVariable,
+        formulaTermVariable
+      );
+      const formulaTermDatasource = datasources[variablePath];
+      if (
+        formulaTermDatasource &&
+        !formulaTermDatasource.attrs?.standard_name
+      ) {
+        formulaTermDatasource.hidden = true;
+      }
+    }
+  }
+}
+
 function isValidVariable(
   varname: string,
   shape: number[],
@@ -182,6 +241,7 @@ function createIndex(
   datasetPath = "",
   file?: File
 ): TSources {
+  hideFormulaTermVariablesWithoutStandardName(datasources);
   const datasetSource = {
     store: src,
     dataset: datasetPath,
@@ -403,5 +463,6 @@ export async function indexFromIndex(src: string): Promise<TSources> {
     await enrichMetadata(stores, datasources, "v2");
     sources.zarr_format = ZARR_FORMAT.V2; // eslint-disable-line camelcase
   }
+  hideFormulaTermVariablesWithoutStandardName(datasources);
   return sources;
 }
