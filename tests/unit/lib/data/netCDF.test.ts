@@ -7,7 +7,10 @@ import {
   listNetCDFArrays,
   openNetCDFArray,
   openNetCDFGroup,
+  resolveNetCDFGroup,
 } from "@/lib/data/netCDF.ts";
+import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
+import { ZARR_FORMAT } from "@/lib/types/GlobeTypes.ts";
 
 const netCDFMocks = vi.hoisted(() => ({
   fromBlob: vi.fn(),
@@ -78,6 +81,13 @@ const file = new Blob(["netcdf"]) as File;
 
 beforeEach(() => {
   netCDFMocks.fromBlob.mockResolvedValue(createDataset());
+  ZarrDataManager.registerNetCDFBackend({
+    getArray: getNetCDFArray,
+    invalidateCache: invalidateNetCDFCache,
+    openArray: openNetCDFArray,
+    openGroup: openNetCDFGroup,
+    resolveGroup: resolveNetCDFGroup,
+  });
 });
 
 afterEach(async () => {
@@ -100,6 +110,7 @@ it("exposes NetCDF metadata and sliced reads like a Zarrita array", async () => 
     dimensionNames: ["time", "lat"],
     dtype: "float32",
     fillValue: -999,
+    format: ZARR_FORMAT.NETCDF,
     shape: [2, 3],
   });
   expect(result).toEqual({
@@ -112,6 +123,20 @@ it("exposes NetCDF metadata and sliced reads like a Zarrita array", async () => 
     [1, { start: 0, stop: 3, step: 2 }],
     "/"
   );
+});
+
+it("dispatches reads through ZarrDataManager without falling through to Zarrita", async () => {
+  const result = await ZarrDataManager.getVariableData(
+    { file, store: "local-file", dataset: "" },
+    "temperature",
+    [1, slice(0, 3, 2)]
+  );
+
+  expect(result).toEqual({
+    data: new Float32Array([4, 6]),
+    shape: [2],
+    stride: [1],
+  });
 });
 
 it("indexes coordinate variables and variables in nested groups", async () => {

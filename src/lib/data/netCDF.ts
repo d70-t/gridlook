@@ -331,3 +331,11 @@ export async function invalidateNetCDFCache() {
     await context.then(({ dataset }) => dataset.close()).catch(() => {});
   }
 }
+
+export type TNetCDFBackend = {
+  getArray: typeof getNetCDFArray;
+  invalidateCache: typeof invalidateNetCDFCache;
+  openArray: typeof openNetCDFArray;
+  openGroup: typeof openNetCDFGroup;
+  resolveGroup: typeof resolveNetCDFGroup;
+};

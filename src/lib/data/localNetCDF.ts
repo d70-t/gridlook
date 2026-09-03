@@ -1,13 +1,10 @@
 const LOCAL_NETCDF_PREFIX = "netcdf://local/";
 
-export const NETCDF_FILE_EXTENSION = {
+const NETCDF_FILE_EXTENSION = {
   NC: ".nc",
   NC4: ".nc4",
   CDF: ".cdf",
 } as const;
-
-export type TNetCDFFileExtension =
-  (typeof NETCDF_FILE_EXTENSION)[keyof typeof NETCDF_FILE_EXTENSION];
 
 let nextFileId = 0;
 const files = new Map<string, File>();

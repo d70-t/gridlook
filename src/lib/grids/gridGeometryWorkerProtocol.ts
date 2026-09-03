@@ -16,11 +16,6 @@ export const GridGeometryWorkerMessageType = {
 type TGridGeometryWorkerMessageType =
   (typeof GridGeometryWorkerMessageType)[keyof typeof GridGeometryWorkerMessageType];
 
-export type TGridGeometryWorkerRequestBase = {
-  requestId: number;
-  type: typeof GridGeometryWorkerMessageType.BUILD;
-};
-
 export type TGridGeometryWorkerMetadata = {
   totalBatches: number;
 };
