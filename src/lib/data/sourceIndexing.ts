@@ -268,7 +268,7 @@ export async function indexFromNetCDF(
   );
 }
 
-export async function indexFromIcechunk(src: string): Promise<TSources> {
+async function indexFromIcechunk(src: string): Promise<TSources> {
   const { storePath, groupPath } = await splitIcechunkStoreAndGroup(src);
   const store = await createListableIcechunkStore(storePath);
   const root = await zarr.open.v3(store, { kind: "group" });

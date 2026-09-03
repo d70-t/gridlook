@@ -12,13 +12,9 @@ export const ZARR_FORMAT = {
 
 export type TZarrFormat = (typeof ZARR_FORMAT)[keyof typeof ZARR_FORMAT];
 
-export type EmptyObj = Record<PropertyKey, never>;
+type EmptyObj = Record<PropertyKey, never>;
 
 export type TBounds = EmptyObj | { low: number; high: number };
-
-export type TSelection = {
-  bounds: TBounds;
-};
 
 export type TDimensionRange = {
   name: string;

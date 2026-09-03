@@ -8,6 +8,7 @@ import {
   isIcechunkStorePath,
   parseStorePath,
 } from "./icechunkStore.ts";
+import type { NetCDFArray, NetCDFGroup, TNetCDFBackend } from "./netCDF.ts";
 
 import {
   ZARR_FORMAT,
@@ -17,48 +18,8 @@ import {
   type TZarrFormat,
 } from "@/lib/types/GlobeTypes.ts";
 
-export type TZarrDatasetMetadata = {
-  attrs: zarr.Attributes;
-  store: string;
-  dataset: string;
-};
-
-export type TZarrVariableMetadata = {
-  attrs: zarr.Attributes;
-  shape: readonly number[];
-  chunks: readonly (number | null)[];
-  dtype: zarr.Array<zarr.DataType, zarr.FetchStore>["dtype"];
-  store: string;
-  dataset: string;
-  variable: string;
-};
-
 type TNetCDFNode = {
   readonly format: typeof ZARR_FORMAT.NETCDF;
-};
-
-type TNetCDFGroup = TNetCDFNode & {
-  readonly attrs: zarr.Attributes;
-};
-
-type TNetCDFArray = TNetCDFNode & {
-  readonly attrs: zarr.Attributes;
-  readonly chunks: number[];
-  readonly dimensionNames: string[];
-  readonly dtype: zarr.DataType;
-  readonly fillValue: zarr.Scalar<zarr.DataType> | null;
-  readonly shape: number[];
-};
-
-type TNetCDFBackend = {
-  getArray(
-    array: TNetCDFArray,
-    selection?: (number | null | zarr.Slice)[]
-  ): Promise<zarr.Chunk<zarr.DataType>>;
-  invalidateCache(): Promise<void>;
-  openArray(group: TNetCDFGroup, variable: string): Promise<TNetCDFArray>;
-  openGroup(file: File, store: string, path: string): Promise<TNetCDFGroup>;
-  resolveGroup(group: TNetCDFGroup, path: string): Promise<TNetCDFGroup>;
 };
 
 export class ZarrDataManager {
@@ -124,7 +85,7 @@ export class ZarrDataManager {
   private static async getDataset(
     datasource: TDatasetSource,
     format?: TZarrFormat
-  ): Promise<zarr.Group<zarr.AsyncReadable> | TNetCDFGroup> {
+  ): Promise<zarr.Group<zarr.AsyncReadable> | NetCDFGroup> {
     if (datasource.file || format === ZARR_FORMAT.NETCDF) {
       if (!datasource.file) {
         throw new Error("The local NetCDF file is no longer available.");
@@ -168,10 +129,10 @@ export class ZarrDataManager {
   }
 
   private static async getVariable(
-    store: zarr.Group<zarr.AsyncReadable> | TNetCDFGroup,
+    store: zarr.Group<zarr.AsyncReadable> | NetCDFGroup,
     variable: string,
     format?: TZarrFormat
-  ): Promise<zarr.Array<zarr.DataType, zarr.AsyncReadable> | TNetCDFArray> {
+  ): Promise<zarr.Array<zarr.DataType, zarr.AsyncReadable> | NetCDFArray> {
     if (this.isNetCDFNode(store)) {
       return await this.getNetCDFBackend().openArray(store, variable);
     }
@@ -269,7 +230,7 @@ export class ZarrDataManager {
   ) {
     if (this.isNetCDFNode(array)) {
       return this.getNetCDFBackend().getArray(
-        array as unknown as TNetCDFArray,
+        array as unknown as NetCDFArray,
         selection
       );
     }
