@@ -367,7 +367,7 @@ function getHealpixChunkRange(
   numChunks: number,
   grid: healpixGeo.Grid
 ) {
-  const nside = Math.pow(2, grid.level);
+  const nside = grid.nside;
 
   const chunksize = (12 * nside * nside) / numChunks;
   const pixelStart = ipix * chunksize;
