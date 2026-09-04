@@ -98,7 +98,9 @@ async function fetchTimeData(
   // Get time values
   const timeData = await ZarrDataManager.getVariableDataFromArray(timeVar);
   const timeArray = timeData.data as
-    Float64Array | Float32Array | BigInt64Array;
+    | Float64Array
+    | Float32Array
+    | BigInt64Array;
 
   const firstValue = toNumber(timeArray[0]);
   const lastValue = toNumber(timeArray[numTimesteps - 1]);

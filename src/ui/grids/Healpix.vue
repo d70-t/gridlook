@@ -741,17 +741,18 @@ function makeHealpixVectorField(
     ? new Map(cellCoord.map((pixel, index) => [pixel, index]))
     : undefined;
 
-  
   const latitudes = new Float32Array(179);
   const longitudes = new Float32Array(360);
 
   const nCoords = latitudes.length * longitudes.length;
   const bytesPerElement = 8;
   const pageSize = 65536;
-  const memory = new WebAssembly.Memory({ initial: Math.ceil((2 * nCoords * bytesPerElement) / pageSize ) });
+  const memory = new WebAssembly.Memory({
+    initial: Math.ceil((2 * nCoords * bytesPerElement) / pageSize),
+  });
   const coords = new Float64Array(memory.buffer);
 
-  for(let index = 0; index < nCoords; index++) {
+  for (let index = 0; index < nCoords; index++) {
     let y = Math.floor(index / 360);
     let x = index % 360;
 
@@ -771,7 +772,7 @@ function makeHealpixVectorField(
   const uData = new Float32Array(nCoords);
   const vData = new Float32Array(nCoords);
 
-  for(let outputIndex = 0; outputIndex < pixels.length; outputIndex++) {
+  for (let outputIndex = 0; outputIndex < pixels.length; outputIndex++) {
     const pixel = Number(pixels[outputIndex]); // assume this never exceeds 2^53 - 1, which is true for level < 25
     const inputIndex = cellIndex ? cellIndex.get(pixel) : pixel;
     const u = inputIndex === undefined ? NaN : uValues[inputIndex];
