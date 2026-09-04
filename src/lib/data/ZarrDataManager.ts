@@ -14,6 +14,7 @@ import {
   type TDataSource,
   type TSources,
   type TZarrFormat,
+  type TZarrDggsMetadata,
 } from "@/lib/types/GlobeTypes.ts";
 
 export type TZarrDatasetMetadata = {
@@ -239,6 +240,23 @@ export class ZarrDataManager {
       return "spatial_ref";
     }
     return "crs";
+  }
+
+  static async getDggsMetadata(
+    datasources: TSources,
+    varname: string
+  ): Promise<TZarrDggsMetadata | null> {
+    try {
+      const group = await this.getParentGroup(datasources, varname);
+      const dggs = group.attrs["dggs"];
+      if (dggs !== null && dggs !== undefined) {
+        return dggs as TZarrDggsMetadata;
+      }
+    } catch {
+      // on all errors assume the dggs metadata could not be found
+    }
+
+    return null;
   }
 
   static getDatasetSource(

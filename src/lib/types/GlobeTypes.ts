@@ -1,4 +1,5 @@
 import type { Dayjs } from "dayjs";
+import type { IndexingScheme, EllipsoidInput } from "healpix-geo";
 import * as zarr from "zarrita";
 
 import type { TColorMap } from "@/lib/shaders/colormapShaders.ts";
@@ -47,6 +48,8 @@ export type TZarrDggsMetadata = {
   name: string;
   refinement_level: number;
   coordinate: string | null;
+  indexing_scheme: IndexingScheme;
+  ellipsoid: EllipsoidInput;
 };
 
 export type TDataSource = {
