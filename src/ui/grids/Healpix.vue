@@ -40,11 +40,7 @@ import {
   makeGpuProjectedTextureMaterial,
   updateProjectionUniforms,
 } from "@/lib/shaders/gridShaders.ts";
-import type {
-  TDimensionRange,
-  TSources,
-  TIndexingScheme,
-} from "@/lib/types/GlobeTypes.ts";
+import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import {
   HOVERED_GRID_POINT_STATUS,
@@ -211,21 +207,21 @@ function coerceInteger(value: unknown): number | null {
   return Number.isInteger(cast) && cast > 0 ? cast : null;
 }
 
-function coerceOrder(value: unknown): TIndexingScheme | null {
+function coerceOrder(value: unknown): healpixGeo.IndexingScheme | null {
   const order = value === undefined || value === null ? null : String(value);
 
   // translate, but let healpixGeo validate
   if (order === "nest") {
-    return "nested";
+    return "nested" as healpixGeo.IndexingScheme;
   } else {
-    return order as TIndexingScheme;
+    return order as healpixGeo.IndexingScheme;
   }
 }
 
-function coerceScheme(value: unknown): TIndexingScheme | null {
+function coerceScheme(value: unknown): healpixGeo.IndexingScheme | null {
   const scheme = value === undefined || value === null ? null : String(value);
 
-  return scheme as TIndexingScheme;
+  return scheme as healpixGeo.IndexingScheme;
 }
 
 function coerceEllipsoid(value: unknown): healpixGeo.EllipsoidInput | null {

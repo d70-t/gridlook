@@ -44,7 +44,7 @@
     "fflate": "^0.8.3",
     "geokdbush": "2.1.0",
     "geotiff": "^3.0.5",
-    "healpix-geo": "^0.3.1",
+    "healpix-geo": "^0.3.2",
     "humanize-duration": "^3.34.0",
     "icechunk-js": "^0.6.0",
     "kdbush": "4.1.0",
