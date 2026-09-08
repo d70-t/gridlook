@@ -316,7 +316,7 @@ async function getHealpixGridParameters(): Promise<healpixGeo.Grid> {
   }
 
   throw new Error(
-    "Could not determine HEALPix grid parameters: no valid convention metdata on the grid mapping variable" +
+    "Could not determine HEALPix grid parameters: no valid convention metadata on the grid mapping variable" +
       " or in the group metadata (tried the Easygems and dggs zarr conventions), and " +
       "the cell-dimension length is not 12 * nside^2."
   );
