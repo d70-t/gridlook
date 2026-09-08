@@ -14,7 +14,7 @@ export const TriangularWorkerOperation = {
   DATA: "data",
 } as const;
 
-export type TTriangularWorkerOperation =
+type TTriangularWorkerOperation =
   (typeof TriangularWorkerOperation)[keyof typeof TriangularWorkerOperation];
 
 export type TTriangularGeometryWorkerRequest = {

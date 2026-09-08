@@ -86,7 +86,7 @@ export type TLayerEntry = {
   maskMode: TLandSeaMaskMode;
 };
 
-export function normalizeLayerOpacity(opacity: number) {
+function normalizeLayerOpacity(opacity: number) {
   if (!Number.isFinite(opacity)) {
     return LAYER_OPACITY.MAX;
   }

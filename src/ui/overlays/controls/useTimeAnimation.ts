@@ -12,15 +12,14 @@ import { isTimeUnits } from "@/lib/data/timeHandling.ts";
 import type { TDimensionRange, TVarInfo } from "@/lib/types/GlobeTypes.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 
-export const PLAYBACK_SPEED = {
+const PLAYBACK_SPEED = {
   SLOW: 0,
   NORMAL: 1,
   FAST: 2,
   MAX: 3,
 } as const;
 
-export type TPlaybackSpeed =
-  (typeof PLAYBACK_SPEED)[keyof typeof PLAYBACK_SPEED];
+type TPlaybackSpeed = (typeof PLAYBACK_SPEED)[keyof typeof PLAYBACK_SPEED];
 
 type TPlayableDimensionRange = Exclude<TDimensionRange, null>;
 

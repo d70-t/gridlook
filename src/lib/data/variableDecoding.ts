@@ -48,29 +48,6 @@ export function getFillValue(
   return NaN;
 }
 
-/**
- * Create a predicate that returns true when a value equals the dataset's
- * missing or fill value (or is NaN).
- */
-export function createMissingOrFillPredicate(
-  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
-) {
-  const missingValue = getMissingValue(datavar);
-  const fillValue = getFillValue(datavar);
-  return (value: number) => {
-    if (Number.isNaN(value)) {
-      return true;
-    }
-    if (value === missingValue) {
-      return true;
-    }
-    if (value === fillValue) {
-      return true;
-    }
-    return false;
-  };
-}
-
 function getAttributeNumber(
   attributes: zarr.Attributes | undefined,
   key: string,

@@ -16,7 +16,7 @@ export type TIrregularGridData = {
   estimatedSpacing: number;
 };
 
-export function estimateIrregularAverageSpacing(
+function estimateIrregularAverageSpacing(
   positions: Float32Array,
   sampleSize = 5000
 ) {

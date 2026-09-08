@@ -16,8 +16,8 @@ import type { TSources } from "@/lib/types/GlobeTypes.ts";
  * Both return JSON of the form `{ "timestep": <index> }`, where the index is a
  * valid index into the store's (fixed) time dimension.
  */
-export const CURRENT_TIMESTEP_ENDPOINT = "current-timestep";
-export const NEXT_TIMESTEP_ENDPOINT = "next-timestep";
+const CURRENT_TIMESTEP_ENDPOINT = "current-timestep";
+const NEXT_TIMESTEP_ENDPOINT = "next-timestep";
 
 /**
  * Resolve the base HTTP URL of the Zarr store backing a live dataset.
