@@ -313,11 +313,8 @@ async function loadGroupAttrsChain(
     try {
       const group = await ZarrDataManager.getGroup(varSource, groupPath);
       chain.push({ path: groupPath || "/", attrs: group.attrs });
-    } catch (err) {
-      logError(
-        err,
-        `Error fetching attributes for group "${groupPath || "/"}"`
-      );
+    } catch {
+      // Ignore group issues
     }
   }
   return chain;
