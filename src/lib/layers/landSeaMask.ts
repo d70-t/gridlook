@@ -13,7 +13,6 @@ import {
   createEquirectLayerMesh,
   createLayerCanvas,
   LAND_SEA_MASK_MODES,
-  updateEquirectLayerProjection,
   type TLandSeaMaskMode,
 } from "./equirectLayer.ts";
 import { ResourceCache } from "./ResourceCache.ts";
