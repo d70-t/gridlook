@@ -215,22 +215,22 @@ async function processZarrVariables(
   );
 
   // Filter and merge datasources
-  const datasources = candidates
+  const entries = candidates
     .filter((promise) => promise.status === "fulfilled")
     .map((promise) => promise.value)
     .filter((obj) => Object.keys(obj).length > 0)
     .map((obj) => {
       // Filter out variables that are actually dimensions or coordinates
       const varname = Object.keys(obj)[0];
-      if (dimensions.has(varname)) {
-        const hiddenObject = { [varname]: { ...obj[varname], hidden: true } };
-        return hiddenObject;
-      }
-      return obj;
-    })
-    .reduce((a, b) => ({ ...a, ...b }), {});
+      return [
+        varname,
+        dimensions.has(varname)
+          ? { ...obj[varname], hidden: true }
+          : obj[varname],
+      ] as const;
+    });
 
-  return datasources;
+  return Object.fromEntries(entries);
 }
 
 function createIndex(
