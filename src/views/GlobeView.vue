@@ -19,7 +19,12 @@ import {
   fetchCurrentTimestep,
   liveStoreBaseUrl,
 } from "@/lib/data/liveTimestep.ts";
-import { indexFromIndex, indexFromZarr } from "@/lib/data/sourceIndexing.ts";
+import { getLocalNetCDF, isLocalNetCDFSource } from "@/lib/data/localNetCDF.ts";
+import {
+  indexFromIndex,
+  indexFromNetCDF,
+  indexFromZarr,
+} from "@/lib/data/sourceIndexing.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { PROJECTION_TYPES, clamp } from "@/lib/projection/projectionUtils.ts";
 import {
@@ -328,11 +333,23 @@ async function updateSrc(updateId: number) {
   ZarrDataManager.invalidateCache();
   sourceValid.value = false;
   store.isInitializingVariable = true;
-  // FIXME: Trying zarr and json-index in parallel and picking the first that
-  // works. If both fail, we log the last error which is from the json-index.
-  // This leads to confusing error messages if the zarr source is supposed to
-  // work but fails for some reason.
-  const indexPromises = [indexFromZarr(src), indexFromIndex(src)];
+  let indexPromises: Promise<TSources>[];
+  if (isLocalNetCDFSource(src)) {
+    const file = getLocalNetCDF(src);
+    indexPromises = file
+      ? [indexFromNetCDF(file, src)]
+      : [
+          Promise.reject(
+            new Error("Please select the local NetCDF file again.")
+          ),
+        ];
+  } else {
+    // FIXME: Trying zarr and json-index in parallel and picking the first that
+    // works. If both fail, we log the last error which is from the json-index.
+    // This leads to confusing error messages if the zarr source is supposed to
+    // work but fails for some reason.
+    indexPromises = [indexFromZarr(src), indexFromIndex(src)];
+  }
   const indices = await Promise.allSettled(indexPromises);
   let lastError = null;
   if (updateId !== sourceUpdateId || src !== props.src) {

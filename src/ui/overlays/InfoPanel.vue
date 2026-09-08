@@ -17,6 +17,7 @@ import SpatialCoverageSection from "./infoPanel/SpatialCoverageSection.vue";
 import TimeDimensionSection from "./infoPanel/TimeDimensionSection.vue";
 import type {
   TCoordinateSlice,
+  TGroupInfo,
   TInfoDimension,
   TTimeInfo,
 } from "./infoPanel/types.ts";
@@ -26,7 +27,7 @@ import { GRID_TYPES, type T_GRID_TYPES } from "@/lib/data/gridTypeDetector.ts";
 import { decodeTime } from "@/lib/data/timeHandling.ts";
 import { getMissingValue, getFillValue } from "@/lib/data/variableDecoding.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
-import type { TSources } from "@/lib/types/GlobeTypes.ts";
+import type { TDatasetSource, TSources } from "@/lib/types/GlobeTypes.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 import { useLog } from "@/ui/common/useLog.ts";
 
@@ -49,6 +50,7 @@ const store = useGlobeControlStore();
 const { varnameSelector, loading } = storeToRefs(store);
 
 const groupAttrs = ref<zarr.Attributes | null>(null);
+const groupAttrsChain = ref<TGroupInfo[]>([]);
 const dimensions = ref<TInfoDimension[]>([]);
 
 const latSlice = ref<TCoordinateSlice | null>(null);
@@ -292,6 +294,35 @@ async function loadVariableDetails(
   }
 }
 
+/**
+ * Fetches attributes for the selected variable's group and every ancestor
+ * group above it (root first), since each level can carry its own attrs.
+ */
+async function loadGroupAttrsChain(
+  varSource: TDatasetSource,
+  varname: string
+): Promise<TGroupInfo[]> {
+  const segments = varname.includes("/") ? varname.split("/").slice(0, -1) : [];
+  const groupPaths = [
+    "",
+    ...segments.map((_, i) => segments.slice(0, i + 1).join("/")),
+  ];
+
+  const chain: TGroupInfo[] = [];
+  for (const groupPath of groupPaths) {
+    try {
+      const group = await ZarrDataManager.getGroup(varSource, groupPath);
+      chain.push({ path: groupPath || "/", attrs: group.attrs });
+    } catch (err) {
+      logError(
+        err,
+        `Error fetching attributes for group "${groupPath || "/"}"`
+      );
+    }
+  }
+  return chain;
+}
+
 async function fetchInfo() {
   if (
     !props.datasources ||
@@ -315,12 +346,17 @@ async function fetchInfo() {
   lonLength.value = null;
   lonMin.value = null;
   lonMax.value = null;
+  groupAttrsChain.value = [];
 
   try {
     const varSource =
       props.datasources.levels[0].datasources[varnameSelector.value];
-    const group = await ZarrDataManager.getDatasetGroup(varSource);
-    groupAttrs.value = group.attrs;
+    const groupChain = await loadGroupAttrsChain(
+      varSource,
+      varnameSelector.value
+    );
+    groupAttrsChain.value = groupChain;
+    groupAttrs.value = groupChain[0]?.attrs ?? null;
     const variable = await ZarrDataManager.getVariableInfo(
       varSource,
       varnameSelector.value
@@ -400,11 +436,17 @@ watch(
         :datasources="datasources"
         :varname="varnameSelector"
       />
-      <AttributesSection
-        title="Group Attributes"
-        :attrs="groupAttrs"
-        empty-label="No group attributes"
-      />
+      <template v-for="group in groupAttrsChain" :key="group.path">
+        <AttributesSection
+          :title="
+            group.path === '/'
+              ? 'Global Attributes'
+              : `Group Attributes (${group.path})`
+          "
+          :attrs="group.attrs"
+          empty-label="No group attributes"
+        />
+      </template>
     </div>
   </div>
 </template>
