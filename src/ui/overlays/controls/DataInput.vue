@@ -4,6 +4,7 @@ import { nextTick, onMounted, ref, watch } from "vue";
 import CatalogPanel from "./CatalogPanel.vue";
 
 import { isNetCDFFile, registerLocalNetCDF } from "@/lib/data/localNetCDF.ts";
+import { registerLocalZarr } from "@/lib/data/localZarr.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 import Modal from "@/ui/common/Modal.vue";
 import { fetchCatalog, type TCatalogEntry } from "@/utils/catalog.ts";
@@ -17,6 +18,7 @@ const checking = ref(false);
 const dataPath = ref("");
 const datasetInput = ref<HTMLInputElement | null>(null);
 const localFileInput = ref<HTMLInputElement | null>(null);
+const localZarrInput = ref<HTMLInputElement | null>(null);
 
 const syncPath = () => {
   dataPath.value = props.currentSource?.trim() ?? "";
@@ -101,6 +103,23 @@ function onLocalFileSelected(event: Event) {
   close();
 }
 
+function selectLocalZarr() {
+  localZarrInput.value?.click();
+}
+
+function onLocalZarrSelected(event: Event) {
+  const input = event.target as HTMLInputElement;
+  // input.files is a live FileList, so snapshot it into an array before
+  // resetting input.value clears it out from under us.
+  const files = input.files ? Array.from(input.files) : [];
+  input.value = "";
+  if (files.length === 0) {
+    return;
+  }
+  location.hash = `#${registerLocalZarr(files)}`;
+  close();
+}
+
 onMounted(async () => {
   if (store.catalogUrl && !store.catalogData) {
     try {
@@ -122,7 +141,7 @@ onMounted(async () => {
   <Modal
     v-model="visible"
     title="Open dataset"
-    footer-class="is-justify-content-flex-end"
+    footer-class="is-flex-wrap-wrap is-justify-content-flex-end is-gap-1"
   >
     <form id="load-dataset" @submit.prevent="setLocationHash">
       <div class="field">
@@ -151,17 +170,30 @@ onMounted(async () => {
     />
 
     <template #footer>
-      <input
-        ref="localFileInput"
-        class="is-hidden"
-        type="file"
-        accept=".nc,.nc4,.cdf,application/x-netcdf"
-        @change="onLocalFileSelected"
-      />
-      <button type="button" class="button" @click="selectLocalNetCDF">
-        <span class="icon"><i class="fa-solid fa-file"></i></span>
-        <span>Local NetCDF</span>
-      </button>
+      <div class="buttons mb-0">
+        <input
+          ref="localFileInput"
+          class="is-hidden"
+          type="file"
+          accept=".nc,.nc4,.cdf,application/x-netcdf"
+          @change="onLocalFileSelected"
+        />
+        <button type="button" class="button" @click="selectLocalNetCDF">
+          <span class="icon"><i class="fa-solid fa-file"></i></span>
+          <span>Local NetCDF</span>
+        </button>
+        <input
+          ref="localZarrInput"
+          class="is-hidden"
+          type="file"
+          webkitdirectory
+          @change="onLocalZarrSelected"
+        />
+        <button type="button" class="button" @click="selectLocalZarr">
+          <span class="icon"><i class="fa-solid fa-folder"></i></span>
+          <span>Local Zarr</span>
+        </button>
+      </div>
       <div class="buttons ml-auto">
         <button
           type="button"
