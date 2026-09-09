@@ -190,13 +190,24 @@ async function collectVariables(
   dimensions: Set<string>;
 }> {
   const dimensions = new Set<string>();
-  const candidates = await Promise.allSettled(
-    store
-      .contents()
-      .map((content) =>
-        collectVariable(root, src, datasetPath, dimensions, content)
-      )
-  );
+  const contents = store.contents().filter(({ kind }) => kind === "array");
+  const candidates: PromiseSettledResult<Record<string, TDataSource>>[] = [];
+
+  const batchSize = 200;
+  for (let offset = 0; offset < contents.length; offset += batchSize) {
+    if (offset > 0) {
+      // Yield a task so the browser can handle input and repaint between batches.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+    const batch = await Promise.allSettled(
+      contents
+        .slice(offset, offset + batchSize)
+        .map((content) =>
+          collectVariable(root, src, datasetPath, dimensions, content)
+        )
+    );
+    candidates.push(...batch);
+  }
 
   return { candidates, dimensions };
 }
@@ -215,22 +226,22 @@ async function processZarrVariables(
   );
 
   // Filter and merge datasources
-  const datasources = candidates
+  const entries = candidates
     .filter((promise) => promise.status === "fulfilled")
     .map((promise) => promise.value)
     .filter((obj) => Object.keys(obj).length > 0)
     .map((obj) => {
       // Filter out variables that are actually dimensions or coordinates
       const varname = Object.keys(obj)[0];
-      if (dimensions.has(varname)) {
-        const hiddenObject = { [varname]: { ...obj[varname], hidden: true } };
-        return hiddenObject;
-      }
-      return obj;
-    })
-    .reduce((a, b) => ({ ...a, ...b }), {});
+      return [
+        varname,
+        dimensions.has(varname)
+          ? { ...obj[varname], hidden: true }
+          : obj[varname],
+      ] as const;
+    });
 
-  return datasources;
+  return Object.fromEntries(entries);
 }
 
 function createIndex(

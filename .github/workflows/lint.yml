@@ -21,6 +21,9 @@ jobs:
       - name: Run linter
         run: npm run lint-ci
 
+      - name: Run knip
+        run: npm run knip
+
       - name: Run type checker
         run: npm run typecheck
 

@@ -87,7 +87,7 @@ function isValidTriangle(
   return true;
 }
 
-export function computeDelaunayTriangulation(
+function computeDelaunayTriangulation(
   latitudes: Float32Array,
   longitudes: Float32Array
 ): Uint32Array {

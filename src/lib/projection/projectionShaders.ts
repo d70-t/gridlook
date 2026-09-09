@@ -11,9 +11,6 @@ export const PROJECTION_TYPE_BY_MODE = {
   [PROJECTION_TYPES.AZIMUTHAL_HYBRID]: 7,
 } as const;
 
-export type TProjectionTypeId =
-  (typeof PROJECTION_TYPE_BY_MODE)[TProjectionType];
-
 /**
  * Get the projection type constant for a given projection mode string
  */

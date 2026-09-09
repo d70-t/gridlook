@@ -118,7 +118,7 @@ export function makeGpuProjectedTextureMaterial(
  * Create a GPU-projected mesh material for vertex-valued grids.
  * Projection is done on the GPU, allowing instant center changes.
  */
-export function makeGpuProjectedMeshMaterial(
+function makeGpuProjectedMeshMaterial(
   colormap: TColorMap = "turbo",
   addOffset: 1.0 | 0.0 = 0.0,
   scaleFactor: -1.0 | 1.0 = 1.0

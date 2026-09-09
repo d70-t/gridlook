@@ -38,7 +38,7 @@ function parseTimeUnits(units: string): { interval: string; ref: Dayjs } {
  * Converts a datetime to a numeric time value using the given units.
  * Assumes standard calendar (no leap seconds unless stated otherwise).
  */
-export function encodeTime(datetime: Dayjs, attrs: zarr.Attributes): number {
+function encodeTime(datetime: Dayjs, attrs: zarr.Attributes): number {
   const units: string = attrs.units as string;
   const { interval, ref } = parseTimeUnits(units);
 
