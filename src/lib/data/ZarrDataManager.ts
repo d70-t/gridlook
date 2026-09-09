@@ -8,6 +8,7 @@ import {
   isIcechunkStorePath,
   parseStorePath,
 } from "./icechunkStore.ts";
+import { getLocalZarrStore, isLocalZarrSource } from "./localZarr.ts";
 import type { NetCDFArray, NetCDFGroup, TNetCDFBackend } from "./netCDF.ts";
 
 import {
@@ -60,6 +61,22 @@ export class ZarrDataManager {
   }
 
   public static async createNewStore(storePath: string, isIcechunk = false) {
+    if (isLocalZarrSource(storePath)) {
+      const localStore = getLocalZarrStore(storePath);
+      if (!localStore) {
+        throw new Error("Please select the local Zarr directory again.");
+      }
+      // This store has no getRange, so range-coalescing doesn't apply, but
+      // byte-caching still avoids re-reading the same file (e.g. metadata,
+      // or chunks revisited when scrubbing back over time steps).
+      const localCache = new QuickLRU<string, Uint8Array | undefined>({
+        maxSize: 512,
+      });
+      return zarr.extendStore(localStore, (s) =>
+        zarr.withByteCaching(s, { cache: localCache })
+      );
+    }
+
     const parsed = parseStorePath(storePath);
     let store: zarr.AsyncReadable | undefined = undefined;
     if (

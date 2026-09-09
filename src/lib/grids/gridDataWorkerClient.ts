@@ -8,6 +8,7 @@ import {
 } from "./gridDataWorkerProtocol.ts";
 import { serializeGridDataChunk } from "./gridDataWorkerUtils.ts";
 
+import { isLocalZarrSource } from "@/lib/data/localZarr.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   ZARR_FORMAT,
@@ -114,7 +115,10 @@ function getWorker() {
   return activeWorker;
 }
 
-async function getNetCDFVariableChunk(request: TGridDataRequest) {
+// Local sources (NetCDF files, or Zarr directories picked from disk) are only
+// registered in this thread's memory, so they must be read here rather than
+// dispatched to the grid data worker, which has its own isolated registry.
+async function getMainThreadVariableChunk(request: TGridDataRequest) {
   const array = await ZarrDataManager.getVariableInfo(
     request.source,
     request.variable,
@@ -126,8 +130,11 @@ async function getNetCDFVariableChunk(request: TGridDataRequest) {
 }
 
 export function getGridVariableChunk(request: TGridDataRequest) {
-  if (request.format === ZARR_FORMAT.NETCDF) {
-    return getNetCDFVariableChunk(request);
+  if (
+    request.format === ZARR_FORMAT.NETCDF ||
+    isLocalZarrSource(request.source.store)
+  ) {
+    return getMainThreadVariableChunk(request);
   }
 
   const requestId = ++nextRequestId;

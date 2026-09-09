@@ -1011,6 +1011,7 @@ function getLayerName(layer: TLayerEntry) {
   --vs-border-radius: 4px;
   --vs-background-color: var(--bulma-scheme-main, #fff);
   --vs-text-color: var(--bulma-text, #363636);
+  --vs-placeholder-color: var(--bulma-text-weak, #6b7280);
   --vs-outline-color: rgb(66, 88, 255);
   --vs-outline-width: 3px;
   --vs-trailing-icon-color: var(--bulma-link);
@@ -1040,6 +1041,7 @@ function getLayerName(layer: TLayerEntry) {
 :global([data-select-popover]) {
   --vs-border: 1px solid var(--bulma-border, #dbdbdb);
   --vs-border-radius: 4px;
+  --vs-text-color: var(--bulma-text, #363636);
   --vs-menu-background-color: var(--bulma-scheme-main, #fff);
   --vs-menu-z-index: 1000;
   --vs-option-hover-background-color: var(--bulma-scheme-main-bis, #fafafa);
