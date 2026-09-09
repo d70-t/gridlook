@@ -40,9 +40,12 @@ model (ESM) output on native grids.
   range selection, auto-contrast, hover readout, and snapshot export.
 - Add coastlines, graticules, land and sea masks, texture layers, and animated
   streamlines.
-- Share the dataset, variable, projection, and view parameters through a URL.
+- Share the dataset, variable, projection, and view parameters through a URL
+  (remote datasets only; see [Open a dataset](#open-a-dataset)).
 - Browse grouped datasets through catalogs or follow a running simulation in
   live mode.
+- Open a local Zarr store or a local NetCDF file directly from your file
+  system, without uploading it anywhere.
 
 ## Dataset information
 
@@ -81,6 +84,21 @@ model (ESM) output on native grids.
   [Live datasets](live-datasets.md).
 - Use the [controls guide](Controls.md) for keyboard, mouse, touch, streamline,
   and presenter controls.
+
+### Local Zarr and NetCDF files
+
+- In the "Open dataset" dialog, use **Local Zarr** to select a local Zarr
+  dataset directory, or **Local NetCDF** to select a local `.nc`/`.nc4`/`.cdf`
+  file. Both are read directly in the browser; nothing is uploaded to a
+  server.
+- Only one local dataset can be open at a time — opening another local file
+  or directory replaces the previous one.
+- **Local datasets cannot be shared or restored through a URL.** Gridlook's
+  URL only records a reference to the selected file, not its content, so
+  reloading the page, following a shared link, or using the share/QR-code
+  feature will not reopen a local dataset — you must re-select the file or
+  directory each time. URL-based sharing works only for remote, publicly
+  reachable Zarr or Icechunk datasets.
 
 ## Supported grids
 

@@ -1,6 +1,6 @@
 # gridlook
 
-Gridlook is a WebGL-based viewer for Earth system model (ESM) output. It supports cloud-hosted Zarr datasets.
+Gridlook is a WebGL-based viewer for Earth system model (ESM) output. It supports cloud-hosted Zarr and Icechunk datasets, as well as local Zarr stores and local NetCDF files opened directly from your file system.
 
 ![](docs/assets/showcase.webp)
 
@@ -21,6 +21,12 @@ Gridlook can also load catalog JSON files that list multiple datasets. The catal
 Gridlook can follow **live datasets** (a Zarr store where only the current timestep is available, updated as a simulation runs) by appending `::live=true` to the dataset URL. See [docs/live-datasets.md](docs/live-datasets.md).
 
 A guide to the viewer keyboard, mouse, and touch interaction is available in [docs/Controls.md](docs/Controls.md).
+
+## Local Zarr and NetCDF Files
+
+Besides remote Zarr URLs, the "Open dataset" dialog lets you open a **local Zarr store** (select the whole dataset directory) or a **local NetCDF file** (`.nc`, `.nc4`, `.cdf`) directly from your file system. Local NetCDF files are read in-browser via WebAssembly; nothing is uploaded to a server.
+
+**URL-sharing does not work for local datasets.** Gridlook's URL only stores a reference to the file that was selected, not its content, so a shared link, bookmark, or page reload cannot restore a local dataset — you will need to re-select the file or directory. URL sharing (`#<ZARR_URI>`) is only supported for remote, publicly reachable datasets.
 
 ## Project Setup
 
