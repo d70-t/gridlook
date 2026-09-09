@@ -29,9 +29,13 @@ import {
   getGridVariableData,
   terminateGridDataWorker,
 } from "@/lib/grids/gridDataWorkerClient.ts";
-import { HEALPIX_NUMCHUNKS } from "@/lib/grids/healpixCalculations.ts";
 import {
-  buildHealpixGrid,
+  HEALPIX_NUMCHUNKS,
+  getHealpixFaceRange,
+  getHealpixTextureIndex,
+} from "@/lib/grids/healpixCalculations.ts";
+import {
+  buildHealpixFace,
   terminateHealpixWorker,
 } from "@/lib/grids/healpixWorkerClient.ts";
 import type { THealpixBatch } from "@/lib/grids/healpixWorkerProtocol.ts";
@@ -110,9 +114,6 @@ const {
 const { setHoverLookup, clearHoverLookup } =
   useGridHoverLookup(hoveredGeoPoint);
 
-const hoverData = ref<Float32Array | null>(null);
-const hoverCellIndexMap = ref<Map<bigint, number> | null>(null);
-const hoverNside = ref<number | null>(null);
 const selectedDimensionNames = ref<string[]>([]);
 
 const healpixGrid = ref<healpixGeo.Grid | null>(null);
@@ -559,43 +560,61 @@ function updateHealpixBatch(batch: THealpixBatch) {
   updateMeshProjectionUniforms();
 }
 
+// eslint-disable-next-line max-lines-per-function
 async function processHealpixChunks(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   cells: number[] | undefined,
   grid: healpixGeo.Grid,
-  data: Float32Array
+  indices: (number | zarr.Slice | null)[]
 ) {
   let dataMin = Number.POSITIVE_INFINITY;
   let dataMax = Number.NEGATIVE_INFINITY;
   const histogramSummaries: THistogramSummary[] = [];
   const helper = projectionHelper.value;
-  hoverData.value = await buildHealpixGrid(
-    {
-      grid: {
-        scheme: grid.scheme,
-        level: grid.level,
-        ellipsoid: {
-          // eslint-disable-next-line camelcase
-          semi_major_axis: grid.semiMajorAxis,
-          // eslint-disable-next-line camelcase
-          semi_minor_axis: grid.semiMajorAxis * (1 - grid.flattening),
-        },
+  const options = {
+    grid: {
+      scheme: grid.scheme,
+      level: grid.level,
+      ellipsoid: {
+        // eslint-disable-next-line camelcase
+        semi_major_axis: grid.semiMajorAxis,
+        // eslint-disable-next-line camelcase
+        semi_minor_axis: grid.semiMajorAxis * (1 - grid.flattening),
       },
-      data,
-      cells,
-      attributes: datavar.attrs,
-      ...getHealpixMissingAndFillValues(datavar),
-      projectionType: helper.type,
-      projectionCenter: { lat: helper.center.lat, lon: helper.center.lon },
     },
-    (batch) => {
-      const summary = batch.histogramSummary;
-      histogramSummaries.push(summary);
-      dataMin = dataMin > summary.min ? summary.min : dataMin;
-      dataMax = dataMax < summary.max ? summary.max : dataMax;
-      updateHealpixBatch(batch);
+    attributes: datavar.attrs,
+    ...getHealpixMissingAndFillValues(datavar),
+    projectionType: helper.type,
+    projectionCenter: { lat: helper.center.lat, lon: helper.center.lon },
+  };
+  clearHoverLookup();
+  // Read, transfer and render one face before fetching the next (256 MiB at level 13).
+  for (let faceIndex = 0; faceIndex < HEALPIX_NUMCHUNKS; faceIndex++) {
+    if (disposed) {
+      return;
     }
-  );
+    const range = getHealpixFaceRange(faceIndex, grid.nside, cells);
+    const selection = indices.slice();
+    selection[selection.length - 1] = zarr.slice(range.start, range.end);
+    const data =
+      range.start === range.end
+        ? new Float32Array()
+        : castDataVarToFloat32(await fetchHealpixVariableData(selection));
+    if (disposed) {
+      return;
+    }
+    const batch = await buildHealpixFace({
+      ...options,
+      faceIndex,
+      data,
+      cells: range.cells,
+    });
+    const summary = batch.histogramSummary;
+    histogramSummaries.push(summary);
+    dataMin = dataMin > summary.min ? summary.min : dataMin;
+    dataMax = dataMax < summary.max ? summary.max : dataMax;
+    updateHealpixBatch(batch);
+  }
   return { dataMin, dataMax, histogramSummaries };
 }
 
@@ -610,31 +629,22 @@ function healpixHoverLookup(
     return null;
   }
 
-  if (!hoverData.value) {
-    return null;
-  }
-
   const normalizedLon = ProjectionHelper.normalizeLongitude(lon);
   const coords = new Float64Array([normalizedLon, lat]);
   const pixelIndices = grid.lonLatToHealpix(coords);
   const pixelIndex = pixelIndices[0];
 
-  const dataIndex = hoverCellIndexMap.value
-    ? hoverCellIndexMap.value.get(pixelIndex)
-    : Number(pixelIndex);
-  if (
-    dataIndex === undefined ||
-    dataIndex < 0 ||
-    dataIndex >= hoverData.value.length
-  ) {
-    return {
-      lat,
-      lon: normalizedLon,
-      value: null,
-      status: HOVERED_GRID_POINT_STATUS.MISSING,
-    };
+  const pixel = Number(pixelIndex);
+  const faceSize = grid.nside * grid.nside;
+  const mesh = mainMeshes[Math.floor(pixel / faceSize)];
+  if (!mesh) {
+    return null;
   }
-  const value = hoverData.value[dataIndex];
+  const texture = (mesh.material as THREE.ShaderMaterial).uniforms.data
+    .value as THREE.DataTexture;
+  // Hover reads the same array as the texture, without retaining a second 3 GiB grid.
+  const data = texture.image.data as Float32Array;
+  const value = data[getHealpixTextureIndex(pixel % faceSize, grid.nside)];
   const pixelAngles = grid.healpixToLonLat(pixelIndices);
 
   const isMissing = !Number.isFinite(value) || value === HEALPIX_UNSEEN;
@@ -656,26 +666,11 @@ async function fetchAndRenderData(
   const { dimensionRanges, indices } = await prepareDimensionData(datavar);
 
   const cellCoord = await getCells();
-  hoverNside.value = grid.nside;
-  const data = castDataVarToFloat32(await fetchHealpixVariableData(indices));
-  if (disposed) {
+  const result = await processHealpixChunks(datavar, cellCoord, grid, indices);
+  if (!result) {
     return;
   }
-  const { dataMin, dataMax, histogramSummaries } = await processHealpixChunks(
-    datavar,
-    cellCoord,
-    grid,
-    data
-  );
-  if (cellCoord) {
-    const cellIndexMap = new Map<bigint, number>();
-    for (let index = 0; index < cellCoord.length; index++) {
-      cellIndexMap.set(BigInt(cellCoord[index]), index);
-    }
-    hoverCellIndexMap.value = cellIndexMap;
-  } else {
-    hoverCellIndexMap.value = null;
-  }
+  const { dataMin, dataMax, histogramSummaries } = result;
   setHoverLookup(healpixHoverLookup);
   updateHistogram(histogramSummaries, dataMin, dataMax);
 

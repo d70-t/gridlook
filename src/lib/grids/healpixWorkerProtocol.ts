@@ -14,6 +14,7 @@ import type {
 
 export type THealpixBuildRequest = {
   grid: GridOptions;
+  faceIndex: number;
   data: Float32Array;
   cells?: number[];
   attributes: Attributes;
@@ -33,6 +34,6 @@ export type THealpixBatch = { batchIndex: number } & ReturnType<
   ReturnType<typeof buildHealpixTexture>;
 export type THealpixWorkerResponse = TGridGeometryWorkerResponse<
   THealpixWorkerMetadata,
-  THealpixBatch,
-  Float32Array
+  Omit<THealpixBatch, "dataValues">,
+  Float32Array<ArrayBuffer>
 >;

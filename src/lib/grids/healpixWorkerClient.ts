@@ -1,7 +1,4 @@
-import {
-  copyGridWorkerArray,
-  createGridGeometryWorkerClient,
-} from "./gridGeometryWorkerClient.ts";
+import { createGridGeometryWorkerClient } from "./gridGeometryWorkerClient.ts";
 import type {
   THealpixBatch,
   THealpixBuildRequest,
@@ -12,31 +9,38 @@ import type {
 const client = createGridGeometryWorkerClient<
   THealpixWorkerRequest,
   THealpixWorkerMetadata,
-  THealpixBatch,
-  Float32Array
+  Omit<THealpixBatch, "dataValues">,
+  Float32Array<ArrayBuffer>
 >(
   () =>
     new Worker(new URL("./healpix.worker.ts", import.meta.url), {
       type: "module",
-    })
+    }),
+  true
 );
 
-export function buildHealpixGrid(
-  request: THealpixBuildRequest,
-  onBatch: (batch: THealpixBatch) => void
-) {
-  return client
-    .build(
-      (requestId) => {
-        const data = copyGridWorkerArray(request.data);
-        return {
-          message: { ...request, requestId, data },
-          transfer: [data.buffer],
-        };
+export async function buildHealpixFace(
+  request: THealpixBuildRequest
+): Promise<THealpixBatch> {
+  let batch!: Omit<THealpixBatch, "dataValues">;
+  const { hoverIndexData } = await client.build(
+    (requestId) => ({
+      message: { ...request, requestId },
+      // The freshly fetched face is owned by this build; transfer without copying it.
+      transfer: [request.data.buffer],
+    }),
+    {
+      onMetadata: () => {},
+      onBatch: (result) => {
+        batch = result;
       },
-      { onMetadata: () => {}, onBatch }
-    )
-    .then(({ hoverIndexData }) => hoverIndexData);
+    }
+  );
+  return {
+    ...batch,
+    batchIndex: request.faceIndex,
+    dataValues: hoverIndexData,
+  };
 }
 
 export const terminateHealpixWorker = client.terminate;

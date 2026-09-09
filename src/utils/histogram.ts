@@ -27,27 +27,18 @@ export function buildHistogramSummary(
   fillValue?: number,
   missingValue?: number
 ): THistogramSummary {
-  const data = filterInvalidData(rawData, missingValue, fillValue);
   const bins = new Uint32Array(numBins);
-
-  if (!isFinite(min) || !isFinite(max) || data.length === 0) {
+  if (!isFinite(min) || !isFinite(max)) {
     return { bins, min, max };
   }
-
   const range = max - min;
-  // Handle degenerate case where all values are at a single point (min === max).
-  // In this case, avoid division by zero by placing all entries into the first bin.
-  if (range === 0) {
-    for (let i = 0; i < data.length; i++) {
-      bins[0]++;
-    }
-    return { bins, min, max };
-  }
   const binSize = range / numBins;
-
-  for (let i = 0; i < data.length; i++) {
-    const value = data[i];
-    let binIndex = Math.floor((value - min) / binSize);
+  for (let i = 0; i < rawData.length; i++) {
+    const value = rawData[i];
+    if (!isFinite(value) || value === missingValue || value === fillValue) {
+      continue;
+    }
+    let binIndex = range === 0 ? 0 : Math.floor((value - min) / binSize);
     if (binIndex < 0) {
       binIndex = 0;
     }
@@ -56,30 +47,7 @@ export function buildHistogramSummary(
     }
     bins[binIndex]++;
   }
-
   return { bins, min, max };
-}
-
-function filterInvalidData(
-  data: ArrayLike<number>,
-  missingValue?: number,
-  fillValue?: number
-) {
-  const validData: number[] = [];
-  for (let i = 0; i < data.length; i++) {
-    const value = data[i];
-    if (!isFinite(value)) {
-      continue;
-    }
-    if (missingValue !== undefined && value === missingValue) {
-      continue;
-    }
-    if (fillValue !== undefined && value === fillValue) {
-      continue;
-    }
-    validData.push(value);
-  }
-  return validData;
 }
 
 function countBins(bins: Uint32Array): number {

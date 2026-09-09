@@ -103,15 +103,21 @@ export function buildHealpixGeometry(
 export function buildHealpixTexture(
   data: Float32Array,
   batchIndex: number,
-  mortonIndices: BigUint64Array,
+  nside: number,
   cellIndex?: Map<number, number>
 ) {
-  const dataValues = new Float32Array(mortonIndices.length);
+  const dataValues = new Float32Array(nside * nside);
+  // Interleave each axis separately: O(nside) lookup storage instead of O(nside²).
+  const spread = new Uint32Array(nside);
+  for (let index = 1; index < nside; index++) {
+    spread[index] = spread[index >> 1] * 4 + (index & 1);
+  }
   let min = Number.POSITIVE_INFINITY;
   let max = Number.NEGATIVE_INFINITY;
   for (let index = 0; index < dataValues.length; index++) {
-    const cell = batchIndex * dataValues.length + Number(mortonIndices[index]);
-    const inputIndex = cellIndex ? cellIndex.get(cell) : cell;
+    const pixel = spread[index % nside] + spread[Math.floor(index / nside)] * 2;
+    const cell = batchIndex * dataValues.length + pixel;
+    const inputIndex = cellIndex ? cellIndex.get(cell) : pixel;
     const value = inputIndex === undefined ? NaN : data[inputIndex];
     dataValues[index] = value;
     if (Number.isFinite(value)) {
@@ -126,4 +132,37 @@ export function buildHealpixTexture(
     dataValues,
     histogramSummary: buildHistogramSummary(dataValues, min, max),
   };
+}
+
+export function getHealpixTextureIndex(pixel: number, nside: number) {
+  let x = 0;
+  let y = 0;
+  for (let bit = 1; pixel > 0; bit *= 2) {
+    x += (pixel % 2) * bit;
+    y += (Math.floor(pixel / 2) % 2) * bit;
+    pixel = Math.floor(pixel / 4);
+  }
+  return y * nside + x;
+}
+
+export function getHealpixFaceRange(
+  faceIndex: number,
+  nside: number,
+  cells?: number[]
+) {
+  const pixelStart = faceIndex * nside * nside;
+  const pixelEnd = pixelStart + nside * nside;
+  if (!cells) {
+    return { start: pixelStart, end: pixelEnd, cells };
+  }
+  // ponytail: 12 scans avoid a full-grid map; index ranges if sparse scans become expensive.
+  let start = cells.length;
+  let end = 0;
+  for (let index = 0; index < cells.length; index++) {
+    if (cells[index] >= pixelStart && cells[index] < pixelEnd) {
+      start = Math.min(start, index);
+      end = index + 1;
+    }
+  }
+  return { start: Math.min(start, end), end, cells: cells.slice(start, end) };
 }
