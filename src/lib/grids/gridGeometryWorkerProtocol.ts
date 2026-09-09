@@ -28,6 +28,7 @@ type TGridGeometryWorkerResponseBase = {
 export type TGridGeometryWorkerResponse<
   TMetadata extends TGridGeometryWorkerMetadata,
   TBatch extends TGridWorkerBatch = TGridGeometryBatch,
+  THoverIndex = TSerializedGeoSampleIndexData,
 > =
   | (TGridGeometryWorkerResponseBase & {
       type: typeof GridGeometryWorkerMessageType.METADATA;
@@ -39,7 +40,7 @@ export type TGridGeometryWorkerResponse<
     })
   | (TGridGeometryWorkerResponseBase & {
       type: typeof GridGeometryWorkerMessageType.HOVER_INDEX;
-      hoverIndexData: TSerializedGeoSampleIndexData;
+      hoverIndexData: THoverIndex;
     })
   | (TGridGeometryWorkerResponseBase & {
       type: typeof GridGeometryWorkerMessageType.DONE;

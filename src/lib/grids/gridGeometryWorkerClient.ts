@@ -19,19 +19,26 @@ type TWorkerRequest<TRequest> = {
   transfer: Transferable[];
 };
 
-type TBuildResult<TMetadata extends TGridGeometryWorkerMetadata> = {
+type TBuildResult<
+  TMetadata extends TGridGeometryWorkerMetadata,
+  THoverIndex,
+> = {
   metadata: TMetadata;
-  hoverIndexData: TSerializedGeoSampleIndexData;
+  hoverIndexData: THoverIndex;
 };
 
-type TActiveBuild<TMetadata extends TGridGeometryWorkerMetadata, TBatch> = {
+type TActiveBuild<
+  TMetadata extends TGridGeometryWorkerMetadata,
+  TBatch,
+  THoverIndex,
+> = {
   requestId: number;
   worker: Worker;
   callbacks: TGridGeometryBuildCallbacks<TMetadata, TBatch>;
   metadata: TMetadata | null;
   receivedBatchIndexes: Set<number>;
-  hoverIndexData: TSerializedGeoSampleIndexData | null;
-  resolve: (value: TBuildResult<TMetadata>) => void;
+  hoverIndexData: THoverIndex | null;
+  resolve: (value: TBuildResult<TMetadata, THoverIndex>) => void;
   reject: (reason?: unknown) => void;
 };
 
@@ -46,8 +53,11 @@ export function createGridGeometryWorkerClient<
   TRequest,
   TMetadata extends TGridGeometryWorkerMetadata,
   TBatch extends TGridWorkerBatch = TGridGeometryBatch,
+  THoverIndex = TSerializedGeoSampleIndexData,
 >(createWorker: () => Worker, keepWorkerAlive = false) {
-  let activeBuild: TActiveBuild<TMetadata, TBatch> | null = null;
+  type TResult = TBuildResult<TMetadata, THoverIndex>;
+  type TResponse = TGridGeometryWorkerResponse<TMetadata, TBatch, THoverIndex>;
+  let activeBuild: TActiveBuild<TMetadata, TBatch, THoverIndex> | null = null;
   let nextRequestId = 0;
   let worker: Worker | null = null;
 
@@ -124,7 +134,7 @@ export function createGridGeometryWorkerClient<
 
   function setMetadata(
     activeWorker: Worker,
-    build: TActiveBuild<TMetadata, TBatch>,
+    build: TActiveBuild<TMetadata, TBatch, THoverIndex>,
     metadata: TMetadata
   ) {
     if (
@@ -150,7 +160,7 @@ export function createGridGeometryWorkerClient<
 
   function handleBatch(
     activeWorker: Worker,
-    build: TActiveBuild<TMetadata, TBatch>,
+    build: TActiveBuild<TMetadata, TBatch, THoverIndex>,
     batch: TBatch
   ) {
     if (build.metadata === null) {
@@ -190,7 +200,7 @@ export function createGridGeometryWorkerClient<
       );
       return;
     }
-    const response = message as TGridGeometryWorkerResponse<TMetadata, TBatch>;
+    const response = message as TResponse;
     if (
       !activeBuild ||
       activeBuild.worker !== activeWorker ||
@@ -244,7 +254,7 @@ export function createGridGeometryWorkerClient<
       return Promise.reject(toError(error));
     }
     const activeWorker = worker;
-    return new Promise<TBuildResult<TMetadata>>((resolve, reject) => {
+    return new Promise<TResult>((resolve, reject) => {
       activeBuild = {
         requestId,
         worker: activeWorker,
