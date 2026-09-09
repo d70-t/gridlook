@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.5.0](https://github.com/d70-t/gridlook/compare/v1.4.1...v1.5.0) (2026-09-09)
+
+
+### Features
+
+* add loco support ([#198](https://github.com/d70-t/gridlook/issues/198)) ([56b1942](https://github.com/d70-t/gridlook/commit/56b1942036a4c099da9f3a9797103a5e0616dc62))
+* added experimental gribscan codec ([12a438d](https://github.com/d70-t/gridlook/commit/12a438d40df3d6fcf43f475dadba6bd649f3a4d4))
+* hide formula terms ([7c69842](https://github.com/d70-t/gridlook/commit/7c69842e8bf613485f6fbcf538cfd9d5c65b0127))
+* **lib:** added logbins codec ([07c181a](https://github.com/d70-t/gridlook/commit/07c181af2afa595d48893a7c6ae5915e0cac00e7))
+* **lib:** added web-workers for regular grids ([e8105cd](https://github.com/d70-t/gridlook/commit/e8105cd7e763ddc02d0d9fa1f6f6b42a648cc19a))
+* **lib:** local NetCDF-Support ([96dad30](https://github.com/d70-t/gridlook/commit/96dad3009183b575875c928ca9d7242f3bf62fac))
+* **lib:** local NetCDF-Support ([dc2ce3d](https://github.com/d70-t/gridlook/commit/dc2ce3db77f24830a21c427e19d53d2a86b82da9))
+* support ellipsoidal healpix ([45dd830](https://github.com/d70-t/gridlook/commit/45dd830384e2d18cf43f4aac346c76a0cae83f87))
+* **ui:** added group attributes for sub groups ([c1cfbe6](https://github.com/d70-t/gridlook/commit/c1cfbe6fc120c7937b604065f180de39386517e6))
+* **ui:** camera is now stored as x y and z ([7df88b6](https://github.com/d70-t/gridlook/commit/7df88b6adb51e47ede607387559f05cad9f6e841))
+* **ui:** camera is now stored as x y and z ([f82c67f](https://github.com/d70-t/gridlook/commit/f82c67ff474b0dc7ffc99dea4658bbada3b516a8))
+
+
+### Bug Fixes
+
+* **ui:** resolve colormap swatches against the app base URL ([2fcbf7f](https://github.com/d70-t/gridlook/commit/2fcbf7f023e5af0919b4f9a452bb8d1f0592054e))
+* **ui:** resolve colormap swatches against the app base URL ([6e16cff](https://github.com/d70-t/gridlook/commit/6e16cff3351a0029c6664b2f584b63e13a9752e5))
+* **ui:** Toasts are above other UI-Elements again ([05eafcc](https://github.com/d70-t/gridlook/commit/05eafcc43d3ad145ac048320c67e011e6f2f7ba1))
+
 ## [1.4.1](https://github.com/d70-t/gridlook/compare/v1.4.0...v1.4.1) (2026-07-14)
 
 
