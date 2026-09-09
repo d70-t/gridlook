@@ -1,12 +1,5 @@
 import { storeToRefs } from "pinia";
-import {
-  computed,
-  onUnmounted,
-  ref,
-  watch,
-  type ComputedRef,
-  type Ref,
-} from "vue";
+import { computed, ref, watch, type ComputedRef } from "vue";
 
 import { isTimeUnits } from "@/lib/data/timeHandling.ts";
 import type { TDimensionRange, TVarInfo } from "@/lib/types/GlobeTypes.ts";
@@ -44,129 +37,139 @@ const SPEED_LABELS: Record<TPlaybackSpeed, string> = {
   [PLAYBACK_SPEED.MAX]: "Max",
 };
 
-const isPlaying = ref(false);
+// Only one dimension can play back at a time: playback is driven by the
+// shared `loading` state (advancing a slider triggers a fetch, and the next
+// step is scheduled once that fetch completes), so two dimensions animating
+// at once would race over the same loading pulse.
+const playingIndex = ref(-1);
 const speed = ref<TPlaybackSpeed>(PLAYBACK_SPEED.NORMAL);
-let activeToggle: (() => void) | null = null;
+let delayTimer: ReturnType<typeof setTimeout> | null = null;
+let loadingWatcherStarted = false;
 
-export function toggleTimeAnimation() {
-  activeToggle?.();
+function getDimensionRange(
+  varinfo: TVarInfo | undefined,
+  index: number
+): TPlayableDimensionRange | null {
+  return varinfo?.dimRanges[index] ?? null;
 }
 
-type TAnimationContext = {
-  timeRangeIndex: ComputedRef<number>;
-  timeRange: ComputedRef<TPlayableDimensionRange | null>;
-  dimSlidersValues: Ref<(number | null)[]>;
-  loading: Ref<boolean>;
-  canAnimate: ComputedRef<boolean>;
-};
-
-type TAnimationStoreRefs = {
-  varinfo: Ref<TVarInfo | undefined>;
-  dimSlidersValues: Ref<(number | null)[]>;
-  loading: Ref<boolean>;
-  live: Ref<boolean>;
-};
-
-function createTimeRangeIndex(varinfo: Ref<TVarInfo | undefined>) {
-  return computed(() => {
-    const info = varinfo.value;
-    if (!info) {
-      return -1;
+function findTimeDimensionIndex(varinfo: TVarInfo | undefined): number {
+  if (!varinfo) {
+    return -1;
+  }
+  return varinfo.dimRanges.findIndex((range, index) => {
+    if (range === null) {
+      return false;
     }
-    return info.dimRanges.findIndex((range, index) => {
-      if (range === null) {
-        return false;
-      }
-      const dimInfo = info.dimInfo[index];
-      return (
-        dimInfo !== undefined &&
-        "attrs" in dimInfo &&
-        isTimeUnits(dimInfo.attrs.units)
-      );
-    });
-  });
-}
-
-function createTimeAnimationContext(
-  refs: TAnimationStoreRefs
-): TAnimationContext {
-  const timeRangeIndex = createTimeRangeIndex(refs.varinfo);
-  const timeRange = computed<TPlayableDimensionRange | null>(() => {
-    const index = timeRangeIndex.value;
-    return index === -1 ? null : (refs.varinfo.value?.dimRanges[index] ?? null);
-  });
-  const canAnimate = computed(() => {
-    const range = timeRange.value;
-    // Live datasets are driven by polling, not manual playback.
+    const dimInfo = varinfo.dimInfo[index];
     return (
-      !refs.live.value && range !== null && range.maxBound > range.minBound
+      dimInfo !== undefined &&
+      "attrs" in dimInfo &&
+      isTimeUnits(dimInfo.attrs.units)
     );
   });
-
-  return {
-    timeRangeIndex,
-    timeRange,
-    dimSlidersValues: refs.dimSlidersValues,
-    loading: refs.loading,
-    canAnimate,
-  };
 }
 
-function createAdvanceStep(ctx: TAnimationContext, stop: () => void) {
-  return function advanceStep() {
-    const index = ctx.timeRangeIndex.value;
-    const range = ctx.timeRange.value;
-    if (index === -1 || range === null) {
-      stop();
-      return;
-    }
-
-    const current = ctx.dimSlidersValues.value[index] ?? range.minBound;
-    const next = current + 1;
-    ctx.dimSlidersValues.value[index] =
-      next > range.maxBound ? range.minBound : next;
-  };
+export function stopAnimation() {
+  playingIndex.value = -1;
+  if (delayTimer !== null) {
+    clearTimeout(delayTimer);
+    delayTimer = null;
+  }
 }
 
-function createPlaybackControls(ctx: TAnimationContext) {
-  let delayTimer: ReturnType<typeof setTimeout> | null = null;
-
-  function stop() {
-    isPlaying.value = false;
-    if (delayTimer !== null) {
-      clearTimeout(delayTimer);
-      delayTimer = null;
-    }
+function advanceStep(store: ReturnType<typeof useGlobeControlStore>) {
+  const index = playingIndex.value;
+  const range = getDimensionRange(store.varinfo, index);
+  if (index === -1 || range === null) {
+    stopAnimation();
+    return;
   }
 
-  const advanceStep = createAdvanceStep(ctx, stop);
+  const current = store.dimSlidersValues[index] ?? range.minBound;
+  const next = current + 1;
+  store.dimSlidersValues[index] = next > range.maxBound ? range.minBound : next;
+}
 
-  function scheduleNextStep() {
-    if (!isPlaying.value) {
-      return;
-    }
-    delayTimer = setTimeout(() => {
-      delayTimer = null;
-      advanceStep();
-    }, SPEED_DELAYS[speed.value]);
+function scheduleNextStep(store: ReturnType<typeof useGlobeControlStore>) {
+  if (playingIndex.value === -1) {
+    return;
   }
+  delayTimer = setTimeout(() => {
+    delayTimer = null;
+    advanceStep(store);
+  }, SPEED_DELAYS[speed.value]);
+}
 
-  function play() {
-    if (!ctx.canAnimate.value) {
-      return;
-    }
-    isPlaying.value = true;
-    if (!ctx.loading.value) {
-      advanceStep();
-    }
+function ensureLoadingWatcher(store: ReturnType<typeof useGlobeControlStore>) {
+  if (loadingWatcherStarted) {
+    return;
   }
+  loadingWatcherStarted = true;
+  const { loading } = storeToRefs(store);
+  watch(loading, (isLoading, wasLoading) => {
+    if (playingIndex.value !== -1 && wasLoading && !isLoading) {
+      scheduleNextStep(store);
+    }
+  });
+}
+
+function toggleDimension(
+  store: ReturnType<typeof useGlobeControlStore>,
+  index: number,
+  canAnimate: boolean
+) {
+  if (playingIndex.value === index) {
+    stopAnimation();
+    return;
+  }
+  if (!canAnimate) {
+    return;
+  }
+  stopAnimation();
+  playingIndex.value = index;
+  if (!store.loading) {
+    advanceStep(store);
+  }
+}
+
+export function toggleTimeAnimation() {
+  const store = useGlobeControlStore();
+  const index = findTimeDimensionIndex(store.varinfo);
+  if (index === -1) {
+    return;
+  }
+  const range = getDimensionRange(store.varinfo, index);
+  const canAnimate =
+    !store.live && range !== null && range.maxBound > range.minBound;
+  toggleDimension(store, index, canAnimate);
+}
+
+export function useDimensionAnimation(
+  dimensionIndex: ComputedRef<number>,
+  options: { excludeWhileLive?: boolean } = {}
+) {
+  const store = useGlobeControlStore();
+  ensureLoadingWatcher(store);
+
+  const range = computed<TPlayableDimensionRange | null>(() =>
+    getDimensionRange(store.varinfo, dimensionIndex.value)
+  );
+  const canAnimate = computed(() => {
+    if (options.excludeWhileLive && store.live) {
+      return false;
+    }
+    const currentRange = range.value;
+    return (
+      dimensionIndex.value !== -1 &&
+      currentRange !== null &&
+      currentRange.maxBound > currentRange.minBound
+    );
+  });
+  const isPlaying = computed(() => playingIndex.value === dimensionIndex.value);
 
   function toggle() {
-    if (isPlaying.value) {
-      stop();
-    } else {
-      play();
-    }
+    toggleDimension(store, dimensionIndex.value, canAnimate.value);
   }
 
   function cycleSpeed() {
@@ -175,41 +178,9 @@ function createPlaybackControls(ctx: TAnimationContext) {
       PLAYBACK_SPEED_ORDER[(currentIndex + 1) % PLAYBACK_SPEED_ORDER.length];
   }
 
-  return { stop, toggle, cycleSpeed, scheduleNextStep };
-}
-
-export function useTimeAnimation() {
-  const store = useGlobeControlStore();
-  const { varinfo, dimSlidersValues, loading, live } = storeToRefs(store);
-  const animationContext = createTimeAnimationContext({
-    varinfo,
-    dimSlidersValues,
-    loading,
-    live,
-  });
-
-  const { stop, toggle, cycleSpeed, scheduleNextStep } =
-    createPlaybackControls(animationContext);
-
-  activeToggle = toggle;
-
-  watch(loading, (isLoading, wasLoading) => {
-    if (isPlaying.value && wasLoading && !isLoading) {
-      scheduleNextStep();
-    }
-  });
-
-  onUnmounted(() => {
-    stop();
-    if (activeToggle === toggle) {
-      activeToggle = null;
-    }
-  });
-
   return {
     isPlaying,
-    speed,
-    canAnimate: animationContext.canAnimate,
+    canAnimate,
     toggle,
     cycleSpeed,
     speedLabel: computed(() => SPEED_LABELS[speed.value]),
