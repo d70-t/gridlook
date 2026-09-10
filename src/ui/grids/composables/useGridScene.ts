@@ -134,7 +134,6 @@ export function useGridScene(options: UseGridSceneOptions) {
     animationLoop();
   }, WHEEL_END_DELAY_MS);
   const FLAT_CROP_RENDER_ORDER = 5;
-  const FLAT_CROP_Z_OFFSET = 0.06;
   const FLAT_BOUNDARY_STEP_DEGREES = 0.25;
   const TOUCH_PICK_TAP_MAX_DISTANCE_PX = 10;
   // Keep ~6.4 km clearance for the tessellated globe; closer views
@@ -213,8 +212,12 @@ export function useGridScene(options: UseGridSceneOptions) {
       lastRenderedCameraPosition.copy(camera.position);
       lastRenderedCameraQuaternion.copy(camera.quaternion);
     }
-    if (camera && !projectionHelper.value.isFlat) {
-      const near = Math.min(0.1, (camera.position.length() - 1) / 2);
+    if (camera) {
+      const isFlat = projectionHelper.value.isFlat;
+      const altitude = isFlat
+        ? camera.position.z
+        : camera.position.length() - 1;
+      const near = Math.min(isFlat ? 0.005 : 0.1, altitude / 2);
       if (camera.near !== near) {
         camera.near = near;
         camera.updateProjectionMatrix();
@@ -513,9 +516,14 @@ export function useGridScene(options: UseGridSceneOptions) {
       scaledHeight
     );
     if (cropGeometry) {
-      const cropSurface = new THREE.Mesh(cropGeometry, backgroundMaterial);
+      const cropMaterial = createBackgroundMaterial();
+      // Draw the crop over the map without moving it toward the camera.
+      cropMaterial.transparent = true;
+      cropMaterial.depthTest = false;
+      cropMaterial.depthWrite = false;
+      const cropSurface = new THREE.Mesh(cropGeometry, cropMaterial);
       cropSurface.renderOrder = FLAT_CROP_RENDER_ORDER;
-      cropSurface.position.z = FLAT_CROP_Z_OFFSET;
+      cropSurface.position.z = -baseSurface.position.z;
       baseSurface.add(cropSurface);
     }
 
@@ -607,7 +615,7 @@ export function useGridScene(options: UseGridSceneOptions) {
       MIDDLE: THREE.MOUSE.DOLLY,
       RIGHT: THREE.MOUSE.ROTATE,
     };
-    controls.minDistance = 0.1;
+    controls.minDistance = 0.001;
     controls.maxDistance = 200;
   }
 

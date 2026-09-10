@@ -236,10 +236,6 @@ function makeLineMaterial(cache: TPathCache) {
         value: 1,
       },
 
-      layerDepth: {
-        value: 0,
-      },
-
       edgeQuality: {
         value: 1,
       },
@@ -464,12 +460,6 @@ export class StreamlineParticleLayer {
       cosCenterLatitude * Math.sin(centerLongitude),
       Math.sin(centerLatitude)
     );
-
-    material.uniforms.layerDepth.value = this.projectionHelper.isFlat
-      ? aboveGrid
-        ? 0.025
-        : -0.025
-      : 0;
   }
 
   dispose() {

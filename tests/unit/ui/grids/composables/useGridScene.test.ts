@@ -3,6 +3,8 @@ import * as THREE from "three";
 import { afterEach, expect, it, vi } from "vitest";
 import { computed, effectScope, ref } from "vue";
 
+import type { TProjectionType } from "@/lib/projection/projectionUtils.ts";
+
 const { mounted, unmounted } = vi.hoisted(() => ({
   mounted: [] as (() => void)[],
   unmounted: [] as (() => void)[],
@@ -49,9 +51,15 @@ const { EARTH_RADIUS_METERS, useGridCameraState } =
   await import("@/ui/grids/composables/useGridCameraState.ts");
 const { useGridScene } = await import("@/ui/grids/composables/useGridScene.ts");
 
-function setupRegionalScene(
-  saved: { alt?: string; lat?: string; lon?: string; flat?: boolean } = {}
-) {
+type TSceneSetupOptions = {
+  alt?: string;
+  lat?: string;
+  lon?: string;
+  flat?: boolean;
+  projection?: TProjectionType;
+};
+
+function setupRegionalScene(saved: TSceneSetupOptions = {}) {
   vi.useFakeTimers();
   vi.stubGlobal("window", { innerWidth: 800, innerHeight: 600 });
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) =>
@@ -70,9 +78,10 @@ function setupRegionalScene(
       projectionHelper: computed(
         () =>
           new ProjectionHelper(
-            saved.flat
-              ? PROJECTION_TYPES.EQUIRECTANGULAR
-              : PROJECTION_TYPES.NEARSIDE_PERSPECTIVE,
+            saved.projection ??
+              (saved.flat
+                ? PROJECTION_TYPES.EQUIRECTANGULAR
+                : PROJECTION_TYPES.NEARSIDE_PERSPECTIVE),
             center.value
           )
       ),
@@ -145,6 +154,38 @@ it("does not replace a camera the user zoomed while data was loading", () => {
   expect(camera.position).toEqual(position);
   scope.stop();
 });
+
+it.each(
+  Object.values(PROJECTION_TYPES).filter(
+    (type) => type !== PROJECTION_TYPES.NEARSIDE_PERSPECTIVE
+  )
+)(
+  "supports close zoom on a panned %s map without clipping the surface or crop",
+  (projection) => {
+    const { grid, scope, camera, params } = setupRegionalScene({ projection });
+    grid.applyCameraPreset({
+      position: [2, 1, 0.0001],
+      quaternion: [0, 0, 0, 1],
+    });
+    expect(camera.position.z).toBeCloseTo(0.001, 6);
+    expect(camera.near).toBeCloseTo(0.0005, 6);
+    expect(Number(params.paramCameraAlt)).toBe(
+      Math.round(0.001 * EARTH_RADIUS_METERS)
+    );
+    camera.updateMatrixWorld();
+    const crop = grid
+      .getScene()!
+      .children.find((object) => object.renderOrder === -10)!.children[0];
+    const cropZ = crop ? crop.getWorldPosition(new THREE.Vector3()).z : 0;
+    expect(cropZ).toBe(0);
+    for (const z of [0, cropZ]) {
+      const depth = new THREE.Vector3(2, 1, z).project(camera).z;
+      expect(depth).toBeGreaterThan(-1);
+      expect(depth).toBeLessThan(1);
+    }
+    scope.stop();
+  }
+);
 
 afterEach(() => {
   unmounted.splice(0).forEach((callback) => callback());

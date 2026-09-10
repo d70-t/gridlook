@@ -47,19 +47,16 @@ type UseGridOverlaysOptions = {
 type TOverlayLineStyle = {
   color: string;
   radius: number;
-  zOffset: number;
 };
 
 const coastStyle: TOverlayLineStyle = {
   color: "#ffffff",
   radius: 1,
-  zOffset: 0.01,
 } as const;
 
 const graticuleStyle: TOverlayLineStyle = {
   color: "#888888",
   radius: 1,
-  zOffset: 0.01,
 } as const;
 
 const COASTLINE_GEOJSON_PATHS: Record<TCoastlineResolution, string> = {
@@ -147,7 +144,7 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
   function getLineProjectionOptions(style: TOverlayLineStyle) {
     return {
       radius: projectionHelper.value.isFlat ? 1 : style.radius,
-      zOffset: projectionHelper.value.isFlat ? style.zOffset : 0,
+      zOffset: 0,
     };
   }
 

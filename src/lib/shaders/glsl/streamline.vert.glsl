@@ -6,7 +6,6 @@ uniform float centerLon;
 uniform float centerLat;
 uniform vec3 projectionCenter;
 uniform float projectionRadius;
-uniform float layerDepth;
 uniform int edgeQuality;
 
 uniform sampler2D pathTexture;
@@ -336,7 +335,6 @@ void main() {
     : 0.0;
 
   vGlobePosition = projected;
-  projected.z += layerDepth;
 
   gl_Position =
     projectionMatrix *
