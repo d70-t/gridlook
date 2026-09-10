@@ -1006,11 +1006,7 @@ export function useGridScene(options: UseGridSceneOptions) {
       controlsUpdated,
       userInteractionActive
     );
-    if (
-      !userInteractionActive &&
-      !store.isRotating &&
-      animationCallbacks.size === 0
-    ) {
+    if (!userInteractionActive && !store.isRotating) {
       if (controlsUpdated) {
         // Controls are still moving (damping draining) – reset idle counter.
         idleFrameCount = 0;
@@ -1021,16 +1017,18 @@ export function useGridScene(options: UseGridSceneOptions) {
         cameraState.encodeCameraToURL(cam, projectionHelper.value.isFlat);
       }
       if (idleFrameCount >= IDLE_FRAMES_BEFORE_STOP) {
-        // Damping is fully drained – safe to stop the loop.
-        idleFrameCount = 0;
+        // Save the settled camera even when layer animations keep running.
         setMotionState(false);
-        if (cam) {
+        if (cam && idleFrameCount === IDLE_FRAMES_BEFORE_STOP) {
           cameraState.debouncedEncodeCameraToURL(
             cam,
             projectionHelper.value.isFlat
           );
         }
-        return;
+        if (animationCallbacks.size === 0) {
+          idleFrameCount = 0;
+          return;
+        }
       }
     } else {
       idleFrameCount = 0;
