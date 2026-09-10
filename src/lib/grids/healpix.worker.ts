@@ -57,9 +57,6 @@ async function buildGrid(request: THealpixWorkerRequest) {
     request.missingValue,
     request.fillValue
   );
-  const cellIndex = request.cells
-    ? new Map(request.cells.map((cell, index) => [cell, index]))
-    : undefined;
   const projection = new ProjectionHelper(
     request.projectionType,
     request.projectionCenter
@@ -69,16 +66,15 @@ async function buildGrid(request: THealpixWorkerRequest) {
     type: GridGeometryWorkerMessageType.METADATA,
     metadata: { totalBatches: 1 },
   });
-  const { dataValues, histogramSummary } = buildHealpixTexture(
-    data,
-    faceIndex,
-    grid.nside,
-    cellIndex
-  );
+  const { dataValues, histogramSummary, width, height, dataRect } =
+    buildHealpixTexture(data, faceIndex, grid.nside, request.cells);
   postBatch(requestId, {
     batchIndex: 0,
     ...buildHealpixGeometry(textureGrid, BigInt(faceIndex), 65, projection),
     histogramSummary,
+    width,
+    height,
+    dataRect,
   });
   postResponse(
     {

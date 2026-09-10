@@ -10,6 +10,9 @@ uniform float posterizeLevels;
 uniform float hideBelowValue;
 uniform float hideAboveValue;
 uniform sampler2D data;
+uniform vec2 dataUvOffset;
+uniform vec2 dataUvScale;
+uniform int clipToDataRect;
 uniform int projectionType;
 uniform float projectionRadius;
 uniform int edgeQuality;
@@ -18,7 +21,15 @@ varying vec2 vUv;
 varying vec2 vProjectedXY;
 
 void main() {
-    float v_value = texture(data, vUv).r;
+    vec2 dataUv = (vUv - dataUvOffset) / dataUvScale;
+    // Only a HEALPix face cropped to its sparse data's bounding box clips here;
+    // a full-face/full-globe texture (the common case) relies on the texture's
+    // own wrap mode instead, e.g. RepeatWrapping across the lon-wrap seam.
+    if (clipToDataRect == 1
+    && (dataUv.x < 0.0 || dataUv.x > 1.0 || dataUv.y < 0.0 || dataUv.y > 1.0)) {
+        discard;
+    }
+    float v_value = texture(data, dataUv).r;
     if ((edgeQuality > 0 && !isInsideProjectionDomain(vProjectedXY, projectionType, projectionRadius))
     || is_nan(v_value) || v_value <= hideBelowValue || v_value >= hideAboveValue) {
         discard;

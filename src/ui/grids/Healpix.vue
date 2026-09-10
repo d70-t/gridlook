@@ -31,8 +31,9 @@ import {
 } from "@/lib/grids/gridDataWorkerClient.ts";
 import {
   HEALPIX_NUMCHUNKS,
+  decodeHealpixFaceXY,
   getHealpixFaceRange,
-  getHealpixTextureIndex,
+  type THealpixDataRect,
 } from "@/lib/grids/healpixCalculations.ts";
 import {
   buildHealpixFace,
@@ -510,7 +511,56 @@ async function getDimensionValues(
   return dimValues;
 }
 
+function disposeHealpixMesh(batchIndex: number) {
+  const mesh = mainMeshes[batchIndex];
+  if (!mesh) {
+    return;
+  }
+  mesh.geometry.dispose();
+  const mat = mesh.material as THREE.ShaderMaterial;
+  if (mat) {
+    if (mat.uniforms?.data?.value?.dispose) {
+      mat.uniforms.data.value.dispose();
+    }
+    mat.dispose();
+  }
+  getScene()?.remove(mesh);
+  mainMeshes[batchIndex] = undefined;
+}
+
+function createHealpixMesh(
+  batchIndex: number,
+  geometry: THREE.InstancedBufferGeometry
+) {
+  const { addOffset, scaleFactor } = getColormapScaleOffset(
+    store.selection?.low as number,
+    store.selection?.high as number,
+    invertColormap.value
+  );
+  const material = makeGpuProjectedTextureMaterial(
+    new THREE.Texture(),
+    colormap.value,
+    addOffset,
+    scaleFactor
+  );
+  material.uniforms.useTriangleWrapCull.value = 1;
+  const mesh = createWrappedProjectionMesh(
+    geometry,
+    material,
+    projectionHelper.value.type
+  );
+  mesh.frustumCulled = false;
+  mainMeshes[batchIndex] = mesh;
+  getScene()?.add(mesh);
+  return mesh;
+}
+
 function updateHealpixBatch(batch: THealpixBatch) {
+  if (batch.width === 0 || batch.height === 0) {
+    // No cells of a regional/sparse dataset fall in this face.
+    disposeHealpixMesh(batch.batchIndex);
+    return;
+  }
   const geometry = createGeometry(
     batch.positionValues,
     batch.uv,
@@ -523,40 +573,30 @@ function updateHealpixBatch(batch: THealpixBatch) {
     setupProjectionGeometryWrap(geometry);
     mesh.geometry = geometry;
   } else {
-    const { addOffset, scaleFactor } = getColormapScaleOffset(
-      store.selection?.low as number,
-      store.selection?.high as number,
-      invertColormap.value
-    );
-    const material = makeGpuProjectedTextureMaterial(
-      new THREE.Texture(),
-      colormap.value,
-      addOffset,
-      scaleFactor
-    );
-    material.uniforms.useTriangleWrapCull.value = 1;
-    mesh = createWrappedProjectionMesh(
-      geometry,
-      material,
-      projectionHelper.value.type
-    );
-    mesh.frustumCulled = false;
-    mainMeshes[batch.batchIndex] = mesh;
-    getScene()?.add(mesh);
+    mesh = createHealpixMesh(batch.batchIndex, geometry);
   }
+  mesh.userData.dataRect = batch.dataRect;
   const material = mesh.material as THREE.ShaderMaterial;
   material.uniforms.data.value.dispose();
-  const size = Math.sqrt(batch.dataValues.length);
   const texture = new THREE.DataTexture(
     batch.dataValues,
-    size,
-    size,
+    batch.width,
+    batch.height,
     THREE.RedFormat,
     THREE.FloatType,
     THREE.UVMapping
   );
   texture.needsUpdate = true;
   material.uniforms.data.value = texture;
+  material.uniforms.dataUvOffset.value.set(batch.dataRect.u, batch.dataRect.v);
+  material.uniforms.dataUvScale.value.set(
+    batch.dataRect.width,
+    batch.dataRect.height
+  );
+  // Only crop to the rect when it's a genuine sub-region of the face (a
+  // regional/sparse dataset); a full face has nothing to discard around.
+  material.uniforms.clipToDataRect.value =
+    batch.dataRect.width < 1 || batch.dataRect.height < 1 ? 1 : 0;
   updateMeshProjectionUniforms();
 }
 
@@ -644,7 +684,17 @@ function healpixHoverLookup(
     .value as THREE.DataTexture;
   // Hover reads the same array as the texture, without retaining a second 3 GiB grid.
   const data = texture.image.data as Float32Array;
-  const value = data[getHealpixTextureIndex(pixel % faceSize, grid.nside)];
+  const dataRect = mesh.userData.dataRect as THealpixDataRect;
+  const { x, y } = decodeHealpixFaceXY(pixel % faceSize);
+  const localX = x - Math.round(dataRect.u * grid.nside);
+  const localY = y - Math.round(dataRect.v * grid.nside);
+  const value =
+    localX < 0 ||
+    localX >= texture.image.width ||
+    localY < 0 ||
+    localY >= texture.image.height
+      ? NaN
+      : data[localY * texture.image.width + localX];
   const pixelAngles = grid.healpixToLonLat(pixelIndices);
 
   const isMissing = !Number.isFinite(value) || value === HEALPIX_UNSEEN;
@@ -706,20 +756,7 @@ onBeforeUnmount(() => {
   terminateHealpixWorker();
   terminateGridDataWorker();
   for (let ipix = 0; ipix < HEALPIX_NUMCHUNKS; ++ipix) {
-    const mesh = mainMeshes[ipix];
-    if (!mesh) {
-      continue;
-    }
-    mesh.geometry.dispose();
-    const mat = mesh.material as THREE.ShaderMaterial;
-    if (mat) {
-      if (mat.uniforms?.data?.value?.dispose) {
-        mat.uniforms.data.value.dispose();
-      }
-      mat.dispose();
-    }
-    getScene()?.remove(mesh);
-    mainMeshes[ipix] = undefined;
+    disposeHealpixMesh(ipix);
   }
 });
 

@@ -100,12 +100,33 @@ export function buildHealpixGeometry(
   };
 }
 
-export function buildHealpixTexture(
-  data: Float32Array,
-  batchIndex: number,
-  nside: number,
-  cellIndex?: Map<number, number>
-) {
+// A face-local rectangle, normalized to [0, 1] across the whole face, that the
+// texture covers. Lets the shader map a full-face UV onto a texture that only
+// covers the (small) region a regional/sparse dataset actually has data for.
+export type THealpixDataRect = {
+  u: number;
+  v: number;
+  width: number;
+  height: number;
+};
+
+export function decodeHealpixFaceXY(pixel: number) {
+  let x = 0;
+  let y = 0;
+  for (let bit = 1; pixel > 0; bit *= 2) {
+    x += (pixel % 2) * bit;
+    y += (Math.floor(pixel / 2) % 2) * bit;
+    pixel = Math.floor(pixel / 4);
+  }
+  return { x, y };
+}
+
+export function getHealpixTextureIndex(pixel: number, nside: number) {
+  const { x, y } = decodeHealpixFaceXY(pixel);
+  return y * nside + x;
+}
+
+function buildDenseHealpixTexture(data: Float32Array, nside: number) {
   const dataValues = new Float32Array(nside * nside);
   // Interleave each axis separately: O(nside) lookup storage instead of O(nside²).
   const spread = new Uint32Array(nside);
@@ -116,10 +137,64 @@ export function buildHealpixTexture(
   let max = Number.NEGATIVE_INFINITY;
   for (let index = 0; index < dataValues.length; index++) {
     const pixel = spread[index % nside] + spread[Math.floor(index / nside)] * 2;
-    const cell = batchIndex * dataValues.length + pixel;
-    const inputIndex = cellIndex ? cellIndex.get(cell) : pixel;
-    const value = inputIndex === undefined ? NaN : data[inputIndex];
+    const value = data[pixel];
     dataValues[index] = value;
+    if (Number.isFinite(value)) {
+      min = Math.min(min, value);
+      max = Math.max(max, value);
+    }
+  }
+  if (min === Number.POSITIVE_INFINITY) {
+    min = max = NaN;
+  }
+  return {
+    dataValues,
+    width: nside,
+    height: nside,
+    dataRect: { u: 0, v: 0, width: 1, height: 1 } as THealpixDataRect,
+    histogramSummary: buildHistogramSummary(dataValues, min, max),
+  };
+}
+
+function getFaceCellBBox(cells: number[], faceOffset: number, faceEnd: number) {
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = -1;
+  let maxY = -1;
+  for (const cell of cells) {
+    if (cell < faceOffset || cell >= faceEnd) {
+      continue;
+    }
+    const { x, y } = decodeHealpixFaceXY(cell - faceOffset);
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+  }
+  return maxX < minX ? null : { minX, minY, maxX, maxY };
+}
+
+function fillFaceBBoxTexture(
+  data: Float32Array,
+  cells: number[],
+  faceOffset: number,
+  faceEnd: number,
+  bbox: { minX: number; minY: number },
+  width: number,
+  height: number
+) {
+  const { minX, minY } = bbox;
+  const dataValues = new Float32Array(width * height).fill(NaN);
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+  for (let index = 0; index < cells.length; index++) {
+    const cell = cells[index];
+    if (cell < faceOffset || cell >= faceEnd) {
+      continue;
+    }
+    const { x, y } = decodeHealpixFaceXY(cell - faceOffset);
+    const value = data[index];
+    dataValues[(y - minY) * width + (x - minX)] = value;
     if (Number.isFinite(value)) {
       min = Math.min(min, value);
       max = Math.max(max, value);
@@ -134,15 +209,64 @@ export function buildHealpixTexture(
   };
 }
 
-export function getHealpixTextureIndex(pixel: number, nside: number) {
-  let x = 0;
-  let y = 0;
-  for (let bit = 1; pixel > 0; bit *= 2) {
-    x += (pixel % 2) * bit;
-    y += (Math.floor(pixel / 2) % 2) * bit;
-    pixel = Math.floor(pixel / 4);
+// A regional/sparse dataset (a "cell" coordinate naming the actual pixels)
+// typically covers only a tiny fraction of a face, especially at deep levels
+// where nside² is far too large to allocate for the whole face. Size the
+// texture to the bounding box of the cells actually present instead.
+function buildSparseHealpixTexture(
+  data: Float32Array,
+  batchIndex: number,
+  nside: number,
+  cells: number[]
+) {
+  const faceOffset = batchIndex * nside * nside;
+  const faceEnd = faceOffset + nside * nside;
+  const bbox = getFaceCellBBox(cells, faceOffset, faceEnd);
+  if (!bbox) {
+    // None of the cells fall in this face.
+    return {
+      dataValues: new Float32Array(0),
+      width: 0,
+      height: 0,
+      dataRect: { u: 0, v: 0, width: 0, height: 0 } as THealpixDataRect,
+      histogramSummary: buildHistogramSummary(new Float32Array(0), NaN, NaN),
+    };
   }
-  return y * nside + x;
+  const { minX, minY, maxX, maxY } = bbox;
+  const width = maxX - minX + 1;
+  const height = maxY - minY + 1;
+  const { dataValues, histogramSummary } = fillFaceBBoxTexture(
+    data,
+    cells,
+    faceOffset,
+    faceEnd,
+    bbox,
+    width,
+    height
+  );
+  return {
+    dataValues,
+    width,
+    height,
+    dataRect: {
+      u: minX / nside,
+      v: minY / nside,
+      width: width / nside,
+      height: height / nside,
+    } as THealpixDataRect,
+    histogramSummary,
+  };
+}
+
+export function buildHealpixTexture(
+  data: Float32Array,
+  batchIndex: number,
+  nside: number,
+  cells?: number[]
+) {
+  return cells
+    ? buildSparseHealpixTexture(data, batchIndex, nside, cells)
+    : buildDenseHealpixTexture(data, nside);
 }
 
 export function getHealpixFaceRange(
