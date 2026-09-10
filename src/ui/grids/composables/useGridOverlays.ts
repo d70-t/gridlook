@@ -52,13 +52,13 @@ type TOverlayLineStyle = {
 
 const coastStyle: TOverlayLineStyle = {
   color: "#ffffff",
-  radius: 1.002,
+  radius: 1,
   zOffset: 0.01,
 } as const;
 
 const graticuleStyle: TOverlayLineStyle = {
   color: "#888888",
-  radius: 1.002,
+  radius: 1,
   zOffset: 0.01,
 } as const;
 

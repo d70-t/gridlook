@@ -1,3 +1,4 @@
+import { useEventListener } from "@vueuse/core";
 import * as THREE from "three";
 import { afterEach, expect, it, vi } from "vitest";
 import { computed, effectScope, ref } from "vue";
@@ -48,6 +49,103 @@ const { EARTH_RADIUS_METERS, useGridCameraState } =
   await import("@/ui/grids/composables/useGridCameraState.ts");
 const { useGridScene } = await import("@/ui/grids/composables/useGridScene.ts");
 
+function setupRegionalScene(
+  saved: { alt?: string; lat?: string; lon?: string; flat?: boolean } = {}
+) {
+  vi.useFakeTimers();
+  vi.stubGlobal("window", { innerWidth: 800, innerHeight: 600 });
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) =>
+    setTimeout(() => callback(performance.now()), 16)
+  );
+  vi.stubGlobal("cancelAnimationFrame", clearTimeout);
+  setActivePinia(createPinia());
+  const params = useUrlParameterStore();
+  params.paramCameraAlt = saved.alt;
+  params.paramLat = saved.lat;
+  params.paramLon = saved.lon;
+  const scope = effectScope();
+  const center = ref({ lat: 0, lon: 0 });
+  const grid = scope.run(() =>
+    useGridScene({
+      projectionHelper: computed(
+        () =>
+          new ProjectionHelper(
+            saved.flat
+              ? PROJECTION_TYPES.EQUIRECTANGULAR
+              : PROJECTION_TYPES.NEARSIDE_PERSPECTIVE,
+            center.value
+          )
+      ),
+      projectionCenter: center,
+      controlPanelVisible: ref(false),
+      cameraState: useGridCameraState(),
+    })
+  )!;
+  mounted.forEach((callback) => callback());
+  grid.box.value = {
+    getBoundingClientRect: () => ({ width: 400, height: 800 }),
+  } as HTMLDivElement;
+  const geometry = new THREE.BufferGeometry().setAttribute(
+    "latLon",
+    new THREE.Float32BufferAttribute([49, 9, 49, 11, 51, 9, 51, 11], 2)
+  );
+  return {
+    grid,
+    center,
+    params,
+    scope,
+    mesh: new THREE.Mesh(geometry),
+    camera: grid.getCamera()!,
+  };
+}
+
+it("fits a fresh dataset after its default camera was saved during loading", async () => {
+  const { grid, center, params, scope, mesh, camera } = setupRegionalScene();
+  const initialDistance = camera.position.length();
+  const defaultAltitude = params.paramCameraAlt;
+  expect(defaultAltitude).toBeDefined();
+  await vi.advanceTimersByTimeAsync(2000);
+  // Coordinate-only bounds can arrive before any render mesh or texture exists.
+  grid.fitCameraToDataset([{ geometry: mesh.geometry }]);
+  expect(params.paramCameraAlt).not.toBe(defaultAltitude);
+  expect(camera.position.length()).toBeLessThan(initialDistance);
+  expect(camera.aspect).toBe(0.5);
+  expect(center.value.lat).toBeCloseTo(50, 1);
+  expect(center.value.lon).toBeCloseTo(10, 1);
+  expect(Number(params.paramCameraAlt)).toBeCloseTo(
+    (camera.position.length() - 1) * EARTH_RADIUS_METERS,
+    0
+  );
+  camera.position.setLength(5);
+  grid.fitCameraToDataset([mesh]);
+  expect(camera.position.length()).toBeCloseTo(5);
+  scope.stop();
+});
+
+it.each([{ alt: "1000000" }, { lat: "0" }, { lon: "0" }, { flat: true }])(
+  "preserves saved views and flat projections (%j)",
+  (saved) => {
+    const { grid, scope, mesh, camera } = setupRegionalScene(saved);
+    const position = camera.position.clone();
+    grid.fitCameraToDataset([mesh]);
+    expect(camera.position).toEqual(position);
+    scope.stop();
+  }
+);
+
+it("does not replace a camera the user zoomed while data was loading", () => {
+  vi.mocked(useEventListener).mockClear();
+  const { grid, scope, mesh, camera } = setupRegionalScene();
+  const wheelListener = vi
+    .mocked(useEventListener)
+    .mock.calls.find((args) => args[1] === "wheel")![2] as () => void;
+  wheelListener();
+  const position = camera.position.clone();
+  grid.fitCameraToDataset([mesh]);
+  expect(camera.position).toEqual(position);
+  scope.stop();
+});
+
 afterEach(() => {
   unmounted.splice(0).forEach((callback) => callback());
   mounted.length = 0;
@@ -55,9 +153,15 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it.each([4, 16])(
-  "saves the closest altitude while layer animation continues (%i ms frames)",
-  async (frameDuration) => {
+it.each([
+  { frameDuration: 4, center: { lat: 0, lon: 0 } },
+  { frameDuration: 16, center: { lat: 0, lon: 0 } },
+  { frameDuration: 16, center: { lat: 35, lon: 139 } },
+  { frameDuration: 16, center: { lat: 35, lon: 139 }, stopLayer: true },
+])(
+  "saves the closest altitude ($frameDuration ms, $center, stopLayer=$stopLayer)",
+  // eslint-disable-next-line max-lines-per-function
+  async ({ frameDuration, center, stopLayer }) => {
     vi.useFakeTimers();
     vi.stubGlobal("window", { innerWidth: 800, innerHeight: 600 });
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) =>
@@ -71,12 +175,9 @@ it.each([4, 16])(
       useGridScene({
         projectionHelper: computed(
           () =>
-            new ProjectionHelper(PROJECTION_TYPES.NEARSIDE_PERSPECTIVE, {
-              lat: 0,
-              lon: 0,
-            })
+            new ProjectionHelper(PROJECTION_TYPES.NEARSIDE_PERSPECTIVE, center)
         ),
-        projectionCenter: ref({ lat: 0, lon: 0 }),
+        projectionCenter: ref(center),
         controlPanelVisible: ref(false),
         cameraState,
       })
@@ -87,16 +188,30 @@ it.each([4, 16])(
     camera.position.setLength(0.5);
     const animateLayer = vi.fn();
     const stopAnimation = grid.registerAnimationCallback(animateLayer);
+    if (stopLayer) {
+      stopAnimation();
+    }
 
     try {
       await vi.advanceTimersByTimeAsync(1200);
       expect(useUrlParameterStore().paramCameraAlt).not.toBe(previousAltitude);
       expect(useUrlParameterStore().paramCameraAlt).toBe(
-        String(Math.round(0.12 * EARTH_RADIUS_METERS))
+        String(Math.round(0.001 * EARTH_RADIUS_METERS))
       );
+      expect(camera.near).toBeCloseTo(0.0005);
+      const surfacePoint = camera.position.clone().normalize();
+      camera.updateMatrixWorld();
+      const surfaceDepth = surfacePoint.project(camera).z;
+      expect(surfaceDepth).toBeGreaterThan(-1);
+      expect(surfaceDepth).toBeLessThan(1);
       const frameCount = animateLayer.mock.calls.length;
       await vi.advanceTimersByTimeAsync(100);
-      expect(animateLayer.mock.calls.length).toBeGreaterThan(frameCount);
+      if (stopLayer) {
+        expect(animateLayer.mock.calls.length).toBe(frameCount);
+        expect(vi.getTimerCount()).toBe(0);
+      } else {
+        expect(animateLayer.mock.calls.length).toBeGreaterThan(frameCount);
+      }
     } finally {
       stopAnimation();
       scope.stop();

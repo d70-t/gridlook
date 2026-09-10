@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 
 import {
   buildHealpixTexture,
+  getHealpixFaceDataRect,
   getHealpixFaceRange,
   getHealpixTextureIndex,
 } from "@/lib/grids/healpixCalculations.ts";
@@ -34,6 +35,23 @@ it("reads shuffled sparse cells from the correct face and skips empty faces", ()
     end: 1,
     cells: [191],
   });
+});
+
+it("derives the same regional extent before and after loading face values", () => {
+  const cells = [191, 4, 0];
+  const values = new Float32Array([3, 2, 1]);
+  expect(getHealpixFaceDataRect(0, 4, cells)).toEqual({
+    u: 0,
+    v: 0,
+    width: 0.75,
+    height: 0.25,
+  });
+  expect(getHealpixFaceDataRect(1, 4, cells)).toBeNull();
+  for (const face of [0, 11]) {
+    expect(getHealpixFaceDataRect(face, 4, cells)).toEqual(
+      buildHealpixTexture(values, face, 4, cells).dataRect
+    );
+  }
 });
 
 it("uses texture storage for exact nested-pixel hover values", () => {

@@ -57,6 +57,7 @@ const {
   makeSnapshot,
   toggleRotate,
   applyCameraPreset,
+  fitCameraToDataset,
   getDataVar,
   fetchDimensionDetails,
   updateLandSeaMask,
@@ -292,6 +293,7 @@ async function fetchAndRenderData(
 
   // Set projection uniforms on all meshes after grid creation
   updateMeshProjectionUniforms();
+  fitCameraToDataset(meshes);
 
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
 

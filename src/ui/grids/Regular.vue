@@ -80,6 +80,7 @@ const {
   makeSnapshot,
   toggleRotate,
   applyCameraPreset,
+  fitCameraToDataset,
   getDataVar,
   fetchDimensionDetails,
   updateLandSeaMask,
@@ -596,6 +597,7 @@ async function makeGeometry() {
       applyBatchGeometry(batchIndex, geometry);
     }
     updateMeshProjectionUniforms();
+    fitCameraToDataset(meshes);
   } catch (error) {
     logError(error, "Could not fetch grid");
   }

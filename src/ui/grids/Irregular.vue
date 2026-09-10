@@ -56,6 +56,7 @@ const {
   makeSnapshot,
   toggleRotate,
   applyCameraPreset,
+  fitCameraToDataset,
   getDataVar,
   fetchDimensionDetails,
   registerUpdateLOD,
@@ -295,6 +296,7 @@ async function fetchAndRenderData(
     }
   );
   updatePointsProjectionUniforms();
+  fitCameraToDataset(points);
   updateLOD();
   setHoverLookupFromIndex(
     createSerializedGeoSampleIndex(result.hoverIndexData),

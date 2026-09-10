@@ -12,6 +12,7 @@ attribute vec2 segmentOtherLatLon;
 
 varying float vHidden;
 varying vec2 vProjectedXY;
+varying vec3 vGlobePosition;
 
 bool isInvalidProjection(vec3 projected) {
   return is_nan(projected.x) || is_nan(projected.y) || is_nan(projected.z);
@@ -69,6 +70,7 @@ void main() {
   }
 
   vProjectedXY = projected.xy;
+  vGlobePosition = projected;
   projected.z += zOffset;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(projected, 1.0);
 }

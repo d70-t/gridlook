@@ -24,6 +24,7 @@ attribute vec3 pathInfo;
 attribute float wrapDirection;
 
 varying float vTrailAlpha;
+varying vec3 vGlobePosition;
 
 vec4 readPathPoint(float pointIndex) {
   float row = floor(
@@ -334,6 +335,7 @@ void main() {
       pathPoint.w
     : 0.0;
 
+  vGlobePosition = projected;
   projected.z += layerDepth;
 
   gl_Position =
