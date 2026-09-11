@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.6.0](https://github.com/d70-t/gridlook/compare/v1.5.0...v1.6.0) (2026-09-11)
+
+
+### Features
+
+* local zarr support ([eccbc49](https://github.com/d70-t/gridlook/commit/eccbc4924bf5c2c83e26e2c9dd42253a0dd484e5))
+* Play button for other dimensions than time ([31e42cc](https://github.com/d70-t/gridlook/commit/31e42ccf0d16d62e3542ae8cd5f5a9875adb16ab))
+
+
+### Bug Fixes
+
+* camera zoom gets closer to the surface now ([4b0c5ac](https://github.com/d70-t/gridlook/commit/4b0c5acda6de4e9fdcd723bf82fbba8eb3f267ef))
+* camera zoom gets closer to the surface now ([0fee12b](https://github.com/d70-t/gridlook/commit/0fee12ba09c6538a2df2c163797e03f1dfb52618))
+* healpix level 13 works with chrome now ([62db9b6](https://github.com/d70-t/gridlook/commit/62db9b61c1c0eb4f4640a8b4edb695e54ce25f4a))
+* **ui:** Layer and Colormap-Selects have readable texts in dark mode again ([4df68c5](https://github.com/d70-t/gridlook/commit/4df68c5aed0dc0d17caffddd036d3917fe27173a))
+* zoom-level gets updated on closest position again ([a79dc82](https://github.com/d70-t/gridlook/commit/a79dc82ddca94f39fd3a6209c25427b6c3951eb5))
+
 ## [1.5.0](https://github.com/d70-t/gridlook/compare/v1.4.1...v1.5.0) (2026-09-09)
 
 
