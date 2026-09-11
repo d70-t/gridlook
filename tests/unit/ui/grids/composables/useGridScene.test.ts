@@ -45,6 +45,7 @@ vi.stubGlobal("localStorage", { getItem: () => null });
 
 const { createPinia, setActivePinia } = await import("pinia");
 const { useUrlParameterStore } = await import("@/store/paramStore.ts");
+const { useGlobeControlStore } = await import("@/store/store.ts");
 const { ProjectionHelper, PROJECTION_TYPES } =
   await import("@/lib/projection/projectionUtils.ts");
 const { EARTH_RADIUS_METERS, useGridCameraState } =
@@ -152,6 +153,40 @@ it("does not replace a camera the user zoomed while data was loading", () => {
   const position = camera.position.clone();
   grid.fitCameraToDataset([mesh]);
   expect(camera.position).toEqual(position);
+  scope.stop();
+});
+
+it("updates the distance scale with the picker disabled and clears it on mouse leave", () => {
+  vi.mocked(useEventListener).mockClear();
+  const { grid, scope, camera } = setupRegionalScene({ flat: true });
+  const store = useGlobeControlStore();
+  grid.canvas.value = {
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
+  } as HTMLCanvasElement;
+  grid.applyCameraPreset({ position: [0, 0, 5], quaternion: [0, 0, 0, 1] });
+  camera.updateMatrixWorld();
+  const move = vi
+    .mocked(useEventListener)
+    .mock.calls.find((args) => args[1] === "mousemove")![2] as (
+    event: MouseEvent
+  ) => void;
+  const leave = vi
+    .mocked(useEventListener)
+    .mock.calls.find((args) => args[1] === "mouseleave")![2] as () => void;
+  move({ clientX: 400, clientY: 300 } as MouseEvent);
+  expect(store.hoverEnabled).toBe(false);
+  expect(grid.hoveredGeoPoint.value).toBeNull();
+  const initial = store.distanceScale!;
+  expect(initial).not.toBeNull();
+  camera.position.z /= 2;
+  camera.updateMatrixWorld();
+  grid.redraw();
+  const zoomed = store.distanceScale!;
+  expect(zoomed.distanceMeters / zoomed.widthPx).toBeCloseTo(
+    initial.distanceMeters / initial.widthPx / 2
+  );
+  leave();
+  expect(store.distanceScale).toBeNull();
   scope.stop();
 });
 

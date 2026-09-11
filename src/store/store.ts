@@ -8,6 +8,7 @@ import {
   LAND_SEA_MASK_MODES,
   type TLandSeaMaskMode,
 } from "@/lib/layers/landSeaMask.ts";
+import type { TDistanceScale } from "@/lib/projection/distanceScale.ts";
 import {
   PROJECTION_TYPES,
   type TProjectionCenter,
@@ -201,6 +202,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
       isRotating: false,
       hoverEnabled: false,
       hoveredGridPoint: undefined as THoveredGridPoint | undefined,
+      distanceScale: null as TDistanceScale | null,
       catalogUrl: undefined as string | undefined,
       catalogData: undefined as TCatalog | undefined,
       // ── Live datasets ──────────────────────────────────────────────
