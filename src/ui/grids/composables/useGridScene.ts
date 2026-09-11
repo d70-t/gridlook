@@ -37,6 +37,7 @@ import {
   useSurfaceZoom,
 } from "@/lib/camera/OrbitControlsAddOn.ts";
 import { getRegionalCameraPosition } from "@/lib/camera/regionalCamera.ts";
+import { getDistanceScale } from "@/lib/projection/distanceScale.ts";
 import {
   isAzimuthalProjectionType,
   MERCATOR_LAT_LIMIT,
@@ -224,7 +225,22 @@ export function useGridScene(options: UseGridSceneOptions) {
       }
     }
     getRenderer()?.render(getScene()!, getCamera()!);
+    refreshDistanceScale();
     return controlsUpdated;
+  }
+
+  function refreshDistanceScale() {
+    store.distanceScale =
+      lastPointerPosition && camera && canvas.value
+        ? getDistanceScale(
+            camera,
+            projectionHelper.value,
+            canvas.value.getBoundingClientRect(),
+            lastPointerPosition.clientX,
+            lastPointerPosition.clientY,
+            EARTH_RADIUS_METERS
+          )
+        : null;
   }
 
   function invertFlatProjection(intersection: THREE.Intersection) {
@@ -1136,10 +1152,8 @@ export function useGridScene(options: UseGridSceneOptions) {
   }
 
   function updateHoverPosition(clientX: number, clientY: number) {
-    if (!isHoverActive()) {
-      return;
-    }
     lastPointerPosition = { clientX, clientY };
+    refreshDistanceScale();
     refreshHover();
   }
 
@@ -1206,6 +1220,7 @@ export function useGridScene(options: UseGridSceneOptions) {
       () => {
         lastPointerPosition = null;
         hoveredGeoPoint.value = null;
+        store.distanceScale = null;
       },
       { passive: true }
     );
@@ -1346,6 +1361,7 @@ export function useGridScene(options: UseGridSceneOptions) {
   useResizeObserver(box, onCanvasResize);
 
   onBeforeUnmount(() => {
+    store.distanceScale = null;
     if (frameId.value) {
       cancelAnimationFrame(frameId.value);
       frameId.value = 0;
@@ -1436,6 +1452,7 @@ export function useGridScene(options: UseGridSceneOptions) {
   watch(
     [() => projectionHelper.value.type, () => projectionCenter.value],
     () => {
+      refreshDistanceScale();
       refreshHover();
     },
     { deep: true }
