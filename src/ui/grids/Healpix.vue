@@ -1,4 +1,6 @@
 <script lang="ts" setup>
+import "@/utils/disposablePolyfill.ts";
+
 import * as healpixGeo from "healpix-geo";
 import { storeToRefs } from "pinia";
 import * as THREE from "three";

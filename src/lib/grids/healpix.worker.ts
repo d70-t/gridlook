@@ -1,5 +1,7 @@
 /// <reference lib="webworker" />
 
+import "@/utils/disposablePolyfill.ts";
+
 import { GridGeometryWorkerMessageType } from "./gridGeometryWorkerProtocol.ts";
 import {
   buildHealpixGeometry,
