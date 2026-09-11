@@ -110,6 +110,31 @@ export type THealpixDataRect = {
   height: number;
 };
 
+export function buildHealpixRegionCoordinates(
+  grid: Grid,
+  faceIndex: number,
+  rect: THealpixDataRect
+) {
+  using faceGrid = grid.replace({ level: 0, scheme: "nested" });
+  // Sample the curved rectangle at 16 subdivisions per axis;
+  // increase this if tighter framing than the camera's 5% margin is needed.
+  const subdivisions = 16;
+  const coordinates = new Float32Array((subdivisions + 1) ** 2 * 2);
+  let offset = 0;
+  for (let i = 0; i <= subdivisions; i++) {
+    for (let j = 0; j <= subdivisions; j++) {
+      using point = faceGrid.vertex(
+        BigInt(faceIndex),
+        rect.u + (rect.width * i) / subdivisions,
+        rect.v + (rect.height * j) / subdivisions
+      );
+      coordinates[offset++] = point.lat;
+      coordinates[offset++] = point.lon;
+    }
+  }
+  return coordinates;
+}
+
 export function decodeHealpixFaceXY(pixel: number) {
   let x = 0;
   let y = 0;
@@ -174,6 +199,23 @@ function getFaceCellBBox(cells: number[], faceOffset: number, faceEnd: number) {
   return maxX < minX ? null : { minX, minY, maxX, maxY };
 }
 
+export function getHealpixFaceDataRect(
+  faceIndex: number,
+  nside: number,
+  cells: number[]
+): THealpixDataRect | null {
+  const faceOffset = faceIndex * nside * nside;
+  const bbox = getFaceCellBBox(cells, faceOffset, faceOffset + nside * nside);
+  return bbox
+    ? {
+        u: bbox.minX / nside,
+        v: bbox.minY / nside,
+        width: (bbox.maxX - bbox.minX + 1) / nside,
+        height: (bbox.maxY - bbox.minY + 1) / nside,
+      }
+    : null;
+}
+
 function fillFaceBBoxTexture(
   data: Float32Array,
   cells: number[],
@@ -221,8 +263,8 @@ function buildSparseHealpixTexture(
 ) {
   const faceOffset = batchIndex * nside * nside;
   const faceEnd = faceOffset + nside * nside;
-  const bbox = getFaceCellBBox(cells, faceOffset, faceEnd);
-  if (!bbox) {
+  const dataRect = getHealpixFaceDataRect(batchIndex, nside, cells);
+  if (!dataRect) {
     // None of the cells fall in this face.
     return {
       dataValues: new Float32Array(0),
@@ -232,9 +274,9 @@ function buildSparseHealpixTexture(
       histogramSummary: buildHistogramSummary(new Float32Array(0), NaN, NaN),
     };
   }
-  const { minX, minY, maxX, maxY } = bbox;
-  const width = maxX - minX + 1;
-  const height = maxY - minY + 1;
+  const bbox = { minX: dataRect.u * nside, minY: dataRect.v * nside };
+  const width = dataRect.width * nside;
+  const height = dataRect.height * nside;
   const { dataValues, histogramSummary } = fillFaceBBoxTexture(
     data,
     cells,
@@ -248,12 +290,7 @@ function buildSparseHealpixTexture(
     dataValues,
     width,
     height,
-    dataRect: {
-      u: minX / nside,
-      v: minY / nside,
-      width: width / nside,
-      height: height / nside,
-    } as THealpixDataRect,
+    dataRect,
     histogramSummary,
   };
 }
@@ -279,7 +316,7 @@ export function getHealpixFaceRange(
   if (!cells) {
     return { start: pixelStart, end: pixelEnd, cells };
   }
-  // ponytail: 12 scans avoid a full-grid map; index ranges if sparse scans become expensive.
+  // 12 scans avoid a full-grid map; index ranges if sparse scans become expensive.
   let start = cells.length;
   let end = 0;
   for (let index = 0; index < cells.length; index++) {

@@ -61,6 +61,7 @@ const {
   makeSnapshot,
   toggleRotate,
   applyCameraPreset,
+  fitCameraToDataset,
   getDataVar,
   fetchDimensionDetails,
   updateLandSeaMask,
@@ -239,6 +240,7 @@ async function buildGridInWorker(
     }
   );
   updateMeshProjectionUniforms();
+  fitCameraToDataset(meshes);
   return {
     hoverIndexData: result.hoverIndexData,
     latitudesData,

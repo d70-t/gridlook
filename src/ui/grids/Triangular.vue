@@ -58,6 +58,7 @@ const {
   makeSnapshot,
   toggleRotate,
   applyCameraPreset,
+  fitCameraToDataset,
   fetchDimensionDetails,
   getDataVar,
   updateLandSeaMask,
@@ -213,6 +214,7 @@ async function fetchGrid() {
       }
     );
     updateMeshProjectionUniforms();
+    fitCameraToDataset(meshes);
     redraw();
   } catch (error) {
     logError(error, "Could not fetch grid");

@@ -47,9 +47,8 @@ export const TextureLayerSampling = {
 export type TTextureLayerSampling =
   (typeof TextureLayerSampling)[keyof typeof TextureLayerSampling];
 
-// All equirect layers share the coastline radius so there is no parallax
-// drift when the camera orbits; layering is handled purely via renderOrder.
-const GLOBE_LAYER_RADIUS = 1.003;
+// Surface overlays use the data radius; renderOrder controls their stacking.
+const GLOBE_LAYER_RADIUS = 1;
 const GRID_RESOLUTION = { latSegments: 180, lonSegments: 360 };
 export const GLOBAL_TEXTURE_BOUNDS: TGeoBounds = {
   west: -180,

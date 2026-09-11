@@ -1,4 +1,6 @@
 <script lang="ts" setup>
+import "@/utils/disposablePolyfill.ts";
+
 import * as healpixGeo from "healpix-geo";
 import { storeToRefs } from "pinia";
 import * as THREE from "three";
@@ -31,7 +33,9 @@ import {
 } from "@/lib/grids/gridDataWorkerClient.ts";
 import {
   HEALPIX_NUMCHUNKS,
+  buildHealpixRegionCoordinates,
   decodeHealpixFaceXY,
+  getHealpixFaceDataRect,
   getHealpixFaceRange,
   type THealpixDataRect,
 } from "@/lib/grids/healpixCalculations.ts";
@@ -96,6 +100,7 @@ const {
   makeSnapshot,
   toggleRotate,
   applyCameraPreset,
+  fitCameraToDataset,
   getDataVar,
   fetchDimensionDetails,
   updateLandSeaMask,
@@ -346,12 +351,12 @@ function fetchHealpixVariableData(
   });
 }
 
-function createGeometry(
-  positionValues: Float32Array,
-  uv: Float32Array,
-  latLonValues: Float32Array,
-  indices: Uint32Array
-) {
+function createGeometry({
+  positionValues,
+  uv,
+  latLonValues,
+  indices,
+}: THealpixBatch) {
   const geometry = new THREE.InstancedBufferGeometry();
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   geometry.setAttribute(
@@ -365,6 +370,29 @@ function createGeometry(
     new THREE.Float32BufferAttribute(latLonValues, 2)
   );
   return createTriangleWrapProjectionGeometry(geometry);
+}
+
+function fitCameraToCells(grid: healpixGeo.Grid, cells: number[] | undefined) {
+  if (!cells || disposed) {
+    return;
+  }
+  const regions = [];
+  for (let face = 0; face < HEALPIX_NUMCHUNKS; face++) {
+    const rect = getHealpixFaceDataRect(face, grid.nside, cells);
+    if (rect) {
+      regions.push({
+        geometry: new THREE.BufferGeometry().setAttribute(
+          "latLon",
+          new THREE.BufferAttribute(
+            buildHealpixRegionCoordinates(grid, face, rect),
+            2
+          )
+        ),
+      });
+    }
+  }
+  // Cell coordinates describe the entire cutout before any face data is loaded.
+  fitCameraToDataset(regions);
 }
 
 async function prepareDimensionData(
@@ -561,12 +589,7 @@ function updateHealpixBatch(batch: THealpixBatch) {
     disposeHealpixMesh(batch.batchIndex);
     return;
   }
-  const geometry = createGeometry(
-    batch.positionValues,
-    batch.uv,
-    batch.latLonValues,
-    batch.indices
-  );
+  const geometry = createGeometry(batch);
   let mesh = mainMeshes[batch.batchIndex];
   if (mesh) {
     mesh.geometry.dispose();
@@ -713,9 +736,9 @@ async function fetchAndRenderData(
 ) {
   const grid = unpackGrid();
 
-  const { dimensionRanges, indices } = await prepareDimensionData(datavar);
-
   const cellCoord = await getCells();
+  fitCameraToCells(grid, cellCoord);
+  const { dimensionRanges, indices } = await prepareDimensionData(datavar);
   const result = await processHealpixChunks(datavar, cellCoord, grid, indices);
   if (!result) {
     return;

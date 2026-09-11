@@ -2,6 +2,7 @@ import * as THREE from "three";
 
 import type { TStreamlineVectorField } from "@/lib/data/vectorField.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
+import streamlineFragmentShader from "@/lib/shaders/glsl/streamline.frag.glsl";
 import streamlineVertexShader from "@/lib/shaders/glsl/streamline.vert.glsl";
 import { updateProjectionUniforms } from "@/lib/shaders/gridShaders.ts";
 
@@ -235,10 +236,6 @@ function makeLineMaterial(cache: TPathCache) {
         value: 1,
       },
 
-      layerDepth: {
-        value: 0,
-      },
-
       edgeQuality: {
         value: 1,
       },
@@ -270,22 +267,10 @@ function makeLineMaterial(cache: TPathCache) {
 
     vertexShader: streamlineVertexShader,
 
-    fragmentShader: `
-      uniform vec3 color;
-      uniform float opacity;
-
-      varying float vTrailAlpha;
-
-      void main() {
-        gl_FragColor = vec4(
-          color,
-          opacity * vTrailAlpha
-        );
-      }
-    `,
+    fragmentShader: streamlineFragmentShader,
 
     transparent: true,
-    depthTest: true,
+    depthTest: false,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
   });
@@ -450,11 +435,11 @@ export class StreamlineParticleLayer {
   private updateMaterialProjection() {
     const aboveGrid = this.renderOrder > 0;
 
-    const radius = this.projectionHelper.isFlat ? 1 : aboveGrid ? 1.006 : 0.994;
-
     const material = this.lines.material as THREE.ShaderMaterial;
 
-    updateProjectionUniforms(material, this.projectionHelper, radius);
+    updateProjectionUniforms(material, this.projectionHelper);
+    material.depthTest = false;
+    material.transparent = aboveGrid;
 
     material.uniforms.centerLon.value = this.projectionHelper.center.lon;
 
@@ -475,12 +460,6 @@ export class StreamlineParticleLayer {
       cosCenterLatitude * Math.sin(centerLongitude),
       Math.sin(centerLatitude)
     );
-
-    material.uniforms.layerDepth.value = this.projectionHelper.isFlat
-      ? aboveGrid
-        ? 0.025
-        : -0.025
-      : 0;
   }
 
   dispose() {

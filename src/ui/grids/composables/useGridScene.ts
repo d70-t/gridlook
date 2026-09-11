@@ -29,9 +29,14 @@ import { useGridSnapshot } from "./useGridSnapshot.ts";
 import {
   CAMERA_VERTICAL_FOV_DEGREES,
   getCameraDistanceForVerticalSpan,
+  getGlobeMovementScale,
   getVisibleVerticalSpan,
 } from "@/lib/camera/cameraSettings.ts";
-import { handleKeyDown } from "@/lib/camera/OrbitControlsAddOn.ts";
+import {
+  handleKeyDown,
+  useSurfaceZoom,
+} from "@/lib/camera/OrbitControlsAddOn.ts";
+import { getRegionalCameraPosition } from "@/lib/camera/regionalCamera.ts";
 import {
   isAzimuthalProjectionType,
   MERCATOR_LAT_LIMIT,
@@ -79,6 +84,12 @@ export function useGridScene(options: UseGridSceneOptions) {
 
   const store = useGlobeControlStore();
   const urlParameterStore = useUrlParameterStore();
+  let initialRegionalFitPending =
+    !cameraState.decodeCameraFromURL() &&
+    urlParameterStore.paramLat === undefined &&
+    urlParameterStore.paramLon === undefined &&
+    !isDisplayMode.value &&
+    !isPresenterActive.value;
 
   const canvas: Ref<HTMLCanvasElement | undefined> = ref();
   const box: Ref<HTMLDivElement | undefined> = ref();
@@ -96,6 +107,8 @@ export function useGridScene(options: UseGridSceneOptions) {
   let mouseDown = false;
   let wheelActive = false;
   const raycaster = new THREE.Raycaster();
+  const lastRenderedCameraPosition = new THREE.Vector3();
+  const lastRenderedCameraQuaternion = new THREE.Quaternion();
   const hoveredGeoPoint = shallowRef<THoverGeoPoint | null>(null);
   let lastPointerPosition: { clientX: number; clientY: number } | null = null;
   let touchPickStart: { clientX: number; clientY: number } | null = null;
@@ -121,15 +134,11 @@ export function useGridScene(options: UseGridSceneOptions) {
     animationLoop();
   }, WHEEL_END_DELAY_MS);
   const FLAT_CROP_RENDER_ORDER = 5;
-  const FLAT_CROP_Z_OFFSET = 0.06;
   const FLAT_BOUNDARY_STEP_DEGREES = 0.25;
   const TOUCH_PICK_TAP_MAX_DISTANCE_PX = 10;
-  // Overlay layers (coastlines, custom texture layers, streamline particles)
-  // render above the globe surface out to radius 1.006. The globe camera's
-  // near plane (0.1, see configureGlobeProjectionCamera) would clip through
-  // those layers once the camera gets closer than ~1.106, so the zoom floor
-  // needs headroom beyond that to keep them visible.
-  const GLOBE_MIN_CAMERA_DISTANCE = 1.12;
+  // Keep ~6.4 km clearance for the tessellated globe; closer views
+  // need finer surface geometry (or analytic sphere rendering).
+  const GLOBE_MIN_CAMERA_DISTANCE = 1.001;
   let targetOffset = 0;
   let isInMotion = false;
   let updatingProjectionCenterFromCamera = false;
@@ -191,7 +200,29 @@ export function useGridScene(options: UseGridSceneOptions) {
     if (updateLOD) {
       updateLOD();
     }
-    const controlsUpdated = getOrbitControls()?.update() ?? false;
+    getOrbitControls()?.update();
+    // OrbitControls can report movement forever when rounding at minDistance.
+    // Ignore sub-millimetre position noise so settling and URL saves complete.
+    const controlsUpdated = camera
+      ? lastRenderedCameraPosition.distanceToSquared(camera.position) > 1e-20 ||
+        1 - Math.abs(lastRenderedCameraQuaternion.dot(camera.quaternion)) >
+          1e-12
+      : false;
+    if (camera) {
+      lastRenderedCameraPosition.copy(camera.position);
+      lastRenderedCameraQuaternion.copy(camera.quaternion);
+    }
+    if (camera) {
+      const isFlat = projectionHelper.value.isFlat;
+      const altitude = isFlat
+        ? camera.position.z
+        : camera.position.length() - 1;
+      const near = Math.min(isFlat ? 0.005 : 0.1, altitude / 2);
+      if (camera.near !== near) {
+        camera.near = near;
+        camera.updateProjectionMatrix();
+      }
+    }
     getRenderer()?.render(getScene()!, getCamera()!);
     return controlsUpdated;
   }
@@ -485,9 +516,14 @@ export function useGridScene(options: UseGridSceneOptions) {
       scaledHeight
     );
     if (cropGeometry) {
-      const cropSurface = new THREE.Mesh(cropGeometry, backgroundMaterial);
+      const cropMaterial = createBackgroundMaterial();
+      // Draw the crop over the map without moving it toward the camera.
+      cropMaterial.transparent = true;
+      cropMaterial.depthTest = false;
+      cropMaterial.depthWrite = false;
+      const cropSurface = new THREE.Mesh(cropGeometry, cropMaterial);
       cropSurface.renderOrder = FLAT_CROP_RENDER_ORDER;
-      cropSurface.position.z = FLAT_CROP_Z_OFFSET;
+      cropSurface.position.z = -baseSurface.position.z;
       baseSurface.add(cropSurface);
     }
 
@@ -579,7 +615,7 @@ export function useGridScene(options: UseGridSceneOptions) {
       MIDDLE: THREE.MOUSE.DOLLY,
       RIGHT: THREE.MOUSE.ROTATE,
     };
-    controls.minDistance = 0.1;
+    controls.minDistance = 0.001;
     controls.maxDistance = 200;
   }
 
@@ -747,6 +783,7 @@ export function useGridScene(options: UseGridSceneOptions) {
 
   // set the camera from external preset (e.g. presenter sync) and apply to controls
   function applyCameraPreset(data: TCameraState) {
+    initialRegionalFitPending = false;
     const cam = getCamera();
     const controls = getOrbitControls();
     if (!cam || !controls) {
@@ -762,6 +799,40 @@ export function useGridScene(options: UseGridSceneOptions) {
     }
     controls.update();
     cameraState.encodeCameraToURL(cam, projectionHelper.value.isFlat);
+    redraw();
+  }
+
+  function fitCameraToDataset(objects: { geometry: THREE.BufferGeometry }[]) {
+    if (
+      !initialRegionalFitPending ||
+      !camera ||
+      !orbitControls ||
+      !objects.length
+    ) {
+      return;
+    }
+    initialRegionalFitPending = false;
+    if (projectionHelper.value.isFlat) {
+      return;
+    }
+    const rect = box.value?.getBoundingClientRect();
+    if (rect && rect.width > 0 && rect.height > 0) {
+      camera.aspect = rect.width / rect.height;
+    }
+    const position = getRegionalCameraPosition(
+      objects.map((object) => object.geometry),
+      camera
+    );
+    if (!position) {
+      return;
+    }
+    camera.position
+      .copy(position)
+      .setLength(Math.max(position.length(), orbitControls.minDistance));
+    orbitControls.target.set(0, 0, 0);
+    applyCameraTarget(camera, orbitControls);
+    syncProjectionCenterFromCamera(camera);
+    cameraState.encodeCameraToURL(camera, false);
     redraw();
   }
 
@@ -784,6 +855,7 @@ export function useGridScene(options: UseGridSceneOptions) {
     camera.lookAt(center);
 
     orbitControls = new OrbitControls(camera, renderer.domElement);
+    useSurfaceZoom(orbitControls, () => projectionHelper.value.isFlat);
     orbitControls.minDistance = GLOBE_MIN_CAMERA_DISTANCE;
     orbitControls.enablePan = false;
 
@@ -966,7 +1038,9 @@ export function useGridScene(options: UseGridSceneOptions) {
     // apparent zoom instead of changing when the camera lens changes.
     const normalizedDistance =
       getVisibleVerticalSpan(camera.position.length(), camera.fov) / 4;
-    orbitControls.rotateSpeed = Math.min(1, 0.01 + normalizedDistance ** 2);
+    orbitControls.rotateSpeed =
+      Math.min(1, 0.01 + normalizedDistance ** 2) *
+      getGlobeMovementScale(camera.position.length());
   }
 
   function updateFlatProjectionRotation() {
@@ -1040,6 +1114,7 @@ export function useGridScene(options: UseGridSceneOptions) {
   }
 
   function onInteractionStart() {
+    initialRegionalFitPending = false;
     mouseDown = true;
     idleFrameCount = 0;
     setMotionState(true);
@@ -1052,6 +1127,7 @@ export function useGridScene(options: UseGridSceneOptions) {
   }
 
   function onWheelInteraction() {
+    initialRegionalFitPending = false;
     wheelActive = true;
     idleFrameCount = 0;
     setMotionState(true);
@@ -1314,6 +1390,7 @@ export function useGridScene(options: UseGridSceneOptions) {
   watch(
     () => projectionCenter.value,
     () => {
+      initialRegionalFitPending = false;
       if (projectionHelper.value.isFlat || updatingProjectionCenterFromCamera) {
         return;
       }
@@ -1394,6 +1471,7 @@ export function useGridScene(options: UseGridSceneOptions) {
     toggleRotate,
     makeSnapshot,
     applyCameraPreset,
+    fitCameraToDataset,
     registerUpdateLOD,
     registerAnimationCallback,
     updateBaseSurface,

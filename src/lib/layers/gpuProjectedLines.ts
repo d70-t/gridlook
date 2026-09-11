@@ -36,6 +36,8 @@ export function makeGpuProjectedLineMaterial(
     },
     transparent: true,
     depthWrite: false,
+    // The fragment shader hides the far side; renderOrder handles surface layers.
+    depthTest: false,
     vertexShader: gpuProjectedLineVertexShader,
     fragmentShader: gpuProjectedLineFragmentShader,
   });
@@ -53,5 +55,4 @@ export function updateGpuProjectedLineMaterial(
   material.uniforms.centerLat.value = helper.center.lat;
   material.uniforms.projectionRadius.value = options.radius;
   material.uniforms.zOffset.value = options.zOffset;
-  material.depthTest = !helper.isFlat;
 }
