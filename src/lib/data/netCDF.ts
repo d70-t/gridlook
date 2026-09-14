@@ -5,8 +5,6 @@ import {
 } from "@earthyscience/netcdf4-wasm";
 import type * as zarr from "zarrita";
 
-import netCDFWasmPath from "../../../node_modules/@earthyscience/netcdf4-wasm/dist/netcdf4-wasm.wasm?url";
-
 import { ZARR_FORMAT } from "@/lib/types/GlobeTypes.ts";
 
 const NETCDF_DTYPE = {
@@ -123,9 +121,7 @@ function getStride(shape: readonly number[]) {
 }
 
 async function createContext(file: File): Promise<TNetCDFContext> {
-  const dataset = await NetCDF4.fromBlob(file, "r", {
-    wasmPath: netCDFWasmPath,
-  });
+  const dataset = await NetCDF4.fromBlobLazy(file);
   return {
     dataset,
     groups: new Map(),
