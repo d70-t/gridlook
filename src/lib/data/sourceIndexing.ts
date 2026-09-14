@@ -86,6 +86,7 @@ function isValidVariable(
     "vertices",
     "latitude",
     "longitude",
+    "cell_ids",
   ] as const;
 
   if (!Array.isArray(dimensions)) {
