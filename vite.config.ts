@@ -10,7 +10,11 @@ function netCDFWorkerWasm(): Plugin {
     name: "netcdf-worker-wasm",
     enforce: "pre",
     transform(code, id) {
-      if (!id.endsWith("/@earthyscience/netcdf4-wasm/dist/netcdf-worker.js")) {
+      // Vite appends ?worker_file&type=module to development worker requests.
+      const [path] = id.split("?");
+      if (
+        !path.endsWith("/@earthyscience/netcdf4-wasm/dist/netcdf-worker.js")
+      ) {
         return;
       }
       // netcdf4-wasm 0.2.4 ignores wasmPath in its lazy worker.
