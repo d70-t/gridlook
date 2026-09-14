@@ -107,7 +107,7 @@ export function getDistanceScale(
   if (!Number.isFinite(metersPerPixel) || metersPerPixel <= 0) {
     return null;
   }
-  const maxDistance = metersPerPixel * 120;
+  const maxDistance = metersPerPixel * 150;
   const magnitude = 10 ** Math.floor(Math.log10(maxDistance));
   const normalized = maxDistance / magnitude;
   const distanceMeters =

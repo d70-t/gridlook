@@ -4,7 +4,9 @@ import { computed } from "vue";
 
 import { useGlobeControlStore } from "@/store/store.ts";
 
-const { distanceScale } = storeToRefs(useGlobeControlStore());
+const { distanceScale, showDistanceScale } = storeToRefs(
+  useGlobeControlStore()
+);
 const label = computed(() => {
   const meters = distanceScale.value?.distanceMeters ?? 0;
   const value = meters >= 1000 ? meters / 1000 : meters;
@@ -14,12 +16,12 @@ const label = computed(() => {
 
 <template>
   <div
-    v-if="distanceScale"
-    class="distance-scale has-text-white is-size-7"
+    v-if="showDistanceScale && distanceScale"
+    class="distance-scale has-text-white is-size-6"
     role="img"
     :aria-label="`Local horizontal distance scale at cursor: ${label}`"
   >
-    <div>At cursor · {{ label }}</div>
+    <div>{{ label }}</div>
     <div
       class="distance-scale-bar"
       :style="{ width: `${distanceScale.widthPx}px` }"
@@ -34,14 +36,14 @@ const label = computed(() => {
   left: 18px;
   bottom: 18px;
   pointer-events: none;
-  padding: 0.4rem 0.6rem;
+  padding: 0.5rem 0.75rem;
   border-radius: 4px;
   background: rgba(17, 24, 39, 0.85);
   font-variant-numeric: tabular-nums;
 }
 
 .distance-scale-bar {
-  height: 6px;
+  height: 8px;
   border: solid currentColor;
   border-width: 0 1px 2px;
   margin-top: 4px;

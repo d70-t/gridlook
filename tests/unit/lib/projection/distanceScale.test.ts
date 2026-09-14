@@ -49,8 +49,8 @@ it.each(Object.values(PROJECTION_TYPES))(
         : sample(makeCamera(), helper, 30, 155);
     expect(scale).not.toBeNull();
     expect(scale!.distanceMeters).toBeGreaterThan(0);
-    expect(scale!.widthPx).toBeGreaterThanOrEqual(48);
-    expect(scale!.widthPx).toBeLessThanOrEqual(120);
+    expect(scale!.widthPx).toBeGreaterThanOrEqual(60);
+    expect(scale!.widthPx).toBeLessThanOrEqual(150);
   }
 );
 
