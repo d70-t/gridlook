@@ -120,6 +120,37 @@ function searchDimensionsAndCoordinates(
       dimensions.add(ZarrDataManager.resolveVariablePath(variablePath, coord));
     }
   }
+
+  if (typeof variable.attrs.grid_mapping === "string") {
+    for (const name of variable.attrs.grid_mapping.split(/[\s:]+/)) {
+      if (name) {
+        dimensions.add(ZarrDataManager.resolveVariablePath(variablePath, name));
+      }
+    }
+  }
+
+  if (variable.attrs.cf_role === "mesh_topology") {
+    const MESH_TOPOLOGY_VAR_ATTRIBUTES = [
+      "node_coordinates",
+      "face_coordinates",
+      "edge_coordinates",
+      "face_node_connectivity",
+      "edge_node_connectivity",
+      "face_edge_connectivity",
+      "edge_face_connectivity",
+      "face_face_connectivity",
+      "boundary_node_connectivity",
+    ] as const;
+    for (const attribute of MESH_TOPOLOGY_VAR_ATTRIBUTES) {
+      const value = variable.attrs[attribute];
+      if (typeof value !== "string") {
+        continue;
+      }
+      for (const name of value.trim().split(/\s+/)) {
+        dimensions.add(ZarrDataManager.resolveVariablePath(variablePath, name));
+      }
+    }
+  }
 }
 
 function getVariablePathInGroup(path: string, datasetPath: string) {

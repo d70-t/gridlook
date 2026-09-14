@@ -11,6 +11,11 @@ import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
 import {
+  getTriangularMesh,
+  loadTriangularMesh,
+  type TTriangularMesh,
+} from "@/lib/data/triangularMesh.ts";
+import {
   castDataVarToFloat32,
   decodeVariableDataAndGetBounds,
 } from "@/lib/data/variableDecoding.ts";
@@ -51,6 +56,7 @@ const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
 
 const BATCH_SIZE = 3000000;
 let meshes: THREE.Mesh[] = [];
+let triangularMesh: TTriangularMesh | null = null;
 
 const {
   getScene,
@@ -184,22 +190,36 @@ function fetchGridArray(variable: string) {
   });
 }
 
+async function fetchGridGeometry() {
+  triangularMesh = await getTriangularMesh(
+    props.datasources!,
+    varnameSelector.value
+  ).catch(() => null);
+  if (triangularMesh) {
+    return loadTriangularMesh(triangularMesh);
+  }
+  const [vertexOfCell, vertexX, vertexY, vertexZ] = await Promise.all([
+    fetchGridArray("vertex_of_cell"),
+    fetchGridArray("cartesian_x_vertices"),
+    fetchGridArray("cartesian_y_vertices"),
+    fetchGridArray("cartesian_z_vertices"),
+  ]);
+  return {
+    vertexOfCell: vertexOfCell as Int32Array,
+    vertexX: vertexX as Float32Array | Float64Array,
+    vertexY: vertexY as Float32Array | Float64Array,
+    vertexZ: vertexZ as Float32Array | Float64Array,
+  };
+}
+
 async function fetchGrid() {
   try {
-    const [vertexOfCell, vertexX, vertexY, vertexZ] = await Promise.all([
-      fetchGridArray("vertex_of_cell"),
-      fetchGridArray("cartesian_x_vertices"),
-      fetchGridArray("cartesian_y_vertices"),
-      fetchGridArray("cartesian_z_vertices"),
-    ]);
+    const geometry = await fetchGridGeometry();
     cleanupMeshes();
     const helper = projectionHelper.value;
     await buildTriangularGeometry(
       {
-        vertexOfCell: vertexOfCell as Int32Array,
-        vertexX: vertexX as Float32Array | Float64Array,
-        vertexY: vertexY as Float32Array | Float64Array,
-        vertexZ: vertexZ as Float32Array | Float64Array,
+        ...geometry,
         batchSize: BATCH_SIZE,
         projectionType: helper.type,
         projectionCenter: { lat: helper.center.lat, lon: helper.center.lon },
@@ -248,7 +268,11 @@ async function buildDimensionConfig(
       paramDimMinBounds.value,
       paramDimMaxBounds.value,
       dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
-      [datavar.shape.length - 1],
+      [
+        triangularMesh
+          ? dimensionNames.indexOf(triangularMesh.spatialDimension)
+          : datavar.shape.length - 1,
+      ],
       varinfo.value?.dimRanges
     ),
     dimensionNames,
@@ -312,7 +336,9 @@ async function fetchAndRenderData(
     longitudes: Float32Array.from(result.hoverIndexData.longitudes),
     dimensionNames,
     indices,
-    spatialDimensionNames: [dimensionNames.at(-1)!],
+    spatialDimensionNames: [
+      triangularMesh?.spatialDimension ?? dimensionNames.at(-1)!,
+    ],
   });
 }
 

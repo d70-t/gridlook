@@ -46,6 +46,23 @@ it("builds data-only batches for timestep updates", () => {
   expect(batch.dataValues).toEqual(new Float32Array([12, 12, 12]));
 });
 
+it("keeps node values aligned when reversing triangle winding", () => {
+  const grid = buildTriangularGrid(
+    new Int32Array([1, 3, 2]),
+    vertexX,
+    vertexY,
+    vertexZ,
+    true
+  );
+  const data = new Float32Array([10, 20, 30]);
+  expect(
+    buildTriangularDataBatch(data, 0, 1, grid.dataIndices).dataValues
+  ).toEqual(data);
+  const hover = buildTriangularHoverIndexData(grid, data);
+  expect(hover.latitudes).toEqual(new Float64Array([0, 0, 90]));
+  expect(hover.longitudes).toEqual(new Float64Array([0, 90, 0]));
+});
+
 it("builds the shared hover index from cached triangle centroids", () => {
   const hoverIndexData = buildTriangularHoverIndexData(
     buildTestGrid(),

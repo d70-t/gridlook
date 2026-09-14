@@ -14,8 +14,9 @@ type TCoordinateArray = Float32Array | Float64Array;
 
 export type TTriangularGrid = {
   vertices: Float32Array;
-  centroidLatitudes: Float64Array;
-  centroidLongitudes: Float64Array;
+  dataIndices?: Uint32Array;
+  latitudes: Float64Array;
+  longitudes: Float64Array;
 };
 
 function getVertex(
@@ -49,30 +50,30 @@ function writeTriangle(
   vertex1: [number, number, number],
   vertex2: [number, number, number]
 ) {
-  if (
-    shouldFlipCartesianTriangle(
-      vertex0[0],
-      vertex0[1],
-      vertex0[2],
-      vertex1[0],
-      vertex1[1],
-      vertex1[2],
-      vertex2[0],
-      vertex2[1],
-      vertex2[2]
-    )
-  ) {
+  const flipped = shouldFlipCartesianTriangle(
+    vertex0[0],
+    vertex0[1],
+    vertex0[2],
+    vertex1[0],
+    vertex1[1],
+    vertex1[2],
+    vertex2[0],
+    vertex2[1],
+    vertex2[2]
+  );
+  if (flipped) {
     [vertex1, vertex2] = [vertex2, vertex1];
   }
   writeVertex(vertices, triangleIndex, 0, vertex0);
   writeVertex(vertices, triangleIndex, 1, vertex1);
   writeVertex(vertices, triangleIndex, 2, vertex2);
+  return flipped;
 }
 
 function buildTriangleCentroids(vertices: Float32Array) {
   const triangleCount = vertices.length / 9;
-  const centroidLatitudes = new Float64Array(triangleCount);
-  const centroidLongitudes = new Float64Array(triangleCount);
+  const latitudes = new Float64Array(triangleCount);
+  const longitudes = new Float64Array(triangleCount);
   for (let triangleIndex = 0; triangleIndex < triangleCount; triangleIndex++) {
     const offset = triangleIndex * 9;
     const centerX =
@@ -86,17 +87,18 @@ function buildTriangleCentroids(vertices: Float32Array) {
       centerY,
       centerZ
     );
-    centroidLatitudes[triangleIndex] = lat;
-    centroidLongitudes[triangleIndex] = lon;
+    latitudes[triangleIndex] = lat;
+    longitudes[triangleIndex] = lon;
   }
-  return { centroidLatitudes, centroidLongitudes };
+  return { latitudes, longitudes };
 }
 
 export function buildTriangularGrid(
   vertexOfCell: Int32Array,
   vertexX: TCoordinateArray,
   vertexY: TCoordinateArray,
-  vertexZ: TCoordinateArray
+  vertexZ: TCoordinateArray,
+  nodeData = false
 ): TTriangularGrid {
   if (vertexOfCell.length % 3 !== 0) {
     throw new Error("Triangular grid connectivity must contain three rows.");
@@ -106,28 +108,56 @@ export function buildTriangularGrid(
   }
   const triangleCount = vertexOfCell.length / 3;
   const vertices = new Float32Array(triangleCount * 9);
+  const dataIndices = nodeData ? new Uint32Array(triangleCount * 3) : undefined;
+  const vertex = (triangleIndex: number, corner: number) =>
+    getVertex(
+      vertexOfCell[corner * triangleCount + triangleIndex] - 1,
+      vertexX,
+      vertexY,
+      vertexZ
+    );
   for (let triangleIndex = 0; triangleIndex < triangleCount; triangleIndex++) {
-    const vertex0 = getVertex(
-      vertexOfCell[triangleIndex] - 1,
-      vertexX,
-      vertexY,
-      vertexZ
+    const flipped = writeTriangle(
+      vertices,
+      triangleIndex,
+      vertex(triangleIndex, 0),
+      vertex(triangleIndex, 1),
+      vertex(triangleIndex, 2)
     );
-    const vertex1 = getVertex(
-      vertexOfCell[triangleCount + triangleIndex] - 1,
-      vertexX,
-      vertexY,
-      vertexZ
-    );
-    const vertex2 = getVertex(
-      vertexOfCell[triangleCount * 2 + triangleIndex] - 1,
-      vertexX,
-      vertexY,
-      vertexZ
-    );
-    writeTriangle(vertices, triangleIndex, vertex0, vertex1, vertex2);
+    if (dataIndices) {
+      for (let corner = 0; corner < 3; corner++) {
+        const sourceCorner = flipped && corner > 0 ? 3 - corner : corner;
+        dataIndices[triangleIndex * 3 + corner] =
+          vertexOfCell[sourceCorner * triangleCount + triangleIndex] - 1;
+      }
+    }
   }
-  return { vertices, ...buildTriangleCentroids(vertices) };
+  return {
+    vertices,
+    dataIndices,
+    ...(nodeData
+      ? buildNodeCoordinates(vertexX, vertexY, vertexZ)
+      : buildTriangleCentroids(vertices)),
+  };
+}
+
+function buildNodeCoordinates(
+  vertexX: TCoordinateArray,
+  vertexY: TCoordinateArray,
+  vertexZ: TCoordinateArray
+) {
+  const latitudes = new Float64Array(vertexX.length);
+  const longitudes = new Float64Array(vertexX.length);
+  for (let node = 0; node < vertexX.length; node++) {
+    const { lat, lon } = ProjectionHelper.cartesianToLatLon(
+      vertexX[node],
+      vertexY[node],
+      vertexZ[node]
+    );
+    latitudes[node] = lat;
+    longitudes[node] = lon;
+  }
+  return { latitudes, longitudes };
 }
 
 export function getTriangularBatchCount(
@@ -175,16 +205,21 @@ export function buildTriangularGeometryBatch(
 export function buildTriangularDataBatch(
   data: Float32Array,
   batchIndex: number,
-  batchSize: number
+  batchSize: number,
+  dataIndices?: Uint32Array
 ): TGridDataValueBatch {
   const start = batchIndex * batchSize;
-  const end = Math.min(start + batchSize, data.length);
+  const end = Math.min(
+    start + batchSize,
+    dataIndices ? dataIndices.length / 3 : data.length
+  );
   const dataValues = new Float32Array((end - start) * 3);
   for (let cellIndex = start; cellIndex < end; cellIndex++) {
     const offset = (cellIndex - start) * 3;
-    dataValues[offset] = data[cellIndex];
-    dataValues[offset + 1] = data[cellIndex];
-    dataValues[offset + 2] = data[cellIndex];
+    for (let corner = 0; corner < 3; corner++) {
+      dataValues[offset + corner] =
+        data[dataIndices ? dataIndices[cellIndex * 3 + corner] : cellIndex];
+    }
   }
   return { batchIndex, dataValues };
 }
@@ -193,14 +228,14 @@ export function buildTriangularHoverIndexData(
   grid: TTriangularGrid,
   data: Float32Array
 ): TSerializedGeoSampleIndexData {
-  if (data.length !== grid.centroidLatitudes.length) {
+  if (data.length !== grid.latitudes.length) {
     throw new Error(
-      `Triangular grid has ${grid.centroidLatitudes.length} cells but data has ${data.length} values.`
+      `Triangular grid has ${grid.latitudes.length} cells but data has ${data.length} values.`
     );
   }
   return buildSerializedGeoSampleIndexData(
-    grid.centroidLatitudes.slice(),
-    grid.centroidLongitudes.slice(),
+    grid.latitudes.slice(),
+    grid.longitudes.slice(),
     data.slice()
   );
 }
