@@ -40,11 +40,8 @@ function effectiveBlend(c: number): number {
  * Returns a raw d3-geo projection function for the azimuthal hybrid projection.
  * Pass the result to `d3.geoProjection()`.
  */
-export function createAzimuthalHybridRaw(): (
-  lambda: number,
-  phi: number
-) => [number, number] {
-  return (lambda: number, phi: number): [number, number] => {
+export function createAzimuthalHybridRaw() {
+  const forward = (lambda: number, phi: number): [number, number] => {
     const cosPhi = Math.cos(phi);
     const sinPhi = Math.sin(phi);
     const cosLambda = Math.cos(lambda);
@@ -66,4 +63,29 @@ export function createAzimuthalHybridRaw(): (
 
     return [scale * cosPhi * sinLambda, scale * sinPhi];
   };
+  forward.invert = (x: number, y: number): [number, number] => {
+    const rho = Math.hypot(x, y);
+    if (rho === 0) {
+      return [0, 0];
+    }
+    let low = 0;
+    let high = Math.PI;
+    // The radial mapping is monotonic; bisection also handles the blend windows.
+    for (let i = 0; i < 40; i++) {
+      const c = (low + high) / 2;
+      const equalArea = 2 * Math.sin(c / 2);
+      const radius = equalArea + (c - equalArea) * effectiveBlend(c);
+      if (radius < rho) {
+        low = c;
+      } else {
+        high = c;
+      }
+    }
+    const c = (low + high) / 2;
+    return [
+      Math.atan2(x * Math.sin(c), rho * Math.cos(c)),
+      Math.asin(clamp((y * Math.sin(c)) / rho, -1, 1)),
+    ];
+  };
+  return forward;
 }
