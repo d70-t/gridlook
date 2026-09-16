@@ -767,15 +767,22 @@ function getLayerName(layer: TLayerEntry) {
             </template>
             <span
               v-if="layer.kind === LAYER_KINDS.STREAMLINES && streamlineLoading"
-              class="icon is-small ml-1 has-text-info"
+              class="streamline-progress icon is-small ml-1 has-text-info"
               role="img"
-              :title="streamlineLoadingLabel"
+              tabindex="0"
+              title=""
               :aria-label="streamlineLoadingLabel"
             >
               <i
                 class="fa-solid fa-circle-notch fa-spin"
                 aria-hidden="true"
               ></i>
+              <span
+                class="streamline-progress-tooltip box px-2 py-1"
+                aria-hidden="true"
+              >
+                {{ streamlineLoadingLabel }}
+              </span>
             </span>
           </span>
         </div>
@@ -1133,6 +1140,7 @@ function getLayerName(layer: TLayerEntry) {
 }
 
 .layer-drag-handle {
+  position: relative;
   display: flex;
   align-items: center;
   align-self: stretch;
@@ -1141,6 +1149,21 @@ function getLayerName(layer: TLayerEntry) {
   min-width: 4rem;
   cursor: grab;
   touch-action: none;
+}
+
+.streamline-progress-tooltip {
+  // Anchor to the drag handle, outside the layer name's clipped overflow.
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  z-index: 1000;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.streamline-progress:hover .streamline-progress-tooltip,
+.streamline-progress:focus-visible .streamline-progress-tooltip {
+  visibility: visible;
 }
 
 .streamline-components {
