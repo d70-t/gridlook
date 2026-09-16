@@ -116,27 +116,6 @@ describe("a registered codec that rejects the chunk", () => {
   });
 });
 
-describe("a data type this browser cannot represent", () => {
-  async function unsupportedDataTypeError() {
-    // zarrita maps float16 onto `globalThis.Float16Array`, which older
-    // browsers do not have.
-    const original = Reflect.get(globalThis, "Float16Array");
-    Reflect.deleteProperty(globalThis, "Float16Array");
-    try {
-      const store = v2Store("<f2", null, new Uint8Array(8));
-      return await caught(open.v2(store, { kind: "array" }));
-    } finally {
-      Reflect.set(globalThis, "Float16Array", original);
-    }
-  }
-
-  it("names the data type and the browsers that support it", async () => {
-    const explanation = explainCodecError(await unsupportedDataTypeError());
-    expect(explanation?.heading).toBe("Unsupported data type: float16");
-    expect(explanation?.detail).toContain("Safari 26");
-  });
-});
-
 describe("errors that are not codec problems", () => {
   const UNRELATED = [
     new Error("Failed to fetch chunk bytes from example.invalid"),

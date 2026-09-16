@@ -3,8 +3,8 @@ import { ToastType, useToast } from "./useToast.ts";
 import { explainCodecError } from "@/lib/data/codecErrors.ts";
 import { getErrorMessage, toNormalizedError } from "@/utils/errorHandling.ts";
 
-// A codec or data-type failure is worth reading and worth writing down, so it
-// stays up longer than a transient error.
+// A codec failure is worth reading and worth writing down, so it stays up
+// longer than a transient error.
 const EXPLAINED_ERROR_DURATION = 12000;
 
 export function useLog() {

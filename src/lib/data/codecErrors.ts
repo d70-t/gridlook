@@ -27,7 +27,6 @@ export type TCodecErrorExplanation = {
 
 const UNKNOWN_CODEC = /^Unknown codec:\s*(\S+)/;
 const CODEC_PIPELINE = /^Failed to (?:de|en)code chunk via codec "([^"]+)"/;
-const UNSUPPORTED_DATA_TYPE = /^Unknown or unsupported dataType:\s*(\S+)/;
 
 /** The `: reason` the worker appends when flattening a wrapped error. */
 const FLATTENED_CAUSE = /(?:^|\s)—\s(.+)$/;
@@ -61,10 +60,6 @@ function failingCodecName(error: unknown) {
   return messageOf(error).match(CODEC_PIPELINE)?.[1];
 }
 
-function unsupportedDataType(error: unknown) {
-  return messageOf(error).match(UNSUPPORTED_DATA_TYPE)?.[1];
-}
-
 function explainUnknownCodec(codec: string): TCodecErrorExplanation {
   return {
     heading: `Unsupported codec: ${codec}`,
@@ -88,21 +83,10 @@ function explainCodecFailure(
   };
 }
 
-function explainUnsupportedDataType(dataType: string): TCodecErrorExplanation {
-  const isFloat16 = dataType.startsWith("float16");
-  return {
-    heading: `Unsupported data type: ${dataType}`,
-    detail: isFloat16
-      ? `This variable is stored as ${dataType}, which this browser cannot ` +
-        `represent. Chrome 135, Firefox 129 or Safari 26 and newer support it.`
-      : `This variable is stored as ${dataType}, which gridlook cannot read.`,
-  };
-}
-
 /**
- * Recognise a codec or data-type failure and describe it in the reader's
- * terms. Returns `undefined` for everything else, so callers fall back to
- * whatever they showed before.
+ * Recognise a codec failure and describe it in the reader's terms. Returns
+ * `undefined` for everything else, so callers fall back to whatever they
+ * showed before.
  */
 export function explainCodecError(
   error: unknown
@@ -115,11 +99,6 @@ export function explainCodecError(
   const brokenCodec = failingCodecName(error);
   if (brokenCodec) {
     return explainCodecFailure(brokenCodec, causeMessageOf(error));
-  }
-
-  const dataType = unsupportedDataType(error);
-  if (dataType) {
-    return explainUnsupportedDataType(dataType);
   }
 
   return undefined;
