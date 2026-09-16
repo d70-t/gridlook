@@ -161,7 +161,6 @@ function registerGridDataLoaderWatches(
         return;
       }
       try {
-        store.setStreamlineMagnitudeDisplayed(true);
         await options.refreshStreamlines?.(true);
       } catch (error) {
         logError(error, "Could not enable vector streamlines");

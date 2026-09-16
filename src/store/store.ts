@@ -443,8 +443,9 @@ export const useGlobeControlStore = defineStore("globeControl", {
       );
       if (layer) {
         layer.visible = enabled;
-        this.streamlineMagnitudeRequested = enabled;
-        this.streamlineMagnitudeDisplayed = enabled;
+        if (!enabled) {
+          this.setStreamlineMagnitudeDisplayed(false);
+        }
       }
     },
     // moves the entry so it ends up at index `toIndex` of the resulting array

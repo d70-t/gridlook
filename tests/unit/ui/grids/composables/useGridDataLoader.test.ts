@@ -119,6 +119,7 @@ it("restores the selected scalar data when streamlines are disabled", async () =
 
   store.setStreamlineLayerEnabled(true);
   await vi.waitFor(() => expect(refreshStreamlines).toHaveBeenCalledWith(true));
+  store.setStreamlineMagnitudeDisplayed(true);
   fetchAndRenderData.mockClear();
   updateColormap.mockClear();
 

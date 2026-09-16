@@ -68,6 +68,7 @@ it("uses magnitude bounds and restores the scalar's custom bounds", async () => 
       max: 30.074,
     };
     store.setStreamlineMagnitudeInfo(magnitude, true);
+    store.setStreamlineMagnitudeDisplayed(true);
     showVectorMagnitudeScalarInfo(store, magnitude);
     await nextTick();
     expect(store.selection).toEqual({ low: 0.016, high: 30.074 });

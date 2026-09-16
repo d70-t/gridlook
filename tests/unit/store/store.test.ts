@@ -57,35 +57,51 @@ it("defaults layer opacity to opaque and clamps updates", () => {
   expect(textureLayer?.opacity).toBe(0.5);
 });
 
-it("sets streamline layer visibility explicitly", () => {
+it("enables streamlines without selecting the derived magnitude", () => {
   const store = useGlobeControlStore();
 
   expect(store.isStreamlineLayerEnabled()).toBe(false);
   expect(store.streamlineMagnitudeDisplayed).toBe(false);
   store.setStreamlineLayerEnabled(true);
   expect(store.isStreamlineLayerEnabled()).toBe(true);
-  expect(store.streamlineMagnitudeDisplayed).toBe(true);
+  store.setStreamlineMagnitudeInfo(
+    { longName: "Vector magnitude", units: "m s-1" },
+    true
+  );
+  expect(store.streamlineMagnitudeRequested).toBe(false);
+  expect(store.streamlineMagnitudeDisplayed).toBe(false);
+
+  store.setStreamlineMagnitudeDisplayed(true);
   store.setStreamlineLayerEnabled(false);
   expect(store.isStreamlineLayerEnabled()).toBe(false);
+  expect(store.streamlineMagnitudeRequested).toBe(false);
+  expect(store.streamlineMagnitudeDisplayed).toBe(false);
+
+  store.setStreamlineLayerEnabled(true);
   expect(store.streamlineMagnitudeDisplayed).toBe(false);
 });
 
 it("switches between the derived vector magnitude and selected scalar", () => {
   const store = useGlobeControlStore();
   store.setStreamlineLayerEnabled(true);
-
-  store.setStreamlineMagnitudeDisplayed(false, true);
-  expect(store.streamlineMagnitudeDisplayed).toBe(false);
-  expect(store.streamlineScalarRevision).toBe(1);
+  store.varnameSelector = "temperature";
 
   store.setStreamlineMagnitudeDisplayed(true, true);
   expect(store.streamlineMagnitudeDisplayed).toBe(true);
+  expect(store.streamlineScalarRevision).toBe(1);
+
+  store.setStreamlineMagnitudeDisplayed(false, true);
+  expect(store.streamlineMagnitudeRequested).toBe(false);
+  expect(store.streamlineMagnitudeDisplayed).toBe(false);
   expect(store.streamlineScalarRevision).toBe(2);
+  expect(store.varnameSelector).toBe("temperature");
+  expect(store.isStreamlineLayerEnabled()).toBe(true);
 });
 
 it("restores a requested magnitude after a transient incompatible pair", () => {
   const store = useGlobeControlStore();
   store.setStreamlineLayerEnabled(true);
+  store.setStreamlineMagnitudeDisplayed(true);
   store.varnameSelector = "temperature";
   store.varnameDisplay = "vector_magnitude";
 

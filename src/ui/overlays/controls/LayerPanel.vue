@@ -71,6 +71,12 @@ const {
 } = storeToRefs(store);
 const { logError } = useLog();
 
+const streamlineLoadingLabel = computed(() =>
+  streamlineProgress.value === undefined
+    ? streamlineLoadingStage.value
+    : `${streamlineLoadingStage.value}: ${streamlineProgress.value}%`
+);
+
 const fileInput = ref<HTMLInputElement>();
 const draggedId = ref<string | undefined>(undefined);
 const dropTargetIndex = ref<number | undefined>(undefined);
@@ -761,19 +767,15 @@ function getLayerName(layer: TLayerEntry) {
             </template>
             <span
               v-if="layer.kind === LAYER_KINDS.STREAMLINES && streamlineLoading"
-              class="streamline-loading-icon"
-              :title="streamlineLoadingStage"
+              class="icon is-small ml-1 has-text-info"
+              role="img"
+              :title="streamlineLoadingLabel"
+              :aria-label="streamlineLoadingLabel"
             >
               <i
                 class="fa-solid fa-circle-notch fa-spin"
                 aria-hidden="true"
               ></i>
-              <span class="ml-1">
-                {{ streamlineLoadingStage
-                }}<template v-if="streamlineProgress !== undefined">
-                  {{ streamlineProgress }}%</template
-                >
-              </span>
             </span>
           </span>
         </div>
@@ -1026,6 +1028,27 @@ function getLayerName(layer: TLayerEntry) {
               </select>
             </span>
           </label>
+          <div class="streamline-magnitude">
+            <button
+              class="button is-small is-fullwidth"
+              :class="{ 'is-info': store.streamlineMagnitudeRequested }"
+              type="button"
+              :aria-pressed="store.streamlineMagnitudeRequested"
+              :disabled="
+                !store.streamlineMagnitudeDerivable &&
+                !store.streamlineMagnitudeRequested
+              "
+              title="Color the background by the strength of the selected vector field"
+              @click="
+                store.setStreamlineMagnitudeDisplayed(
+                  !store.streamlineMagnitudeRequested,
+                  true
+                )
+              "
+            >
+              Show derived vectorfield magnitude variable
+            </button>
+          </div>
         </div>
       </li>
     </ul>
@@ -1140,15 +1163,15 @@ function getLayerName(layer: TLayerEntry) {
     width: 100%;
   }
 
-  .streamline-level {
+  .streamline-level,
+  .streamline-magnitude {
     grid-column: 1 / -1;
   }
-}
 
-.streamline-loading-icon {
-  display: inline-block;
-  margin-left: 0.3rem;
-  color: var(--bulma-info);
+  .streamline-magnitude .button {
+    height: auto;
+    white-space: normal;
+  }
 }
 
 .layer-name {
