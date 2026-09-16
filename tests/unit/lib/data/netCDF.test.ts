@@ -13,12 +13,12 @@ import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { ZARR_FORMAT } from "@/lib/types/GlobeTypes.ts";
 
 const netCDFMocks = vi.hoisted(() => ({
-  fromBlob: vi.fn(),
+  fromBlobLazy: vi.fn(),
 }));
 
 vi.mock("@earthyscience/netcdf4-wasm", async (importOriginal) => ({
   ...(await importOriginal()),
-  NetCDF4: { fromBlob: netCDFMocks.fromBlob },
+  NetCDF4: { fromBlobLazy: netCDFMocks.fromBlobLazy },
 }));
 
 const NetCDFAttribute = {
@@ -80,7 +80,7 @@ function createDataset() {
 const file = new Blob(["netcdf"]) as File;
 
 beforeEach(() => {
-  netCDFMocks.fromBlob.mockResolvedValue(createDataset());
+  netCDFMocks.fromBlobLazy.mockResolvedValue(createDataset());
   ZarrDataManager.registerNetCDFBackend({
     getArray: getNetCDFArray,
     invalidateCache: invalidateNetCDFCache,
