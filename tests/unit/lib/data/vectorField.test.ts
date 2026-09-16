@@ -257,6 +257,56 @@ describe("RegularVectorField", () => {
   });
 });
 
+describe("RegularVectorField regional coordinates", () => {
+  it.each([
+    { longitudes: [265, 292.5, 320], u: [2, 4, 6, 8, 10, 12] },
+    { longitudes: [320, 292.5, 265], u: [6, 4, 2, 12, 10, 8] },
+  ])(
+    "samples and advances regional 0–360 axes: $longitudes",
+    ({ longitudes, u }) => {
+      // Florence uses descending latitude and longitudes from 265 to 320.
+      const field = new RegularVectorField(
+        new Float32Array([45, 15]),
+        new Float32Array(longitudes),
+        new Float32Array(u),
+        new Float32Array(6).fill(1)
+      );
+
+      expect(field.isGlobal).toBe(false);
+      expect(field.sample(30, -81.25)?.u).toBeCloseTo(6);
+      expect(field.sample(30, -81.25)).toEqual(field.sample(30, 278.75));
+      const next = field.advance(30, 278.75, 0.025);
+      expect(next?.longitude).toBeGreaterThan(278.75);
+      expect(next?.latitude).toBeGreaterThan(30);
+      expect(field.advance(30, -81.25, 0.025)?.longitude).toBeCloseTo(
+        next!.longitude
+      );
+
+      expect(field.sample(30, -96)).toBeUndefined();
+      expect(field.sample(30, -39)).toBeUndefined();
+      expect(field.advance(30, 319.99, 0.025)).toBeUndefined();
+      expect(field.advance(30, 265.01, -0.025)).toBeUndefined();
+    }
+  );
+
+  it("keeps regional paths continuous across the antimeridian", () => {
+    const field = new RegularVectorField(
+      new Float32Array([-10, 10]),
+      new Float32Array([170, 180, 190]),
+      new Float32Array(6).fill(10),
+      new Float32Array(6).fill(0)
+    );
+
+    const next = field.advance(0, 179.9, 0.025);
+    expect(next?.longitude).toBeGreaterThan(180);
+    expect(field.sample(0, -179)?.u).toBe(10);
+    expect(
+      field.advance(next!.latitude, next!.longitude, 0.025)?.longitude
+    ).toBeGreaterThan(next!.longitude);
+    expect(field.sample(0, -169)).toBeUndefined();
+  });
+});
+
 describe("RegularVectorField seeding", () => {
   it("distributes random positions uniformly by spherical area", () => {
     const field = new RegularVectorField(

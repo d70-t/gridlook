@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import type { TStreamlineVectorField } from "@/lib/data/vectorField.ts";
+import {
+  RegularVectorField,
+  type TStreamlineVectorField,
+} from "@/lib/data/vectorField.ts";
 import {
   createCachedStreamlineSamples,
   StreamlineParticleLayer,
@@ -28,6 +31,28 @@ describe("StreamlineParticleLayer", () => {
 });
 
 describe("streamline path cache", () => {
+  it("builds moving regional paths with 0–360 longitudes in both directions", () => {
+    const field = new RegularVectorField(
+      new Float32Array([45, 15]),
+      new Float32Array([265, 320]),
+      new Float32Array(4).fill(10),
+      new Float32Array(4).fill(0)
+    );
+
+    for (const pathIndex of [0, 1]) {
+      const textureData = new Float32Array(96 * 4);
+      const pointCount = createCachedStreamlineSamples(
+        field,
+        textureData,
+        0,
+        pathIndex
+      );
+
+      expect(pointCount).toBeGreaterThan(1);
+      expect(textureData.slice(0, 3)).not.toEqual(textureData.slice(4, 7));
+    }
+  });
+
   it("stores backward-integrated paths in forward-flow order", () => {
     const integrationSteps: number[] = [];
     let advanceCount = 0;

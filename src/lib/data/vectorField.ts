@@ -420,9 +420,14 @@ function positionInField(
   latitude: number,
   longitude: number
 ) {
+  // Spherical integration returns -180..180; regional axes may use 0..360
+  // or continue past the antimeridian. Keep positions in the field's range.
   const normalizedLongitude = field.isGlobal
     ? normalizeLongitude(longitude)
-    : longitude;
+    : nearestEquivalentLongitude(
+        longitude,
+        (field.longitudeMin + field.longitudeMax) / 2
+      );
 
   if (
     Math.abs(latitude) >= 89.5 ||
@@ -635,7 +640,10 @@ export class RegularVectorField implements TStreamlineVectorField {
       return this.findNonPeriodicBracket(
         this.longitudes,
         this.longitudeAscending,
-        longitude
+        nearestEquivalentLongitude(
+          longitude,
+          (this.longitudeMin + this.longitudeMax) / 2
+        )
       );
     }
 
