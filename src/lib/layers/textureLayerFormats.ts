@@ -1,4 +1,4 @@
-export const TEXTURE_LAYER_MIME_TYPES = {
+const TEXTURE_LAYER_MIME_TYPES = {
   JPEG: "image/jpeg",
   PNG: "image/png",
   TIFF_SHORT: "image/tif",
@@ -13,7 +13,7 @@ export const TEXTURE_LAYER_MIME_TYPES = {
 export type TTextureLayerMimeType =
   (typeof TEXTURE_LAYER_MIME_TYPES)[keyof typeof TEXTURE_LAYER_MIME_TYPES];
 
-export const TEXTURE_LAYER_FILE_EXTENSIONS = {
+const TEXTURE_LAYER_FILE_EXTENSIONS = {
   GEOTIFF: ".geotiff",
   TIF: ".tif",
   TIFF: ".tiff",

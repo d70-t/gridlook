@@ -48,7 +48,8 @@ function buildGeometry(request: TTriangularGeometryWorkerRequest) {
     request.vertexOfCell,
     request.vertexX,
     request.vertexY,
-    request.vertexZ
+    request.vertexZ,
+    request.nodeData
   );
   const triangleCount = cachedGrid.vertices.length / 9;
   const totalBatches = getTriangularBatchCount(
@@ -97,7 +98,7 @@ function buildData(request: TTriangularDataWorkerRequest) {
     request.data
   );
   const totalBatches = getTriangularBatchCount(
-    request.data.length,
+    cachedGrid.vertices.length / 9,
     request.batchSize
   );
   postResponse({
@@ -110,7 +111,12 @@ function buildData(request: TTriangularDataWorkerRequest) {
     postGridDataValueBatch(
       workerScope,
       request.requestId,
-      buildTriangularDataBatch(request.data, batchIndex, request.batchSize)
+      buildTriangularDataBatch(
+        request.data,
+        batchIndex,
+        request.batchSize,
+        cachedGrid.dataIndices
+      )
     );
   }
   postDone(request.requestId);

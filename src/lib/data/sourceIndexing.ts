@@ -16,6 +16,65 @@ import { ZarrDataManager } from "./ZarrDataManager.ts";
 
 import trim from "@/utils/trim.ts";
 
+/*
+  Matches strings like "a: foo b: bar" and rewrites them into a map {a: foo, b: bar}
+  Returns an empty Map if strings does not match this pattern
+ */
+function parseFormulaTerms(value: unknown): Map<string, string> {
+  if (typeof value !== "string") {
+    return new Map();
+  }
+
+  const normalised = value.replace(/\s*:\s*/g, ":").trim();
+  if (normalised === "") {
+    return new Map();
+  }
+
+  const terms = new Map<string, string>();
+
+  for (const token of normalised.split(/\s+/)) {
+    const parts = token.split(":");
+
+    // Exactly one colon, and neither side empty.
+    if (parts.length !== 2 || parts[0] === "" || parts[1] === "") {
+      continue; // malformed pair - skip it, keep the rest
+    }
+
+    const [term, variableName] = parts;
+    terms.set(term, variableName);
+  }
+
+  return terms;
+}
+
+export function hideFormulaTermVariablesWithoutStandardName(
+  datasources: Record<string, TDataSource>
+) {
+  const collectedFormulaTerms = new Set<string>();
+  for (const [contextVariable, datasource] of Object.entries(datasources)) {
+    const formulaTermVariables = parseFormulaTerms(
+      datasource.attrs?.formula_terms
+    );
+    for (const formulaTermVariable of formulaTermVariables.values()) {
+      if (collectedFormulaTerms.has(formulaTermVariable)) {
+        continue;
+      }
+      collectedFormulaTerms.add(formulaTermVariable);
+      const variablePath = ZarrDataManager.resolveVariablePath(
+        contextVariable,
+        formulaTermVariable
+      );
+      const formulaTermDatasource = datasources[variablePath];
+      if (
+        formulaTermDatasource &&
+        !formulaTermDatasource.attrs?.standard_name
+      ) {
+        formulaTermDatasource.hidden = true;
+      }
+    }
+  }
+}
+
 function isValidVariable(
   varname: string,
   shape: number[],
@@ -27,6 +86,7 @@ function isValidVariable(
     "vertices",
     "latitude",
     "longitude",
+    "cell_ids",
   ] as const;
 
   if (!Array.isArray(dimensions)) {
@@ -59,6 +119,37 @@ function searchDimensionsAndCoordinates(
     const coords = variable.attrs.coordinates as string;
     for (const coord of coords.split(" ")) {
       dimensions.add(ZarrDataManager.resolveVariablePath(variablePath, coord));
+    }
+  }
+
+  if (typeof variable.attrs.grid_mapping === "string") {
+    for (const name of variable.attrs.grid_mapping.split(/[\s:]+/)) {
+      if (name) {
+        dimensions.add(ZarrDataManager.resolveVariablePath(variablePath, name));
+      }
+    }
+  }
+
+  if (variable.attrs.cf_role === "mesh_topology") {
+    const MESH_TOPOLOGY_VAR_ATTRIBUTES = [
+      "node_coordinates",
+      "face_coordinates",
+      "edge_coordinates",
+      "face_node_connectivity",
+      "edge_node_connectivity",
+      "face_edge_connectivity",
+      "edge_face_connectivity",
+      "face_face_connectivity",
+      "boundary_node_connectivity",
+    ] as const;
+    for (const attribute of MESH_TOPOLOGY_VAR_ATTRIBUTES) {
+      const value = variable.attrs[attribute];
+      if (typeof value !== "string") {
+        continue;
+      }
+      for (const name of value.trim().split(/\s+/)) {
+        dimensions.add(ZarrDataManager.resolveVariablePath(variablePath, name));
+      }
     }
   }
 }
@@ -131,13 +222,24 @@ async function collectVariables(
   dimensions: Set<string>;
 }> {
   const dimensions = new Set<string>();
-  const candidates = await Promise.allSettled(
-    store
-      .contents()
-      .map((content) =>
-        collectVariable(root, src, datasetPath, dimensions, content)
-      )
-  );
+  const contents = store.contents().filter(({ kind }) => kind === "array");
+  const candidates: PromiseSettledResult<Record<string, TDataSource>>[] = [];
+
+  const batchSize = 200;
+  for (let offset = 0; offset < contents.length; offset += batchSize) {
+    if (offset > 0) {
+      // Yield a task so the browser can handle input and repaint between batches.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+    const batch = await Promise.allSettled(
+      contents
+        .slice(offset, offset + batchSize)
+        .map((content) =>
+          collectVariable(root, src, datasetPath, dimensions, content)
+        )
+    );
+    candidates.push(...batch);
+  }
 
   return { candidates, dimensions };
 }
@@ -156,22 +258,22 @@ async function processZarrVariables(
   );
 
   // Filter and merge datasources
-  const datasources = candidates
+  const entries = candidates
     .filter((promise) => promise.status === "fulfilled")
     .map((promise) => promise.value)
     .filter((obj) => Object.keys(obj).length > 0)
     .map((obj) => {
       // Filter out variables that are actually dimensions or coordinates
       const varname = Object.keys(obj)[0];
-      if (dimensions.has(varname)) {
-        const hiddenObject = { [varname]: { ...obj[varname], hidden: true } };
-        return hiddenObject;
-      }
-      return obj;
-    })
-    .reduce((a, b) => ({ ...a, ...b }), {});
+      return [
+        varname,
+        dimensions.has(varname)
+          ? { ...obj[varname], hidden: true }
+          : obj[varname],
+      ] as const;
+    });
 
-  return datasources;
+  return Object.fromEntries(entries);
 }
 
 function createIndex(
@@ -179,20 +281,25 @@ function createIndex(
   datasources: Record<string, TDataSource>,
   src: string,
   zarrFormat: TZarrFormat,
-  datasetPath = ""
+  datasetPath = "",
+  file?: File
 ): TSources {
+  hideFormulaTermVariablesWithoutStandardName(datasources);
+  const datasetSource = {
+    store: src,
+    dataset: datasetPath,
+    ...(file ? { file } : {}),
+  };
   return {
     name: title,
     zarr_format: zarrFormat, // eslint-disable-line camelcase
     levels: [
       {
         time: {
-          store: src,
-          dataset: datasetPath,
+          ...datasetSource,
         },
         grid: {
-          store: src,
-          dataset: datasetPath,
+          ...datasetSource,
         },
         datasources,
       },
@@ -200,7 +307,71 @@ function createIndex(
   };
 }
 
-export async function indexFromIcechunk(src: string): Promise<TSources> {
+type TNetCDFModule = typeof import("./netCDF.ts");
+
+function registerNetCDFBackend(netCDF: TNetCDFModule) {
+  ZarrDataManager.registerNetCDFBackend({
+    getArray: netCDF.getNetCDFArray,
+    invalidateCache: netCDF.invalidateNetCDFCache,
+    openArray: netCDF.openNetCDFArray,
+    openGroup: netCDF.openNetCDFGroup,
+    resolveGroup: netCDF.resolveNetCDFGroup,
+  });
+}
+
+export async function indexFromNetCDF(
+  file: File,
+  src: string
+): Promise<TSources> {
+  const netCDF = await import("./netCDF.ts");
+  registerNetCDFBackend(netCDF);
+  const { listNetCDFArrays } = netCDF;
+  const arrays = await listNetCDFArrays(file, src);
+  const dimensions = new Set<string>();
+  for (const array of arrays) {
+    const varname = array.path.replace(/^\/+/, "");
+    searchDimensionsAndCoordinates(
+      dimensions,
+      array as unknown as zarr.Array<zarr.DataType, zarr.AsyncReadable>,
+      varname
+    );
+  }
+
+  const datasources: Record<string, TDataSource> = {};
+  for (const array of arrays) {
+    const varname = array.path.replace(/^\/+/, "");
+    datasources[varname] = {
+      store: src,
+      dataset: "",
+      file,
+      hidden:
+        dimensions.has(varname) ||
+        !isValidVariable(varname, array.shape, array.dimensionNames),
+      attrs: {
+        ...array.attrs,
+        dimensionNames: array.dimensionNames,
+      },
+      shape: array.shape,
+      dtype: String(array.dtype),
+    };
+  }
+
+  const root = await ZarrDataManager.getDatasetGroup({
+    store: src,
+    dataset: "",
+    file,
+  });
+  return createIndex(
+    String(root.attrs.title ?? file.name),
+    datasources,
+    src,
+    ZARR_FORMAT.NETCDF,
+    "",
+    file
+  );
+}
+
+async function indexFromIcechunk(src: string): Promise<TSources> {
   const { storePath, groupPath } = await splitIcechunkStoreAndGroup(src);
   const store = await createListableIcechunkStore(storePath);
   const root = await zarr.open.v3(store, { kind: "group" });
@@ -335,5 +506,6 @@ export async function indexFromIndex(src: string): Promise<TSources> {
     await enrichMetadata(stores, datasources, "v2");
     sources.zarr_format = ZARR_FORMAT.V2; // eslint-disable-line camelcase
   }
+  hideFormulaTermVariablesWithoutStandardName(datasources);
   return sources;
 }

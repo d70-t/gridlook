@@ -13,7 +13,6 @@ import {
   createEquirectLayerMesh,
   createLayerCanvas,
   LAND_SEA_MASK_MODES,
-  updateEquirectLayerProjection,
   type TLandSeaMaskMode,
 } from "./equirectLayer.ts";
 import { ResourceCache } from "./ResourceCache.ts";
@@ -257,15 +256,4 @@ export async function getLandSeaMask(
   } catch {
     return undefined;
   }
-}
-
-/**
- * Update the projection uniforms on an existing land/sea mask mesh.
- * This is the fast path for projection center changes - no geometry rebuild needed.
- */
-export function updateLandSeaMaskProjection(
-  mask: THREE.Object3D | undefined,
-  projectionHelper: ProjectionHelper
-): void {
-  updateEquirectLayerProjection(mask, projectionHelper);
 }

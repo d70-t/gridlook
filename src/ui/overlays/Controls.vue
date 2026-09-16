@@ -392,7 +392,7 @@ defineExpose({
               <PopupDialog dialog-class="layer-help-dialog">
                 <template #trigger="{ toggle, open }">
                   <button
-                    class="button is-ghost p-0 has-text-black"
+                    class="button is-ghost p-0"
                     type="button"
                     title="Layer help"
                     aria-label="Layer help"

@@ -18,7 +18,8 @@ defineEmits<{
 }>();
 
 const store = useGlobeControlStore();
-const { projectionMode, isRotating, hoverEnabled } = storeToRefs(store);
+const { projectionMode, isRotating, hoverEnabled, showDistanceScale } =
+  storeToRefs(store);
 const valueProbeSupported = computed(
   () => projectionMode.value !== PROJECTION_TYPES.AZIMUTHAL_HYBRID
 );
@@ -47,6 +48,21 @@ const showPresenter = !isMobileDevice();
           <i class="fas fa-crosshairs"></i>
         </span>
         <span> Data Picker </span>
+      </button>
+      <button
+        class="button cell"
+        :class="{ 'is-info': showDistanceScale }"
+        type="button"
+        :title="
+          showDistanceScale ? 'Hide distance scale' : 'Show distance scale'
+        "
+        :aria-pressed="showDistanceScale"
+        @click="showDistanceScale = !showDistanceScale"
+      >
+        <span class="icon">
+          <i class="fas fa-ruler-horizontal" aria-hidden="true"></i>
+        </span>
+        <span> Scale </span>
       </button>
       <button
         class="button cell"

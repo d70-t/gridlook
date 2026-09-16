@@ -28,7 +28,7 @@ async function getTimeInfo(
         ZarrDataManager.resolveVariablePath(variable, "time"),
         [null]
       )
-    ).data as Int32Array;
+    ).data as ArrayLike<number | bigint | string>;
 
     const timevar = await ZarrDataManager.getVariableInfo(
       myDatasource,

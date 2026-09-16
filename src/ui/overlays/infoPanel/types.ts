@@ -29,3 +29,8 @@ export type TVariableMetadata = {
 export type TVariableTableRow = {
   name: string;
 } & TVariableMetadata;
+
+export type TGroupInfo = {
+  path: string;
+  attrs: zarr.Attributes | null;
+};

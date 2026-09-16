@@ -14,7 +14,7 @@ export const TriangularWorkerOperation = {
   DATA: "data",
 } as const;
 
-export type TTriangularWorkerOperation =
+type TTriangularWorkerOperation =
   (typeof TriangularWorkerOperation)[keyof typeof TriangularWorkerOperation];
 
 export type TTriangularGeometryWorkerRequest = {
@@ -22,6 +22,7 @@ export type TTriangularGeometryWorkerRequest = {
   type: "build";
   operation: typeof TriangularWorkerOperation.GEOMETRY;
   vertexOfCell: Int32Array;
+  nodeData?: boolean;
   vertexX: Float32Array | Float64Array;
   vertexY: Float32Array | Float64Array;
   vertexZ: Float32Array | Float64Array;

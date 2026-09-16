@@ -34,28 +34,40 @@ function parseTimeUnits(units: string): { interval: string; ref: Dayjs } {
   return { interval, ref };
 }
 
-/**
- * Converts a datetime to a numeric time value using the given units.
- * Assumes standard calendar (no leap seconds unless stated otherwise).
- */
-export function encodeTime(datetime: Dayjs, attrs: zarr.Attributes): number {
-  const units: string = attrs.units as string;
-  const { interval, ref } = parseTimeUnits(units);
-
-  const intervalLower = interval.toLowerCase();
-
-  // Convert to the target unit
-  switch (intervalLower) {
+/** Fixed-duration units; calendar months and years retain Day.js arithmetic. */
+function millisecondsPerUnit(interval: string): number | undefined {
+  // Short forms are case-sensitive: "M" means month, "m" means minute.
+  if (interval === "M") {
+    return undefined;
+  }
+  const unit =
+    interval.length > 2
+      ? interval.toLowerCase().replace(/s$/, "")
+      : interval.toLowerCase();
+  switch (unit) {
+    case "week":
+    case "w":
+      return 604800000;
+    case "day":
+    case "d":
+      return 86400000;
+    case "hour":
+    case "h":
+      return 3600000;
+    case "minute":
+    case "m":
+      return 60000;
+    case "second":
+    case "s":
+      return 1000;
+    case "millisecond":
+    case "ms":
+      return 1;
     case "nanosecond":
-    case "nanoseconds":
-    case "ns": {
-      // Calculate the difference in milliseconds first
-      const diffMs = datetime.diff(ref, "millisecond");
-      return diffMs * 1e6;
-    }
+    case "ns":
+      return 1e-6;
     default:
-      // Fall back to dayjs diff for other units (month, year, etc.)
-      return datetime.diff(ref, interval as dayjs.ManipulateType);
+      return undefined;
   }
 }
 
@@ -93,7 +105,18 @@ export function findTimeIndex(
   attrs: zarr.Attributes
 ): number {
   const target = dayjs.utc(targetDatetime);
-  const targetValue = encodeTime(target, attrs);
+  const { interval, ref } = parseTimeUnits(attrs.units as string);
+  const scale = millisecondsPerUnit(interval);
+  const targetValue =
+    scale === undefined
+      ? target.diff(ref, interval as dayjs.ManipulateType)
+      : (target.valueOf() - ref.valueOf()) / (scale < 1 ? scale : 1);
+  // Round fixed-duration coordinates to Date precision to remove floating-point residue.
+  // Keep nanoseconds in their original units for sub-millisecond floor comparisons.
+  const valueAt = (index: number) => {
+    const value = toNumber(timeArray[index]);
+    return scale === undefined || scale < 1 ? value : Math.round(value * scale);
+  };
 
   const n = timeArray.length;
   if (n === 0) {
@@ -103,8 +126,8 @@ export function findTimeIndex(
     return 0;
   }
 
-  const firstValue = toNumber(timeArray[0]);
-  const lastValue = toNumber(timeArray[n - 1]);
+  const firstValue = valueAt(0);
+  const lastValue = valueAt(n - 1);
 
   if (isNaN(targetValue) || isNaN(firstValue) || isNaN(lastValue)) {
     throw new Error("Time array contains invalid values");
@@ -119,7 +142,7 @@ export function findTimeIndex(
   }
 
   // Heuristic: assume uniform time steps
-  const delta = toNumber(timeArray[1]) - firstValue;
+  const delta = valueAt(1) - firstValue;
   if (delta <= 0) {
     throw new Error(
       "Time array must be monotonically increasing (found duplicate or decreasing values)"
@@ -130,19 +153,16 @@ export function findTimeIndex(
   let estimatedIndex = Math.floor((targetValue - firstValue) / delta);
   estimatedIndex = Math.max(0, Math.min(n - 1, estimatedIndex));
 
-  // Validate the estimate
-  const valueAtEstimate = toNumber(timeArray[estimatedIndex]);
-
-  // Check if estimate is valid (valueAtEstimate <= targetValue < next value)
-  if (valueAtEstimate <= targetValue) {
+  // Check if the target falls between this value and the next.
+  if (valueAt(estimatedIndex) <= targetValue) {
     const nextIndex = estimatedIndex + 1;
-    if (nextIndex >= n || toNumber(timeArray[nextIndex]) > targetValue) {
+    if (nextIndex >= n || valueAt(nextIndex) > targetValue) {
       return estimatedIndex;
     }
   }
 
   // Heuristic failed (non-uniform steps), fall back to binary search
-  return binarySearchFloor(targetValue, timeArray);
+  return binarySearchFloor(targetValue, n, valueAt);
 }
 
 /**
@@ -150,15 +170,16 @@ export function findTimeIndex(
  */
 function binarySearchFloor(
   targetValue: number,
-  timeArray: ArrayLike<number | bigint | string>
+  length: number,
+  valueAt: (index: number) => number
 ): number {
   let left = 0;
-  let right = timeArray.length - 1;
+  let right = length - 1;
 
   while (left < right) {
     // Use ceiling division to avoid infinite loop when left + 1 === right
     const mid = Math.ceil((left + right) / 2);
-    const midValue = toNumber(timeArray[mid]);
+    const midValue = valueAt(mid);
 
     if (midValue <= targetValue) {
       left = mid;
@@ -170,21 +191,20 @@ function binarySearchFloor(
   return left;
 }
 
-export function decodeTime(value: number, attrs: zarr.Attributes) {
+export function decodeTime(
+  value: number | bigint | string,
+  attrs: zarr.Attributes
+) {
   const units: string = attrs.units as string;
   const { interval, ref } = parseTimeUnits(units);
 
-  let adjustedValue = value;
-  let adjustedInterval = interval;
-
-  // dayjs does not support nanoseconds, so convert to milliseconds
-  if (["nanosecond", "nanoseconds", "ns"].includes(interval.toLowerCase())) {
-    adjustedValue = value / 1e6;
-    adjustedInterval = "millisecond";
+  const numericValue = toNumber(value);
+  const scale = millisecondsPerUnit(interval);
+  if (scale !== undefined) {
+    // Date resolves milliseconds; finer display precision needs another date representation.
+    const offset =
+      scale < 1 ? numericValue / 1e6 : Math.round(numericValue * scale);
+    return dayjs.utc(ref.valueOf() + offset);
   }
-  const timepoint = ref.add(
-    adjustedValue,
-    adjustedInterval as dayjs.ManipulateType
-  );
-  return timepoint;
+  return ref.add(numericValue, interval as dayjs.ManipulateType);
 }

@@ -8,6 +8,7 @@ import {
   LAND_SEA_MASK_MODES,
   type TLandSeaMaskMode,
 } from "@/lib/layers/landSeaMask.ts";
+import type { TDistanceScale } from "@/lib/projection/distanceScale.ts";
 import {
   PROJECTION_TYPES,
   type TProjectionCenter,
@@ -86,7 +87,7 @@ export type TLayerEntry = {
   maskMode: TLandSeaMaskMode;
 };
 
-export function normalizeLayerOpacity(opacity: number) {
+function normalizeLayerOpacity(opacity: number) {
   if (!Number.isFinite(opacity)) {
     return LAYER_OPACITY.MAX;
   }
@@ -99,50 +100,69 @@ export function normalizeLayerOpacity(opacity: number) {
   return opacity;
 }
 
-function builtinLayerStack(): TLayerEntry[] {
-  // ordered top → bottom, as displayed in the layer panel
-  return [
-    {
+export const BUILTIN_LAYER_NAMES = {
+  [LAYER_KINDS.COASTLINES]: "Coastlines",
+  [LAYER_KINDS.GRATICULES]: "Lat/Lon grid",
+  [LAYER_KINDS.GRID]: "Data grid",
+  [LAYER_KINDS.MASK]: "Land/sea mask",
+  [LAYER_KINDS.STREAMLINES]: "Flow streamlines",
+} as const satisfies Record<
+  Exclude<TLayerKind, typeof LAYER_KINDS.TEXTURE>,
+  string
+>;
+
+type TBuiltinLayerKind = keyof typeof BUILTIN_LAYER_NAMES;
+type TBuiltinLayerDefaults = Omit<TLayerEntry, "name" | "visible">;
+
+const BUILTIN_LAYER_DEFAULTS: Record<TBuiltinLayerKind, TBuiltinLayerDefaults> =
+  {
+    [LAYER_KINDS.COASTLINES]: {
+      id: BUILTIN_LAYER_IDS.COASTLINES,
+      kind: LAYER_KINDS.COASTLINES,
+      opacity: LAYER_OPACITY.MAX,
+      maskMode: LAND_SEA_MASK_MODES.OFF,
+    },
+    [LAYER_KINDS.GRATICULES]: {
+      id: BUILTIN_LAYER_IDS.GRATICULES,
+      kind: LAYER_KINDS.GRATICULES,
+      opacity: LAYER_OPACITY.MAX,
+      maskMode: LAND_SEA_MASK_MODES.OFF,
+    },
+    [LAYER_KINDS.GRID]: {
+      id: BUILTIN_LAYER_IDS.GRID,
+      kind: LAYER_KINDS.GRID,
+      opacity: LAYER_OPACITY.MAX,
+      maskMode: LAND_SEA_MASK_MODES.OFF,
+    },
+    [LAYER_KINDS.MASK]: {
+      id: BUILTIN_LAYER_IDS.MASK,
+      kind: LAYER_KINDS.MASK,
+      opacity: LAYER_OPACITY.MAX,
+      maskMode: LAND_SEA_MASK_MODES.OFF,
+    },
+    [LAYER_KINDS.STREAMLINES]: {
       id: BUILTIN_LAYER_IDS.STREAMLINES,
       kind: LAYER_KINDS.STREAMLINES,
-      name: "Flow streamlines",
-      visible: false,
       opacity: 0.55,
       maskMode: LAND_SEA_MASK_MODES.OFF,
     },
-    {
-      id: BUILTIN_LAYER_IDS.COASTLINES,
-      kind: LAYER_KINDS.COASTLINES,
-      name: "Coastlines",
-      visible: true,
-      opacity: LAYER_OPACITY.MAX,
-      maskMode: LAND_SEA_MASK_MODES.OFF,
-    },
-    {
-      id: BUILTIN_LAYER_IDS.GRATICULES,
-      kind: LAYER_KINDS.GRATICULES,
-      name: "Lat/Lon grid",
-      visible: false,
-      opacity: LAYER_OPACITY.MAX,
-      maskMode: LAND_SEA_MASK_MODES.OFF,
-    },
-    {
-      id: BUILTIN_LAYER_IDS.MASK,
-      kind: LAYER_KINDS.MASK,
-      name: "Land/sea mask",
-      visible: true,
-      opacity: LAYER_OPACITY.MAX,
-      maskMode: LAND_SEA_MASK_MODES.OFF,
-    },
-    {
-      id: BUILTIN_LAYER_IDS.GRID,
-      kind: LAYER_KINDS.GRID,
-      name: "Data grid",
-      visible: true,
-      opacity: LAYER_OPACITY.MAX,
-      maskMode: LAND_SEA_MASK_MODES.OFF,
-    },
-  ];
+  };
+
+const INITIAL_BUILTIN_LAYER_KINDS = [
+  LAYER_KINDS.COASTLINES,
+  LAYER_KINDS.GRID,
+] as const satisfies readonly TBuiltinLayerKind[];
+
+function createBuiltinLayer(kind: TBuiltinLayerKind): TLayerEntry {
+  return {
+    ...BUILTIN_LAYER_DEFAULTS[kind],
+    name: BUILTIN_LAYER_NAMES[kind],
+    visible: true,
+  };
+}
+
+function initialLayerStack(): TLayerEntry[] {
+  return INITIAL_BUILTIN_LAYER_KINDS.map(createBuiltinLayer);
 }
 
 export const useGlobeControlStore = defineStore("globeControl", {
@@ -151,6 +171,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
     return {
       showCoastLines: true,
       showGraticules: false,
+      showDistanceScale: false,
       coastlineResolution:
         COASTLINE_RESOLUTIONS.FIFTY_M as TCoastlineResolution,
       graticuleSpacing: GRATICULE_SPACINGS.THIRTY_DEGREES as TGraticuleSpacing,
@@ -182,6 +203,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
       isRotating: false,
       hoverEnabled: false,
       hoveredGridPoint: undefined as THoveredGridPoint | undefined,
+      distanceScale: null as TDistanceScale | null,
       catalogUrl: undefined as string | undefined,
       catalogData: undefined as TCatalog | undefined,
       // ── Live datasets ──────────────────────────────────────────────
@@ -192,7 +214,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
       liveConnected: false, // whether the long-poll is currently connected
       liveTimestep: undefined as number | undefined, // latest known live index
       // layer panel stack, ordered top → bottom; order determines render order
-      layerStack: builtinLayerStack() as TLayerEntry[],
+      layerStack: initialLayerStack(),
       // incremented to request a GeoTIFF image-layer export of the current grid
       gridExportRequest: 0 as number,
       gridExportLoading: false,
@@ -345,8 +367,17 @@ export const useGlobeControlStore = defineStore("globeControl", {
         maskMode: LAND_SEA_MASK_MODES.OFF,
       });
     },
-    removeTextureLayer(id: string) {
+    removeLayer(id: string) {
       this.layerStack = this.layerStack.filter((layer) => layer.id !== id);
+    },
+    restoreBuiltinLayer(kind: TLayerKind) {
+      if (
+        kind === LAYER_KINDS.TEXTURE ||
+        this.layerStack.some((layer) => layer.kind === kind)
+      ) {
+        return;
+      }
+      this.layerStack.unshift(createBuiltinLayer(kind));
     },
     updateTextureLayer(
       id: string,
@@ -377,6 +408,9 @@ export const useGlobeControlStore = defineStore("globeControl", {
       );
     },
     setStreamlineLayerEnabled(enabled: boolean) {
+      if (enabled) {
+        this.restoreBuiltinLayer(LAYER_KINDS.STREAMLINES);
+      }
       const layer = this.layerStack.find(
         (entry) => entry.id === BUILTIN_LAYER_IDS.STREAMLINES
       );
@@ -393,22 +427,6 @@ export const useGlobeControlStore = defineStore("globeControl", {
       const [entry] = this.layerStack.splice(fromIndex, 1);
       const clamped = Math.max(0, Math.min(this.layerStack.length, toIndex));
       this.layerStack.splice(clamped, 0, entry);
-    },
-    /**
-     * Keep historic default behaviour: the globe mask sits below the grid,
-     * land/sea masks above. Called when the mask mode changes; the user can
-     * still re-drag the mask afterwards.
-     */
-    positionMaskLayerForMode(mode: TLandSeaMaskMode) {
-      const withoutMask = this.layerStack.filter(
-        (entry) => entry.kind !== LAYER_KINDS.MASK
-      );
-      const gridIndex = withoutMask.findIndex(
-        (entry) => entry.kind === LAYER_KINDS.GRID
-      );
-      const targetIndex =
-        mode === LAND_SEA_MASK_MODES.GLOBE ? gridIndex + 1 : gridIndex;
-      this.moveLayer(BUILTIN_LAYER_IDS.MASK, targetIndex);
     },
     requestGridExport() {
       this.gridExportRequest++;

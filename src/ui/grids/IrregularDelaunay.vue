@@ -56,6 +56,7 @@ const {
   makeSnapshot,
   toggleRotate,
   applyCameraPreset,
+  fitCameraToDataset,
   getDataVar,
   fetchDimensionDetails,
   updateLandSeaMask,
@@ -279,6 +280,7 @@ async function fetchAndRenderData(
     }
   );
   updateMeshProjectionUniforms();
+  fitCameraToDataset(meshes);
   setHoverLookupFromIndex(
     createSerializedGeoSampleIndex(result.hoverIndexData),
     fillValue,

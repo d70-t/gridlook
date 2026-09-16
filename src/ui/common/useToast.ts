@@ -9,14 +9,14 @@ export const ToastType = {
 
 export type TToastType = (typeof ToastType)[keyof typeof ToastType];
 
-export type TToast = {
+type TToast = {
   id: number;
   summary: string;
   detail?: string;
   type: TToastType;
 };
 
-export type TAddToastOptions = {
+type TAddToastOptions = {
   detail?: string;
   duration?: number;
   type?: TToastType;
