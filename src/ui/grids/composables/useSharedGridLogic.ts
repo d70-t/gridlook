@@ -223,8 +223,12 @@ export function useSharedGridLogic() {
       if (!myMesh) {
         continue;
       }
-      myMesh.visible = gridVisible;
       const material = myMesh.material as THREE.ShaderMaterial;
+      // Regular grids stage geometry before installing their first data material.
+      if (!material.uniforms?.colormap) {
+        continue;
+      }
+      myMesh.visible = gridVisible;
       material.uniforms.colormap.value = availableColormaps[colormap.value];
       material.uniforms.addOffset.value = addOffset;
       material.uniforms.scaleFactor.value = scaleFactor;

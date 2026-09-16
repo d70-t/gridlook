@@ -321,8 +321,11 @@ export const useGlobeControlStore = defineStore("globeControl", {
       this.loading = true;
       this.hoveredGridPoint = undefined;
     },
-    stopLoading() {
+    stopLoading(updateDisplay = true) {
       this.loading = false;
+      if (!updateDisplay) {
+        return;
+      }
       this.varnameDisplay = this.varnameSelector;
       for (let i = 0; i < this.dimSlidersValues.length; i++) {
         this.dimSlidersDisplay[i] = this.dimSlidersValues[i];

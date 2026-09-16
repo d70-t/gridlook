@@ -13,6 +13,33 @@ import {
 
 const DISPLAY_BIN_COUNT = 50;
 
+export function createGridHistogramSummary(
+  data: ArrayLike<number> | THistogramSummary[] | undefined,
+  min: number,
+  max: number,
+  missingValue?: number,
+  fillValue?: number
+) {
+  if (!data || data.length === 0 || !isFinite(min) || !isFinite(max)) {
+    return undefined;
+  }
+  return isHistogramSummary(data[0])
+    ? mergeHistogramSummaries(
+        data as THistogramSummary[],
+        min,
+        max,
+        HISTOGRAM_SUMMARY_BINS
+      )
+    : buildHistogramSummary(
+        data as ArrayLike<number>,
+        min,
+        max,
+        HISTOGRAM_SUMMARY_BINS,
+        fillValue,
+        missingValue
+      );
+}
+
 /* eslint-disable-next-line max-lines-per-function */
 export function useGridHistogram() {
   const store = useGlobeControlStore();
@@ -74,31 +101,19 @@ export function useGridHistogram() {
     missingValue?: number,
     fillValue?: number
   ) {
-    if (!data || data.length === 0 || !isFinite(min) || !isFinite(max)) {
+    const summary = createGridHistogramSummary(
+      data,
+      min,
+      max,
+      missingValue,
+      fillValue
+    );
+    if (!summary) {
       store.updateHistogram(undefined);
       store.updateFullHistogram(undefined);
       store.updateHistogramSummary(undefined);
       lastHistogramSummary.value = null;
       return;
-    }
-
-    let summary: THistogramSummary;
-    if (isHistogramSummary(data[0])) {
-      summary = mergeHistogramSummaries(
-        data as THistogramSummary[],
-        min,
-        max,
-        HISTOGRAM_SUMMARY_BINS
-      );
-    } else {
-      summary = buildHistogramSummary(
-        data as ArrayLike<number>,
-        min,
-        max,
-        HISTOGRAM_SUMMARY_BINS,
-        fillValue,
-        missingValue
-      );
     }
 
     const fullHist = rebinHistogramSummary(

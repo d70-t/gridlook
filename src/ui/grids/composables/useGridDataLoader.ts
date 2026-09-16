@@ -11,6 +11,7 @@ type TLogError = (maybeError: unknown, context?: string) => void;
 
 type TLoaderState = {
   disposed: boolean;
+  requestRevision: number;
   pendingUpdate: Ref<boolean>;
   updatingData: Ref<boolean>;
 };
@@ -21,7 +22,10 @@ type TGridDataLoaderOptions = {
     varname: string,
     datasources: TSources
   ) => Promise<TDataVar | undefined>;
-  fetchAndRenderData: (datavar: TDataVar) => Promise<void>;
+  fetchAndRenderData: (
+    datavar: TDataVar,
+    isCurrent: () => boolean
+  ) => Promise<void>;
   clearHoverLookup: () => void;
   updateLandSeaMask: () => void | Promise<void>;
   updateColormap: () => void;
@@ -29,14 +33,20 @@ type TGridDataLoaderOptions = {
   resetDataVars?: () => void;
   refreshStreamlines?: (reuseCached?: boolean) => void | Promise<void>;
   suspendStreamlines?: () => void;
+  scalarCache?: {
+    clear: () => void;
+    restoreScalar: () => Promise<boolean>;
+  };
 };
 
+// eslint-disable-next-line max-lines-per-function
 function createGetData(
   options: TGridDataLoaderOptions,
   store: TGlobeControlStore,
   state: TLoaderState,
   logError: TLogError
 ) {
+  // eslint-disable-next-line max-lines-per-function
   return async function getData() {
     const datasources = options.getDatasources();
     if (!datasources) {
@@ -44,6 +54,11 @@ function createGetData(
     }
 
     store.startLoading();
+    state.requestRevision++;
+    if (store.isStreamlineLayerEnabled()) {
+      options.suspendStreamlines?.();
+    }
+    options.scalarCache?.clear();
     if (state.updatingData.value) {
       state.pendingUpdate.value = true;
       return;
@@ -54,6 +69,11 @@ function createGetData(
     try {
       do {
         state.pendingUpdate.value = false;
+        const revision = state.requestRevision;
+        const isCurrent = () =>
+          !state.disposed &&
+          revision === state.requestRevision &&
+          datasources === options.getDatasources();
         try {
           const requestVarname = store.varnameSelector;
           const datavar = await options.getDataVar(requestVarname, datasources);
@@ -65,8 +85,8 @@ function createGetData(
             state.pendingUpdate.value = true;
             continue;
           }
-          if (datavar !== undefined) {
-            await options.fetchAndRenderData(datavar);
+          if (datavar !== undefined && isCurrent()) {
+            await options.fetchAndRenderData(datavar, isCurrent);
           }
         } catch (error) {
           // A live source may roll over while an older timestep is loading.
@@ -80,7 +100,8 @@ function createGetData(
     } finally {
       state.updatingData.value = false;
       if (!state.disposed && shouldStopLoading) {
-        store.stopLoading();
+        // The renderer commits the displayed name and indices with its frame.
+        store.stopLoading(false);
       }
     }
   };
@@ -109,6 +130,7 @@ function createDatasourceUpdate(
 function registerGridDataLoaderWatches(
   options: TGridDataLoaderOptions,
   store: TGlobeControlStore,
+  state: TLoaderState,
   getData: () => Promise<void>,
   logError: TLogError
 ) {
@@ -129,6 +151,10 @@ function registerGridDataLoaderWatches(
     () => store.streamlineSelectionRevision,
     async () => {
       try {
+        if (state.updatingData.value) {
+          await getData();
+          return;
+        }
         await options.refreshStreamlines?.();
       } catch (error) {
         logError(error, "Could not update vector components");
@@ -138,12 +164,20 @@ function registerGridDataLoaderWatches(
   watch(
     () => store.streamlineScalarRevision,
     async () => {
+      if (state.updatingData.value) {
+        return;
+      }
       try {
         if (store.streamlineMagnitudeDisplayed) {
-          await options.refreshStreamlines?.(true);
+          // A running build will display magnitude when it finishes.
+          if (!store.streamlineLoading) {
+            await options.refreshStreamlines?.(true);
+          }
         } else {
-          await getData();
-          options.updateColormap();
+          if (!(await options.scalarCache?.restoreScalar())) {
+            await getData();
+            options.updateColormap();
+          }
         }
       } catch (error) {
         logError(error, "Could not change the displayed streamline scalar");
@@ -156,8 +190,18 @@ function registerGridDataLoaderWatches(
       if (!enabled) {
         store.setStreamlineMagnitudeDisplayed(false);
         options.suspendStreamlines?.();
+        if (state.updatingData.value) {
+          return;
+        }
+        if (!(await options.scalarCache?.restoreScalar())) {
+          await getData();
+          options.updateColormap();
+        }
+        return;
+      }
+      if (state.updatingData.value) {
+        // Enabling must replace a build cancelled by an earlier disable.
         await getData();
-        options.updateColormap();
         return;
       }
       try {
@@ -174,13 +218,14 @@ export function useGridDataLoader(options: TGridDataLoaderOptions) {
   const { logError } = useLog();
   const state: TLoaderState = {
     disposed: false,
+    requestRevision: 0,
     pendingUpdate: ref(false),
     updatingData: ref(false),
   };
   const getData = createGetData(options, store, state, logError);
   const datasourceUpdate = createDatasourceUpdate(options, getData);
 
-  registerGridDataLoaderWatches(options, store, getData, logError);
+  registerGridDataLoaderWatches(options, store, state, getData, logError);
 
   onScopeDispose(() => {
     state.disposed = true;

@@ -7,8 +7,8 @@ import * as zarr from "zarrita";
 import { useGridHoverLookup } from "./composables/gridHoverUtils.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useIrregularStreamlines } from "./composables/useIrregularStreamlines.ts";
+import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
-import { showVectorMagnitudeScalarInfo } from "./composables/vectorMagnitudeScalar.ts";
 
 import { getLatLonData } from "@/lib/data/coordinateVariables.ts";
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
@@ -106,6 +106,12 @@ const colormapMaterial = computed(() => {
     : makeGpuProjectedPointMaterial(colormap.value, 0.0, 1.0);
 });
 
+const scalarCache = useScalarFieldCache({
+  updateHistogram,
+  updateColormap: () => updateColormap(points),
+  redraw,
+});
+
 const streamlines = useIrregularStreamlines({
   getDatasources: () => props.datasources,
   getPreferredVariable: () => varnameSelector.value,
@@ -116,45 +122,46 @@ const streamlines = useIrregularStreamlines({
   onProjectionChange,
   registerAnimationCallback,
   showMagnitude,
+  restoreScalar: scalarCache.restoreScalar,
 });
 
 async function showMagnitude(scalar: TVectorMagnitudeData) {
-  if (!magnitudeCoordinates) {
+  const coordinates = magnitudeCoordinates;
+  if (!coordinates) {
     return;
   }
-  const helper = projectionHelper.value;
-  const result = await buildIrregularGrid(
-    {
-      ...magnitudeCoordinates,
-      data: scalar.data,
-      batchSize: BATCH_SIZE,
-      projectionType: helper.type,
-      projectionCenter: { lat: helper.center.lat, lon: helper.center.lon },
-    },
-    {
-      onMetadata: (metadata) => {
-        cleanupPoints(metadata.totalBatches);
-        estimatedSpacing.value = metadata.estimatedSpacing;
+  await scalarCache.showMagnitude(scalar, async () => {
+    const helper = projectionHelper.value;
+    const batches: TGridPointBatch[] = [];
+    const result = await buildIrregularGrid(
+      {
+        ...coordinates,
+        data: scalar.data,
+        batchSize: BATCH_SIZE,
+        projectionType: helper.type,
+        projectionCenter: { lat: helper.center.lat, lon: helper.center.lon },
       },
-      onBatch: updateBatch,
-    }
-  );
-  updatePointsProjectionUniforms();
-  updateLOD();
-  setHoverLookupFromIndex(
-    createSerializedGeoSampleIndex(result.hoverIndexData),
-    NaN,
-    NaN
-  );
-  updateHistogram(scalar.data, scalar.min, scalar.max);
-  showVectorMagnitudeScalarInfo(store, scalar);
-  redraw();
+      {
+        onMetadata: () => undefined,
+        onBatch: (batch) => batches.push(batch),
+      }
+    );
+    const hoverIndex = createSerializedGeoSampleIndex(result.hoverIndexData);
+    return () => {
+      cleanupPoints(batches.length);
+      batches.forEach(updateBatch);
+      updatePointsProjectionUniforms();
+      updateLOD();
+      setHoverLookupFromIndex(hoverIndex, NaN, NaN);
+    };
+  });
 }
 
 const { datasourceUpdate } = useGridDataLoader({
   getDatasources: () => props.datasources,
   getDataVar,
   fetchAndRenderData,
+  scalarCache,
   clearHoverLookup,
   updateLandSeaMask,
   updateColormap: () => updateColormap(points),
@@ -303,8 +310,10 @@ async function getDimensionValues(
 
 /* eslint-disable-next-line max-lines-per-function */
 async function fetchAndRenderData(
-  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
+  isCurrent: () => boolean
 ) {
+  const deferDisplay = store.isStreamlineLayerEnabled();
   const {
     latitudes,
     longitudes,
@@ -316,11 +325,16 @@ async function fetchAndRenderData(
   const rawData = castDataVarToFloat32(
     await fetchIrregularVariableData(indices)
   );
+  if (!isCurrent()) {
+    return;
+  }
   const { min, max, fillValue, missingValue } = decodeVariableDataAndGetBounds(
     datavar,
     rawData
   );
   const helper = projectionHelper.value;
+  const batches: TGridPointBatch[] = [];
+  let spacing = estimatedSpacing.value;
   const result = await buildIrregularGrid(
     {
       latitudes: latitudes.data as Float32Array,
@@ -334,10 +348,18 @@ async function fetchAndRenderData(
     },
     {
       onMetadata: (metadata) => {
-        cleanupPoints(metadata.totalBatches);
-        estimatedSpacing.value = metadata.estimatedSpacing;
+        spacing = metadata.estimatedSpacing;
+        if (!deferDisplay && isCurrent()) {
+          cleanupPoints(metadata.totalBatches);
+          estimatedSpacing.value = metadata.estimatedSpacing;
+        }
       },
-      onBatch: updateBatch,
+      onBatch: (batch) => {
+        batches.push(batch);
+        if (!deferDisplay && isCurrent()) {
+          updateBatch(batch);
+        }
+      },
     }
   );
   magnitudeCoordinates = {
@@ -346,32 +368,45 @@ async function fetchAndRenderData(
     latitudeShape: [...latitudes.shape],
     longitudeShape: [...longitudes.shape],
   };
-  updatePointsProjectionUniforms();
-  fitCameraToDataset(points);
-  updateLOD();
-  setHoverLookupFromIndex(
-    createSerializedGeoSampleIndex(result.hoverIndexData),
-    fillValue,
-    missingValue
-  );
+  const hoverIndex = createSerializedGeoSampleIndex(result.hoverIndexData);
 
+  if (!isCurrent()) {
+    return;
+  }
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
-  updateHistogram(rawData, min, max, missingValue, fillValue);
-  store.updateVarInfo(
-    {
-      attrs: datavar.attrs,
-      dimInfo,
-      bounds: { low: min, high: max },
-      dimRanges: dimensionRanges,
-    },
-    indices as number[]
-  );
+  const scalarInfo = {
+    attrs: datavar.attrs,
+    dimInfo,
+    bounds: { low: min, high: max },
+    dimRanges: dimensionRanges,
+  };
   const coordinates = reconcileCoordinates(
     latitudes,
     longitudes,
     rawData.length
   );
-  void streamlines.setContext({
+  const renderScalar = () => {
+    cleanupPoints(batches.length);
+    batches.forEach(updateBatch);
+    estimatedSpacing.value = spacing;
+    updatePointsProjectionUniforms();
+    fitCameraToDataset(points);
+    updateLOD();
+    setHoverLookupFromIndex(hoverIndex, fillValue, missingValue);
+  };
+  if (!isCurrent()) {
+    return;
+  }
+  scalarCache.captureScalar({
+    render: renderScalar,
+    info: scalarInfo,
+    indices: indices as number[],
+    data: rawData,
+    missingValue,
+    fillValue,
+    isCurrent,
+  });
+  await streamlines.setContext({
     ...coordinates,
     dimensionNames: dimensions,
     indices,
@@ -379,6 +414,9 @@ async function fetchAndRenderData(
       (index) => dimensions[index]
     ),
   });
+  if (isCurrent() && !store.streamlineMagnitudeDisplayed) {
+    await scalarCache.restoreScalar();
+  }
 }
 
 onBeforeMount(async () => {

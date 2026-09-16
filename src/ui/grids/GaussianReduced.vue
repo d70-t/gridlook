@@ -7,8 +7,8 @@ import type * as zarr from "zarrita";
 import { useGridHoverLookup } from "./composables/gridHoverUtils.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useIrregularStreamlines } from "./composables/useIrregularStreamlines.ts";
+import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
-import { showVectorMagnitudeScalarInfo } from "./composables/vectorMagnitudeScalar.ts";
 
 import { getLatLonData } from "@/lib/data/coordinateVariables.ts";
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
@@ -99,6 +99,12 @@ const colormapMaterial = computed(() => {
   return makeInvertableGpuMeshMaterial(colormap.value, invertColormap.value);
 });
 
+const scalarCache = useScalarFieldCache({
+  updateHistogram,
+  updateColormap: () => updateColormap(meshes),
+  redraw,
+});
+
 const streamlines = useIrregularStreamlines({
   getDatasources: () => props.datasources,
   getPreferredVariable: () => varnameSelector.value,
@@ -109,32 +115,34 @@ const streamlines = useIrregularStreamlines({
   onProjectionChange,
   registerAnimationCallback,
   showMagnitude,
+  restoreScalar: scalarCache.restoreScalar,
 });
 
 async function showMagnitude(scalar: TVectorMagnitudeData) {
-  if (!magnitudeCoordinates) {
+  const coordinates = magnitudeCoordinates;
+  if (!coordinates) {
     return;
   }
-  const hoverIndexData = await buildGaussianReducedGeometry(
-    magnitudeCoordinates.latitudes,
-    magnitudeCoordinates.longitudes,
-    scalar.data
-  );
-  setHoverLookupFromIndex(
-    createSerializedGeoSampleIndex(hoverIndexData),
-    NaN,
-    NaN
-  );
-  updateMeshProjectionUniforms();
-  updateHistogram(scalar.data, scalar.min, scalar.max);
-  showVectorMagnitudeScalarInfo(store, scalar);
-  redraw();
+  await scalarCache.showMagnitude(scalar, async () => {
+    const { hoverIndexData, render } = await buildGaussianReducedGeometry(
+      coordinates.latitudes,
+      coordinates.longitudes,
+      scalar.data,
+      true
+    );
+    const hoverIndex = createSerializedGeoSampleIndex(hoverIndexData);
+    return () => {
+      render();
+      setHoverLookupFromIndex(hoverIndex, NaN, NaN);
+    };
+  });
 }
 
 const { datasourceUpdate } = useGridDataLoader({
   getDatasources: () => props.datasources,
   getDataVar,
   fetchAndRenderData,
+  scalarCache,
   clearHoverLookup,
   updateLandSeaMask,
   updateColormap: () => updateColormap(meshes),
@@ -210,13 +218,16 @@ function updateGaussianReducedBatch(batch: TGridGeometryBatch) {
   );
 }
 
-function buildGaussianReducedGeometry(
+async function buildGaussianReducedGeometry(
   latitudes: Float64Array,
   longitudes: Float64Array,
-  data: Float32Array
+  data: Float32Array,
+  deferDisplay = false,
+  isCurrent = () => true
 ) {
   const helper = projectionHelper.value;
-  return buildGaussianReducedGrid(
+  const batches: TGridGeometryBatch[] = [];
+  const hoverIndexData = await buildGaussianReducedGrid(
     {
       latitudes,
       longitudes,
@@ -227,10 +238,27 @@ function buildGaussianReducedGeometry(
       projectionCenter: { lat: helper.center.lat, lon: helper.center.lon },
     },
     {
-      onMetadata: cleanupMeshes,
-      onBatch: updateGaussianReducedBatch,
+      onMetadata: (totalBatches) => {
+        if (!deferDisplay && isCurrent()) {
+          cleanupMeshes(totalBatches);
+        }
+      },
+      onBatch: (batch) => {
+        batches.push(batch);
+        if (!deferDisplay && isCurrent()) {
+          updateGaussianReducedBatch(batch);
+        }
+      },
     }
   );
+  return {
+    hoverIndexData,
+    render: () => {
+      cleanupMeshes(batches.length);
+      batches.forEach(updateGaussianReducedBatch);
+      updateMeshProjectionUniforms();
+    },
+  };
 }
 
 async function getDimensionValues(
@@ -284,8 +312,10 @@ function fetchGaussianReducedVariableData(
 
 // eslint-disable-next-line max-lines-per-function
 async function fetchAndRenderData(
-  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
+  isCurrent: () => boolean
 ) {
+  const deferDisplay = store.isStreamlineLayerEnabled();
   const { dimensionRanges, indices, dimensionNames } =
     await buildDimensionConfig(datavar);
 
@@ -305,50 +335,63 @@ async function fetchAndRenderData(
     longitudes: longitudesData,
   };
 
+  if (!isCurrent()) {
+    return;
+  }
   const { min, max, missingValue, fillValue } = decodeVariableDataAndGetBounds(
     datavar,
     rawData
   );
 
-  const hoverIndexData = await buildGaussianReducedGeometry(
+  const { hoverIndexData, render } = await buildGaussianReducedGeometry(
     latitudesData,
     longitudesData,
-    rawData
+    rawData,
+    deferDisplay,
+    isCurrent
   );
 
-  // Update hover lookup
-  setHoverLookupFromIndex(
-    createSerializedGeoSampleIndex(hoverIndexData),
-    fillValue,
-    missingValue
-  );
+  const hoverIndex = createSerializedGeoSampleIndex(hoverIndexData);
 
-  // Set projection uniforms on all meshes after grid creation
-  updateMeshProjectionUniforms();
-  fitCameraToDataset(meshes);
-
+  if (!isCurrent()) {
+    return;
+  }
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
 
-  updateHistogram(rawData, min, max, missingValue, fillValue);
+  const scalarInfo = {
+    attrs: datavar.attrs,
+    dimInfo,
+    bounds: { low: min, high: max },
+    dimRanges: dimensionRanges,
+  };
 
-  store.updateVarInfo(
-    {
-      attrs: datavar.attrs,
-      dimInfo,
-      bounds: { low: min, high: max },
-      dimRanges: dimensionRanges,
-    },
-    indices as number[]
-  );
-
-  redraw();
-  void streamlines.setContext({
+  const renderScalar = () => {
+    render();
+    fitCameraToDataset(meshes);
+    setHoverLookupFromIndex(hoverIndex, fillValue, missingValue);
+  };
+  if (!isCurrent()) {
+    return;
+  }
+  scalarCache.captureScalar({
+    render: renderScalar,
+    info: scalarInfo,
+    indices: indices as number[],
+    data: rawData,
+    missingValue,
+    fillValue,
+    isCurrent,
+  });
+  await streamlines.setContext({
     latitudes: Float32Array.from(latitudesData),
     longitudes: Float32Array.from(longitudesData),
     dimensionNames,
     indices,
     spatialDimensionNames: [dimensionNames.at(-1)!],
   });
+  if (isCurrent() && !store.streamlineMagnitudeDisplayed) {
+    await scalarCache.restoreScalar();
+  }
 }
 
 onBeforeMount(async () => {

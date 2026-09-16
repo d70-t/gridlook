@@ -106,3 +106,51 @@ it("skips field preparation when the request is superseded while yielding", asyn
   expect(create).not.toHaveBeenCalled();
   scope.stop();
 });
+
+it.each([false, true])(
+  "keeps the old timestep until its replacement background is ready (current: %s)",
+  async (current) => {
+    const { store, scope, scene, layer } = setupLayer();
+    const makeLayer = () => ({
+      dispose: vi.fn(),
+      object: new Object3D(),
+      updateProjection: vi.fn(),
+      setRenderOrder: vi.fn(),
+      setOpacity: vi.fn(),
+    });
+    const oldLayer = makeLayer();
+    const nextLayer = makeLayer();
+    const field = {} as TStreamlineVectorField;
+    const pair = { u: "u", v: "v", kind: "u/v" } as const;
+    let finish!: () => void;
+    let isCurrent = true;
+    const prepareBackground = vi.fn(
+      () => new Promise<void>((resolve) => (finish = resolve))
+    );
+    try {
+      create.mockResolvedValueOnce(oldLayer).mockResolvedValueOnce(nextLayer);
+      await layer.setField(field, pair, () => true);
+      const pending = layer.setField(
+        field,
+        pair,
+        () => isCurrent,
+        prepareBackground
+      );
+      await vi.waitFor(() => expect(prepareBackground).toHaveBeenCalledOnce());
+      expect(scene.children).toEqual([oldLayer.object]);
+      expect(oldLayer.dispose).not.toHaveBeenCalled();
+      expect(store.streamlineLoading).toBe(true);
+
+      isCurrent = current;
+      finish();
+      expect(await pending).toBe(current);
+      expect(scene.children).toEqual([
+        current ? nextLayer.object : oldLayer.object,
+      ]);
+      expect(oldLayer.dispose).toHaveBeenCalledTimes(current ? 1 : 0);
+      expect(nextLayer.dispose).toHaveBeenCalledTimes(current ? 0 : 1);
+    } finally {
+      scope.stop();
+    }
+  }
+);

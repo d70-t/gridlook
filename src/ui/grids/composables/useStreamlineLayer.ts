@@ -129,16 +129,18 @@ export function useStreamlineLayer(options: TOptions) {
     return !disposed && isCurrent() && store.isStreamlineLayerEnabled();
   }
 
+  // eslint-disable-next-line max-lines-per-function
   async function setField(
     field: TStreamlineVectorField,
     pair: TVectorVariablePair,
-    isCurrent: () => boolean
+    isCurrent: () => boolean,
+    beforeInstall?: () => Promise<void>
   ) {
     if (disposed || !isCurrent()) {
       return false;
     }
-    disposeObject();
-    const revision = buildRevision;
+    // Keep the previous timestep visible until its replacement is ready.
+    const revision = ++buildRevision;
     store.setStreamlinePair(pair);
     store.streamlineLoading = true;
     store.streamlineLoadingStage = STREAMLINE_LOADING_STAGES.PATHS;
@@ -161,6 +163,16 @@ export function useStreamlineLayer(options: TOptions) {
       );
       if (!nextLayer || isCancelled()) {
         nextLayer?.dispose();
+        return false;
+      }
+      try {
+        await beforeInstall?.();
+      } catch (error) {
+        nextLayer.dispose();
+        throw error;
+      }
+      if (isCancelled()) {
+        nextLayer.dispose();
         return false;
       }
       installLayer(nextLayer);

@@ -11,9 +11,9 @@ import type {
 } from "./composables/gridHoverUtils.ts";
 import { loadVectorComponents } from "./composables/streamlineData.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
+import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 import { useStreamlineLayer } from "./composables/useStreamlineLayer.ts";
-import { showVectorMagnitudeScalarInfo } from "./composables/vectorMagnitudeScalar.ts";
 
 import {
   getCRSWkt,
@@ -124,6 +124,12 @@ onColormapChange(() => updateColormap(meshes));
 onProjectionChange(updateMeshProjectionUniforms);
 onMotionStateChange(updateMeshProjectionUniforms);
 
+const scalarCache = useScalarFieldCache({
+  updateHistogram,
+  updateColormap: () => updateColormap(meshes),
+  redraw,
+});
+
 const streamlines = useStreamlineLayer({
   getScene,
   redraw,
@@ -144,6 +150,7 @@ const { datasourceUpdate } = useGridDataLoader({
   getDatasources: () => props.datasources,
   getDataVar,
   fetchAndRenderData,
+  scalarCache,
   clearHoverLookup,
   prepareDatasource: async () => {
     await getDims();
@@ -584,6 +591,7 @@ function applyBatchGeometry(
       new THREE.ShaderMaterial(),
       projectionHelper.value.type
     );
+    mesh.visible = false;
     mesh.frustumCulled = false;
     meshes.push(mesh);
     getScene()?.add(mesh);
@@ -872,12 +880,13 @@ function updateMeshMaterials(rawData: Float32Array) {
 }
 
 async function showMagnitude(scalar: TVectorMagnitudeData) {
-  updateMeshMaterials(scalar.data);
-  const hoverIndex = await buildHoverSamples(scalar.data);
-  setHoverLookupFromIndex(hoverIndex, NaN, NaN);
-  updateHistogram(scalar.data, scalar.min, scalar.max);
-  showVectorMagnitudeScalarInfo(store, scalar);
-  redraw();
+  await scalarCache.showMagnitude(scalar, async () => {
+    const hoverIndex = await buildHoverSamples(scalar.data);
+    return () => {
+      updateMeshMaterials(scalar.data);
+      setHoverLookupFromIndex(hoverIndex, NaN, NaN);
+    };
+  });
 }
 
 async function makeVectorField(
@@ -1016,15 +1025,7 @@ async function updateStreamlines(
     if (!field || requestRevision !== streamlineRequestRevision) {
       return;
     }
-    const rendered = await streamlines.setField(
-      field,
-      pair,
-      () => requestRevision === streamlineRequestRevision
-    );
-    if (!rendered || requestRevision !== streamlineRequestRevision) {
-      return;
-    }
-    cachedMagnitude =
+    const magnitude =
       components.magnitudeInfo && components.canDeriveMagnitude
         ? createVectorMagnitudeData(
             components.uData,
@@ -1032,10 +1033,23 @@ async function updateStreamlines(
             components.magnitudeInfo
           )
         : undefined;
-    cachedStreamlineKey = requestKey;
-    if (store.streamlineMagnitudeDisplayed && cachedMagnitude) {
-      await showMagnitude(cachedMagnitude);
+    const rendered = await streamlines.setField(
+      field,
+      pair,
+      () => requestRevision === streamlineRequestRevision,
+      async () => {
+        if (store.streamlineMagnitudeDisplayed && magnitude) {
+          await showMagnitude(magnitude);
+        } else {
+          await scalarCache.restoreScalar();
+        }
+      }
+    );
+    if (!rendered || requestRevision !== streamlineRequestRevision) {
+      return;
     }
+    cachedMagnitude = magnitude;
+    cachedStreamlineKey = requestKey;
   } catch (error) {
     if (requestRevision === streamlineRequestRevision) {
       streamlines.clear();
@@ -1044,28 +1058,31 @@ async function updateStreamlines(
   }
 }
 
+// eslint-disable-next-line max-lines-per-function
 async function fetchAndRenderData(
-  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
+  isCurrent: () => boolean
 ) {
   const { dimensionRanges, indices } = await buildDimensionConfig(datavar);
 
   const variableData = await fetchRegularGridVariableData(indices);
   const rawData = castDataVarToFloat32(variableData);
 
+  if (!isCurrent()) {
+    return;
+  }
   const { min, max, missingValue, fillValue } = decodeVariableDataAndGetBounds(
     datavar,
     rawData
   );
 
-  updateMeshMaterials(rawData);
-
   const hoverIndex = await buildHoverSamples(rawData);
-  setHoverLookupFromIndex(hoverIndex, fillValue, missingValue);
-
-  updateHistogram(rawData, min, max, missingValue, fillValue);
 
   lastStreamlineIndices = indices;
 
+  if (!isCurrent()) {
+    return;
+  }
   const dimInfo = await fetchDimensionDetails(
     varnameSelector.value,
     props.datasources!,
@@ -1073,17 +1090,32 @@ async function fetchAndRenderData(
     indices
   );
 
-  store.updateVarInfo(
-    {
-      attrs: datavar.attrs,
-      dimInfo,
-      bounds: { low: min, high: max },
-      dimRanges: dimensionRanges,
-    },
-    indices as number[]
-  );
-  redraw();
-  void updateStreamlines(indices);
+  const scalarInfo = {
+    attrs: datavar.attrs,
+    dimInfo,
+    bounds: { low: min, high: max },
+    dimRanges: dimensionRanges,
+  };
+  const renderScalar = () => {
+    updateMeshMaterials(rawData);
+    setHoverLookupFromIndex(hoverIndex, fillValue, missingValue);
+  };
+  if (!isCurrent()) {
+    return;
+  }
+  scalarCache.captureScalar({
+    render: renderScalar,
+    info: scalarInfo,
+    indices: indices as number[],
+    data: rawData,
+    missingValue,
+    fillValue,
+    isCurrent,
+  });
+  await updateStreamlines(indices);
+  if (isCurrent() && !store.streamlineMagnitudeDisplayed) {
+    await scalarCache.restoreScalar();
+  }
 }
 
 onBeforeMount(async () => {

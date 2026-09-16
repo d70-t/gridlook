@@ -1,6 +1,7 @@
 import type * as zarr from "zarrita";
 
 import type { TVectorMagnitudeData } from "@/lib/data/vectorMagnitude.ts";
+import type { TVarInfo } from "@/lib/types/GlobeTypes.ts";
 import type { useGlobeControlStore } from "@/store/store.ts";
 
 type TStore = ReturnType<typeof useGlobeControlStore>;
@@ -11,11 +12,18 @@ export function showVectorMagnitudeScalarInfo(
   scalar: TVectorMagnitudeData
 ) {
   store.varnameDisplay = scalar.standardName ?? "vector_magnitude";
-  if (!store.varinfo) {
-    return;
+  store.varinfo = createVectorMagnitudeVarInfo(store.varinfo, scalar);
+}
+
+export function createVectorMagnitudeVarInfo(
+  info: TVarInfo | undefined,
+  scalar: TVectorMagnitudeData
+) {
+  if (!info) {
+    return undefined;
   }
   const attrs: zarr.Attributes = {
-    ...store.varinfo.attrs,
+    ...info.attrs,
     ["long_name"]: scalar.longName,
   };
   delete attrs.standard_name;
@@ -24,8 +32,8 @@ export function showVectorMagnitudeScalarInfo(
   }
   delete attrs.units;
   attrs.units = scalar.units;
-  store.varinfo = {
-    ...store.varinfo,
+  return {
+    ...info,
     attrs,
     bounds: { low: scalar.min, high: scalar.max },
   };

@@ -45,6 +45,7 @@ type TOptions = {
     callback: (deltaSeconds: number) => void
   ) => () => void;
   showMagnitude: (result: TVectorMagnitudeData) => void | Promise<void>;
+  restoreScalar: () => Promise<boolean>;
 };
 
 function requestKey(
@@ -192,20 +193,24 @@ export function useIrregularStreamlines(options: TOptions) {
       const rendered = await layer.setField(
         result.field,
         pair,
-        () => revision === requestRevision
+        () => revision === requestRevision,
+        async () => {
+          store.setStreamlineMagnitudeInfo(
+            result.magnitudeInfo,
+            Boolean(result.magnitude)
+          );
+          if (store.streamlineMagnitudeDisplayed && result.magnitude) {
+            await options.showMagnitude(result.magnitude);
+          } else {
+            await options.restoreScalar();
+          }
+        }
       );
       if (!rendered || revision !== requestRevision) {
         return;
       }
-      store.setStreamlineMagnitudeInfo(
-        result.magnitudeInfo,
-        Boolean(result.magnitude)
-      );
       cachedMagnitude = result.magnitude;
       cachedRequestKey = key;
-      if (store.streamlineMagnitudeDisplayed && result.magnitude) {
-        await options.showMagnitude(result.magnitude);
-      }
     } catch (error) {
       if (revision === requestRevision) {
         layer.clear();
