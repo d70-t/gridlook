@@ -75,17 +75,7 @@ export function preferredVolumeVariable(variableNames: string[]) {
   return variableNames[0];
 }
 
-export function volumeVariableColor(variableName: string, index = 0) {
-  const basename = variableName.slice(variableName.lastIndexOf("/") + 1);
-  if (basename === "clw") {
-    return "#ffffff";
-  }
-  if (basename === "cli") {
-    return "#72b7ff";
-  }
-  const palette = ["#ffcc80", "#c4a7ff", "#8de5a1", "#ff8fab"];
-  return palette[index % palette.length];
-}
+export const DEFAULT_VOLUME_COLOR = "#ffffff";
 
 export function volumeVariableOpacity() {
   return 0.75;

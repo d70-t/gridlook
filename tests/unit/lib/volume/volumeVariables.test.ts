@@ -6,7 +6,6 @@ import {
   getHealpixVolumeVariablesForGroup,
   isHealpixVolumeVariable,
   preferredVolumeVariable,
-  volumeVariableColor,
   volumeVariableOpacity,
   volumeVariablesAreCompatible,
 } from "@/lib/volume/volumeVariables.ts";
@@ -79,12 +78,10 @@ describe("volume variables", () => {
     ).toEqual(["multiscales/zoom_6/clw"]);
   });
 
-  it("provides cloud defaults and checks grid compatibility", () => {
+  it("provides default opacity and checks grid compatibility", () => {
     const cloud = source(["time", "level_full", "cell"], [2, 90, 48]);
     const otherCloud = source(["time", "level_full", "cell"], [2, 90, 48]);
     const ocean = source(["time", "depth_full", "cell"], [2, 128, 48]);
-    expect(volumeVariableColor("clw")).toBe("#ffffff");
-    expect(volumeVariableColor("cli")).toBe("#72b7ff");
     expect(volumeVariableOpacity()).toBe(0.75);
     expect(volumeVariablesAreCompatible(cloud, otherCloud)).toBe(true);
     expect(volumeVariablesAreCompatible(cloud, ocean)).toBe(false);

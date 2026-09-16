@@ -6,9 +6,9 @@ import PopupDialog from "./PopupDialog.vue";
 
 import type { TModelInfo } from "@/lib/types/GlobeTypes.ts";
 import {
+  DEFAULT_VOLUME_COLOR,
   getHealpixVolumeVariablesForGroup,
   preferredVolumeVariable,
-  volumeVariableColor,
   volumeVariableOpacity,
   volumeVariablesAreCompatible,
 } from "@/lib/volume/volumeVariables.ts";
@@ -52,7 +52,7 @@ function ensureSelection() {
       ? [
           {
             variable,
-            color: volumeVariableColor(variable),
+            color: DEFAULT_VOLUME_COLOR,
             opacity: volumeVariableOpacity(),
           },
         ]
@@ -95,7 +95,7 @@ function updateVariable(index: number, variable: string) {
   }));
   selections[index] = {
     variable,
-    color: volumeVariableColor(variable, index),
+    color: DEFAULT_VOLUME_COLOR,
     opacity: volumeVariableOpacity(),
   };
   if (index !== 0) {
@@ -151,12 +151,11 @@ function addSelection() {
   if (!variable || volumeSelections.value.length >= 4) {
     return;
   }
-  const index = volumeSelections.value.length;
   store.setVolumeSelections([
     ...volumeSelections.value,
     {
       variable,
-      color: volumeVariableColor(variable, index),
+      color: DEFAULT_VOLUME_COLOR,
       opacity: volumeVariableOpacity(),
     },
   ]);
