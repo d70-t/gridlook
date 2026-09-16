@@ -1,8 +1,5 @@
-import { around } from "geokdbush";
-import KDBush from "kdbush";
 import { onBeforeUnmount, shallowRef, watch, type ShallowRef } from "vue";
 
-import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import {
   HOVERED_GRID_POINT_STATUS,
   useGlobeControlStore,
@@ -32,47 +29,6 @@ export type TGeoSample = {
 export type TGeoSampleIndex = {
   findNearest(lat: number, lon: number): TGeoSample | null;
 };
-
-function clampLatitude(lat: number) {
-  return Math.max(-90, Math.min(90, lat));
-}
-
-export function createGeoSampleIndex(
-  samples: TGeoSample[],
-  bucketSizeDegrees = 5
-): TGeoSampleIndex {
-  void bucketSizeDegrees;
-
-  const normalizedSamples = samples.map((sample) => {
-    return {
-      ...sample,
-      lat: clampLatitude(sample.lat),
-      lon: ProjectionHelper.normalizeLongitude(sample.lon),
-    };
-  });
-
-  const index = new KDBush(normalizedSamples.length);
-  for (const sample of normalizedSamples) {
-    index.add(sample.lon, sample.lat);
-  }
-  index.finish();
-
-  return {
-    findNearest(lat, lon) {
-      const nearest = around(
-        index,
-        ProjectionHelper.normalizeLongitude(lon),
-        clampLatitude(lat),
-        1
-      );
-      const nearestIndex = nearest[0];
-      if (nearestIndex === undefined) {
-        return null;
-      }
-      return normalizedSamples[nearestIndex] ?? null;
-    },
-  };
-}
 
 function isMissingGridValue(
   value: number,

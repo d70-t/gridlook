@@ -1,13 +1,13 @@
 <script lang="ts" setup>
 import { storeToRefs } from "pinia";
-import { computed, ref, watch } from "vue";
+import { ref, watch } from "vue";
 
-import { clamp, PROJECTION_TYPES } from "@/lib/projection/projectionUtils.ts";
+import { clamp } from "@/lib/projection/projectionUtils.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 
 /*
- * Inputs for adjusting the projection center (longitude and latitude) for flat
- * projections.  This component has been extracted from ProjectionControls.vue
+ * Inputs for adjusting the projection center (longitude and latitude).
+ * This component has been extracted from ProjectionControls.vue
  * to avoid interferences between the constant updates to the projection center
  * and the projection mode when switching between flat and perspective
  * projections.
@@ -20,10 +20,7 @@ import { useGlobeControlStore } from "@/store/store.ts";
  * the implications
  */
 const store = useGlobeControlStore();
-const { projectionMode, projectionCenter } = storeToRefs(store);
-const isFlat = computed(
-  () => projectionMode.value !== PROJECTION_TYPES.NEARSIDE_PERSPECTIVE
-);
+const { projectionCenter } = storeToRefs(store);
 
 const centerLon = ref(projectionCenter.value.lon);
 const centerLat = ref(projectionCenter.value.lat);
@@ -47,7 +44,7 @@ const updateLon = (value: number) => {
 const updateLat = (value: number) => {
   projectionCenter.value = {
     ...projectionCenter.value,
-    lat: clamp(value, -90, 90),
+    lat: value, //clamp(value, -90, 90),
   };
 };
 
@@ -69,7 +66,7 @@ function resetProjectionCenter() {
 </script>
 
 <template>
-  <div class="w-100 projection-center" :class="{ 'is-disabled': !isFlat }">
+  <div class="w-100 projection-center">
     <div class="label is-size-7 mb-1">Projection center (°)</div>
     <div class="columns is-mobile is-variable is-1 projection-columns">
       <div class="column">
@@ -85,7 +82,6 @@ function resetProjectionCenter() {
               min="-180"
               max="180"
               step="1"
-              :disabled="!isFlat"
             />
           </p>
         </div>
@@ -100,10 +96,7 @@ function resetProjectionCenter() {
               v-model.number="centerLat"
               class="input projection-input"
               type="number"
-              min="-90"
-              max="90"
               step="1"
-              :disabled="!isFlat"
             />
           </p>
         </div>
@@ -112,7 +105,6 @@ function resetProjectionCenter() {
         <button
           class="button is-light"
           type="button"
-          :disabled="!isFlat"
           title="Reset projection center"
           @click="resetProjectionCenter"
         >
@@ -147,15 +139,5 @@ function resetProjectionCenter() {
 
 .projection-center .projection-columns > .column:last-child {
   padding-right: 0;
-}
-
-.projection-center .input:disabled {
-  border-color: var(--bulma-input-border-color);
-  box-shadow: none;
-}
-
-.projection-center.is-disabled .button.is-static {
-  border-color: var(--bulma-input-border-color);
-  box-shadow: none;
 }
 </style>

@@ -1,10 +1,31 @@
 import { describe, expect, it } from "vitest";
 
+import type { THealpixVolumeGrid } from "@/lib/volume/healpixVolumeMapping.ts";
 import {
-  buildVolumeTexture,
+  buildVolumeTexture as buildVolumeTextureWithGrid,
   chooseVolumeTextureDimensions,
   HIGH_RES_VOLUME_TEXTURE_BUDGET_BYTES,
 } from "@/lib/volume/volumeTexture.ts";
+
+const TEST_GRID: THealpixVolumeGrid = {
+  nside: 1,
+  level: 0,
+  scheme: "nested",
+  semiMajorAxis: 6_370_997,
+  flattening: 0,
+  lonLatToHealpix(coordinates) {
+    return BigUint64Array.from({ length: coordinates.length / 2 }, (_, index) =>
+      BigInt(index % 12)
+    );
+  },
+};
+
+function buildVolumeTexture(
+  request: Parameters<typeof buildVolumeTextureWithGrid>[0],
+  onProgress?: Parameters<typeof buildVolumeTextureWithGrid>[1]
+) {
+  return buildVolumeTextureWithGrid(request, onProgress, TEST_GRID);
+}
 
 describe("chooseVolumeTextureDimensions", () => {
   it("matches the nside 64 default", () => {
@@ -200,7 +221,7 @@ describe("buildVolumeTexture", () => {
     expect(() =>
       buildVolumeTexture({
         nside: 1,
-        cellCoordinates: new Int32Array([0]),
+        cellCoordinates: new Float64Array([0]),
         sourceLevelCount: 1,
         sourceCellCount: 2,
         values: [new Float32Array([1, 2])],

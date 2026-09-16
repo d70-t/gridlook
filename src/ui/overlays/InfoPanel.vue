@@ -3,7 +3,7 @@ import dayjs from "dayjs";
 import duration from "dayjs/plugin/duration.js";
 import humanizeDuration from "humanize-duration";
 import { storeToRefs } from "pinia";
-import { ref, watch, type Ref } from "vue";
+import { computed, ref, watch, type Ref } from "vue";
 import * as zarr from "zarrita";
 
 import AttributesSection from "./infoPanel/AttributesSection.vue";
@@ -17,6 +17,7 @@ import SpatialCoverageSection from "./infoPanel/SpatialCoverageSection.vue";
 import TimeDimensionSection from "./infoPanel/TimeDimensionSection.vue";
 import type {
   TCoordinateSlice,
+  TGroupInfo,
   TInfoDimension,
   TTimeInfo,
 } from "./infoPanel/types.ts";
@@ -26,7 +27,7 @@ import { GRID_TYPES, type T_GRID_TYPES } from "@/lib/data/gridTypeDetector.ts";
 import { decodeTime } from "@/lib/data/timeHandling.ts";
 import { getMissingValue, getFillValue } from "@/lib/data/variableDecoding.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
-import type { TSources } from "@/lib/types/GlobeTypes.ts";
+import type { TDatasetSource, TSources } from "@/lib/types/GlobeTypes.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 import { useLog } from "@/ui/common/useLog.ts";
 
@@ -46,9 +47,22 @@ dayjs.extend(duration);
 const { logError } = useLog();
 
 const store = useGlobeControlStore();
-const { varnameSelector, loading } = storeToRefs(store);
+const { varnameDisplay, varinfo, loading } = storeToRefs(store);
+const sourceVariable = computed(
+  () => varinfo.value?.derivedFrom?.u ?? varnameDisplay.value
+);
+const variableUnits = computed(
+  () => (varinfo.value?.attrs.units as string) || null
+);
+const variableLongName = computed(
+  () => (varinfo.value?.attrs.long_name as string) || null
+);
+const variableStandardName = computed(
+  () => (varinfo.value?.attrs.standard_name as string) || null
+);
 
 const groupAttrs = ref<zarr.Attributes | null>(null);
+const groupAttrsChain = ref<TGroupInfo[]>([]);
 const dimensions = ref<TInfoDimension[]>([]);
 
 const latSlice = ref<TCoordinateSlice | null>(null);
@@ -62,9 +76,6 @@ const lonLength = ref<number | null>(null);
 const lonMin = ref<number | null>(null);
 const lonMax = ref<number | null>(null);
 
-const variableUnits = ref<string | null>(null);
-const variableLongName = ref<string | null>(null);
-const variableStandardName = ref<string | null>(null);
 const variableDtype = ref<string | null>(null);
 const variableChunks = ref<readonly (number | null)[] | null>(null);
 const variableMissingValue = ref<number | null>(null);
@@ -84,11 +95,12 @@ function toNumber(value: number | bigint): number {
  */
 async function fetchTimeData(
   varSource: { store: string; dataset: string },
-  timeDimName: string
+  timeDimName: string,
+  varname: string
 ) {
   const timeVar = await ZarrDataManager.getVariableInfo(
     varSource,
-    ZarrDataManager.resolveVariablePath(varnameSelector.value, timeDimName)
+    ZarrDataManager.resolveVariablePath(varname, timeDimName)
   );
 
   const units = (timeVar.attrs?.units as string) || "unknown";
@@ -127,16 +139,16 @@ async function fetchTimeData(
   };
 }
 
-async function getTimeDimensionInfo() {
+async function getTimeDimensionInfo(varname: string) {
   if (!props.datasources) {
     return;
   }
 
   const arrayDims = await ZarrDataManager.getDimensionNames(
     props.datasources,
-    varnameSelector.value || ""
+    varname
   );
-  if (!arrayDims) {
+  if (!arrayDims || varname !== sourceVariable.value) {
     return;
   }
 
@@ -162,10 +174,15 @@ async function getTimeDimensionInfo() {
 
   try {
     const varSource = props.datasources.levels[0].time;
-    timeInfo.value = await fetchTimeData(varSource, timeDimName);
+    const info = await fetchTimeData(varSource, timeDimName, varname);
+    if (varname === sourceVariable.value) {
+      timeInfo.value = info;
+    }
   } catch (err) {
-    logError(err, "Error fetching time dimension info");
-    timeInfo.value = null;
+    if (varname === sourceVariable.value) {
+      logError(err, "Error fetching time dimension info");
+      timeInfo.value = null;
+    }
   }
 }
 
@@ -211,8 +228,10 @@ function processLonData(
   lonLength.value = lonData.length;
 }
 
+// eslint-disable-next-line max-lines-per-function
 async function getLatLonInfo(
-  variable: zarr.Array<zarr.DataType, zarr.AsyncReadable>
+  variable: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
+  varname: string
 ) {
   if (
     props.gridType === GRID_TYPES.TRIANGULAR ||
@@ -223,11 +242,14 @@ async function getLatLonInfo(
   try {
     const { latitudes, latitudesAttrs, longitudes, longitudesAttrs } =
       await getLatLonData(
-        varnameSelector.value,
+        varname,
         variable,
         props.datasources,
         props.gridType === GRID_TYPES.REGULAR_ROTATED
       );
+    if (varname !== sourceVariable.value) {
+      return;
+    }
 
     const latData = latitudes.data as Float64Array | Float32Array;
     latSlice.value = {
@@ -262,12 +284,16 @@ async function getLatLonInfo(
 }
 
 async function loadVariableDetails(
-  variable: zarr.Array<zarr.DataType, zarr.AsyncReadable>
+  variable: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
+  varname: string
 ) {
-  variableUnits.value = (variable.attrs?.units as string) || null;
-  variableStandardName.value =
-    (variable.attrs?.standard_name as string) || null;
-  variableLongName.value = (variable.attrs?.long_name as string) || null;
+  const arrayDims = await ZarrDataManager.getDimensionNames(
+    props.datasources!,
+    varname
+  );
+  if (varname !== sourceVariable.value) {
+    return;
+  }
   variableDtype.value = String(variable.dtype);
   variableChunks.value = variable.chunks;
   const missingVal = getMissingValue(variable);
@@ -275,10 +301,6 @@ async function loadVariableDetails(
   const fillVal = getFillValue(variable);
   variableFillValue.value = Number.isNaN(fillVal) ? null : fillVal;
 
-  const arrayDims = await ZarrDataManager.getDimensionNames(
-    props.datasources!,
-    varnameSelector.value || ""
-  );
   if (arrayDims && Array.isArray(arrayDims)) {
     dimensions.value = arrayDims.map((name, idx) => ({
       name,
@@ -292,12 +314,35 @@ async function loadVariableDetails(
   }
 }
 
+/**
+ * Fetches attributes for the selected variable's group and every ancestor
+ * group above it (root first), since each level can carry its own attrs.
+ */
+async function loadGroupAttrsChain(
+  varSource: TDatasetSource,
+  varname: string
+): Promise<TGroupInfo[]> {
+  const segments = varname.includes("/") ? varname.split("/").slice(0, -1) : [];
+  const groupPaths = [
+    "",
+    ...segments.map((_, i) => segments.slice(0, i + 1).join("/")),
+  ];
+
+  const chain: TGroupInfo[] = [];
+  for (const groupPath of groupPaths) {
+    try {
+      const group = await ZarrDataManager.getGroup(varSource, groupPath);
+      chain.push({ path: groupPath || "/", attrs: group.attrs });
+    } catch {
+      // Ignore group issues
+    }
+  }
+  return chain;
+}
+
 async function fetchInfo() {
-  if (
-    !props.datasources ||
-    !varnameSelector.value ||
-    varnameSelector.value === "-"
-  ) {
+  const varname = sourceVariable.value;
+  if (!props.datasources || !varname || varname === "-") {
     return;
   }
   error.value = null;
@@ -305,6 +350,8 @@ async function fetchInfo() {
   variableChunks.value = null;
   variableMissingValue.value = null;
   variableFillValue.value = null;
+  dimensions.value = [];
+  timeInfo.value = null;
   latSlice.value = null;
   latDimensions.value = [];
   latLength.value = null;
@@ -315,26 +362,32 @@ async function fetchInfo() {
   lonLength.value = null;
   lonMin.value = null;
   lonMax.value = null;
+  groupAttrsChain.value = [];
 
   try {
-    const varSource =
-      props.datasources.levels[0].datasources[varnameSelector.value];
-    const group = await ZarrDataManager.getDatasetGroup(varSource);
-    groupAttrs.value = group.attrs;
-    const variable = await ZarrDataManager.getVariableInfo(
-      varSource,
-      varnameSelector.value
-    );
-    await loadVariableDetails(variable);
-    await getLatLonInfo(variable);
-    await getTimeDimensionInfo();
+    const varSource = props.datasources.levels[0].datasources[varname];
+    const groupChain = await loadGroupAttrsChain(varSource, varname);
+    if (varname !== sourceVariable.value) {
+      return;
+    }
+    groupAttrsChain.value = groupChain;
+    groupAttrs.value = groupChain[0]?.attrs ?? null;
+    const variable = await ZarrDataManager.getVariableInfo(varSource, varname);
+    if (varname !== sourceVariable.value) {
+      return;
+    }
+    await Promise.all([
+      loadVariableDetails(variable, varname),
+      getLatLonInfo(variable, varname),
+      getTimeDimensionInfo(varname),
+    ]);
   } catch (err) {
     logError(err);
   }
 }
 
 watch(
-  () => [props.datasources, varnameSelector.value, props.isOpen, loading.value],
+  () => [props.datasources, sourceVariable.value, props.isOpen, loading.value],
   () => {
     if (props.isOpen && !loading.value) {
       fetchInfo();
@@ -368,13 +421,15 @@ watch(
         @select-grid-type="emit('selectGridType', $event)"
       />
       <CurrentVariableSection
-        :varname="varnameSelector"
+        :varname="varnameDisplay"
         :variable-long-name="variableLongName"
         :variable-standard-name="variableStandardName"
         :variable-units="variableUnits"
+        :derived-from="varinfo?.derivedFrom"
       />
       <DatasetMetadataSection :group-attrs="groupAttrs" />
       <DataStorageSection
+        v-if="!varinfo?.derivedFrom"
         :dimensions="dimensions"
         :variable-dtype="variableDtype"
         :variable-chunks="variableChunks"
@@ -398,13 +453,19 @@ watch(
       />
       <AvailableVariablesSection
         :datasources="datasources"
-        :varname="varnameSelector"
+        :varname="sourceVariable"
       />
-      <AttributesSection
-        title="Group Attributes"
-        :attrs="groupAttrs"
-        empty-label="No group attributes"
-      />
+      <template v-for="group in groupAttrsChain" :key="group.path">
+        <AttributesSection
+          :title="
+            group.path === '/'
+              ? 'Global Attributes'
+              : `Group Attributes (${group.path})`
+          "
+          :attrs="group.attrs"
+          empty-label="No group attributes"
+        />
+      </template>
     </div>
   </div>
 </template>

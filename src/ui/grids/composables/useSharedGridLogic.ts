@@ -18,7 +18,7 @@ import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import { availableColormaps } from "@/lib/shaders/colormapShaders.ts";
 import { getColormapScaleOffset } from "@/lib/shaders/gridShaders.ts";
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
-import { useGlobeControlStore } from "@/store/store.ts";
+import { BUILTIN_LAYER_IDS, useGlobeControlStore } from "@/store/store.ts";
 import { useLog } from "@/ui/common/useLog.ts";
 
 type TVoidFunction = () => void;
@@ -84,6 +84,7 @@ export function useSharedGridLogic() {
     toggleRotate,
     makeSnapshot,
     applyCameraPreset,
+    fitCameraToDataset,
     registerUpdateLOD,
     registerAnimationCallback,
     updateBaseSurface,
@@ -128,7 +129,6 @@ export function useSharedGridLogic() {
   updateGraticules = updateGraticulesInternal;
   syncTextureLayersOnReady = () => updateTextureLayers();
 
-  // the mask mode may already be set from the URL before the grid mounts
   store.positionMaskLayerForMode(landSeaMaskChoice.value);
 
   watch(
@@ -146,6 +146,9 @@ export function useSharedGridLogic() {
     () => store.layerStack,
     () => {
       void updateTextureLayers();
+      for (const cb of colormapChangeCallbacks) {
+        cb();
+      }
     },
     { deep: true }
   );
@@ -192,9 +195,11 @@ export function useSharedGridLogic() {
         updateLandSeaMask();
         void updateTextureLayers(true);
         configureCameraForProjection();
-      } else if (centerChanged) {
+      } else if (centerChanged && projectionHelper.value.isFlat) {
         void updateOverlayProjectionUniforms();
         updateLayerProjectionUniforms();
+      } else if (centerChanged) {
+        return;
       }
 
       for (const cb of projectionChangeCallbacks) {
@@ -215,12 +220,20 @@ export function useSharedGridLogic() {
       high,
       invertColormap.value
     );
+    const gridVisible =
+      store.layerStack.find((layer) => layer.id === BUILTIN_LAYER_IDS.GRID)
+        ?.visible ?? true;
 
     for (const myMesh of meshes) {
       if (!myMesh) {
         continue;
       }
       const material = myMesh.material as THREE.ShaderMaterial;
+      // Regular grids stage geometry before installing their first data material.
+      if (!material.uniforms?.colormap) {
+        continue;
+      }
+      myMesh.visible = gridVisible;
       material.uniforms.colormap.value = availableColormaps[colormap.value];
       material.uniforms.addOffset.value = addOffset;
       material.uniforms.scaleFactor.value = scaleFactor;
@@ -284,6 +297,7 @@ export function useSharedGridLogic() {
     toggleRotate,
     makeSnapshot,
     applyCameraPreset,
+    fitCameraToDataset,
     getDataVar,
     fetchDimensionDetails,
     registerUpdateLOD,

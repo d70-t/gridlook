@@ -89,6 +89,14 @@ export function makeGpuProjectedTextureMaterial(
       hideBelowValue: { value: -1e38 },
       hideAboveValue: { value: 1e38 },
       data: { value: texture },
+      // The full-face UV rectangle the texture actually covers (identity
+      // unless the texture only holds a sub-region, e.g. a regional dataset).
+      dataUvOffset: { value: new THREE.Vector2(0, 0) },
+      dataUvScale: { value: new THREE.Vector2(1, 1) },
+      // Off by default: only a HEALPix face cropped to a sparse data's
+      // bounding box turns this on. Left off elsewhere so a texture's own
+      // wrap mode (e.g. RepeatWrapping across the lon-wrap seam) still works.
+      clipToDataRect: { value: 0 },
       // Projection uniforms
       projectionType: {
         value: PROJECTION_TYPE_BY_MODE[PROJECTION_TYPES.NEARSIDE_PERSPECTIVE],
@@ -118,7 +126,7 @@ export function makeGpuProjectedTextureMaterial(
  * Create a GPU-projected mesh material for vertex-valued grids.
  * Projection is done on the GPU, allowing instant center changes.
  */
-export function makeGpuProjectedMeshMaterial(
+function makeGpuProjectedMeshMaterial(
   colormap: TColorMap = "turbo",
   addOffset: 1.0 | 0.0 = 0.0,
   scaleFactor: -1.0 | 1.0 = 1.0

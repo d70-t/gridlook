@@ -7,6 +7,10 @@
   --bulma-scheme-main-bis: hsl(0, 0%, 98%);
   --bulma-scheme-main-ter: hsl(0, 0%, 96%);
   --bulma-text: hsl(0, 0%, 29%);
+  --control-divider: color-mix(in srgb, var(--bulma-text) 12%, transparent);
+  --control-space-sm: 8px;
+  --control-space-md: 16px;
+  --control-space-lg: 24px;
 }
 
 @media (prefers-color-scheme: dark) {

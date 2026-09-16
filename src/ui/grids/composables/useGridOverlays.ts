@@ -47,19 +47,16 @@ type UseGridOverlaysOptions = {
 type TOverlayLineStyle = {
   color: string;
   radius: number;
-  zOffset: number;
 };
 
 const coastStyle: TOverlayLineStyle = {
   color: "#ffffff",
-  radius: 1.002,
-  zOffset: 0.01,
+  radius: 1,
 } as const;
 
 const graticuleStyle: TOverlayLineStyle = {
   color: "#888888",
-  radius: 1.002,
-  zOffset: 0.01,
+  radius: 1,
 } as const;
 
 const COASTLINE_GEOJSON_PATHS: Record<TCoastlineResolution, string> = {
@@ -71,6 +68,16 @@ const GRATICULE_GEOJSON_PATHS: Record<TGraticuleSpacing, string> = {
   [GRATICULE_SPACINGS.FIFTEEN_DEGREES]: "static/ne_50m_graticules_15.geojson",
   [GRATICULE_SPACINGS.THIRTY_DEGREES]: "static/ne_50m_graticules_30.geojson",
 };
+
+export function getLayerRenderOrder(
+  stack: readonly TLayerEntry[],
+  layerId: string
+) {
+  const gridIndex = stack.findIndex((entry) => entry.kind === LAYER_KINDS.GRID);
+  const layerIndex = stack.findIndex((entry) => entry.id === layerId);
+  const delta = gridIndex - layerIndex;
+  return delta > 0 ? 10 + delta : Math.max(delta, -9);
+}
 
 /* eslint-disable-next-line max-lines-per-function */
 export function useGridOverlays(options: UseGridOverlaysOptions) {
@@ -137,7 +144,7 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
   function getLineProjectionOptions(style: TOverlayLineStyle) {
     return {
       radius: projectionHelper.value.isFlat ? 1 : style.radius,
-      zOffset: projectionHelper.value.isFlat ? style.zOffset : 0,
+      zOffset: 0,
     };
   }
 
@@ -262,6 +269,7 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
         scene.remove(coast);
       }
     } else {
+      store.restoreBuiltinLayer(LAYER_KINDS.COASTLINES);
       const lineSegments = await getCoastlines(updateId);
       if (
         !lineSegments ||
@@ -287,6 +295,7 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
         scene.remove(graticules);
       }
     } else {
+      store.restoreBuiltinLayer(LAYER_KINDS.GRATICULES);
       const lineSegments = await getGraticulesLayer(updateId);
       if (
         !lineSegments ||
@@ -316,6 +325,7 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
       return;
     }
 
+    store.restoreBuiltinLayer(LAYER_KINDS.MASK);
     const mask = await getLandSeaMask(
       landSeaMaskChoice.value!,
       landSeaMaskUseTexture.value!,
@@ -337,16 +347,12 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
    */
   function applyLayerOrders() {
     const stack = store.layerStack;
-    const gridIndex = stack.findIndex(
-      (entry) => entry.kind === LAYER_KINDS.GRID
-    );
-    for (const [index, entry] of stack.entries()) {
+    for (const entry of stack) {
       const layer = getLayerObject(entry);
       if (!layer) {
         continue;
       }
-      const delta = gridIndex - index;
-      const renderOrder = delta > 0 ? 10 + delta : Math.max(delta, -9);
+      const renderOrder = getLayerRenderOrder(stack, entry.id);
       if (layer instanceof THREE.Mesh) {
         applyLayerStackPosition(
           layer,

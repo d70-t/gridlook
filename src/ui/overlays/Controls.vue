@@ -68,6 +68,9 @@ const {
 
 // Bounds logic state
 const pickedBoundsMode = ref<TBoundModes>(BOUND_MODES.DATA);
+let scalarBounds:
+  | { low: number | undefined; high: number | undefined; mode: TBoundModes }
+  | undefined;
 
 // Colormap logic state
 const userHasSelectedColormap = ref<boolean>(false);
@@ -82,8 +85,8 @@ const {
   paramMaskMode,
   paramMaskingUseTexture,
   paramProjection,
-  paramProjectionCenterLat,
-  paramProjectionCenterLon,
+  paramLat,
+  paramLon,
   paramBoundLow,
   paramBoundHigh,
 } = storeToRefs(urlParameterStore);
@@ -147,9 +150,35 @@ const isHidden = computed(() => {
   );
 });
 
+function updateMagnitudeBounds(displayed: boolean) {
+  if (displayed) {
+    scalarBounds = {
+      low: userBoundsLow.value,
+      high: userBoundsHigh.value,
+      mode: pickedBoundsMode.value,
+    };
+    store.resetUserBounds();
+    pickedBoundsMode.value = BOUND_MODES.DATA;
+  } else if (scalarBounds) {
+    userBoundsLow.value = scalarBounds.low;
+    userBoundsHigh.value = scalarBounds.high;
+    pickedBoundsMode.value = scalarBounds.mode;
+    scalarBounds = undefined;
+  }
+}
+
 watch(
-  () => varnameSelector.value,
-  () => {
+  [
+    () => varnameSelector.value,
+    () =>
+      store.streamlineMagnitudeDisplayed && store.streamlineMagnitudeDerivable,
+  ],
+  ([variable, magnitudeDisplayed], [previousVariable]) => {
+    if (variable === previousVariable) {
+      updateMagnitudeBounds(magnitudeDisplayed);
+      return;
+    }
+    scalarBounds = undefined;
     // On the very first variable load, URL-provided bounds (already written to
     // the store by HashGlobeView) must not be overwritten by the variable's
     // default_range config.  On subsequent variable changes we always want to
@@ -172,6 +201,9 @@ watch(
       pickedBoundsMode.value = BOUND_MODES.USER;
     }
     setDefaultColormap();
+    if (magnitudeDisplayed) {
+      updateMagnitudeBounds(true);
+    }
   }
 );
 
@@ -276,9 +308,9 @@ function initFromParams() {
       store.projectionMode = projection;
     }
   }
-  if (paramProjectionCenterLat.value || paramProjectionCenterLon.value) {
-    const lat = parseFloat(paramProjectionCenterLat.value ?? "0");
-    const lon = parseFloat(paramProjectionCenterLon.value ?? "0");
+  if (paramLat.value || paramLon.value) {
+    const lat = parseFloat(paramLat.value ?? "0");
+    const lon = parseFloat(paramLon.value ?? "0");
     projectionCenter.value = {
       lat: clamp(lat, -90, 90),
       lon: clamp(lon, -180, 180),
@@ -392,7 +424,7 @@ defineExpose({
               <PopupDialog dialog-class="layer-help-dialog">
                 <template #trigger="{ toggle, open }">
                   <button
-                    class="button is-ghost p-0 has-text-black"
+                    class="button is-ghost p-0"
                     type="button"
                     title="Layer help"
                     aria-label="Layer help"

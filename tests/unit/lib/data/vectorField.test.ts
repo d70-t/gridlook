@@ -1,11 +1,32 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   IrregularVectorField,
   RegularVectorField,
   detectVectorVariablePair,
+  levelAxesAreIdentical,
   resolveVectorVariablePair,
 } from "@/lib/data/vectorField.ts";
+
+describe("levelAxesAreIdentical", () => {
+  const pressureAxis = {
+    dimensionName: "plev",
+    values: [1000, 850, 700],
+    units: "hPa",
+  };
+
+  it("accepts equal dimension names, ordered values, and units", () => {
+    expect(levelAxesAreIdentical(pressureAxis, { ...pressureAxis })).toBe(true);
+  });
+
+  it.each([
+    [{ ...pressureAxis, dimensionName: "level" }],
+    [{ ...pressureAxis, values: [700, 850, 1000] }],
+    [{ ...pressureAxis, units: "Pa" }],
+  ])("rejects a different vertical axis", (differentAxis) => {
+    expect(levelAxesAreIdentical(pressureAxis, differentAxis)).toBe(false);
+  });
+});
 
 describe("detectVectorVariablePair", () => {
   it("detects u/v before ua/va", () => {
@@ -46,6 +67,14 @@ describe("detectVectorVariablePair", () => {
       u: "u10",
       v: "v10",
       kind: "u10/v10",
+    });
+  });
+
+  it("detects common ocean-current uo/vo components", () => {
+    expect(detectVectorVariablePair(["temperature", "uo", "vo"])).toEqual({
+      u: "uo",
+      v: "vo",
+      kind: "uo/vo",
     });
   });
 });
@@ -108,34 +137,132 @@ describe("resolveVectorVariablePair selection", () => {
       })
     ).toBeUndefined();
   });
+
+  it("preserves an active automatic pair across scalar-variable changes", () => {
+    expect(
+      resolveVectorVariablePair(
+        ["atmosphere/u", "atmosphere/v", "ocean/uo", "ocean/vo"],
+        "ocean/temperature",
+        { automatic: true },
+        { u: "atmosphere/u", v: "atmosphere/v", kind: "u/v" }
+      )
+    ).toEqual({ u: "atmosphere/u", v: "atmosphere/v", kind: "u/v" });
+  });
+
+  it("replaces the active pair when components are selected explicitly", () => {
+    expect(
+      resolveVectorVariablePair(
+        ["u", "v", "uo", "vo"],
+        "temperature",
+        { automatic: false, u: "uo", v: "vo" },
+        { u: "u", v: "v", kind: "u/v" }
+      )
+    ).toEqual({ u: "uo", v: "vo", kind: "custom" });
+  });
 });
 
 describe("IrregularVectorField", () => {
-  it("interpolates unstructured component samples", () => {
-    const field = new IrregularVectorField(
+  it("interpolates unstructured component samples", async () => {
+    const field = (await IrregularVectorField.create(
       new Float32Array([-1, -1, 1, 1]),
       new Float32Array([-1, 1, -1, 1]),
       new Float32Array([2, 4, 6, 8]),
       new Float32Array([8, 6, 4, 2])
-    );
+    ))!;
 
     expect(field.sample(-1, -1)?.u).toBeCloseTo(2);
     expect(field.sample(-1, -1)?.v).toBeCloseTo(8);
     expect(field.sample(0, 0)?.u).toBeCloseTo(5, 1);
   });
 
-  it("advances through a steady unstructured field", () => {
-    const field = new IrregularVectorField(
+  it("advances through a steady unstructured field", async () => {
+    const field = (await IrregularVectorField.create(
       new Float32Array([-5, -5, 5, 5]),
       new Float32Array([-5, 5, -5, 5]),
       new Float32Array(4).fill(10),
       new Float32Array(4).fill(0)
-    );
+    ))!;
 
     const next = field.advance(0, 0, 0.1);
     expect(next?.latitude).toBeCloseTo(0);
     expect(next?.longitude).toBeGreaterThan(0);
   });
+
+  it("seeds by geographic area instead of native-cell order", async () => {
+    const field = (await IrregularVectorField.create(
+      new Float32Array([-5, -5, 5, 5]),
+      new Float32Array([-5, 5, -5, 5]),
+      new Float32Array(4).fill(1),
+      new Float32Array(4).fill(1)
+    ))!;
+    const randomValues = [0.5, 0.5];
+
+    const seed = field.randomPosition(() => randomValues.shift()!);
+
+    expect(seed.latitude).toBeCloseTo(0);
+    expect(seed.longitude).toBeCloseTo(0);
+  });
+});
+
+describe("IrregularVectorField across the antimeridian", () => {
+  it("interpolates neighbours on both sides without repeating samples", async () => {
+    const progress: number[] = [];
+    const field = (await IrregularVectorField.create(
+      new Float32Array([59, 59, 61, 61]),
+      new Float32Array([179, -179, 179, -179]),
+      new Float32Array([2, 4, 6, 8]),
+      new Float32Array(4).fill(0),
+      { onProgress: (percentage) => progress.push(percentage) }
+    ))!;
+
+    expect(progress[0]).toBe(0);
+    expect(progress.at(-1)).toBe(100);
+    expect(
+      progress.every(
+        (value, index) => index === 0 || value >= progress[index - 1]
+      )
+    ).toBe(true);
+    expect(field.sample(59, 179)?.u).toBeCloseTo(2);
+    expect(field.sample(60, 180)).toEqual(field.sample(60, -180));
+    expect(field.sample(60, 180)?.u).toBeCloseTo(5, 1);
+    expect(field.sample(0, 180)).toBeUndefined();
+    expect(field.sample(60, 0)).toBeUndefined();
+    expect(field.advance(60, 179.9, 0.025)?.longitude).toBeLessThan(-179);
+  });
+});
+
+it("yields during field preparation and discards cancelled work", async () => {
+  let now = 0;
+  const clock = vi
+    .spyOn(performance, "now")
+    .mockImplementation(() => (now += 9));
+  let cancelled = false;
+  const progress: number[] = [];
+  try {
+    const field = await IrregularVectorField.create(
+      new Float32Array([-5, -5, 5, 5]),
+      new Float32Array([-5, 5, -5, 5]),
+      new Float32Array(4).fill(10),
+      new Float32Array(4).fill(0),
+      {
+        isCancelled: () => cancelled,
+        onProgress: (percentage) => {
+          progress.push(percentage);
+          if (progress.length === 2) {
+            setTimeout(() => {
+              cancelled = true;
+            }, 0);
+          }
+        },
+      }
+    );
+    expect(cancelled).toBe(true);
+    expect(field).toBeUndefined();
+    expect(progress).toHaveLength(2);
+    expect(progress.at(-1)).toBeLessThan(100);
+  } finally {
+    clock.mockRestore();
+  }
 });
 
 describe("RegularVectorField", () => {
@@ -188,6 +315,56 @@ describe("RegularVectorField", () => {
       new Float32Array([1, 1, 1, 1])
     );
     expect(field.sample(5, 5)).toBeUndefined();
+  });
+});
+
+describe("RegularVectorField regional coordinates", () => {
+  it.each([
+    { longitudes: [265, 292.5, 320], u: [2, 4, 6, 8, 10, 12] },
+    { longitudes: [320, 292.5, 265], u: [6, 4, 2, 12, 10, 8] },
+  ])(
+    "samples and advances regional 0–360 axes: $longitudes",
+    ({ longitudes, u }) => {
+      // Florence uses descending latitude and longitudes from 265 to 320.
+      const field = new RegularVectorField(
+        new Float32Array([45, 15]),
+        new Float32Array(longitudes),
+        new Float32Array(u),
+        new Float32Array(6).fill(1)
+      );
+
+      expect(field.isGlobal).toBe(false);
+      expect(field.sample(30, -81.25)?.u).toBeCloseTo(6);
+      expect(field.sample(30, -81.25)).toEqual(field.sample(30, 278.75));
+      const next = field.advance(30, 278.75, 0.025);
+      expect(next?.longitude).toBeGreaterThan(278.75);
+      expect(next?.latitude).toBeGreaterThan(30);
+      expect(field.advance(30, -81.25, 0.025)?.longitude).toBeCloseTo(
+        next!.longitude
+      );
+
+      expect(field.sample(30, -96)).toBeUndefined();
+      expect(field.sample(30, -39)).toBeUndefined();
+      expect(field.advance(30, 319.99, 0.025)).toBeUndefined();
+      expect(field.advance(30, 265.01, -0.025)).toBeUndefined();
+    }
+  );
+
+  it("keeps regional paths continuous across the antimeridian", () => {
+    const field = new RegularVectorField(
+      new Float32Array([-10, 10]),
+      new Float32Array([170, 180, 190]),
+      new Float32Array(6).fill(10),
+      new Float32Array(6).fill(0)
+    );
+
+    const next = field.advance(0, 179.9, 0.025);
+    expect(next?.longitude).toBeGreaterThan(180);
+    expect(field.sample(0, -179)?.u).toBe(10);
+    expect(
+      field.advance(next!.latitude, next!.longitude, 0.025)?.longitude
+    ).toBeGreaterThan(next!.longitude);
+    expect(field.sample(0, -169)).toBeUndefined();
   });
 });
 

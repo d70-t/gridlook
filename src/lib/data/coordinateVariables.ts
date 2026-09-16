@@ -7,23 +7,19 @@ import { ZarrDataManager } from "./ZarrDataManager.ts";
 import { type TSources } from "@/lib/types/GlobeTypes.ts";
 
 const WGS84 = "EPSG:4326";
-const WEB_MERCATOR = "EPSG:3857";
 
-export const ProjectedCoordinateName = {
+const ProjectedCoordinateName = {
   X: "x",
   Y: "y",
 } as const;
 
-export type TProjectedCoordinateName =
-  (typeof ProjectedCoordinateName)[keyof typeof ProjectedCoordinateName];
-
-export const CrsWktAttributeName = {
+const CrsWktAttributeName = {
   CRS_WKT: "crs_wkt",
   SPATIAL_REF: "spatial_ref",
   PROJECTION: "projection",
 } as const;
 
-export type TCrsWktAttributeName =
+type TCrsWktAttributeName =
   (typeof CrsWktAttributeName)[keyof typeof CrsWktAttributeName];
 
 export function isWebMercatorCRS(crsWkt: string): boolean {
@@ -65,16 +61,6 @@ function transformProjectedAxesToLonLat(
   }
 
   return { longitudes, latitudes };
-}
-
-export function webMercatorToLonLat(
-  x: Float32Array,
-  y: Float32Array
-): {
-  longitudes: Float32Array;
-  latitudes: Float32Array;
-} {
-  return transformProjectedAxesToLonLat(x, y, WEB_MERCATOR);
 }
 
 export function projectedAxisCoordinatesToLonLat(
@@ -272,16 +258,14 @@ function getVariableLocalName(variable: string) {
   return lastSlashIndex === -1 ? variable : variable.slice(lastSlashIndex + 1);
 }
 
-export function hasUnits(
-  maybeHasUnits: unknown
-): maybeHasUnits is { units: string } {
+function hasUnits(maybeHasUnits: unknown): maybeHasUnits is { units: string } {
   if (typeof maybeHasUnits !== "object" || maybeHasUnits === null) {
     return false;
   }
   return typeof (maybeHasUnits as { units: string }).units === "string";
 }
 
-export function isLongitudeVariable(name: string, attrs: unknown) {
+function isLongitudeVariable(name: string, attrs: unknown) {
   const variableName = getVariableLocalName(name);
   return (
     (hasUnits(attrs) && !!attrs.units.match(/degrees?_?(E|east)/)) ||
@@ -301,7 +285,7 @@ export function isLongitudeName(name: string) {
   );
 }
 
-export function isLatitudeVariable(name: string, attrs: unknown) {
+function isLatitudeVariable(name: string, attrs: unknown) {
   const variableName = getVariableLocalName(name);
   return (
     (hasUnits(attrs) && !!attrs.units.match(/degrees?_?(N|north)/)) ||

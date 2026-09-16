@@ -8,17 +8,25 @@ import type {
 
 const workerScope = self as unknown as DedicatedWorkerGlobalScope;
 
-workerScope.onmessage = (event: MessageEvent<TVolumeTextureWorkerRequest>) => {
+workerScope.onmessage = async (
+  event: MessageEvent<TVolumeTextureWorkerRequest>
+) => {
   try {
-    const result = buildVolumeTexture(event.data, (completed, total) => {
-      const response: TVolumeTextureWorkerResponse = {
-        requestId: event.data.requestId,
-        type: "progress",
-        completed,
-        total,
-      };
-      workerScope.postMessage(response);
-    });
+    const { Grid } = await import("healpix-geo");
+    using grid = new Grid(event.data.grid);
+    const result = buildVolumeTexture(
+      event.data,
+      (completed, total) => {
+        const response: TVolumeTextureWorkerResponse = {
+          requestId: event.data.requestId,
+          type: "progress",
+          completed,
+          total,
+        };
+        workerScope.postMessage(response);
+      },
+      grid
+    );
     const response: TVolumeTextureWorkerResponse = {
       requestId: event.data.requestId,
       type: "result",

@@ -1,6 +1,8 @@
 import type { CustomOrbitControls } from "three";
 import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
+import { getGlobeMovementScale } from "./cameraSettings.ts";
+
 /*
  * The regular OrbitControls type defintion does not include the "private" methods
  * of OrbitControls.
@@ -22,11 +24,44 @@ declare module "three" {
     _getZoomScale: (delta: number) => number;
     _dollyIn: (scale: number) => void;
     _dollyOut: (scale: number) => void;
+    _scale: number;
   }
 }
 
 const ZOOM_STEP = 96;
 const KEYBOARD_ROTATION_SPEED = 0.025; // Radians per key press
+
+export function useSurfaceZoom(
+  controls: OrbitControls,
+  isFlatProjection: () => boolean
+) {
+  const orbitControls = controls as CustomOrbitControls;
+  const update = orbitControls.update.bind(orbitControls);
+  orbitControls.update = (deltaTime) => {
+    if (!isFlatProjection() && orbitControls._scale !== 1) {
+      const distance = orbitControls.object.position.distanceTo(
+        orbitControls.target
+      );
+      // Convert the pending wheel/pinch/keyboard dolly into altitude scaling.
+      orbitControls._scale =
+        (1 + (distance - 1) * orbitControls._scale) / distance;
+    }
+    return update(deltaTime);
+  };
+}
+
+function getKeyboardRotationSpeed(
+  orbitControls: CustomOrbitControls,
+  isFlatProjection: boolean
+) {
+  const distance = orbitControls.object.position.distanceTo(
+    orbitControls.target
+  );
+  const movementScale = getGlobeMovementScale(distance);
+  // Fine arrow steps at low altitude, blending back to full speed farther out.
+  const keyboardScale = movementScale * (0.1 + 0.9 * movementScale ** 2);
+  return KEYBOARD_ROTATION_SPEED * (isFlatProjection ? 1 : keyboardScale);
+}
 
 function handleArrowUp(
   orbitControls: CustomOrbitControls,
@@ -35,7 +70,9 @@ function handleArrowUp(
   if (isFlatProjection && orbitControls.enablePan) {
     orbitControls._pan(0, -orbitControls.keyPanSpeed);
   } else {
-    orbitControls._rotateUp(KEYBOARD_ROTATION_SPEED);
+    orbitControls._rotateUp(
+      getKeyboardRotationSpeed(orbitControls, isFlatProjection)
+    );
   }
 }
 
@@ -46,7 +83,9 @@ function handleArrowDown(
   if (isFlatProjection && orbitControls.enablePan) {
     orbitControls._pan(0, orbitControls.keyPanSpeed);
   } else {
-    orbitControls._rotateUp(-KEYBOARD_ROTATION_SPEED);
+    orbitControls._rotateUp(
+      -getKeyboardRotationSpeed(orbitControls, isFlatProjection)
+    );
   }
 }
 
@@ -57,7 +96,9 @@ function handleArrowLeft(
   if (isFlatProjection && orbitControls.enablePan) {
     orbitControls._pan(-orbitControls.keyPanSpeed, 0);
   } else {
-    orbitControls._rotateLeft(KEYBOARD_ROTATION_SPEED);
+    orbitControls._rotateLeft(
+      getKeyboardRotationSpeed(orbitControls, isFlatProjection)
+    );
   }
 }
 
@@ -68,7 +109,9 @@ function handleArrowRight(
   if (isFlatProjection && orbitControls.enablePan) {
     orbitControls._pan(orbitControls.keyPanSpeed, 0);
   } else {
-    orbitControls._rotateLeft(-KEYBOARD_ROTATION_SPEED);
+    orbitControls._rotateLeft(
+      -getKeyboardRotationSpeed(orbitControls, isFlatProjection)
+    );
   }
 }
 

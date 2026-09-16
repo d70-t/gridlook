@@ -1,4 +1,7 @@
-import type { TGridGeometryWorkerResponse } from "./gridGeometryWorkerProtocol.ts";
+import type {
+  TGridGeometryWorkerMetadata,
+  TGridGeometryWorkerResponse,
+} from "./gridGeometryWorkerProtocol.ts";
 import { GridGeometryWorkerMessageType } from "./gridGeometryWorkerProtocol.ts";
 import type {
   TGridDataValueBatch,
@@ -10,7 +13,7 @@ import type {
 } from "./gridWorkerTypes.ts";
 
 export function postGridGeometryResponse<
-  TMetadata,
+  TMetadata extends TGridGeometryWorkerMetadata,
   TBatch extends TGridWorkerBatch = TGridGeometryBatch,
 >(
   workerScope: DedicatedWorkerGlobalScope,
@@ -20,7 +23,22 @@ export function postGridGeometryResponse<
   workerScope.postMessage(response, transfer);
 }
 
-export function postGridGeometryHoverIndex<TMetadata>(
+type TTransferSource = ArrayBuffer | ArrayBufferView;
+
+function getTransferableBuffers(sources: TTransferSource[]) {
+  const transfer = new Set<Transferable>();
+  for (const source of sources) {
+    const buffer = ArrayBuffer.isView(source) ? source.buffer : source;
+    if (buffer instanceof ArrayBuffer) {
+      transfer.add(buffer);
+    }
+  }
+  return [...transfer];
+}
+
+export function postGridGeometryHoverIndex<
+  TMetadata extends TGridGeometryWorkerMetadata,
+>(
   workerScope: DedicatedWorkerGlobalScope,
   requestId: number,
   hoverIndexData: TSerializedGeoSampleIndexData
@@ -32,16 +50,18 @@ export function postGridGeometryHoverIndex<TMetadata>(
       type: GridGeometryWorkerMessageType.HOVER_INDEX,
       hoverIndexData,
     },
-    [
+    getTransferableBuffers([
       hoverIndexData.indexData,
-      hoverIndexData.latitudes.buffer,
-      hoverIndexData.longitudes.buffer,
-      hoverIndexData.values.buffer,
-    ]
+      hoverIndexData.latitudes,
+      hoverIndexData.longitudes,
+      hoverIndexData.values,
+    ])
   );
 }
 
-export function postGridGeometryBatch<TMetadata>(
+export function postGridGeometryBatch<
+  TMetadata extends TGridGeometryWorkerMetadata,
+>(
   workerScope: DedicatedWorkerGlobalScope,
   requestId: number,
   batch: TGridGeometryBatch
@@ -53,16 +73,18 @@ export function postGridGeometryBatch<TMetadata>(
       type: GridGeometryWorkerMessageType.BATCH,
       batch,
     },
-    [
-      batch.positionValues.buffer,
-      batch.dataValues.buffer,
-      batch.latLonValues.buffer,
-      batch.indices.buffer,
-    ]
+    getTransferableBuffers([
+      batch.positionValues,
+      batch.dataValues,
+      batch.latLonValues,
+      batch.indices,
+    ])
   );
 }
 
-export function postGridPointBatch<TMetadata>(
+export function postGridPointBatch<
+  TMetadata extends TGridGeometryWorkerMetadata,
+>(
   workerScope: DedicatedWorkerGlobalScope,
   requestId: number,
   batch: TGridPointBatch
@@ -74,15 +96,17 @@ export function postGridPointBatch<TMetadata>(
       type: GridGeometryWorkerMessageType.BATCH,
       batch,
     },
-    [
-      batch.positionValues.buffer,
-      batch.dataValues.buffer,
-      batch.latLonValues.buffer,
-    ]
+    getTransferableBuffers([
+      batch.positionValues,
+      batch.dataValues,
+      batch.latLonValues,
+    ])
   );
 }
 
-export function postGridDataValueBatch<TMetadata>(
+export function postGridDataValueBatch<
+  TMetadata extends TGridGeometryWorkerMetadata,
+>(
   workerScope: DedicatedWorkerGlobalScope,
   requestId: number,
   batch: TGridDataValueBatch
@@ -94,11 +118,13 @@ export function postGridDataValueBatch<TMetadata>(
       type: GridGeometryWorkerMessageType.BATCH,
       batch,
     },
-    [batch.dataValues.buffer]
+    getTransferableBuffers([batch.dataValues])
   );
 }
 
-export function postGridPositionBatch<TMetadata>(
+export function postGridPositionBatch<
+  TMetadata extends TGridGeometryWorkerMetadata,
+>(
   workerScope: DedicatedWorkerGlobalScope,
   requestId: number,
   batch: TGridPositionBatch
@@ -110,6 +136,6 @@ export function postGridPositionBatch<TMetadata>(
       type: GridGeometryWorkerMessageType.BATCH,
       batch,
     },
-    [batch.positionValues.buffer, batch.latLonValues.buffer]
+    getTransferableBuffers([batch.positionValues, batch.latLonValues])
   );
 }

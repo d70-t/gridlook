@@ -62,7 +62,8 @@ export function usePresenterSync() {
     selection,
   } = storeToRefs(store);
 
-  const { paramCameraState, paramGridType } = storeToRefs(urlParameterStore);
+  const { paramCameraPx, paramCameraPy, paramCameraAlt, paramGridType } =
+    storeToRefs(urlParameterStore);
 
   const { data, post } = useBroadcastChannel<
     TPresenterMessage,
@@ -131,7 +132,9 @@ export function usePresenterSync() {
         selection.value && "low" in selection.value
           ? { low: selection.value.low, high: selection.value.high }
           : undefined,
-      paramCameraState: paramCameraState.value,
+      paramCameraPx: paramCameraPx.value ?? "",
+      paramCameraPy: paramCameraPy.value ?? "",
+      paramCameraAlt: paramCameraAlt.value ?? "",
       paramGridType: paramGridType.value,
     };
   }
@@ -223,8 +226,14 @@ export function usePresenterSync() {
 
   /** Apply incoming URL-parameter fields to the local store. */
   function applyUrlParams(payload: TPresenterStatePayload) {
-    if (payload.paramCameraState !== undefined) {
-      paramCameraState.value = payload.paramCameraState;
+    if (payload.paramCameraPx !== undefined) {
+      paramCameraPx.value = payload.paramCameraPx || undefined;
+    }
+    if (payload.paramCameraPy !== undefined) {
+      paramCameraPy.value = payload.paramCameraPy || undefined;
+    }
+    if (payload.paramCameraAlt !== undefined) {
+      paramCameraAlt.value = payload.paramCameraAlt || undefined;
     }
     if (payload.paramGridType !== undefined) {
       paramGridType.value = payload.paramGridType || undefined;
@@ -346,7 +355,9 @@ export function usePresenterSync() {
     () => coastlineResolution.value,
     () => graticuleSpacing.value,
     () => JSON.stringify(selection.value),
-    () => paramCameraState.value,
+    () => paramCameraPx.value,
+    () => paramCameraPy.value,
+    () => paramCameraAlt.value,
     () => paramGridType.value,
   ];
 

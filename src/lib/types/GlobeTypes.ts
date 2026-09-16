@@ -1,23 +1,22 @@
 import type { Dayjs } from "dayjs";
+import type { IndexingScheme, EllipsoidInput } from "healpix-geo";
 import * as zarr from "zarrita";
 
+import type { TVectorVariablePair } from "@/lib/data/vectorField.ts";
 import type { TColorMap } from "@/lib/shaders/colormapShaders.ts";
 
 export const ZARR_FORMAT = {
   V2: 2,
   V3: 3,
   ICECHUNK: -1, // Not a standard Zarr format, but used internally to indicate icechunk stores
+  NETCDF: -2, // Not a Zarr format; keeps the existing datasource interface small
 } as const;
 
 export type TZarrFormat = (typeof ZARR_FORMAT)[keyof typeof ZARR_FORMAT];
 
-export type EmptyObj = Record<PropertyKey, never>;
+type EmptyObj = Record<PropertyKey, never>;
 
 export type TBounds = EmptyObj | { low: number; high: number };
-
-export type TSelection = {
-  bounds: TBounds;
-};
 
 export type TDimensionRange = {
   name: string;
@@ -41,17 +40,24 @@ export type TVarInfo = {
   bounds: TBounds;
   dimRanges: TDimensionRange[];
   attrs: zarr.Attributes;
+  derivedFrom?: Pick<TVectorVariablePair, "u" | "v">;
 };
 
 export type TZarrDggsMetadata = {
   name: string;
   refinement_level: number;
   coordinate: string | null;
+  indexing_scheme: IndexingScheme;
+  ellipsoid: EllipsoidInput;
 };
 
-export type TDataSource = {
+export type TDatasetSource = {
   store: string;
   dataset: string;
+  file?: File;
+};
+
+export type TDataSource = TDatasetSource & {
   default_colormap?: {
     name: TColorMap;
     inverted: boolean;
@@ -76,14 +82,8 @@ export type TSources = {
   default_var?: string;
   levels: {
     name?: string;
-    grid: {
-      store: string;
-      dataset: string;
-    };
-    time: {
-      store: string;
-      dataset: string;
-    };
+    grid: TDatasetSource;
+    time: TDatasetSource;
     datasources: Record<string, TDataSource>;
   }[];
 };

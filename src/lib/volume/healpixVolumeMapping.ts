@@ -1,17 +1,27 @@
-import { healpixNestedPixelIndex } from "@/lib/data/healpix.ts";
+import type { Grid } from "healpix-geo";
+
+export type THealpixVolumeGrid = Pick<
+  Grid,
+  | "nside"
+  | "level"
+  | "scheme"
+  | "semiMajorAxis"
+  | "flattening"
+  | "lonLatToHealpix"
+>;
 
 type TPixelLookupCache = {
-  nside: number;
+  gridKey: string;
   width: number;
   height: number;
   sourceCellCount: number;
-  cellCoordinates?: Int32Array;
+  cellCoordinates?: Float64Array;
   sourceCells: Int32Array;
 };
 
 let pixelLookupCache: TPixelLookupCache | undefined;
 
-function equalCoordinates(first?: Int32Array, second?: Int32Array) {
+function equalCoordinates(first?: Float64Array, second?: Float64Array) {
   if (first === second) {
     return true;
   }
@@ -26,7 +36,7 @@ function equalCoordinates(first?: Int32Array, second?: Int32Array) {
   return true;
 }
 
-function makeCellLookup(nside: number, cellCoordinates?: Int32Array) {
+function makeCellLookup(cellCoordinates?: Float64Array) {
   if (!cellCoordinates) {
     return undefined;
   }
@@ -40,27 +50,23 @@ function makeCellLookup(nside: number, cellCoordinates?: Int32Array) {
   if (isIdentity) {
     return undefined;
   }
-  const lookup = new Int32Array(12 * nside * nside);
-  lookup.fill(-1);
+  const lookup = new Map<number, number>();
   for (let index = 0; index < cellCoordinates.length; index++) {
-    const cell = cellCoordinates[index];
-    if (cell >= 0 && cell < lookup.length) {
-      lookup[cell] = index;
-    }
+    lookup.set(cellCoordinates[index], index);
   }
   return lookup;
 }
 
 function cacheMatches(
   cache: TPixelLookupCache,
-  nside: number,
+  gridKey: string,
   width: number,
   height: number,
   sourceCellCount: number,
-  cellCoordinates?: Int32Array
+  cellCoordinates?: Float64Array
 ) {
   return (
-    cache.nside === nside &&
+    cache.gridKey === gridKey &&
     cache.width === width &&
     cache.height === height &&
     cache.sourceCellCount === sourceCellCount &&
@@ -68,19 +74,21 @@ function cacheMatches(
   );
 }
 
+// eslint-disable-next-line max-lines-per-function
 export function getHealpixVolumeSourceCells(
-  nside: number,
+  grid: THealpixVolumeGrid,
   width: number,
   height: number,
   sourceCellCount: number,
-  cellCoordinates?: Int32Array,
+  cellCoordinates?: Float64Array,
   onProgress?: (completed: number, total: number) => void
 ) {
+  const gridKey = `${grid.scheme}:${grid.level}:${grid.semiMajorAxis}:${grid.flattening}`;
   if (
     pixelLookupCache &&
     cacheMatches(
       pixelLookupCache,
-      nside,
+      gridKey,
       width,
       height,
       sourceCellCount,
@@ -91,27 +99,37 @@ export function getHealpixVolumeSourceCells(
     return pixelLookupCache.sourceCells;
   }
 
-  const cellLookup = makeCellLookup(nside, cellCoordinates);
+  const cellLookup = makeCellLookup(cellCoordinates);
   const sourceCells = new Int32Array(width * height);
   sourceCells.fill(-1);
-  const progressInterval = Math.max(1, Math.floor(height / 100));
-  for (let y = 0; y < height; y++) {
-    const latitude = ((y + 0.5) / height) * 180 - 90;
-    for (let x = 0; x < width; x++) {
-      const longitude = ((x + 0.5) / width) * 360 - 180;
-      const pixel = healpixNestedPixelIndex(nside, latitude, longitude);
-      const sourceCell = cellLookup ? cellLookup[pixel] : pixel;
-      if (sourceCell >= 0 && sourceCell < sourceCellCount) {
-        sourceCells[y * width + x] = sourceCell;
+  const batchRows = 32;
+  const coordinates = new Float64Array(width * Math.min(batchRows, height) * 2);
+  for (let startY = 0; startY < height; startY += batchRows) {
+    const endY = Math.min(startY + batchRows, height);
+    let coordinateOffset = 0;
+    for (let y = startY; y < endY; y++) {
+      const latitude = ((y + 0.5) / height) * 180 - 90;
+      for (let x = 0; x < width; x++) {
+        coordinates[coordinateOffset++] = ((x + 0.5) / width) * 360 - 180;
+        coordinates[coordinateOffset++] = latitude;
       }
     }
-    if ((y + 1) % progressInterval === 0 || y + 1 === height) {
-      onProgress?.(y + 1, height);
+    const pixels = grid.lonLatToHealpix(
+      coordinates.subarray(0, coordinateOffset)
+    );
+    const targetOffset = startY * width;
+    for (let index = 0; index < pixels.length; index++) {
+      const pixel = Number(pixels[index]);
+      const sourceCell = cellLookup ? (cellLookup.get(pixel) ?? -1) : pixel;
+      if (sourceCell >= 0 && sourceCell < sourceCellCount) {
+        sourceCells[targetOffset + index] = sourceCell;
+      }
     }
+    onProgress?.(endY, height);
   }
 
   pixelLookupCache = {
-    nside,
+    gridKey,
     width,
     height,
     sourceCellCount,

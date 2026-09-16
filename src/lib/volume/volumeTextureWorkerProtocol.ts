@@ -1,9 +1,15 @@
+import type { GridOptions } from "healpix-geo";
+
 import type {
   TVolumeTextureBuildRequest,
   TVolumeTextureBuildResult,
 } from "./volumeTexture.ts";
 
-export type TVolumeTextureWorkerRequest = TVolumeTextureBuildRequest & {
+export type TVolumeTextureWorkerBuildRequest = TVolumeTextureBuildRequest & {
+  grid: GridOptions;
+};
+
+export type TVolumeTextureWorkerRequest = TVolumeTextureWorkerBuildRequest & {
   requestId: number;
 };
 

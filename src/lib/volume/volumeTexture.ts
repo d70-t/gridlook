@@ -1,13 +1,13 @@
 import { getHealpixVolumeSourceCells } from "./healpixVolumeMapping.ts";
+import type { THealpixVolumeGrid } from "./healpixVolumeMapping.ts";
 
-export const DEFAULT_VOLUME_TEXTURE_WIDTH = 512;
-export const DEFAULT_VOLUME_TEXTURE_DEPTH = 64;
-export const DEFAULT_VOLUME_TEXTURE_BUDGET_BYTES = 64 * 1024 * 1024;
+const DEFAULT_VOLUME_TEXTURE_DEPTH = 64;
+const DEFAULT_VOLUME_TEXTURE_BUDGET_BYTES = 64 * 1024 * 1024;
 export const HIGH_RES_VOLUME_TEXTURE_BUDGET_BYTES = 512 * 1024 * 1024;
-export const STANDARD_VOLUME_TEXTURE_WIDTH = 2048;
-export const MAX_VOLUME_TEXTURE_WIDTH = 4096;
-export const HIGH_RES_VOLUME_TEXTURE_DEPTH = 32;
-export const MAX_VOLUME_CHANNEL_COUNT = 4;
+const STANDARD_VOLUME_TEXTURE_WIDTH = 2048;
+const MAX_VOLUME_TEXTURE_WIDTH = 4096;
+const HIGH_RES_VOLUME_TEXTURE_DEPTH = 32;
+const MAX_VOLUME_CHANNEL_COUNT = 4;
 export const RESERVED_VOLUME_CHANNEL_COUNT = 2;
 
 const LOG_10 = Math.log(10);
@@ -26,7 +26,7 @@ export type TVolumeTextureBuildRequest = {
   sourceCellCount: number;
   values: Float32Array[];
   heights?: Float32Array;
-  cellCoordinates?: Int32Array;
+  cellCoordinates?: Float64Array;
   dimensions: TVolumeTextureDimensions;
 };
 
@@ -43,7 +43,7 @@ function nextPowerOfTwo(value: number) {
   return Math.pow(2, Math.ceil(Math.log2(Math.max(1, value))));
 }
 
-export function volumeStorageChannelCount(channelCount: number) {
+function volumeStorageChannelCount(channelCount: number) {
   if (channelCount <= 1) {
     return 1;
   }
@@ -344,7 +344,8 @@ function writeHeightColumn(
 // eslint-disable-next-line max-lines-per-function
 export function buildVolumeTexture(
   request: TVolumeTextureBuildRequest,
-  onProgress?: (completed: number, total: number) => void
+  onProgress: ((completed: number, total: number) => void) | undefined,
+  grid: THealpixVolumeGrid
 ): TVolumeTextureBuildResult {
   const {
     nside,
@@ -355,6 +356,9 @@ export function buildVolumeTexture(
     cellCoordinates,
     dimensions,
   } = request;
+  if (grid.nside !== nside) {
+    throw new Error("Volume HEALPix grid does not match its resolution.");
+  }
   const expectedLength = sourceLevelCount * sourceCellCount;
   if (
     values.length === 0 ||
@@ -409,7 +413,7 @@ export function buildVolumeTexture(
     ? undefined
     : makeLevelSamples(sourceCellCount, sourceLevelCount, dimensions.depth);
   const sourceCells = getHealpixVolumeSourceCells(
-    nside,
+    grid,
     dimensions.width,
     dimensions.height,
     sourceCellCount,

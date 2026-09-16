@@ -1,5 +1,5 @@
-import type { TVolumeTextureBuildRequest } from "./volumeTexture.ts";
 import type {
+  TVolumeTextureWorkerBuildRequest,
   TVolumeTextureWorkerRequest,
   TVolumeTextureWorkerResponse,
 } from "./volumeTextureWorkerProtocol.ts";
@@ -56,7 +56,7 @@ function getWorker() {
 }
 
 export function buildVolumeTextureInWorker(
-  request: TVolumeTextureBuildRequest,
+  request: TVolumeTextureWorkerBuildRequest,
   onProgress?: (completed: number, total: number) => void
 ) {
   const requestId = ++nextRequestId;

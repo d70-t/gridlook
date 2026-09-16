@@ -13,7 +13,7 @@ export type TCatalog = {
   datasets: TCatalogEntry[];
 };
 
-export function isCatalog(data: unknown): data is TCatalog {
+function isCatalog(data: unknown): data is TCatalog {
   return (
     typeof data === "object" &&
     data !== null &&

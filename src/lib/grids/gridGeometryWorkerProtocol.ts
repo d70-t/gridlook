@@ -16,14 +16,19 @@ export const GridGeometryWorkerMessageType = {
 type TGridGeometryWorkerMessageType =
   (typeof GridGeometryWorkerMessageType)[keyof typeof GridGeometryWorkerMessageType];
 
+export type TGridGeometryWorkerMetadata = {
+  totalBatches: number;
+};
+
 type TGridGeometryWorkerResponseBase = {
   requestId: number;
   type: TGridGeometryWorkerMessageType;
 };
 
 export type TGridGeometryWorkerResponse<
-  TMetadata,
+  TMetadata extends TGridGeometryWorkerMetadata,
   TBatch extends TGridWorkerBatch = TGridGeometryBatch,
+  THoverIndex = TSerializedGeoSampleIndexData,
 > =
   | (TGridGeometryWorkerResponseBase & {
       type: typeof GridGeometryWorkerMessageType.METADATA;
@@ -35,7 +40,7 @@ export type TGridGeometryWorkerResponse<
     })
   | (TGridGeometryWorkerResponseBase & {
       type: typeof GridGeometryWorkerMessageType.HOVER_INDEX;
-      hoverIndexData: TSerializedGeoSampleIndexData;
+      hoverIndexData: THoverIndex;
     })
   | (TGridGeometryWorkerResponseBase & {
       type: typeof GridGeometryWorkerMessageType.DONE;

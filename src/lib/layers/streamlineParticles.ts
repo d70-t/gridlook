@@ -2,6 +2,7 @@ import * as THREE from "three";
 
 import type { TStreamlineVectorField } from "@/lib/data/vectorField.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
+import streamlineFragmentShader from "@/lib/shaders/glsl/streamline.frag.glsl";
 import streamlineVertexShader from "@/lib/shaders/glsl/streamline.vert.glsl";
 import { updateProjectionUniforms } from "@/lib/shaders/gridShaders.ts";
 
@@ -18,18 +19,20 @@ type TPathCache = {
 
 // A dense set of short traces reads as a continuous flow field without
 // obscuring the scalar layer below it.
-const PARTICLE_COUNT = 18_000;
+const CACHED_PATH_COUNT = 16_000;
 const PARTICLES_PER_PATH = 2;
-const CACHED_PATH_COUNT = PARTICLE_COUNT / PARTICLES_PER_PATH;
+const PARTICLE_COUNT = CACHED_PATH_COUNT * PARTICLES_PER_PATH;
 const CACHED_PATH_LENGTH = 96;
-const TRAIL_LENGTH = 20;
-const TRAIL_SAMPLE_SECONDS = 0.03;
+const TRAIL_LENGTH = 25;
+const TRAIL_SAMPLE_SECONDS = 0.025;
 const FADE_IN_SECONDS = 0.25;
 const FADE_OUT_SECONDS = 0.7;
 const TRAIL_FADE_EXPONENT = 1.35;
 const PATH_TEXTURE_WIDTH = 2048;
-const ANIMATION_SPEED = 0.6;
+const ANIMATION_SPEED = 0.25;
 const SEED_RANDOM_BASES = [2, 3] as const;
+const GOLDEN_RATIO_CONJUGATE = (Math.sqrt(5) - 1) / 2;
+const PATH_BUILD_TIME_SLICE_MS = 8;
 
 // The base instance renders ordinary segments. The two shifted instances
 // render the two clipped halves of a segment crossing the projection seam.
@@ -49,6 +52,18 @@ function radicalInverse(index: number, base: number) {
 }
 
 function makeSeedRandom(pathIndex: number, attempt: number) {
+  if (attempt === 0) {
+    // Use an equal-area Fibonacci lattice for the primary seeds. This avoids
+    // random clustering and the polar bias of a latitude/longitude grid.
+    const latticeCoordinates = [
+      (pathIndex + 0.5) / CACHED_PATH_COUNT,
+      (pathIndex * GOLDEN_RATIO_CONJUGATE) % 1,
+    ];
+    let dimension = 0;
+
+    return () => latticeCoordinates[dimension++ % latticeCoordinates.length];
+  }
+
   const sequenceIndex = pathIndex + attempt * CACHED_PATH_COUNT + 1;
   let dimension = 0;
 
@@ -73,6 +88,119 @@ function writePathSample(
   target[offset + 1] = cosLatitude * Math.sin(longitude);
   target[offset + 2] = Math.sin(latitude);
   target[offset + 3] = 1;
+}
+
+function findSeed(field: TStreamlineVectorField, pathIndex: number) {
+  for (let attempt = 0; attempt < 80; attempt++) {
+    const position = field.randomPosition(makeSeedRandom(pathIndex, attempt));
+    if (field.sample(position.latitude, position.longitude)) {
+      return position;
+    }
+  }
+
+  return field.randomPosition(makeSeedRandom(pathIndex, 80));
+}
+
+export function createCachedStreamlineSamples(
+  field: TStreamlineVectorField,
+  textureData: Float32Array,
+  firstSampleIndex: number,
+  pathIndex: number
+) {
+  const seed = findSeed(field, pathIndex);
+  const backwards = pathIndex % 2 === 1;
+  const integrationSeconds = backwards
+    ? -TRAIL_SAMPLE_SECONDS
+    : TRAIL_SAMPLE_SECONDS;
+  const seedOffset = backwards ? CACHED_PATH_LENGTH - 1 : 0;
+
+  let pointCount = 1;
+  let cursor = seed;
+
+  writePathSample(seed, textureData, firstSampleIndex + seedOffset);
+
+  for (let i = 1; i < CACHED_PATH_LENGTH; i++) {
+    const next = field.advance(
+      cursor.latitude,
+      cursor.longitude,
+      integrationSeconds
+    );
+    if (!next) {
+      break;
+    }
+
+    const sampleOffset = backwards ? seedOffset - i : i;
+    writePathSample(next, textureData, firstSampleIndex + sampleOffset);
+    cursor = next;
+    pointCount++;
+  }
+
+  // Backward-integrated samples were written from the end of the path slot
+  // toward its start. Move short paths to the front; their stored order is
+  // then upstream-to-seed, so particles still animate with the vector field.
+  if (backwards && pointCount < CACHED_PATH_LENGTH) {
+    const sourceStart = firstSampleIndex + CACHED_PATH_LENGTH - pointCount;
+    textureData.copyWithin(
+      firstSampleIndex * 4,
+      sourceStart * 4,
+      (firstSampleIndex + CACHED_PATH_LENGTH) * 4
+    );
+  }
+
+  return pointCount;
+}
+
+function yieldToBrowser() {
+  return new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
+
+async function createPathCache(
+  field: TStreamlineVectorField,
+  isCancelled: () => boolean,
+  onProgress?: (percentage: number) => void
+): Promise<TPathCache | undefined> {
+  const texturePointCount = CACHED_PATH_COUNT * CACHED_PATH_LENGTH;
+  const textureHeight = Math.ceil(texturePointCount / PATH_TEXTURE_WIDTH);
+  const textureData = new Float32Array(PATH_TEXTURE_WIDTH * textureHeight * 4);
+  const pointCounts = new Float32Array(CACHED_PATH_COUNT);
+  let timeSliceStarted = performance.now();
+  onProgress?.(0);
+
+  for (let path = 0; path < CACHED_PATH_COUNT; path++) {
+    if (isCancelled()) {
+      return undefined;
+    }
+    pointCounts[path] = createCachedStreamlineSamples(
+      field,
+      textureData,
+      path * CACHED_PATH_LENGTH,
+      path
+    );
+    if (performance.now() - timeSliceStarted >= PATH_BUILD_TIME_SLICE_MS) {
+      onProgress?.(Math.floor(((path + 1) / CACHED_PATH_COUNT) * 100));
+      await yieldToBrowser();
+      timeSliceStarted = performance.now();
+    }
+  }
+
+  const texture = new THREE.DataTexture(
+    textureData,
+    PATH_TEXTURE_WIDTH,
+    textureHeight,
+    THREE.RGBAFormat,
+    THREE.FloatType
+  );
+  texture.minFilter = THREE.NearestFilter;
+  texture.magFilter = THREE.NearestFilter;
+  texture.generateMipmaps = false;
+  texture.needsUpdate = true;
+  onProgress?.(100);
+
+  return {
+    texture,
+    textureSize: new THREE.Vector2(PATH_TEXTURE_WIDTH, textureHeight),
+    pointCounts,
+  };
 }
 
 function addTrailAttributes(geometry: THREE.InstancedBufferGeometry) {
@@ -235,10 +363,6 @@ function makeLineMaterial(cache: TPathCache) {
         value: 1,
       },
 
-      layerDepth: {
-        value: 0,
-      },
-
       edgeQuality: {
         value: 1,
       },
@@ -270,22 +394,10 @@ function makeLineMaterial(cache: TPathCache) {
 
     vertexShader: streamlineVertexShader,
 
-    fragmentShader: `
-      uniform vec3 color;
-      uniform float opacity;
-
-      varying float vTrailAlpha;
-
-      void main() {
-        gl_FragColor = vec4(
-          color,
-          opacity * vTrailAlpha
-        );
-      }
-    `,
+    fragmentShader: streamlineFragmentShader,
 
     transparent: true,
-    depthTest: true,
+    depthTest: false,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
   });
@@ -302,13 +414,8 @@ export class StreamlineParticleLayer {
   private renderOrder = 11;
   private animationPhase = 0;
 
-  constructor(
-    private readonly field: TStreamlineVectorField,
-    projectionHelper: ProjectionHelper
-  ) {
+  private constructor(cache: TPathCache, projectionHelper: ProjectionHelper) {
     this.projectionHelper = projectionHelper;
-
-    const cache = this.createPathCache();
 
     this.pathTexture = cache.texture;
 
@@ -326,93 +433,16 @@ export class StreamlineParticleLayer {
     this.updateMaterialProjection();
   }
 
-  private findSeed(pathIndex: number) {
-    for (let attempt = 0; attempt < 80; attempt++) {
-      const position = this.field.randomPosition(
-        makeSeedRandom(pathIndex, attempt)
-      );
-
-      const sample = this.field.sample(position.latitude, position.longitude);
-
-      if (sample) {
-        return position;
-      }
-    }
-
-    return this.field.randomPosition(makeSeedRandom(pathIndex, 80));
-  }
-
-  private createCachedStreamline(
-    textureData: Float32Array,
-    firstSampleIndex: number,
-    pathIndex: number
+  static async create(
+    field: TStreamlineVectorField,
+    projectionHelper: ProjectionHelper,
+    isCancelled: () => boolean,
+    onProgress?: (percentage: number) => void
   ) {
-    const seed = this.findSeed(pathIndex);
-
-    let pointCount = 1;
-    let cursor = seed;
-
-    writePathSample(seed, textureData, firstSampleIndex);
-
-    for (let i = 1; i < CACHED_PATH_LENGTH; i++) {
-      const next = this.field.advance(
-        cursor.latitude,
-        cursor.longitude,
-        TRAIL_SAMPLE_SECONDS
-      );
-
-      if (!next) {
-        break;
-      }
-
-      writePathSample(next, textureData, firstSampleIndex + i);
-
-      cursor = next;
-      pointCount++;
-    }
-
-    return pointCount;
-  }
-
-  private createPathCache(): TPathCache {
-    const texturePointCount = CACHED_PATH_COUNT * CACHED_PATH_LENGTH;
-
-    const textureHeight = Math.ceil(texturePointCount / PATH_TEXTURE_WIDTH);
-
-    const textureData = new Float32Array(
-      PATH_TEXTURE_WIDTH * textureHeight * 4
-    );
-
-    const pointCounts = new Float32Array(CACHED_PATH_COUNT);
-
-    for (let path = 0; path < CACHED_PATH_COUNT; path++) {
-      pointCounts[path] = this.createCachedStreamline(
-        textureData,
-        path * CACHED_PATH_LENGTH,
-        path
-      );
-    }
-
-    const texture = new THREE.DataTexture(
-      textureData,
-      PATH_TEXTURE_WIDTH,
-      textureHeight,
-      THREE.RGBAFormat,
-      THREE.FloatType
-    );
-
-    texture.minFilter = THREE.NearestFilter;
-    texture.magFilter = THREE.NearestFilter;
-    texture.generateMipmaps = false;
-    texture.needsUpdate = true;
-
-    return {
-      texture,
-
-      textureSize: new THREE.Vector2(PATH_TEXTURE_WIDTH, textureHeight),
-
-      pointCounts,
-    };
+    const cache = await createPathCache(field, isCancelled, onProgress);
+    return cache
+      ? new StreamlineParticleLayer(cache, projectionHelper)
+      : undefined;
   }
 
   update(deltaSeconds: number) {
@@ -450,11 +480,11 @@ export class StreamlineParticleLayer {
   private updateMaterialProjection() {
     const aboveGrid = this.renderOrder > 0;
 
-    const radius = this.projectionHelper.isFlat ? 1 : aboveGrid ? 1.006 : 0.994;
-
     const material = this.lines.material as THREE.ShaderMaterial;
 
-    updateProjectionUniforms(material, this.projectionHelper, radius);
+    updateProjectionUniforms(material, this.projectionHelper);
+    material.depthTest = false;
+    material.transparent = aboveGrid;
 
     material.uniforms.centerLon.value = this.projectionHelper.center.lon;
 
@@ -475,12 +505,6 @@ export class StreamlineParticleLayer {
       cosCenterLatitude * Math.sin(centerLongitude),
       Math.sin(centerLatitude)
     );
-
-    material.uniforms.layerDepth.value = this.projectionHelper.isFlat
-      ? aboveGrid
-        ? 0.025
-        : -0.025
-      : 0;
   }
 
   dispose() {

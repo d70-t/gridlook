@@ -9,6 +9,7 @@ import {
   isProjectedYName,
   isWebMercatorCRS,
 } from "./coordinateVariables.ts";
+import { getTriangularMesh } from "./triangularMesh.ts";
 import { ZarrDataManager } from "./ZarrDataManager.ts";
 
 import type { TSources, TZarrDggsMetadata } from "@/lib/types/GlobeTypes.ts";
@@ -64,7 +65,13 @@ async function checkTriangularGrid(
     );
     return GRID_TYPES.TRIANGULAR;
   } catch {
-    return null;
+    try {
+      return (await getTriangularMesh(datasources!, variable))
+        ? GRID_TYPES.TRIANGULAR
+        : null;
+    } catch {
+      return null;
+    }
   }
 }
 

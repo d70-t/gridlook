@@ -1,6 +1,8 @@
 import type * as zarr from "zarrita";
 
-import type { TDataSource, TZarrFormat } from "@/lib/types/GlobeTypes.ts";
+import type { TCloneSafeGridData } from "./gridDataWorkerUtils.ts";
+
+import type { TDatasetSource, TZarrFormat } from "@/lib/types/GlobeTypes.ts";
 
 export const GridDataWorkerMessageType = {
   GET_DATA: "getData",
@@ -15,11 +17,16 @@ type TGridDataWorkerMessageType =
 export type TGridDataWorkerRequest = {
   requestId: number;
   type: typeof GridDataWorkerMessageType.GET_DATA;
-  source: Pick<TDataSource, "store" | "dataset">;
+  source: Pick<TDatasetSource, "store" | "dataset">;
   variable: string;
   format: TZarrFormat;
   selection: (number | null | zarr.Slice)[];
   reportProgress?: boolean;
+};
+
+export type TGridDataWorkerResult = {
+  data: TCloneSafeGridData;
+  shape: number[];
 };
 
 type TGridDataWorkerResponseBase = {
@@ -35,7 +42,8 @@ export type TGridDataWorkerResponse =
     })
   | (TGridDataWorkerResponseBase & {
       type: typeof GridDataWorkerMessageType.RESULT;
-      data: zarr.TypedArray<zarr.DataType>;
+      data: TGridDataWorkerResult["data"];
+      shape: TGridDataWorkerResult["shape"];
     })
   | (TGridDataWorkerResponseBase & {
       type: typeof GridDataWorkerMessageType.ERROR;

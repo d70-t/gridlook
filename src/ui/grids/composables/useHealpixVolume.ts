@@ -1,3 +1,4 @@
+import type { GridOptions } from "healpix-geo";
 import type * as THREE from "three";
 import {
   onMounted,
@@ -37,6 +38,7 @@ import { useLog } from "@/ui/common/useLog.ts";
 export type THealpixVolumeContext = {
   dimensionNames: string[];
   indices: (number | null | zarr.Slice)[];
+  grid: GridOptions;
   nside: number;
   cellCoordinates?: number[];
 };
@@ -45,7 +47,7 @@ type TNormalizedHealpixVolumeContext = Omit<
   THealpixVolumeContext,
   "cellCoordinates"
 > & {
-  cellCoordinates?: Int32Array;
+  cellCoordinates?: Float64Array;
   cellCoordinatesKey: string;
 };
 
@@ -80,12 +82,13 @@ function normalizeCellCoordinates(
   }
   let isIdentity = coordinates.length === 12 * nside * nside;
   let hash = 2_166_136_261;
-  const normalized = new Int32Array(coordinates.length);
+  const normalized = new Float64Array(coordinates.length);
   for (let index = 0; index < coordinates.length; index++) {
     const coordinate = coordinates[index];
     normalized[index] = coordinate;
     isIdentity &&= coordinate === index;
     hash = Math.imul(hash ^ coordinate, 16_777_619);
+    hash = Math.imul(hash ^ Math.floor(coordinate / 2 ** 32), 16_777_619);
   }
   return isIdentity
     ? { coordinates: undefined, key: "global" }
@@ -140,12 +143,14 @@ export function useHealpixVolume(options: TOptions) {
 
   // eslint-disable-next-line max-lines-per-function
   async function loadVolume() {
+    const revision = ++requestRevision;
+    const requestContext = context;
     const datasources = options.getDatasources();
     const selections = store.volumeSelections.slice(0, 4);
     const renderer = options.getRenderer();
     if (
       disposed ||
-      !context ||
+      !requestContext ||
       !datasources ||
       selections.length === 0 ||
       !renderer ||
@@ -158,15 +163,17 @@ export function useHealpixVolume(options: TOptions) {
       return;
     }
 
-    const revision = ++requestRevision;
     store.volumeLoading = true;
     store.volumeProgress = 0;
     try {
       const sources = await inspectHealpixVolumeSources(
         datasources,
         selections.map((selection) => selection.variable),
-        context
+        requestContext
       );
+      if (revision !== requestRevision || disposed) {
+        return;
+      }
       reportProgress(revision, 5);
       const first = sources[0];
       const max3DTextureSize = getMax3DTextureSize(renderer);
@@ -174,7 +181,7 @@ export function useHealpixVolume(options: TOptions) {
         throw new Error("This device does not support WebGL 3D textures.");
       }
       const dimensions = chooseVolumeTextureDimensions(
-        context.nside,
+        requestContext.nside,
         first.sourceLevelCount,
         max3DTextureSize,
         // Reserve the common water/ice pair so toggling a second volume does
@@ -185,8 +192,9 @@ export function useHealpixVolume(options: TOptions) {
       const key = JSON.stringify({
         variables: sources.map((source) => source.name),
         selection: first.selection,
-        nside: context.nside,
-        cellCoordinates: context.cellCoordinatesKey,
+        grid: requestContext.grid,
+        nside: requestContext.nside,
+        cellCoordinates: requestContext.cellCoordinatesKey,
         dimensions,
       });
       if (key === cachedKey && hasData) {
@@ -201,7 +209,7 @@ export function useHealpixVolume(options: TOptions) {
       const { values, heights } = await loadHealpixVolumeData(
         datasources,
         sources,
-        context,
+        requestContext,
         (fraction) => reportProgress(revision, 5 + fraction * 70)
       );
       if (revision !== requestRevision || disposed) {
@@ -209,8 +217,9 @@ export function useHealpixVolume(options: TOptions) {
       }
       const result = await buildVolumeTextureInWorker(
         {
-          nside: context.nside,
-          cellCoordinates: context.cellCoordinates?.slice(),
+          grid: requestContext.grid,
+          nside: requestContext.nside,
+          cellCoordinates: requestContext.cellCoordinates?.slice(),
           sourceLevelCount: first.sourceLevelCount,
           sourceCellCount: first.sourceCellCount,
           values,
@@ -231,8 +240,8 @@ export function useHealpixVolume(options: TOptions) {
         result.dimensions,
         result.channelCount,
         result.storageChannelCount,
-        selections.map((selection) => selection.color),
-        selections.map((selection) => selection.opacity)
+        store.volumeSelections.map((selection) => selection.color),
+        store.volumeSelections.map((selection) => selection.opacity)
       );
       cachedKey = key;
       hasData = true;
@@ -275,7 +284,6 @@ export function useHealpixVolume(options: TOptions) {
         .map((selection) => selection.variable)
         .join("\u0000")}`,
     () => {
-      requestRevision++;
       updateAppearance();
       void loadVolume();
     }
@@ -296,9 +304,7 @@ export function useHealpixVolume(options: TOptions) {
   watch(() => store.layerStack, updateAppearance, { deep: true });
   options.onProjectionChange(() => {
     updateAppearance();
-    if (!options.projectionHelper.value.isFlat) {
-      void loadVolume();
-    }
+    void loadVolume();
   });
   options.onMotionStateChange(() => {
     layer?.setInteractive(options.isSceneInMotion.value);

@@ -2,14 +2,19 @@ import type * as THREE from "three";
 import { onScopeDispose, type ComputedRef } from "vue";
 import type * as zarr from "zarrita";
 
-import { loadVectorComponents } from "./streamlineData.ts";
 import { useStreamlineLayer } from "./useStreamlineLayer.ts";
 
+import { loadVectorComponents } from "@/lib/data/streamlineData.ts";
 import {
   IrregularVectorField,
   resolveVectorVariablePair,
   type TVectorVariablePair,
+  type TVectorFieldBuildOptions,
 } from "@/lib/data/vectorField.ts";
+import {
+  createVectorMagnitudeData,
+  type TVectorMagnitudeData,
+} from "@/lib/data/vectorMagnitude.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
@@ -39,13 +44,31 @@ type TOptions = {
   registerAnimationCallback: (
     callback: (deltaSeconds: number) => void
   ) => () => void;
+  showMagnitude: (result: TVectorMagnitudeData) => void | Promise<void>;
+  restoreScalar: () => Promise<boolean>;
 };
+
+function requestKey(
+  context: TIrregularStreamlineContext,
+  pair: TVectorVariablePair,
+  levelIndex: number
+) {
+  return JSON.stringify({
+    indices: context.indices,
+    spatialDimensions: context.spatialDimensionNames,
+    pair: [pair.u, pair.v],
+    levelIndex,
+  });
+}
 
 async function createVectorField(
   options: TOptions,
   datasources: TSources,
   context: TIrregularStreamlineContext,
-  pair: TVectorVariablePair
+  pair: TVectorVariablePair,
+  selectedLevelIndex: number,
+  prepareField: () => Promise<boolean>,
+  buildOptions: TVectorFieldBuildOptions
 ) {
   const components = await loadVectorComponents({
     pair,
@@ -55,15 +78,37 @@ async function createVectorField(
     currentIndices: context.indices,
     spatialDimensionNames: context.spatialDimensionNames,
     expectedDataLength: context.latitudes.length,
+    selectedLevelIndex,
   });
-  return components
-    ? new IrregularVectorField(
-        context.latitudes,
-        context.longitudes,
-        components.uData,
-        components.vData
-      )
-    : undefined;
+  if (components?.incompatibility !== undefined) {
+    return { incompatibility: components.incompatibility };
+  }
+  if (!components || !(await prepareField())) {
+    return undefined;
+  }
+  const field = await IrregularVectorField.create(
+    context.latitudes,
+    context.longitudes,
+    components.uData,
+    components.vData,
+    buildOptions
+  );
+  if (!field) {
+    return undefined;
+  }
+  return {
+    field,
+    levelInfo: components.levelInfo,
+    magnitudeInfo: components.magnitudeInfo,
+    magnitude:
+      components.magnitudeInfo && components.canDeriveMagnitude
+        ? createVectorMagnitudeData(
+            components.uData,
+            components.vData,
+            components.magnitudeInfo
+          )
+        : undefined,
+  };
 }
 
 // eslint-disable-next-line max-lines-per-function
@@ -73,42 +118,102 @@ export function useIrregularStreamlines(options: TOptions) {
   const layer = useStreamlineLayer(options);
   let currentContext: TIrregularStreamlineContext | undefined;
   let requestRevision = 0;
+  let cachedMagnitude: TVectorMagnitudeData | undefined;
+  let cachedRequestKey: string | undefined;
 
+  // eslint-disable-next-line max-lines-per-function
   async function refresh(reuseCached = false) {
-    if (reuseCached && layer.showCached()) {
-      return;
-    }
     const revision = ++requestRevision;
     const datasources = options.getDatasources();
     const context = currentContext;
     const pair = resolveVectorVariablePair(
       Object.keys(datasources?.levels[0]?.datasources ?? {}),
       options.getPreferredVariable(),
-      store.streamlineSelection
+      store.streamlineSelection,
+      store.isStreamlineLayerEnabled() ? store.streamlinePair : undefined
     );
+    const key =
+      context && pair
+        ? requestKey(context, pair, store.streamlineLevelIndex)
+        : undefined;
+    if (reuseCached && key === cachedRequestKey && layer.showCached()) {
+      if (store.streamlineMagnitudeDisplayed && cachedMagnitude) {
+        await options.showMagnitude(cachedMagnitude);
+      }
+      return;
+    }
     if (!datasources || !context || !pair) {
+      cachedMagnitude = undefined;
+      cachedRequestKey = undefined;
+      store.setStreamlineMagnitudeInfo(undefined);
       layer.clear();
       return;
     }
     if (!store.isStreamlineLayerEnabled()) {
-      layer.setAvailablePair(pair);
+      if (key === cachedRequestKey) {
+        store.setStreamlinePair(pair);
+      } else {
+        cachedMagnitude = undefined;
+        cachedRequestKey = undefined;
+        store.setStreamlineMagnitudeInfo(undefined);
+        layer.setAvailablePair(pair);
+      }
       return;
     }
+    layer.startLoading();
     try {
-      const field = await createVectorField(
+      const result = await createVectorField(
         options,
         datasources,
         context,
-        pair
+        pair,
+        store.streamlineLevelIndex,
+        () => layer.prepareField(() => revision === requestRevision),
+        {
+          isCancelled: () =>
+            revision !== requestRevision || !store.isStreamlineLayerEnabled(),
+          onProgress: (progress) => {
+            if (
+              revision === requestRevision &&
+              store.isStreamlineLayerEnabled()
+            ) {
+              layer.setFieldProgress(progress);
+            }
+          },
+        }
       );
       if (revision !== requestRevision) {
         return;
       }
-      if (!field) {
-        layer.clear();
+      store.setStreamlineLevelInfo(result?.levelInfo);
+      if (!result || result.incompatibility !== undefined) {
+        cachedMagnitude = undefined;
+        cachedRequestKey = undefined;
+        store.setStreamlineMagnitudeInfo(undefined);
+        layer.clear(result?.incompatibility);
         return;
       }
-      layer.setField(field, pair);
+      const rendered = await layer.setField(
+        result.field,
+        pair,
+        () => revision === requestRevision,
+        async () => {
+          store.setStreamlineMagnitudeInfo(
+            result.magnitudeInfo,
+            Boolean(result.magnitude)
+          );
+          if (store.streamlineMagnitudeDisplayed && result.magnitude) {
+            await options.showMagnitude(result.magnitude);
+          } else {
+            await options.restoreScalar();
+          }
+        }
+      );
+      if (!rendered || revision !== requestRevision) {
+        return;
+      }
+      cachedMagnitude = result.magnitude;
+      cachedRequestKey = key;
     } catch (error) {
       if (revision === requestRevision) {
         layer.clear();
@@ -124,8 +229,17 @@ export function useIrregularStreamlines(options: TOptions) {
 
   onScopeDispose(() => {
     currentContext = undefined;
+    cachedMagnitude = undefined;
     requestRevision++;
+    store.streamlineLoading = false;
+    store.streamlineProgress = undefined;
   });
 
-  return { clear: layer.clear, refresh, setContext };
+  function suspend() {
+    requestRevision++;
+    store.streamlineLoading = false;
+    store.streamlineProgress = undefined;
+  }
+
+  return { clear: layer.clear, refresh, setContext, suspend };
 }

@@ -9,6 +9,7 @@ import type {
   TSources,
 } from "../lib/types/GlobeTypes.ts";
 
+import { getCameraDistanceForVerticalSpan } from "@/lib/camera/cameraSettings.ts";
 import {
   getGridType,
   GRID_TYPES,
@@ -18,7 +19,12 @@ import {
   fetchCurrentTimestep,
   liveStoreBaseUrl,
 } from "@/lib/data/liveTimestep.ts";
-import { indexFromIndex, indexFromZarr } from "@/lib/data/sourceIndexing.ts";
+import { getLocalNetCDF, isLocalNetCDFSource } from "@/lib/data/localNetCDF.ts";
+import {
+  indexFromIndex,
+  indexFromNetCDF,
+  indexFromZarr,
+} from "@/lib/data/sourceIndexing.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { PROJECTION_TYPES, clamp } from "@/lib/projection/projectionUtils.ts";
 import {
@@ -54,6 +60,7 @@ import GridTriangular from "@/ui/grids/Triangular.vue";
 import AboutView from "@/ui/overlays/AboutModal.vue";
 import { toggleTimeAnimation } from "@/ui/overlays/controls/useTimeAnimation.ts";
 import GlobeControls from "@/ui/overlays/Controls.vue";
+import DistanceScale from "@/ui/overlays/DistanceScale.vue";
 import HoverReadout from "@/ui/overlays/HoverReadout.vue";
 import InfoPanel from "@/ui/overlays/InfoPanel.vue";
 
@@ -85,12 +92,9 @@ if (urlParams.get("mode") === PresenterRole.DISPLAY) {
   ) {
     store.projectionMode = proj as typeof store.projectionMode;
   }
-  if (
-    urlParameterStore.paramProjectionCenterLat ||
-    urlParameterStore.paramProjectionCenterLon
-  ) {
-    const lat = parseFloat(urlParameterStore.paramProjectionCenterLat ?? "0");
-    const lon = parseFloat(urlParameterStore.paramProjectionCenterLon ?? "0");
+  if (urlParameterStore.paramLat || urlParameterStore.paramLon) {
+    const lat = parseFloat(urlParameterStore.paramLat ?? "0");
+    const lon = parseFloat(urlParameterStore.paramLon ?? "0");
     store.projectionCenter = {
       lat: clamp(lat, -90, 90),
       lon: clamp(lon, -180, 180),
@@ -109,6 +113,7 @@ const {
   paramStreamlines,
   paramStreamlineU,
   paramStreamlineV,
+  paramStreamlineMagnitude,
   paramVolume,
   paramVolumeState,
   paramVolumeOpacity,
@@ -125,7 +130,8 @@ type TControlsHandle = {
 };
 
 const HYPERGLOBE_CAMERA_PRESET: TCameraState = {
-  position: [0, 0, 33],
+  // Preserve the preset's established framing for the app's default vertical FOV.
+  position: [0, 0, getCameraDistanceForVerticalSpan(4.33)],
   quaternion: [0, 0, 0, 1],
 };
 
@@ -317,6 +323,10 @@ function initStreamlinesFromParams() {
   } else {
     store.resetStreamlineSelection();
   }
+  store.setStreamlineMagnitudeDisplayed(
+    store.isStreamlineLayerEnabled() &&
+      paramStreamlineMagnitude.value === "true"
+  );
 }
 
 function initVolumeFromParams() {
@@ -351,11 +361,23 @@ async function updateSrc(updateId: number) {
   ZarrDataManager.invalidateCache();
   sourceValid.value = false;
   store.isInitializingVariable = true;
-  // FIXME: Trying zarr and json-index in parallel and picking the first that
-  // works. If both fail, we log the last error which is from the json-index.
-  // This leads to confusing error messages if the zarr source is supposed to
-  // work but fails for some reason.
-  const indexPromises = [indexFromZarr(src), indexFromIndex(src)];
+  let indexPromises: Promise<TSources>[];
+  if (isLocalNetCDFSource(src)) {
+    const file = getLocalNetCDF(src);
+    indexPromises = file
+      ? [indexFromNetCDF(file, src)]
+      : [
+          Promise.reject(
+            new Error("Please select the local NetCDF file again.")
+          ),
+        ];
+  } else {
+    // FIXME: Trying zarr and json-index in parallel and picking the first that
+    // works. If both fail, we log the last error which is from the json-index.
+    // This leads to confusing error messages if the zarr source is supposed to
+    // work but fails for some reason.
+    indexPromises = [indexFromZarr(src), indexFromIndex(src)];
+  }
   const indices = await Promise.allSettled(indexPromises);
   let lastError = null;
   if (updateId !== sourceUpdateId || src !== props.src) {
@@ -579,6 +601,7 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
         :is-rotated="detectedGridType === GRID_TYPES.REGULAR_ROTATED"
       />
       <HoverReadout v-if="detectedGridType !== undefined" />
+      <DistanceScale v-if="detectedGridType !== undefined" />
     </div>
     <div
       v-if="!isDisplayMode"

@@ -9,8 +9,8 @@ import type {
   TGeoSample,
   TGeoSampleIndex,
 } from "./composables/gridHoverUtils.ts";
-import { loadVectorComponents } from "./composables/streamlineData.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
+import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 import { useStreamlineLayer } from "./composables/useStreamlineLayer.ts";
 
@@ -24,6 +24,7 @@ import {
 } from "@/lib/data/coordinateVariables.ts";
 import { downsampleDataTexture } from "@/lib/data/dataTexture.ts";
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
+import { loadVectorComponents } from "@/lib/data/streamlineData.ts";
 import {
   castDataVarToFloat32,
   decodeVariableDataAndGetBounds,
@@ -33,6 +34,10 @@ import {
   RegularVectorField,
   resolveVectorVariablePair,
 } from "@/lib/data/vectorField.ts";
+import {
+  createVectorMagnitudeData,
+  type TVectorMagnitudeData,
+} from "@/lib/data/vectorMagnitude.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   getGridVariableData,
@@ -80,6 +85,7 @@ const {
   makeSnapshot,
   toggleRotate,
   applyCameraPreset,
+  fitCameraToDataset,
   getDataVar,
   fetchDimensionDetails,
   updateLandSeaMask,
@@ -105,6 +111,8 @@ const isProjectedGrid = ref(false);
 const selectedDimensionNames = ref<string[]>([]);
 let lastStreamlineIndices: (number | null | zarr.Slice)[] | undefined;
 let streamlineRequestRevision = 0;
+let cachedMagnitude: TVectorMagnitudeData | undefined;
+let cachedStreamlineKey: string | undefined;
 
 const BATCH_SIZE = 60;
 const MAX_GEO_RESOLUTION = 512;
@@ -115,6 +123,12 @@ onColormapChange(() => updateColormap(meshes));
 
 onProjectionChange(updateMeshProjectionUniforms);
 onMotionStateChange(updateMeshProjectionUniforms);
+
+const scalarCache = useScalarFieldCache({
+  updateHistogram,
+  updateColormap: () => updateColormap(meshes),
+  redraw,
+});
 
 const streamlines = useStreamlineLayer({
   getScene,
@@ -136,6 +150,7 @@ const { datasourceUpdate } = useGridDataLoader({
   getDatasources: () => props.datasources,
   getDataVar,
   fetchAndRenderData,
+  scalarCache,
   clearHoverLookup,
   prepareDatasource: async () => {
     await getDims();
@@ -144,12 +159,14 @@ const { datasourceUpdate } = useGridDataLoader({
   updateLandSeaMask,
   updateColormap: () => updateColormap(meshes),
   refreshStreamlines: async (reuseCached) => {
-    if (reuseCached && streamlines.showCached()) {
-      return;
-    }
     if (lastStreamlineIndices) {
-      await updateStreamlines(lastStreamlineIndices);
+      await updateStreamlines(lastStreamlineIndices, reuseCached);
     }
+  },
+  suspendStreamlines: () => {
+    streamlineRequestRevision++;
+    store.streamlineLoading = false;
+    store.streamlineProgress = undefined;
   },
 });
 
@@ -574,6 +591,7 @@ function applyBatchGeometry(
       new THREE.ShaderMaterial(),
       projectionHelper.value.type
     );
+    mesh.visible = false;
     mesh.frustumCulled = false;
     meshes.push(mesh);
     getScene()?.add(mesh);
@@ -596,6 +614,7 @@ async function makeGeometry() {
       applyBatchGeometry(batchIndex, geometry);
     }
     updateMeshProjectionUniforms();
+    fitCameraToDataset(meshes);
   } catch (error) {
     logError(error, "Could not fetch grid");
   }
@@ -860,7 +879,21 @@ function updateMeshMaterials(rawData: Float32Array) {
   updateColormap(meshes);
 }
 
-async function makeVectorField(uData: Float32Array, vData: Float32Array) {
+async function showMagnitude(scalar: TVectorMagnitudeData) {
+  await scalarCache.showMagnitude(scalar, async () => {
+    const hoverIndex = await buildHoverSamples(scalar.data);
+    return () => {
+      updateMeshMaterials(scalar.data);
+      setHoverLookupFromIndex(hoverIndex, NaN, NaN);
+    };
+  });
+}
+
+async function makeVectorField(
+  uData: Float32Array,
+  vData: Float32Array,
+  isCurrent: () => boolean
+) {
   if (!props.isRotated) {
     return new RegularVectorField(
       latitudes.value,
@@ -885,36 +918,73 @@ async function makeVectorField(uData: Float32Array, vData: Float32Array) {
       geographicLongitudes[index] = point.lon;
     }
   }
-  return new IrregularVectorField(
+  return IrregularVectorField.create(
     geographicLatitudes,
     geographicLongitudes,
     uData,
-    vData
+    vData,
+    {
+      isCancelled: () => !isCurrent() || !store.isStreamlineLayerEnabled(),
+      onProgress: (progress) => {
+        if (isCurrent() && store.isStreamlineLayerEnabled()) {
+          streamlines.setFieldProgress(progress);
+        }
+      },
+    }
   );
 }
 
+function selectedVectorPair() {
+  return resolveVectorVariablePair(
+    Object.keys(props.datasources?.levels[0]?.datasources ?? {}),
+    varnameSelector.value,
+    store.streamlineSelection,
+    store.isStreamlineLayerEnabled() ? store.streamlinePair : undefined
+  );
+}
+
+// eslint-disable-next-line max-lines-per-function
 async function updateStreamlines(
-  selectedIndices: (number | null | zarr.Slice)[]
+  selectedIndices: (number | null | zarr.Slice)[],
+  reuseCached = false
 ) {
   const requestRevision = ++streamlineRequestRevision;
-  const variableNames = Object.keys(
-    props.datasources?.levels[0]?.datasources ?? {}
-  );
-  const pair = resolveVectorVariablePair(
-    variableNames,
-    varnameSelector.value,
-    store.streamlineSelection
-  );
-  const supportedGrid = !isLatOnly.value;
-  if (!pair || !supportedGrid || !props.datasources) {
+  const pair = selectedVectorPair();
+  if (!pair || isLatOnly.value || !props.datasources) {
+    cachedMagnitude = undefined;
+    cachedStreamlineKey = undefined;
+    store.setStreamlineMagnitudeInfo(undefined);
     streamlines.clear();
     return;
   }
+  const requestKey = JSON.stringify({
+    indices: selectedIndices,
+    pair: [pair.u, pair.v],
+    level: store.streamlineLevelIndex,
+  });
+  if (
+    reuseCached &&
+    requestKey === cachedStreamlineKey &&
+    streamlines.showCached()
+  ) {
+    if (store.streamlineMagnitudeDisplayed && cachedMagnitude) {
+      await showMagnitude(cachedMagnitude);
+    }
+    return;
+  }
   if (!store.isStreamlineLayerEnabled()) {
-    streamlines.setAvailablePair(pair);
+    if (requestKey === cachedStreamlineKey) {
+      store.setStreamlinePair(pair);
+    } else {
+      cachedMagnitude = undefined;
+      cachedStreamlineKey = undefined;
+      store.setStreamlineMagnitudeInfo(undefined);
+      streamlines.setAvailablePair(pair);
+    }
     return;
   }
 
+  streamlines.startLoading();
   try {
     const components = await loadVectorComponents({
       pair,
@@ -924,19 +994,62 @@ async function updateStreamlines(
       currentIndices: selectedIndices,
       spatialDimensionNames: selectedDimensionNames.value.slice(-2),
       expectedDataLength: latitudes.value.length * longitudes.value.length,
+      selectedLevelIndex: store.streamlineLevelIndex,
     });
     if (requestRevision !== streamlineRequestRevision) {
       return;
     }
-    if (!components) {
-      streamlines.clear();
+    store.setStreamlineLevelInfo(components?.levelInfo);
+    store.setStreamlineMagnitudeInfo(
+      components?.magnitudeInfo,
+      components?.canDeriveMagnitude
+    );
+    if (!components || components.incompatibility !== undefined) {
+      cachedMagnitude = undefined;
+      cachedStreamlineKey = undefined;
+      streamlines.clear(components?.incompatibility);
       return;
     }
-    const field = await makeVectorField(components.uData, components.vData);
-    if (requestRevision !== streamlineRequestRevision) {
+    if (
+      !(await streamlines.prepareField(
+        () => requestRevision === streamlineRequestRevision
+      ))
+    ) {
       return;
     }
-    streamlines.setField(field, pair);
+    const field = await makeVectorField(
+      components.uData,
+      components.vData,
+      () => requestRevision === streamlineRequestRevision
+    );
+    if (!field || requestRevision !== streamlineRequestRevision) {
+      return;
+    }
+    const magnitude =
+      components.magnitudeInfo && components.canDeriveMagnitude
+        ? createVectorMagnitudeData(
+            components.uData,
+            components.vData,
+            components.magnitudeInfo
+          )
+        : undefined;
+    const rendered = await streamlines.setField(
+      field,
+      pair,
+      () => requestRevision === streamlineRequestRevision,
+      async () => {
+        if (store.streamlineMagnitudeDisplayed && magnitude) {
+          await showMagnitude(magnitude);
+        } else {
+          await scalarCache.restoreScalar();
+        }
+      }
+    );
+    if (!rendered || requestRevision !== streamlineRequestRevision) {
+      return;
+    }
+    cachedMagnitude = magnitude;
+    cachedStreamlineKey = requestKey;
   } catch (error) {
     if (requestRevision === streamlineRequestRevision) {
       streamlines.clear();
@@ -945,28 +1058,31 @@ async function updateStreamlines(
   }
 }
 
+// eslint-disable-next-line max-lines-per-function
 async function fetchAndRenderData(
-  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
+  isCurrent: () => boolean
 ) {
   const { dimensionRanges, indices } = await buildDimensionConfig(datavar);
 
   const variableData = await fetchRegularGridVariableData(indices);
   const rawData = castDataVarToFloat32(variableData);
 
+  if (!isCurrent()) {
+    return;
+  }
   const { min, max, missingValue, fillValue } = decodeVariableDataAndGetBounds(
     datavar,
     rawData
   );
 
-  updateMeshMaterials(rawData);
-
   const hoverIndex = await buildHoverSamples(rawData);
-  setHoverLookupFromIndex(hoverIndex, fillValue, missingValue);
-
-  updateHistogram(rawData, min, max, missingValue, fillValue);
 
   lastStreamlineIndices = indices;
 
+  if (!isCurrent()) {
+    return;
+  }
   const dimInfo = await fetchDimensionDetails(
     varnameSelector.value,
     props.datasources!,
@@ -974,17 +1090,32 @@ async function fetchAndRenderData(
     indices
   );
 
-  store.updateVarInfo(
-    {
-      attrs: datavar.attrs,
-      dimInfo,
-      bounds: { low: min, high: max },
-      dimRanges: dimensionRanges,
-    },
-    indices as number[]
-  );
-  redraw();
-  void updateStreamlines(indices);
+  const scalarInfo = {
+    attrs: datavar.attrs,
+    dimInfo,
+    bounds: { low: min, high: max },
+    dimRanges: dimensionRanges,
+  };
+  const renderScalar = () => {
+    updateMeshMaterials(rawData);
+    setHoverLookupFromIndex(hoverIndex, fillValue, missingValue);
+  };
+  if (!isCurrent()) {
+    return;
+  }
+  scalarCache.captureScalar({
+    render: renderScalar,
+    info: scalarInfo,
+    indices: indices as number[],
+    data: rawData,
+    missingValue,
+    fillValue,
+    isCurrent,
+  });
+  await updateStreamlines(indices);
+  if (isCurrent() && !store.streamlineMagnitudeDisplayed) {
+    await scalarCache.restoreScalar();
+  }
 }
 
 onBeforeMount(async () => {
