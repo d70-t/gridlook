@@ -12,6 +12,7 @@ import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import {
   BUILTIN_LAYER_IDS,
   LAYER_OPACITY,
+  STREAMLINE_LOADING_STAGES,
   useGlobeControlStore,
 } from "@/store/store.ts";
 
@@ -87,6 +88,7 @@ export function useStreamlineLayer(options: TOptions) {
   function disposeObject() {
     buildRevision++;
     store.streamlineLoading = false;
+    store.streamlineProgress = undefined;
     removeLayerObject();
   }
 
@@ -111,6 +113,22 @@ export function useStreamlineLayer(options: TOptions) {
     store.setStreamlinePair(pair);
   }
 
+  function startLoading() {
+    store.streamlineLoading = true;
+    store.streamlineProgress = undefined;
+    store.streamlineLoadingStage = STREAMLINE_LOADING_STAGES.DATA;
+  }
+
+  async function prepareField(isCurrent: () => boolean) {
+    if (disposed || !isCurrent() || !store.isStreamlineLayerEnabled()) {
+      return false;
+    }
+    store.streamlineLoadingStage = STREAMLINE_LOADING_STAGES.FIELD;
+    // Allow the loading indicator to paint before synchronous field setup.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    return !disposed && isCurrent() && store.isStreamlineLayerEnabled();
+  }
+
   async function setField(
     field: TStreamlineVectorField,
     pair: TVectorVariablePair,
@@ -123,6 +141,8 @@ export function useStreamlineLayer(options: TOptions) {
     const revision = buildRevision;
     store.setStreamlinePair(pair);
     store.streamlineLoading = true;
+    store.streamlineLoadingStage = STREAMLINE_LOADING_STAGES.PATHS;
+    store.streamlineProgress = 0;
     try {
       const isCancelled = () =>
         disposed ||
@@ -132,7 +152,12 @@ export function useStreamlineLayer(options: TOptions) {
       const nextLayer = await StreamlineParticleLayer.create(
         field,
         options.projectionHelper.value,
-        isCancelled
+        isCancelled,
+        (progress) => {
+          if (!isCancelled()) {
+            store.streamlineProgress = progress;
+          }
+        }
       );
       if (!nextLayer || isCancelled()) {
         nextLayer?.dispose();
@@ -143,6 +168,7 @@ export function useStreamlineLayer(options: TOptions) {
     } finally {
       if (revision === buildRevision && isCurrent()) {
         store.streamlineLoading = false;
+        store.streamlineProgress = undefined;
       }
     }
   }
@@ -168,5 +194,12 @@ export function useStreamlineLayer(options: TOptions) {
     disposeObject();
   });
 
-  return { clear, setAvailablePair, setField, showCached };
+  return {
+    clear,
+    setAvailablePair,
+    startLoading,
+    prepareField,
+    setField,
+    showCached,
+  };
 }

@@ -60,6 +60,8 @@ const {
   showGraticules,
   streamlinePair,
   streamlineLoading,
+  streamlineProgress,
+  streamlineLoadingStage,
   streamlineLevelIndex,
   streamlineLevelInfo,
   streamlineSelection,
@@ -760,13 +762,18 @@ function getLayerName(layer: TLayerEntry) {
             <span
               v-if="layer.kind === LAYER_KINDS.STREAMLINES && streamlineLoading"
               class="streamline-loading-icon"
-              title="Computing streamlines"
-              aria-label="Computing streamlines"
+              :title="streamlineLoadingStage"
             >
               <i
                 class="fa-solid fa-circle-notch fa-spin"
                 aria-hidden="true"
               ></i>
+              <span class="ml-1">
+                {{ streamlineLoadingStage
+                }}<template v-if="streamlineProgress !== undefined">
+                  {{ streamlineProgress }}%</template
+                >
+              </span>
             </span>
           </span>
         </div>

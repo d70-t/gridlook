@@ -14,7 +14,8 @@ const { computed, effectScope } = await import("vue");
 const { Object3D, Scene } = await import("three");
 const { ProjectionHelper, PROJECTION_TYPES } =
   await import("@/lib/projection/projectionUtils.ts");
-const { useGlobeControlStore } = await import("@/store/store.ts");
+const { useGlobeControlStore, STREAMLINE_LOADING_STAGES } =
+  await import("@/store/store.ts");
 const { useStreamlineLayer } =
   await import("@/ui/grids/composables/useStreamlineLayer.ts");
 
@@ -23,38 +24,55 @@ beforeEach(() => {
   create.mockReset();
 });
 
+function setupLayer() {
+  const store = useGlobeControlStore();
+  store.setStreamlineLayerEnabled(true);
+  const scope = effectScope();
+  const scene = new Scene();
+  const layer = scope.run(() =>
+    useStreamlineLayer({
+      getScene: () => scene,
+      redraw: vi.fn(),
+      projectionHelper: computed(
+        () =>
+          new ProjectionHelper(PROJECTION_TYPES.NEARSIDE_PERSPECTIVE, {
+            lat: 0,
+            lon: 0,
+          })
+      ),
+      onProjectionChange: vi.fn(),
+      registerAnimationCallback: vi.fn(),
+    })
+  )!;
+  return { store, scope, scene, layer };
+}
+
 it.each([false, true])(
   "only installs the current request (current: %s)",
   async (isCurrent) => {
-    const store = useGlobeControlStore();
-    store.setStreamlineLayerEnabled(true);
+    const { store, scope, scene, layer } = setupLayer();
     let finish!: (layer: StreamlineParticleLayer) => void;
     create.mockReturnValue(new Promise((resolve) => (finish = resolve)));
-    const scope = effectScope();
-    const scene = new Scene();
-    const layer = scope.run(() =>
-      useStreamlineLayer({
-        getScene: () => scene,
-        redraw: vi.fn(),
-        projectionHelper: computed(
-          () =>
-            new ProjectionHelper(PROJECTION_TYPES.NEARSIDE_PERSPECTIVE, {
-              lat: 0,
-              lon: 0,
-            })
-        ),
-        onProjectionChange: vi.fn(),
-        registerAnimationCallback: vi.fn(),
-      })
-    )!;
     let currentRequest = true;
+    layer.startLoading();
+    expect(store.streamlineProgress).toBeUndefined();
+    expect(store.streamlineLoadingStage).toBe(STREAMLINE_LOADING_STAGES.DATA);
+    expect(await layer.prepareField(() => currentRequest)).toBe(true);
+    expect(store.streamlineLoadingStage).toBe(STREAMLINE_LOADING_STAGES.FIELD);
     const pending = layer.setField(
       {} as TStreamlineVectorField,
       { u: "u", v: "v", kind: "u/v" },
       () => currentRequest
     );
 
+    expect(store.streamlineLoadingStage).toBe(STREAMLINE_LOADING_STAGES.PATHS);
+    const reportProgress = create.mock.calls[0][3];
+    reportProgress(25);
+    expect(store.streamlineProgress).toBe(25);
+
     currentRequest = isCurrent;
+    reportProgress(75);
+    expect(store.streamlineProgress).toBe(isCurrent ? 75 : 25);
     expect(create.mock.calls[0][2]()).toBe(!isCurrent);
     const dispose = vi.fn();
     finish({
@@ -69,6 +87,22 @@ it.each([false, true])(
     expect(dispose).toHaveBeenCalledTimes(isCurrent ? 0 : 1);
     expect(scene.children).toHaveLength(isCurrent ? 1 : 0);
     expect(store.streamlineLoading).toBe(!isCurrent);
+    expect(store.streamlineProgress).toBe(isCurrent ? undefined : 25);
     scope.stop();
+    expect(store.streamlineProgress).toBeUndefined();
   }
 );
+
+it("skips field preparation when the request is superseded while yielding", async () => {
+  const { store, scope, layer } = setupLayer();
+  let current = true;
+  layer.startLoading();
+  const pending = layer.prepareField(() => current);
+  current = false;
+  layer.startLoading();
+  expect(await pending).toBe(false);
+  expect(store.streamlineLoadingStage).toBe(STREAMLINE_LOADING_STAGES.DATA);
+  expect(store.streamlineProgress).toBeUndefined();
+  expect(create).not.toHaveBeenCalled();
+  scope.stop();
+});

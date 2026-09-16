@@ -8,6 +8,40 @@ import {
   createCachedStreamlineSamples,
   StreamlineParticleLayer,
 } from "@/lib/layers/streamlineParticles.ts";
+import {
+  ProjectionHelper,
+  PROJECTION_TYPES,
+} from "@/lib/projection/projectionUtils.ts";
+
+it("reports completed path work through to 100 percent", async () => {
+  const progress: number[] = [];
+  const field = {
+    randomPosition: () => ({ latitude: 0, longitude: 0 }),
+    sample: () => ({ u: 1, v: 0, speed: 1 }),
+    advance: () => undefined,
+  } as unknown as TStreamlineVectorField;
+  const layer = await StreamlineParticleLayer.create(
+    field,
+    new ProjectionHelper(PROJECTION_TYPES.NEARSIDE_PERSPECTIVE, {
+      lat: 0,
+      lon: 0,
+    }),
+    () => false,
+    (percentage) => progress.push(percentage)
+  );
+  try {
+    expect(layer).toBeDefined();
+    expect(progress[0]).toBe(0);
+    expect(progress.at(-1)).toBe(100);
+    expect(
+      progress.every(
+        (value, index) => index === 0 || value >= progress[index - 1]
+      )
+    ).toBe(true);
+  } finally {
+    layer?.dispose();
+  }
+});
 
 describe("StreamlineParticleLayer", () => {
   it("advances using the fixed animation speed", () => {

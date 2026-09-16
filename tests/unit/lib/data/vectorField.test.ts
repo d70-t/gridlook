@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   IrregularVectorField,
@@ -162,39 +162,39 @@ describe("resolveVectorVariablePair selection", () => {
 });
 
 describe("IrregularVectorField", () => {
-  it("interpolates unstructured component samples", () => {
-    const field = new IrregularVectorField(
+  it("interpolates unstructured component samples", async () => {
+    const field = (await IrregularVectorField.create(
       new Float32Array([-1, -1, 1, 1]),
       new Float32Array([-1, 1, -1, 1]),
       new Float32Array([2, 4, 6, 8]),
       new Float32Array([8, 6, 4, 2])
-    );
+    ))!;
 
     expect(field.sample(-1, -1)?.u).toBeCloseTo(2);
     expect(field.sample(-1, -1)?.v).toBeCloseTo(8);
     expect(field.sample(0, 0)?.u).toBeCloseTo(5, 1);
   });
 
-  it("advances through a steady unstructured field", () => {
-    const field = new IrregularVectorField(
+  it("advances through a steady unstructured field", async () => {
+    const field = (await IrregularVectorField.create(
       new Float32Array([-5, -5, 5, 5]),
       new Float32Array([-5, 5, -5, 5]),
       new Float32Array(4).fill(10),
       new Float32Array(4).fill(0)
-    );
+    ))!;
 
     const next = field.advance(0, 0, 0.1);
     expect(next?.latitude).toBeCloseTo(0);
     expect(next?.longitude).toBeGreaterThan(0);
   });
 
-  it("seeds by geographic area instead of native-cell order", () => {
-    const field = new IrregularVectorField(
+  it("seeds by geographic area instead of native-cell order", async () => {
+    const field = (await IrregularVectorField.create(
       new Float32Array([-5, -5, 5, 5]),
       new Float32Array([-5, 5, -5, 5]),
       new Float32Array(4).fill(1),
       new Float32Array(4).fill(1)
-    );
+    ))!;
     const randomValues = [0.5, 0.5];
 
     const seed = field.randomPosition(() => randomValues.shift()!);
@@ -202,6 +202,67 @@ describe("IrregularVectorField", () => {
     expect(seed.latitude).toBeCloseTo(0);
     expect(seed.longitude).toBeCloseTo(0);
   });
+});
+
+describe("IrregularVectorField across the antimeridian", () => {
+  it("interpolates neighbours on both sides without repeating samples", async () => {
+    const progress: number[] = [];
+    const field = (await IrregularVectorField.create(
+      new Float32Array([59, 59, 61, 61]),
+      new Float32Array([179, -179, 179, -179]),
+      new Float32Array([2, 4, 6, 8]),
+      new Float32Array(4).fill(0),
+      { onProgress: (percentage) => progress.push(percentage) }
+    ))!;
+
+    expect(progress[0]).toBe(0);
+    expect(progress.at(-1)).toBe(100);
+    expect(
+      progress.every(
+        (value, index) => index === 0 || value >= progress[index - 1]
+      )
+    ).toBe(true);
+    expect(field.sample(59, 179)?.u).toBeCloseTo(2);
+    expect(field.sample(60, 180)).toEqual(field.sample(60, -180));
+    expect(field.sample(60, 180)?.u).toBeCloseTo(5, 1);
+    expect(field.sample(0, 180)).toBeUndefined();
+    expect(field.sample(60, 0)).toBeUndefined();
+    expect(field.advance(60, 179.9, 0.025)?.longitude).toBeLessThan(-179);
+  });
+});
+
+it("yields during field preparation and discards cancelled work", async () => {
+  let now = 0;
+  const clock = vi
+    .spyOn(performance, "now")
+    .mockImplementation(() => (now += 9));
+  let cancelled = false;
+  const progress: number[] = [];
+  try {
+    const field = await IrregularVectorField.create(
+      new Float32Array([-5, -5, 5, 5]),
+      new Float32Array([-5, 5, -5, 5]),
+      new Float32Array(4).fill(10),
+      new Float32Array(4).fill(0),
+      {
+        isCancelled: () => cancelled,
+        onProgress: (percentage) => {
+          progress.push(percentage);
+          if (progress.length === 2) {
+            setTimeout(() => {
+              cancelled = true;
+            }, 0);
+          }
+        },
+      }
+    );
+    expect(cancelled).toBe(true);
+    expect(field).toBeUndefined();
+    expect(progress).toHaveLength(2);
+    expect(progress.at(-1)).toBeLessThan(100);
+  } finally {
+    clock.mockRestore();
+  }
 });
 
 describe("RegularVectorField", () => {

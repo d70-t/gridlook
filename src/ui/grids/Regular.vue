@@ -159,6 +159,7 @@ const { datasourceUpdate } = useGridDataLoader({
   suspendStreamlines: () => {
     streamlineRequestRevision++;
     store.streamlineLoading = false;
+    store.streamlineProgress = undefined;
   },
 });
 
@@ -879,7 +880,11 @@ async function showMagnitude(scalar: TVectorMagnitudeData) {
   redraw();
 }
 
-async function makeVectorField(uData: Float32Array, vData: Float32Array) {
+async function makeVectorField(
+  uData: Float32Array,
+  vData: Float32Array,
+  isCurrent: () => boolean
+) {
   if (!props.isRotated) {
     return new RegularVectorField(
       latitudes.value,
@@ -904,11 +909,19 @@ async function makeVectorField(uData: Float32Array, vData: Float32Array) {
       geographicLongitudes[index] = point.lon;
     }
   }
-  return new IrregularVectorField(
+  return IrregularVectorField.create(
     geographicLatitudes,
     geographicLongitudes,
     uData,
-    vData
+    vData,
+    {
+      isCancelled: () => !isCurrent() || !store.isStreamlineLayerEnabled(),
+      onProgress: (progress) => {
+        if (isCurrent() && store.isStreamlineLayerEnabled()) {
+          store.streamlineProgress = progress;
+        }
+      },
+    }
   );
 }
 
@@ -962,7 +975,7 @@ async function updateStreamlines(
     return;
   }
 
-  store.streamlineLoading = true;
+  streamlines.startLoading();
   try {
     const components = await loadVectorComponents({
       pair,
@@ -988,8 +1001,19 @@ async function updateStreamlines(
       streamlines.clear();
       return;
     }
-    const field = await makeVectorField(components.uData, components.vData);
-    if (requestRevision !== streamlineRequestRevision) {
+    if (
+      !(await streamlines.prepareField(
+        () => requestRevision === streamlineRequestRevision
+      ))
+    ) {
+      return;
+    }
+    const field = await makeVectorField(
+      components.uData,
+      components.vData,
+      () => requestRevision === streamlineRequestRevision
+    );
+    if (!field || requestRevision !== streamlineRequestRevision) {
       return;
     }
     const rendered = await streamlines.setField(

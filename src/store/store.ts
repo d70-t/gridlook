@@ -80,6 +80,15 @@ export const LAYER_OPACITY = {
   STEP: 0.05,
 } as const;
 
+export const STREAMLINE_LOADING_STAGES = {
+  DATA: "Loading vector data",
+  FIELD: "Preparing vector field",
+  PATHS: "Computing streamlines",
+} as const;
+
+type TStreamlineLoadingStage =
+  (typeof STREAMLINE_LOADING_STAGES)[keyof typeof STREAMLINE_LOADING_STAGES];
+
 export type TLayerEntry = {
   id: string;
   kind: TLayerKind;
@@ -223,6 +232,9 @@ export const useGlobeControlStore = defineStore("globeControl", {
       gridExportLoading: false,
       streamlineAvailable: false,
       streamlineLoading: false,
+      streamlineProgress: undefined as number | undefined,
+      streamlineLoadingStage:
+        STREAMLINE_LOADING_STAGES.DATA as TStreamlineLoadingStage,
       streamlinePair: undefined as TVectorVariablePair | undefined,
       streamlineSelection: {
         automatic: true,

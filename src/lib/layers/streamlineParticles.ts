@@ -156,13 +156,15 @@ function yieldToBrowser() {
 
 async function createPathCache(
   field: TStreamlineVectorField,
-  isCancelled: () => boolean
+  isCancelled: () => boolean,
+  onProgress?: (percentage: number) => void
 ): Promise<TPathCache | undefined> {
   const texturePointCount = CACHED_PATH_COUNT * CACHED_PATH_LENGTH;
   const textureHeight = Math.ceil(texturePointCount / PATH_TEXTURE_WIDTH);
   const textureData = new Float32Array(PATH_TEXTURE_WIDTH * textureHeight * 4);
   const pointCounts = new Float32Array(CACHED_PATH_COUNT);
   let timeSliceStarted = performance.now();
+  onProgress?.(0);
 
   for (let path = 0; path < CACHED_PATH_COUNT; path++) {
     if (isCancelled()) {
@@ -175,6 +177,7 @@ async function createPathCache(
       path
     );
     if (performance.now() - timeSliceStarted >= PATH_BUILD_TIME_SLICE_MS) {
+      onProgress?.(Math.floor(((path + 1) / CACHED_PATH_COUNT) * 100));
       await yieldToBrowser();
       timeSliceStarted = performance.now();
     }
@@ -191,6 +194,7 @@ async function createPathCache(
   texture.magFilter = THREE.NearestFilter;
   texture.generateMipmaps = false;
   texture.needsUpdate = true;
+  onProgress?.(100);
 
   return {
     texture,
@@ -432,9 +436,10 @@ export class StreamlineParticleLayer {
   static async create(
     field: TStreamlineVectorField,
     projectionHelper: ProjectionHelper,
-    isCancelled: () => boolean
+    isCancelled: () => boolean,
+    onProgress?: (percentage: number) => void
   ) {
-    const cache = await createPathCache(field, isCancelled);
+    const cache = await createPathCache(field, isCancelled, onProgress);
     return cache
       ? new StreamlineParticleLayer(cache, projectionHelper)
       : undefined;

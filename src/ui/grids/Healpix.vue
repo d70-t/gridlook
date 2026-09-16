@@ -186,6 +186,7 @@ const { datasourceUpdate } = useGridDataLoader({
   suspendStreamlines: () => {
     streamlineRequestRevision++;
     store.streamlineLoading = false;
+    store.streamlineProgress = undefined;
   },
 });
 
@@ -575,7 +576,7 @@ async function updateStreamlines(
     }
     return;
   }
-  store.streamlineLoading = true;
+  streamlines.startLoading();
   try {
     const expectedDataLength = context.cellCoord?.length ?? 12 * nside * nside;
     const components = await loadVectorComponents({
@@ -600,6 +601,13 @@ async function updateStreamlines(
       cachedMagnitude = undefined;
       cachedStreamlineKey = undefined;
       streamlines.clear();
+      return;
+    }
+    if (
+      !(await streamlines.prepareField(
+        () => requestRevision === streamlineRequestRevision
+      ))
+    ) {
       return;
     }
     const rendered = await streamlines.setField(

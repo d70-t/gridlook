@@ -82,7 +82,7 @@ const DEGREES_TO_RADIANS = Math.PI / 180;
 const RADIANS_TO_DEGREES = 180 / Math.PI;
 
 const NATIVE_INTERPOLATION_SAMPLE_COUNT = 4;
-const PERIODIC_INDEX_REPLICA_COUNT = 3;
+const FIELD_BUILD_TIME_SLICE_MS = 8;
 
 export function getVariableGroup(name: string) {
   const slashIndex = name.lastIndexOf("/");
@@ -765,6 +765,11 @@ export class RegularVectorField implements TStreamlineVectorField {
   }
 }
 
+export type TVectorFieldBuildOptions = {
+  isCancelled?: () => boolean;
+  onProgress?: (percentage: number) => void;
+};
+
 /**
  * Inverse-distance interpolation directly over native unstructured
  * geographic cell centres.
@@ -778,8 +783,8 @@ export class IrregularVectorField implements TStreamlineVectorField {
   readonly referenceSpeed: number;
 
   private readonly index: KDBush;
-  private readonly indexSampleIds: Uint32Array;
-  private readonly regularField: RegularVectorField;
+  // The async factory sets this before exposing the completed field.
+  private regularField!: RegularVectorField;
 
   private readonly latitudes: Float32Array;
   private readonly longitudes: Float32Array;
@@ -788,8 +793,7 @@ export class IrregularVectorField implements TStreamlineVectorField {
 
   private readonly interpolationRadiusKm: number;
 
-  // eslint-disable-next-line max-lines-per-function
-  constructor(
+  private constructor(
     latitudes: Float32Array,
     longitudes: Float32Array,
     uData: Float32Array,
@@ -845,54 +849,48 @@ export class IrregularVectorField implements TStreamlineVectorField {
 
     this.referenceSpeed = calculateReferenceSpeed(this.uData, this.vData);
 
-    const indexSize = this.isGlobal
-      ? this.latitudes.length * PERIODIC_INDEX_REPLICA_COUNT
-      : this.latitudes.length;
-
-    this.index = new KDBush(indexSize);
-    this.indexSampleIds = new Uint32Array(indexSize);
+    // geokdbush handles longitude wrapping with geographic distances. Keep
+    // one entry per sample, within its expected -180..180 longitude domain.
+    this.index = new KDBush(this.latitudes.length);
 
     for (let sampleId = 0; sampleId < this.latitudes.length; sampleId++) {
       const latitude = this.latitudes[sampleId];
       const longitude = this.longitudes[sampleId];
 
-      if (this.isGlobal) {
-        for (const longitudeOffset of [-360, 0, 360]) {
-          const indexId = this.index.add(longitude + longitudeOffset, latitude);
-
-          this.indexSampleIds[indexId] = sampleId;
-        }
-      } else {
-        const indexId = this.index.add(longitude, latitude);
-
-        this.indexSampleIds[indexId] = sampleId;
-      }
+      this.index.add(longitude, latitude);
     }
 
     this.index.finish();
-    this.regularField = this.createRegularField();
+  }
+
+  static async create(
+    latitudes: Float32Array,
+    longitudes: Float32Array,
+    uData: Float32Array,
+    vData: Float32Array,
+    options: TVectorFieldBuildOptions = {}
+  ) {
+    if (options.isCancelled?.()) {
+      return undefined;
+    }
+    options.onProgress?.(0);
+    const field = new IrregularVectorField(latitudes, longitudes, uData, vData);
+    const regularField = await field.createRegularField(options);
+    if (!regularField) {
+      return undefined;
+    }
+    field.regularField = regularField;
+    return field;
   }
 
   private candidateSampleIds(latitude: number, longitude: number) {
-    const maximumIndexResults = this.isGlobal
-      ? NATIVE_INTERPOLATION_SAMPLE_COUNT * PERIODIC_INDEX_REPLICA_COUNT
-      : NATIVE_INTERPOLATION_SAMPLE_COUNT;
-
-    const indexIds = around(
+    return around(
       this.index,
       longitude,
       clamp(latitude, -90, 90),
-      maximumIndexResults,
-      Infinity
+      NATIVE_INTERPOLATION_SAMPLE_COUNT,
+      this.interpolationRadiusKm
     );
-
-    const sampleIds = new Set<number>();
-
-    for (const indexId of indexIds) {
-      sampleIds.add(this.indexSampleIds[indexId]);
-    }
-
-    return [...sampleIds];
   }
 
   // eslint-disable-next-line max-lines-per-function
@@ -974,10 +972,10 @@ export class IrregularVectorField implements TStreamlineVectorField {
     };
   }
 
-  private createRegularField() {
-    const latitudes = this.isGlobal
-      ? Float32Array.from({ length: 179 }, (_, index) => index - 89)
-      : regularAxis(this.latitudeMin, this.latitudeMax);
+  private async createRegularField(options: TVectorFieldBuildOptions) {
+    // Longitude wrapping also applies to regional grids crossing the date
+    // line; it does not mean that the field covers every latitude.
+    const latitudes = regularAxis(this.latitudeMin, this.latitudeMax);
 
     const longitudes = this.isGlobal
       ? Float32Array.from({ length: 360 }, (_, index) => index - 180)
@@ -985,16 +983,29 @@ export class IrregularVectorField implements TStreamlineVectorField {
 
     const uData = new Float32Array(latitudes.length * longitudes.length);
     const vData = new Float32Array(uData.length);
+    let timeSliceStarted = performance.now();
 
     for (let y = 0; y < latitudes.length; y++) {
       for (let x = 0; x < longitudes.length; x++) {
+        if (options.isCancelled?.()) {
+          return undefined;
+        }
         const index = y * longitudes.length + x;
         const vector = this.sampleIndexed(latitudes[y], longitudes[x]);
         uData[index] = vector?.u ?? NaN;
         vData[index] = vector?.v ?? NaN;
+        if (performance.now() - timeSliceStarted >= FIELD_BUILD_TIME_SLICE_MS) {
+          options.onProgress?.(Math.floor(((index + 1) / uData.length) * 100));
+          await new Promise<void>((resolve) => setTimeout(resolve, 0));
+          timeSliceStarted = performance.now();
+        }
       }
     }
 
+    if (options.isCancelled?.()) {
+      return undefined;
+    }
+    options.onProgress?.(100);
     return new RegularVectorField(latitudes, longitudes, uData, vData);
   }
 

@@ -9,6 +9,7 @@ import {
   IrregularVectorField,
   resolveVectorVariablePair,
   type TVectorVariablePair,
+  type TVectorFieldBuildOptions,
 } from "@/lib/data/vectorField.ts";
 import {
   createVectorMagnitudeData,
@@ -64,7 +65,9 @@ async function createVectorField(
   datasources: TSources,
   context: TIrregularStreamlineContext,
   pair: TVectorVariablePair,
-  selectedLevelIndex: number
+  selectedLevelIndex: number,
+  prepareField: () => Promise<boolean>,
+  buildOptions: TVectorFieldBuildOptions
 ) {
   const components = await loadVectorComponents({
     pair,
@@ -76,26 +79,32 @@ async function createVectorField(
     expectedDataLength: context.latitudes.length,
     selectedLevelIndex,
   });
-  return components
-    ? {
-        field: new IrregularVectorField(
-          context.latitudes,
-          context.longitudes,
-          components.uData,
-          components.vData
-        ),
-        levelInfo: components.levelInfo,
-        magnitudeInfo: components.magnitudeInfo,
-        magnitude:
-          components.magnitudeInfo && components.canDeriveMagnitude
-            ? createVectorMagnitudeData(
-                components.uData,
-                components.vData,
-                components.magnitudeInfo
-              )
-            : undefined,
-      }
-    : undefined;
+  if (!components || !(await prepareField())) {
+    return undefined;
+  }
+  const field = await IrregularVectorField.create(
+    context.latitudes,
+    context.longitudes,
+    components.uData,
+    components.vData,
+    buildOptions
+  );
+  if (!field) {
+    return undefined;
+  }
+  return {
+    field,
+    levelInfo: components.levelInfo,
+    magnitudeInfo: components.magnitudeInfo,
+    magnitude:
+      components.magnitudeInfo && components.canDeriveMagnitude
+        ? createVectorMagnitudeData(
+            components.uData,
+            components.vData,
+            components.magnitudeInfo
+          )
+        : undefined,
+  };
 }
 
 // eslint-disable-next-line max-lines-per-function
@@ -147,14 +156,27 @@ export function useIrregularStreamlines(options: TOptions) {
       }
       return;
     }
-    store.streamlineLoading = true;
+    layer.startLoading();
     try {
       const result = await createVectorField(
         options,
         datasources,
         context,
         pair,
-        store.streamlineLevelIndex
+        store.streamlineLevelIndex,
+        () => layer.prepareField(() => revision === requestRevision),
+        {
+          isCancelled: () =>
+            revision !== requestRevision || !store.isStreamlineLayerEnabled(),
+          onProgress: (progress) => {
+            if (
+              revision === requestRevision &&
+              store.isStreamlineLayerEnabled()
+            ) {
+              store.streamlineProgress = progress;
+            }
+          },
+        }
       );
       if (revision !== requestRevision) {
         return;
@@ -202,11 +224,13 @@ export function useIrregularStreamlines(options: TOptions) {
     cachedMagnitude = undefined;
     requestRevision++;
     store.streamlineLoading = false;
+    store.streamlineProgress = undefined;
   });
 
   function suspend() {
     requestRevision++;
     store.streamlineLoading = false;
+    store.streamlineProgress = undefined;
   }
 
   return { clear: layer.clear, refresh, setContext, suspend };
