@@ -16,6 +16,7 @@ function setupCache() {
   const store = useGlobeControlStore();
   store.varnameSelector = "temperature";
   store.varnameDisplay = "temperature";
+  store.setStreamlinePair({ u: "u", v: "v", kind: "u/v" });
   store.varinfo = {
     attrs: { units: "K" },
     bounds: { low: 270, high: 290 },
@@ -63,12 +64,14 @@ it("reuses prepared backgrounds, hover callbacks and histogram summaries", async
       await cache.showMagnitude(magnitude, prepare);
       expect(store.varnameDisplay).toBe("wind_speed");
       expect(store.varinfo?.bounds).toEqual({ low: 0, high: 10 });
+      expect(store.varinfo?.derivedFrom).toEqual({ u: "u", v: "v" });
       expect(store.histogramSummary?.min).toBe(0);
 
       store.setStreamlineMagnitudeDisplayed(false);
       expect(await cache.restoreScalar()).toBe(true);
       expect(store.varnameDisplay).toBe("temperature");
       expect(store.varinfo).toEqual(scalarInfo);
+      expect(store.varinfo?.derivedFrom).toBeUndefined();
       expect(store.fullHistogram).toEqual(scalarHistogram);
     }
     expect(prepare).toHaveBeenCalledOnce();

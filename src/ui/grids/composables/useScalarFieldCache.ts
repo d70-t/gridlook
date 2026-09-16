@@ -148,7 +148,11 @@ export function useScalarFieldCache(options: TOptions) {
     cached.display ??= snapshot(
       {
         render,
-        info: createVectorMagnitudeVarInfo(scalar.info, data)!,
+        info: createVectorMagnitudeVarInfo(
+          scalar.info,
+          data,
+          store.streamlinePair
+        )!,
         indices: scalar.indices,
         data: data.data,
         isCurrent: scalar.isCurrent,
