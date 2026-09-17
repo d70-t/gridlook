@@ -816,11 +816,11 @@ function getLayerName(layer: TLayerEntry) {
             {{ layer.name }}
             <span
               v-if="layer.kind === LAYER_KINDS.VOLUME && volumeLoading"
-              class="volume-progress ml-1"
+              class="layer-progress ml-1"
               title="Preparing volume"
             >
-              <span class="icon is-small">
-                <i class="fa-solid fa-circle-notch fa-spin"></i>
+              <span class="icon is-small" aria-hidden="true">
+                <span class="loader"></span>
               </span>
               <span>{{ volumeProgress ?? 0 }}%</span>
             </span>
@@ -831,7 +831,7 @@ function getLayerName(layer: TLayerEntry) {
             </template>
             <span
               v-if="layer.kind === LAYER_KINDS.STREAMLINES && streamlineLoading"
-              class="streamline-progress ml-1"
+              class="layer-progress ml-1"
               role="img"
               tabindex="0"
               title=""
@@ -1233,7 +1233,7 @@ function getLayerName(layer: TLayerEntry) {
   touch-action: none;
 }
 
-.streamline-progress {
+.layer-progress {
   --bulma-border: var(--bulma-info);
   display: inline-flex;
   align-items: center;
@@ -1250,8 +1250,8 @@ function getLayerName(layer: TLayerEntry) {
   pointer-events: none;
 }
 
-.streamline-progress:hover .streamline-progress-tooltip,
-.streamline-progress:focus-visible .streamline-progress-tooltip {
+.layer-progress:hover .streamline-progress-tooltip,
+.layer-progress:focus-visible .streamline-progress-tooltip {
   visibility: visible;
 }
 
@@ -1289,12 +1289,6 @@ function getLayerName(layer: TLayerEntry) {
 .volume-controls {
   flex-basis: 100%;
   padding-left: 1.65rem;
-}
-
-.volume-progress {
-  display: inline-flex;
-  align-items: center;
-  font-variant-numeric: tabular-nums;
 }
 
 .layer-name {
