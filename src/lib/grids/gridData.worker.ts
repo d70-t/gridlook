@@ -7,6 +7,7 @@ import {
   type TGridDataWorkerResponse,
 } from "@/lib/grids/gridDataWorkerProtocol.ts";
 import { serializeGridDataChunk } from "@/lib/grids/gridDataWorkerUtils.ts";
+import { flattenErrorMessage } from "@/utils/errorHandling.ts";
 
 const workerScope = self as unknown as DedicatedWorkerGlobalScope;
 
@@ -36,7 +37,7 @@ workerScope.onmessage = async (event: MessageEvent<TGridDataWorkerRequest>) => {
     const response: TGridDataWorkerResponse = {
       requestId,
       type: GridDataWorkerMessageType.ERROR,
-      message: error instanceof Error ? error.message : String(error),
+      message: flattenErrorMessage(error),
     };
     workerScope.postMessage(response);
   }
