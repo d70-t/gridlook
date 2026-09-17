@@ -19,21 +19,6 @@ const props = defineProps<{ modelInfo?: TModelInfo }>();
 const store = useGlobeControlStore();
 const { volumeSelections, varnameSelector } = storeToRefs(store);
 
-const COLOR_PALETTE = [
-  "#ffffff",
-  "#b8e1ff",
-  "#72b7ff",
-  "#4ddbd3",
-  "#8de5a1",
-  "#ffcc80",
-  "#ff8fab",
-  "#c4a7ff",
-  "#ff6b6b",
-  "#ffd43b",
-  "#74c0fc",
-  "#adb5bd",
-];
-
 const variables = computed(() =>
   getHealpixVolumeVariablesForGroup(props.modelInfo, varnameSelector.value)
 );
@@ -122,11 +107,6 @@ function updateColor(index: number, color: string) {
   );
 }
 
-function selectColor(index: number, color: string, close: () => void) {
-  updateColor(index, color);
-  close();
-}
-
 function updateOpacity(index: number, event: Event) {
   const opacity = (event.target as HTMLInputElement).valueAsNumber;
   store.setVolumeSelections(
@@ -212,49 +192,17 @@ function label(name: string) {
           </option>
         </select>
       </span>
-      <PopupDialog dialog-class="volume-color-popover">
-        <template #trigger="{ toggle, open }">
-          <button
-            class="button is-small volume-color"
-            :class="{ 'is-info': open }"
-            type="button"
-            :title="`${selection.variable} color: ${selection.color}`"
-            :aria-expanded="open"
-            :aria-label="`${selection.variable} color`"
-            @click.stop="toggle"
-            @mousedown.stop
-            @touchstart.stop
-          >
-            <span
-              class="volume-color-swatch"
-              :style="{ backgroundColor: selection.color }"
-            ></span>
-          </button>
-        </template>
-        <template #default="{ close }">
-          <div class="dialog-section-label">Volume color</div>
-          <div
-            class="volume-color-palette"
-            role="radiogroup"
-            :aria-label="`${selection.variable} color`"
-          >
-            <button
-              v-for="color in COLOR_PALETTE"
-              :key="color"
-              class="volume-color-option"
-              :class="{ 'is-selected': selection.color === color }"
-              :style="{ backgroundColor: color }"
-              type="button"
-              role="radio"
-              :aria-label="color"
-              :aria-checked="selection.color === color"
-              @click="selectColor(index, color, close)"
-            >
-              <i v-if="selection.color === color" class="fa-solid fa-check"></i>
-            </button>
-          </div>
-        </template>
-      </PopupDialog>
+      <input
+        class="input is-small volume-color"
+        type="color"
+        :value="selection.color"
+        :title="`${selection.variable} color: ${selection.color}`"
+        :aria-label="`${selection.variable} color`"
+        @input="updateColor(index, ($event.target as HTMLInputElement).value)"
+        @click.stop
+        @mousedown.stop
+        @touchstart.stop
+      />
       <PopupDialog dialog-class="layer-opacity-popover">
         <template #trigger="{ toggle, open }">
           <button
@@ -343,44 +291,6 @@ function label(name: string) {
   padding: 0.2rem;
 }
 
-.volume-color-swatch {
-  width: 100%;
-  height: 100%;
-  border: 1px solid rgba(0, 0, 0, 0.25);
-  border-radius: 3px;
-}
-
-.volume-color-palette {
-  display: grid;
-  grid-template-columns: repeat(4, 2.5rem);
-  gap: 0.45rem;
-}
-
-.volume-color-option {
-  display: grid;
-  width: 2.5rem;
-  height: 2.5rem;
-  padding: 0;
-  place-items: center;
-  border: 1px solid rgba(0, 0, 0, 0.3);
-  border-radius: 6px;
-  cursor: pointer;
-
-  &.is-selected {
-    outline: 3px solid var(--bulma-link);
-    outline-offset: 1px;
-  }
-
-  i {
-    color: #111;
-    text-shadow:
-      -1px -1px 0 #fff,
-      1px -1px 0 #fff,
-      -1px 1px 0 #fff,
-      1px 1px 0 #fff;
-  }
-}
-
 .volume-add {
   justify-self: start;
 }
@@ -412,16 +322,6 @@ function label(name: string) {
 @media (max-width: 480px) {
   .volume-row {
     gap: 0.25rem;
-  }
-
-  .volume-color-palette {
-    grid-template-columns: repeat(4, minmax(2.75rem, 1fr));
-  }
-
-  .volume-color-option {
-    width: 100%;
-    min-width: 2.75rem;
-    height: 2.75rem;
   }
 }
 </style>
