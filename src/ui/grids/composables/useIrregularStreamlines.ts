@@ -80,6 +80,9 @@ async function createVectorField(
     expectedDataLength: context.latitudes.length,
     selectedLevelIndex,
   });
+  if (components?.incompatibility !== undefined) {
+    return { incompatibility: components.incompatibility };
+  }
   if (!components || !(await prepareField())) {
     return undefined;
   }
@@ -183,11 +186,11 @@ export function useIrregularStreamlines(options: TOptions) {
         return;
       }
       store.setStreamlineLevelInfo(result?.levelInfo);
-      if (!result) {
+      if (!result || result.incompatibility !== undefined) {
         cachedMagnitude = undefined;
         cachedRequestKey = undefined;
         store.setStreamlineMagnitudeInfo(undefined);
-        layer.clear();
+        layer.clear(result?.incompatibility);
         return;
       }
       const rendered = await layer.setField(

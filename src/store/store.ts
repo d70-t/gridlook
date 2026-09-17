@@ -231,6 +231,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
       gridExportRequest: 0 as number,
       gridExportLoading: false,
       streamlineAvailable: false,
+      streamlineIncompatibility: undefined as string | undefined,
       streamlineLoading: false,
       streamlineProgress: undefined as number | undefined,
       streamlineLoadingStage:
@@ -467,6 +468,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
     setStreamlinePair(pair?: TVectorVariablePair) {
       this.streamlinePair = pair;
       this.streamlineAvailable = pair !== undefined;
+      this.streamlineIncompatibility = undefined;
     },
     setStreamlineSelection(selection: TVectorVariableSelection) {
       const previous = this.streamlineSelection;
@@ -478,6 +480,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
         return;
       }
       this.streamlineSelection = selection;
+      this.streamlineIncompatibility = undefined;
       this.streamlineLevelInfo = undefined;
       this.streamlineLevelIndex = 0;
       this.streamlineSelectionRevision++;
@@ -539,6 +542,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
     resetStreamlineSelection() {
       this.streamlinePair = undefined;
       this.streamlineAvailable = false;
+      this.streamlineIncompatibility = undefined;
       this.streamlineLevelInfo = undefined;
       this.streamlineLevelIndex = 0;
       this.setStreamlineSelection({ automatic: true });

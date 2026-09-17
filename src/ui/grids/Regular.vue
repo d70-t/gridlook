@@ -1004,10 +1004,10 @@ async function updateStreamlines(
       components?.magnitudeInfo,
       components?.canDeriveMagnitude
     );
-    if (!components) {
+    if (!components || components.incompatibility !== undefined) {
       cachedMagnitude = undefined;
       cachedStreamlineKey = undefined;
-      streamlines.clear();
+      streamlines.clear(components?.incompatibility);
       return;
     }
     if (

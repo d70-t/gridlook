@@ -107,6 +107,24 @@ it("skips field preparation when the request is superseded while yielding", asyn
   scope.stop();
 });
 
+it("clears an incompatibility message when the selection is retried or changed", () => {
+  const { store, scope, layer } = setupLayer();
+  try {
+    layer.clear("U and V have different dimensions.");
+    expect(store.streamlineAvailable).toBe(false);
+    expect(store.streamlineIncompatibility).toContain("different dimensions");
+
+    layer.startLoading();
+    expect(store.streamlineIncompatibility).toBeUndefined();
+
+    layer.clear("U and V have different dimensions.");
+    store.setStreamlineSelection({ automatic: false, u: "ua", v: "va" });
+    expect(store.streamlineIncompatibility).toBeUndefined();
+  } finally {
+    scope.stop();
+  }
+});
+
 it.each([false, true])(
   "keeps the old timestep until its replacement background is ready (current: %s)",
   async (current) => {

@@ -228,12 +228,16 @@ export async function loadVectorComponents(options: TOptions) {
     ZarrDataManager.getDimensionNames(datasources, pair.u),
     ZarrDataManager.getDimensionNames(datasources, pair.v),
   ]);
+  if (!uVariable || !vVariable) {
+    return undefined;
+  }
   if (
-    !uVariable ||
-    !vVariable ||
     !componentsAreCompatible(uVariable, vVariable, uDimensions, vDimensions)
   ) {
-    return undefined;
+    return {
+      incompatibility:
+        "The selected U and V variables have different dimensions or sizes. Choose matching components.",
+    };
   }
   const levelDimension = await findLevelDimension(
     options,
@@ -257,7 +261,10 @@ export async function loadVectorComponents(options: TOptions) {
     uData.length !== options.expectedDataLength ||
     vData.length !== options.expectedDataLength
   ) {
-    return undefined;
+    return {
+      incompatibility:
+        "The selected U and V variables do not match the displayed grid. Choose components on the same grid.",
+    };
   }
   const levelInfo = levelDimension
     ? {

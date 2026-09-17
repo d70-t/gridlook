@@ -1036,6 +1036,13 @@ function getLayerName(layer: TLayerEntry) {
             </span>
           </label>
           <div class="streamline-magnitude">
+            <p
+              v-if="store.streamlineIncompatibility"
+              class="help is-warning mb-2"
+              role="status"
+            >
+              {{ store.streamlineIncompatibility }}
+            </p>
             <button
               class="button is-small is-fullwidth"
               :class="{ 'is-info': store.streamlineMagnitudeRequested }"

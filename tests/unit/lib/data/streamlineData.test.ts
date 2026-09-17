@@ -226,22 +226,50 @@ it.each(["lead_time", "step"])(
   }
 );
 
-it("does not start worker reads for incompatible components", async () => {
-  const datasource = sources();
-  vi.spyOn(ZarrDataManager, "getDimensionNames")
-    .mockResolvedValueOnce(["time", "cell"])
-    .mockResolvedValueOnce(["time", "edge"]);
+it.each([
+  { dimensions: ["time", "edge"], shape: [10, 2] },
+  { dimensions: ["time", "cell"], shape: [10, 3] },
+])(
+  "explains incompatible components without reading values: %j",
+  async ({ dimensions, shape }) => {
+    const datasource = sources();
+    vi.spyOn(ZarrDataManager, "getDimensionNames")
+      .mockResolvedValueOnce(["time", "cell"])
+      .mockResolvedValueOnce(dimensions);
 
+    const components = await loadVectorComponents({
+      pair: { u: "u", v: "v", kind: "u/v" },
+      datasources: datasource,
+      getDataVar: vi.fn(async (name) =>
+        dataVariable(name === "u" ? [10, 2] : shape)
+      ),
+      currentDimensionNames: ["time", "cell"],
+      currentIndices: [7, null],
+      spatialDimensionNames: ["cell"],
+      expectedDataLength: 2,
+    });
+
+    expect(components?.incompatibility).toContain(
+      "different dimensions or sizes"
+    );
+    expect(getGridVariableData).not.toHaveBeenCalled();
+  }
+);
+
+it("explains when vector components do not match the displayed grid", async () => {
+  vi.spyOn(ZarrDataManager, "getDimensionNames").mockResolvedValue(["cell"]);
+  vi.mocked(getGridVariableData).mockResolvedValue(new Float32Array([1, 2]));
   const components = await loadVectorComponents({
     pair: { u: "u", v: "v", kind: "u/v" },
-    datasources: datasource,
-    getDataVar: vi.fn().mockResolvedValue(dataVariable([10, 2])),
-    currentDimensionNames: ["time", "cell"],
-    currentIndices: [7, null],
+    datasources: sources(),
+    getDataVar: vi.fn().mockResolvedValue(dataVariable([2])),
+    currentDimensionNames: ["cell"],
+    currentIndices: [null],
     spatialDimensionNames: ["cell"],
-    expectedDataLength: 2,
+    expectedDataLength: 3,
   });
 
-  expect(components).toBeUndefined();
-  expect(getGridVariableData).not.toHaveBeenCalled();
+  expect(components?.incompatibility).toContain(
+    "do not match the displayed grid"
+  );
 });

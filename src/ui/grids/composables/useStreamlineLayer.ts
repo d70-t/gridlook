@@ -100,9 +100,10 @@ export function useStreamlineLayer(options: TOptions) {
     updateAppearance();
   }
 
-  function clear() {
+  function clear(incompatibility?: string) {
     disposeObject();
     store.setStreamlinePair(undefined);
+    store.streamlineIncompatibility = incompatibility;
   }
 
   function setAvailablePair(pair: TVectorVariablePair) {
@@ -114,6 +115,7 @@ export function useStreamlineLayer(options: TOptions) {
   }
 
   function startLoading() {
+    store.streamlineIncompatibility = undefined;
     store.streamlineLoading = true;
     store.streamlineProgress = undefined;
     store.streamlineLoadingStage = STREAMLINE_LOADING_STAGES.DATA;
