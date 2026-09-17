@@ -128,9 +128,8 @@ export function useVolume(options: TOptions) {
     );
     layer.setOpacity(entry?.opacity ?? LAYER_OPACITY.MAX);
     layer.setRenderOrder(renderOrder(store));
-    layer.object.visible = Boolean(
-      hasData && entry?.visible && !options.projectionHelper.value.isFlat
-    );
+    layer.setProjection(options.projectionHelper.value);
+    layer.object.visible = Boolean(hasData && entry?.visible);
     options.redraw();
   }
 
@@ -147,7 +146,6 @@ export function useVolume(options: TOptions) {
       !datasources ||
       selections.length === 0 ||
       !renderer ||
-      options.projectionHelper.value.isFlat ||
       !store.isVolumeLayerEnabled()
     ) {
       store.volumeLoading = false;
@@ -335,7 +333,9 @@ export function useVolume(options: TOptions) {
   watch(() => store.layerStack, updateAppearance, { deep: true });
   options.onProjectionChange(() => {
     updateAppearance();
-    void loadVolume();
+    if (!hasData) {
+      void loadVolume();
+    }
   });
   options.onMotionStateChange(() => {
     layer?.setInteractive(options.isSceneInMotion.value);

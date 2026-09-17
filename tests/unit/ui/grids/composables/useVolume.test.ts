@@ -35,6 +35,7 @@ vi.mock("@/lib/layers/volumeLayer.ts", async () => {
       setData = setData;
       setAppearance = vi.fn();
       setOpacity = vi.fn();
+      setProjection = vi.fn();
       setRenderOrder = vi.fn();
       dispose = vi.fn();
     },
@@ -199,8 +200,11 @@ it("keeps appearance changes made while the worker is building", async () => {
   expect(setData.mock.calls[0].slice(4, 6)).toEqual([["#abcdef"], [0.5]]);
 });
 
-it("loads regular volumes through the shared worker", async () => {
-  const volume = setupVolume();
+it("loads regular volumes in a flat projection and reuses them when switching views", async () => {
+  const projection = shallowRef(
+    new ProjectionHelper(PROJECTION_TYPES.MERCATOR, { lat: 0, lon: 0 })
+  );
+  const volume = setupVolume(projection);
   inspect.mockResolvedValue([
     { ...source, sourceCellCount: 4, spatialShape: [2, 2] },
   ]);
@@ -217,6 +221,10 @@ it("loads regular volumes through the shared worker", async () => {
   await vi.waitFor(() => expect(setData).toHaveBeenCalledOnce());
   expect(build.mock.calls[0][0].grid).toEqual(grid);
   expect(build.mock.calls[0][0].grid.latitudes).not.toBe(grid.latitudes);
+  for (const type of Object.values(PROJECTION_TYPES)) {
+    projection.value = new ProjectionHelper(type, { lat: 30, lon: 170 });
+    projectionChanges.forEach((callback) => callback());
+  }
   await nextTick();
   expect(load).toHaveBeenCalledOnce();
   expect(build).toHaveBeenCalledOnce();

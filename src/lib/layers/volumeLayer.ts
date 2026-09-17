@@ -2,6 +2,9 @@ import * as THREE from "three";
 
 import type { TGeoBounds } from "./equirectLayer.ts";
 
+import inverseProjection from "@/lib/projection/glsl/inverseProjection.glsl";
+import { getProjectionTypeFromMode } from "@/lib/projection/projectionShaders.ts";
+import type { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import type { TVolumeTextureDimensions } from "@/lib/volume/volumeTexture.ts";
 
 const INNER_RADIUS = 1.002;
@@ -35,9 +38,12 @@ const fragmentShader = `
   in vec3 volumeWorldPosition;
   out vec4 outputColor;
 
+  uniform int projectionType;
+  uniform float centerLon;
+  uniform float centerLat;
   uniform vec4 textureBounds;
 
-  const float RAD_TO_DEG = 180.0 / 3.141592653589793;
+  ${inverseProjection}
   const int MAX_STEP_COUNT = 72;
 
   vec2 intersectSphere(vec3 origin, vec3 direction, float radius) {
@@ -69,21 +75,22 @@ const fragmentShader = `
   void main() {
     vec3 rayOrigin = cameraPosition;
     vec3 rayDirection = normalize(volumeWorldPosition - cameraPosition);
-    vec2 outerHit = intersectSphere(rayOrigin, rayDirection, outerRadius);
-    if (outerHit.y <= 0.0) {
-      discard;
+    float rayStart = 0.0;
+    float rayEnd = 1.0;
+    vec2 geographic = vec2(0.0);
+    if (projectionType == PROJ_GLOBE) {
+      vec2 outerHit = intersectSphere(rayOrigin, rayDirection, outerRadius);
+      if (outerHit.y <= 0.0) discard;
+      rayStart = max(outerHit.x, 0.0);
+      rayEnd = outerHit.y;
+      vec2 innerHit = intersectSphere(rayOrigin, rayDirection, innerRadius);
+      if (innerHit.x > rayStart && innerHit.x < rayEnd) rayEnd = innerHit.x;
+      if (rayEnd <= rayStart) discard;
+    } else {
+      vec3 projected = inverseProjectLatLon(volumeWorldPosition.x, volumeWorldPosition.y, projectionType);
+      if (projected.z < 0.0) discard;
+      geographic = unrotateCoords(projected.x, projected.y, centerLon, centerLat).yx;
     }
-
-    float rayStart = max(outerHit.x, 0.0);
-    float rayEnd = outerHit.y;
-    vec2 innerHit = intersectSphere(rayOrigin, rayDirection, innerRadius);
-    if (innerHit.x > rayStart && innerHit.x < rayEnd) {
-      rayEnd = innerHit.x;
-    }
-    if (rayEnd <= rayStart) {
-      discard;
-    }
-
     float stepLength = (rayEnd - rayStart) / float(stepCount);
     float jitter = screenNoise(gl_FragCoord.xy);
     vec4 accumulated = vec4(0.0);
@@ -95,7 +102,10 @@ const fragmentShader = `
       float distanceAlongRay =
         rayStart + (float(stepIndex) + jitter) * stepLength;
       vec3 samplePosition = rayOrigin + rayDirection * distanceAlongRay;
-      vec3 textureCoordinate = sphericalTextureCoordinate(samplePosition);
+      // Flat maps composite the same column from its top down to the surface.
+      vec3 textureCoordinate = projectionType == PROJ_GLOBE
+        ? sphericalTextureCoordinate(samplePosition)
+        : vec3(geographic, 1.0 - distanceAlongRay);
       float longitudeSpan = textureBounds.z - textureBounds.x;
       float longitudeOffset = mod(textureCoordinate.x - textureBounds.x, 360.0);
       textureCoordinate.x = longitudeOffset / longitudeSpan;
@@ -120,7 +130,7 @@ const fragmentShader = `
       }
       float density = smoothstep(0.015, 0.75, min(combinedDensity, 1.0));
 
-      float relativeStep = stepLength / (outerRadius - innerRadius);
+      float relativeStep = projectionType == PROJ_GLOBE ? stepLength / (outerRadius - innerRadius) : stepLength;
       float sampleAlpha =
         (1.0 - exp(-density * 5.0 * relativeStep)) * opacity;
       vec3 cloudColor = weightedColor / max(combinedDensity, 0.0001);
@@ -186,6 +196,7 @@ export class VolumeLayer {
 
   private readonly material: THREE.ShaderMaterial;
   private texture?: THREE.Data3DTexture;
+  private flat = false;
 
   constructor() {
     this.material = new THREE.ShaderMaterial({
@@ -194,6 +205,9 @@ export class VolumeLayer {
       fragmentShader,
       uniforms: {
         volumeData: { value: null },
+        projectionType: { value: 0 },
+        centerLon: { value: 0 },
+        centerLat: { value: 0 },
         textureBounds: { value: new THREE.Vector4(-180, -90, 180, 90) },
         innerRadius: { value: INNER_RADIUS },
         outerRadius: { value: OUTER_RADIUS },
@@ -250,6 +264,26 @@ export class VolumeLayer {
     this.material.uniforms.channelCount.value = channelCount;
     this.setAppearance(colors, opacities);
     this.material.needsUpdate = true;
+  }
+
+  setProjection(projection: ProjectionHelper) {
+    if (this.flat !== projection.isFlat) {
+      this.object.geometry.dispose();
+      this.object.geometry = projection.isFlat
+        ? new THREE.PlaneGeometry(8, 8)
+        : new THREE.SphereGeometry(OUTER_RADIUS, 96, 64);
+      this.material.depthTest = !projection.isFlat;
+      this.material.side = projection.isFlat
+        ? THREE.DoubleSide
+        : THREE.FrontSide;
+      this.material.needsUpdate = true;
+      this.flat = projection.isFlat;
+    }
+    this.material.uniforms.projectionType.value = getProjectionTypeFromMode(
+      projection.type
+    );
+    this.material.uniforms.centerLon.value = projection.center.lon;
+    this.material.uniforms.centerLat.value = projection.center.lat;
   }
 
   setAppearance(colors: string[], opacities: number[]) {
