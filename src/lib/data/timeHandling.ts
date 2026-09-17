@@ -10,6 +10,23 @@ export function isTimeUnits(units: unknown): units is string {
   return typeof units === "string" && unitsRegEx.test(units);
 }
 
+/** Identify absolute time coordinates; forecast periods describe durations. */
+export function isTimeCoordinate(
+  dimensionName: string,
+  attrs: zarr.Attributes
+) {
+  if (attrs.standard_name === "forecast_period") {
+    return false;
+  }
+  return (
+    dimensionName.toLowerCase() === "time" ||
+    attrs.standard_name === "time" ||
+    attrs.standard_name === "forecast_reference_time" ||
+    attrs.axis === "T" ||
+    isTimeUnits(attrs.units)
+  );
+}
+
 /**
  * Parses CF-style time units string (e.g., "seconds since 2020-01-01T00:00:00")
  * Returns the interval unit and reference datetime.

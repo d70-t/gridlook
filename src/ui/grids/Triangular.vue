@@ -7,6 +7,7 @@ import * as zarr from "zarrita";
 import { useGridHoverLookup } from "./composables/gridHoverUtils.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useIrregularStreamlines } from "./composables/useIrregularStreamlines.ts";
+import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
@@ -19,6 +20,7 @@ import {
   castDataVarToFloat32,
   decodeVariableDataAndGetBounds,
 } from "@/lib/data/variableDecoding.ts";
+import type { TVectorMagnitudeData } from "@/lib/data/vectorMagnitude.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   getGridVariableData,
@@ -88,6 +90,12 @@ onColormapChange(() => updateColormap(meshes));
 onProjectionChange(updateMeshProjectionUniforms);
 onMotionStateChange(updateMeshProjectionUniforms);
 
+const scalarCache = useScalarFieldCache({
+  updateHistogram,
+  updateColormap: () => updateColormap(meshes),
+  redraw,
+});
+
 const streamlines = useIrregularStreamlines({
   getDatasources: () => props.datasources,
   getPreferredVariable: () => varnameSelector.value,
@@ -97,7 +105,31 @@ const streamlines = useIrregularStreamlines({
   projectionHelper,
   onProjectionChange,
   registerAnimationCallback,
+  showMagnitude,
+  restoreScalar: scalarCache.restoreScalar,
 });
+
+async function showMagnitude(scalar: TVectorMagnitudeData) {
+  await scalarCache.showMagnitude(scalar, async () => {
+    const batches: TGridDataValueBatch[] = [];
+    const result = await buildTriangularData(
+      { data: scalar.data, batchSize: BATCH_SIZE },
+      {
+        onMetadata: () => undefined,
+        onBatch: (batch) => {
+          if (!("positionValues" in batch)) {
+            batches.push(batch);
+          }
+        },
+      }
+    );
+    const hoverIndex = createSerializedGeoSampleIndex(result.hoverIndexData);
+    return () => {
+      batches.forEach(updateDataBatch);
+      setHoverLookupFromIndex(hoverIndex, NaN, NaN);
+    };
+  });
+}
 
 function updateMeshProjectionUniforms() {
   updateProjectionMeshes(meshes, {
@@ -117,11 +149,13 @@ const { datasourceUpdate } = useGridDataLoader({
   getDatasources: () => props.datasources,
   getDataVar,
   fetchAndRenderData,
+  scalarCache,
   clearHoverLookup,
   prepareDatasource: fetchGrid,
   updateLandSeaMask,
   updateColormap: () => updateColormap(meshes),
   refreshStreamlines: streamlines.refresh,
+  suspendStreamlines: streamlines.suspend,
 });
 
 function cleanupMeshes() {
@@ -172,9 +206,10 @@ function updateDataBatch(batch: TGridDataValueBatch) {
     dataAttribute.needsUpdate = true;
     return;
   }
+  // Keep the cached batch immutable when later displays update this attribute.
   mesh.geometry.setAttribute(
     "data_value",
-    new THREE.BufferAttribute(batch.dataValues, 1)
+    new THREE.BufferAttribute(batch.dataValues.slice(), 1)
   );
 }
 
@@ -291,47 +326,67 @@ function fetchVariableData(selection: (number | null | zarr.Slice)[]) {
   });
 }
 
+// eslint-disable-next-line max-lines-per-function
 async function fetchAndRenderData(
-  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
+  isCurrent: () => boolean
 ) {
+  const deferDisplay = store.isStreamlineLayerEnabled();
   const { dimensionRanges, indices, dimensionNames } =
     await buildDimensionConfig(datavar);
   const variableData = await fetchVariableData(indices);
   const plotData = castDataVarToFloat32(variableData);
+  if (!isCurrent()) {
+    return;
+  }
   const { min, max, missingValue, fillValue } = decodeVariableDataAndGetBounds(
     datavar,
     plotData
   );
+  const batches: TGridDataValueBatch[] = [];
   const result = await buildTriangularData(
     { data: plotData, batchSize: BATCH_SIZE },
     {
       onMetadata: () => undefined,
       onBatch: (batch) => {
         if (!("positionValues" in batch)) {
-          updateDataBatch(batch);
+          batches.push(batch);
+          if (!deferDisplay && isCurrent()) {
+            updateDataBatch(batch);
+          }
         }
       },
     }
   );
-  setHoverLookupFromIndex(
-    createSerializedGeoSampleIndex(result.hoverIndexData),
-    fillValue,
-    missingValue
-  );
+  const hoverIndex = createSerializedGeoSampleIndex(result.hoverIndexData);
 
+  if (!isCurrent()) {
+    return;
+  }
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
-  updateHistogram(plotData, min, max, missingValue, fillValue);
-  store.updateVarInfo(
-    {
-      attrs: datavar.attrs,
-      dimInfo,
-      bounds: { low: min, high: max },
-      dimRanges: dimensionRanges,
-    },
-    indices as number[]
-  );
-  redraw();
-  void streamlines.setContext({
+  const scalarInfo = {
+    attrs: datavar.attrs,
+    dimInfo,
+    bounds: { low: min, high: max },
+    dimRanges: dimensionRanges,
+  };
+  const renderScalar = () => {
+    batches.forEach(updateDataBatch);
+    setHoverLookupFromIndex(hoverIndex, fillValue, missingValue);
+  };
+  if (!isCurrent()) {
+    return;
+  }
+  scalarCache.captureScalar({
+    render: renderScalar,
+    info: scalarInfo,
+    indices: indices as number[],
+    data: plotData,
+    missingValue,
+    fillValue,
+    isCurrent,
+  });
+  await streamlines.setContext({
     latitudes: Float32Array.from(result.hoverIndexData.latitudes),
     longitudes: Float32Array.from(result.hoverIndexData.longitudes),
     dimensionNames,
@@ -340,6 +395,9 @@ async function fetchAndRenderData(
       triangularMesh?.spatialDimension ?? dimensionNames.at(-1)!,
     ],
   });
+  if (isCurrent() && !store.streamlineMagnitudeDisplayed) {
+    await scalarCache.restoreScalar();
+  }
 }
 
 onBeforeMount(async () => {

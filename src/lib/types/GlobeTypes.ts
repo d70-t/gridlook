@@ -2,6 +2,7 @@ import type { Dayjs } from "dayjs";
 import type { IndexingScheme, EllipsoidInput } from "healpix-geo";
 import * as zarr from "zarrita";
 
+import type { TVectorVariablePair } from "@/lib/data/vectorField.ts";
 import type { TColorMap } from "@/lib/shaders/colormapShaders.ts";
 
 export const ZARR_FORMAT = {
@@ -39,6 +40,7 @@ export type TVarInfo = {
   bounds: TBounds;
   dimRanges: TDimensionRange[];
   attrs: zarr.Attributes;
+  derivedFrom?: Pick<TVectorVariablePair, "u" | "v">;
 };
 
 export type TZarrDggsMetadata = {

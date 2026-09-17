@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { storeToRefs } from "pinia";
-import { computed, nextTick, onMounted, ref } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import {
   SelectListbox,
   type SelectModelValue,
@@ -13,7 +13,10 @@ import {
 } from "vue3-select-component";
 import "vue3-select-component/styles.css";
 
-import { getVariableGroup } from "@/lib/data/vectorField.ts";
+import {
+  getVariableGroup,
+  levelAxesAreIdentical,
+} from "@/lib/data/vectorField.ts";
 import {
   LAND_SEA_MASK_MODES,
   type TLandSeaMaskMode,
@@ -48,6 +51,7 @@ const props = defineProps<{
 const store = useGlobeControlStore();
 const {
   coastlineResolution,
+  dimSlidersValues,
   graticuleSpacing,
   landSeaMaskChoice,
   landSeaMaskUseTexture,
@@ -55,11 +59,23 @@ const {
   showCoastLines,
   showGraticules,
   streamlinePair,
+  streamlineLoading,
+  streamlineProgress,
+  streamlineLoadingStage,
+  streamlineLevelIndex,
+  streamlineLevelInfo,
   streamlineSelection,
   varnameDisplay,
   varnameSelector,
+  varinfo,
 } = storeToRefs(store);
 const { logError } = useLog();
+
+const streamlineLoadingLabel = computed(() =>
+  streamlineProgress.value === undefined
+    ? streamlineLoadingStage.value
+    : `${streamlineLoadingStage.value}: ${streamlineProgress.value}%`
+);
 
 const fileInput = ref<HTMLInputElement>();
 const draggedId = ref<string | undefined>(undefined);
@@ -87,12 +103,19 @@ type TAddLayerOption = {
   disabled?: boolean;
 };
 
+const vectorVariableGroup = computed(() => {
+  const activePair = store.isStreamlineLayerEnabled()
+    ? streamlinePair.value
+    : undefined;
+  return getVariableGroup(activePair?.u ?? varnameSelector.value);
+});
+
 const vectorVariables = computed(() =>
   Object.keys(props.modelInfo?.vars ?? {})
     .filter(
       (name) =>
         !props.modelInfo?.vars[name].hidden &&
-        getVariableGroup(name) === getVariableGroup(varnameSelector.value)
+        getVariableGroup(name) === vectorVariableGroup.value
     )
     .sort((a, b) => a.localeCompare(b))
 );
@@ -128,6 +151,153 @@ type TLayerButton = (typeof LAYER_BUTTONS)[keyof typeof LAYER_BUTTONS];
 type TLayerProperties = {
   buttons: TLayerButton[];
 };
+
+function setStreamlineLevel(value: string) {
+  const values = streamlineLevelInfo.value?.values;
+  if (!values) {
+    return;
+  }
+  const index = coordinateIndex(values, value);
+  if (index === -1) {
+    return;
+  }
+  const dimensionIndex = coupledScalarLevelDimensionIndex.value;
+  if (dimensionIndex === -1) {
+    store.setStreamlineLevelIndex(index);
+    return;
+  }
+  store.setStreamlineLevelIndex(index, false);
+  if (dimSlidersValues.value[dimensionIndex] !== index) {
+    dimSlidersValues.value[dimensionIndex] = index;
+  }
+}
+
+function selectedStreamlineLevelValue() {
+  const value = streamlineLevelInfo.value?.values[streamlineLevelIndex.value];
+  return value === undefined ? "" : String(value);
+}
+
+const coupledScalarLevelDimensionIndex = computed(() => {
+  if (!store.isStreamlineLayerEnabled()) {
+    return -1;
+  }
+  const dimensionName = streamlineLevelInfo.value?.dimensionName;
+  const exactIndex = varinfo.value?.dimRanges.findIndex(
+    (range) => range?.name === dimensionName
+  );
+  if (exactIndex === undefined || exactIndex === -1) {
+    return -1;
+  }
+  const scalarInfo = varinfo.value?.dimInfo[exactIndex];
+  const streamlineInfo = streamlineLevelInfo.value;
+  if (!scalarInfo || !("values" in scalarInfo) || !streamlineInfo) {
+    return -1;
+  }
+  return levelAxesAreIdentical(
+    {
+      dimensionName: varinfo.value!.dimRanges[exactIndex]!.name,
+      values: Array.from(scalarInfo.values),
+      units: scalarInfo.units,
+    },
+    streamlineInfo
+  )
+    ? exactIndex
+    : -1;
+});
+
+function coordinateIndex(values: ArrayLike<unknown>, value: unknown) {
+  const normalized = String(value);
+  return Array.from(values).findIndex(
+    (candidate) => String(candidate) === normalized
+  );
+}
+
+function syncStreamlineLevelFromScalar() {
+  const dimensionIndex = coupledScalarLevelDimensionIndex.value;
+  if (dimensionIndex === -1) {
+    return;
+  }
+  const scalarIndex = dimSlidersValues.value[dimensionIndex];
+  if (scalarIndex === null) {
+    return;
+  }
+  store.setStreamlineLevelIndex(scalarIndex, false);
+}
+
+function syncScalarLevelFromStreamline() {
+  const dimensionIndex = coupledScalarLevelDimensionIndex.value;
+  if (
+    dimensionIndex !== -1 &&
+    dimSlidersValues.value[dimensionIndex] !== streamlineLevelIndex.value
+  ) {
+    dimSlidersValues.value[dimensionIndex] = streamlineLevelIndex.value;
+  }
+}
+
+let pendingScalarVariable: string | undefined;
+
+watch(
+  () => varnameSelector.value,
+  (varname) => {
+    pendingScalarVariable = varname;
+  }
+);
+
+watch(
+  () => [...dimSlidersValues.value],
+  () => {
+    if (!pendingScalarVariable && !store.isInitializingVariable) {
+      syncStreamlineLevelFromScalar();
+    }
+  }
+);
+
+watch(
+  () => streamlineLevelInfo.value,
+  (levelInfo, previousLevelInfo) => {
+    if (
+      levelInfo &&
+      levelInfo !== previousLevelInfo &&
+      !pendingScalarVariable
+    ) {
+      syncStreamlineLevelFromScalar();
+    }
+  }
+);
+
+watch(
+  () => varinfo.value,
+  async () => {
+    const varname = pendingScalarVariable;
+    if (!varname || varname !== varnameSelector.value) {
+      return;
+    }
+    // Let the new grid consume its initialization write before requesting a
+    // second slice aligned to the preserved streamline level.
+    await nextTick();
+    if (
+      pendingScalarVariable !== varname ||
+      varname !== varnameSelector.value
+    ) {
+      return;
+    }
+    pendingScalarVariable = undefined;
+    syncScalarLevelFromStreamline();
+  }
+);
+
+function streamlineLevelLabel() {
+  return (
+    streamlineLevelInfo.value?.longName ??
+    streamlineLevelInfo.value?.dimensionName ??
+    "Level"
+  );
+}
+
+function formatStreamlineLevel(value: number | bigint | string) {
+  const units = streamlineLevelInfo.value?.units?.trim();
+  return units ? `${String(value)} ${units}` : String(value);
+}
 
 const LAYER_ICONS: Record<TLayerKind, string> = {
   [LAYER_KINDS.COASTLINES]: "fa-earth-europe",
@@ -554,6 +724,9 @@ function getLayerName(layer: TLayerEntry) {
   if (layer.kind === LAYER_KINDS.GRID && varnameDisplay.value !== "-") {
     return `${layer.name}: ${varnameDisplay.value}`;
   }
+  if (layer.kind === LAYER_KINDS.STREAMLINES) {
+    return "Streamlines integrated with Euler's method";
+  }
   return layer.name;
 }
 </script>
@@ -571,6 +744,7 @@ function getLayerName(layer: TLayerEntry) {
           'is-dragging': draggedId === layer.id,
         }"
         :data-layer-index="getLayerStackIndex(layer)"
+        :aria-busy="layer.kind === LAYER_KINDS.STREAMLINES && streamlineLoading"
         @dragstart="onDragStart($event, layer)"
         @dragover="onDragOver($event, getLayerStackIndex(layer))"
         @drop="onDrop(getLayerStackIndex(layer))"
@@ -591,6 +765,25 @@ function getLayerName(layer: TLayerEntry) {
             >
               : <strong class="is-family-code">{{ varnameDisplay }}</strong>
             </template>
+            <span
+              v-if="layer.kind === LAYER_KINDS.STREAMLINES && streamlineLoading"
+              class="streamline-progress ml-1"
+              role="img"
+              tabindex="0"
+              title=""
+              :aria-label="streamlineLoadingLabel"
+            >
+              <span class="icon is-small" aria-hidden="true">
+                <span class="loader"></span>
+              </span>
+              <span aria-hidden="true">{{ streamlineProgress ?? 0 }}%</span>
+              <span
+                class="streamline-progress-tooltip box px-2 py-1"
+                aria-hidden="true"
+              >
+                {{ streamlineLoadingStage }}
+              </span>
+            </span>
           </span>
         </div>
         <div class="layer-actions">
@@ -822,6 +1015,54 @@ function getLayerName(layer: TLayerEntry) {
               </select>
             </span>
           </label>
+          <label v-if="streamlineLevelInfo" class="streamline-level">
+            <span :title="streamlineLevelLabel()">Level</span>
+            <span class="select is-small">
+              <select
+                :value="selectedStreamlineLevelValue()"
+                :aria-label="streamlineLevelLabel()"
+                @change="
+                  setStreamlineLevel(($event.target as HTMLSelectElement).value)
+                "
+              >
+                <option
+                  v-for="(value, levelIndex) in streamlineLevelInfo.values"
+                  :key="levelIndex"
+                  :value="String(value)"
+                >
+                  {{ formatStreamlineLevel(value) }}
+                </option>
+              </select>
+            </span>
+          </label>
+          <div class="streamline-magnitude">
+            <p
+              v-if="store.streamlineIncompatibility"
+              class="help is-warning mb-2"
+              role="status"
+            >
+              {{ store.streamlineIncompatibility }}
+            </p>
+            <button
+              class="button is-small is-fullwidth"
+              :class="{ 'is-info': store.streamlineMagnitudeRequested }"
+              type="button"
+              :aria-pressed="store.streamlineMagnitudeRequested"
+              :disabled="
+                !store.streamlineMagnitudeDerivable &&
+                !store.streamlineMagnitudeRequested
+              "
+              title="Color the background by the strength of the selected vector field"
+              @click="
+                store.setStreamlineMagnitudeDisplayed(
+                  !store.streamlineMagnitudeRequested,
+                  true
+                )
+              "
+            >
+              Show derived vectorfield magnitude variable
+            </button>
+          </div>
         </div>
       </li>
     </ul>
@@ -906,6 +1147,7 @@ function getLayerName(layer: TLayerEntry) {
 }
 
 .layer-drag-handle {
+  position: relative;
   display: flex;
   align-items: center;
   align-self: stretch;
@@ -914,6 +1156,28 @@ function getLayerName(layer: TLayerEntry) {
   min-width: 4rem;
   cursor: grab;
   touch-action: none;
+}
+
+.streamline-progress {
+  --bulma-border: var(--bulma-info);
+  display: inline-flex;
+  align-items: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.streamline-progress-tooltip {
+  // Anchor to the drag handle, outside the layer name's clipped overflow.
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  z-index: 1000;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.streamline-progress:hover .streamline-progress-tooltip,
+.streamline-progress:focus-visible .streamline-progress-tooltip {
+  visibility: visible;
 }
 
 .streamline-components {
@@ -934,6 +1198,16 @@ function getLayerName(layer: TLayerEntry) {
   .select,
   select {
     width: 100%;
+  }
+
+  .streamline-level,
+  .streamline-magnitude {
+    grid-column: 1 / -1;
+  }
+
+  .streamline-magnitude .button {
+    height: auto;
+    white-space: normal;
   }
 }
 

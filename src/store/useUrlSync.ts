@@ -53,6 +53,11 @@ const GLOBE_URL_SYNC_MAP: TUrlSyncEntry[] = [
     transform: String,
   },
   { key: "projectionMode", param: URL_PARAMETERS.PROJECTION },
+  {
+    key: "streamlineMagnitudeRequested",
+    param: URL_PARAMETERS.STREAMLINE_MAGNITUDE,
+    transform: (requested) => (requested ? "true" : ""),
+  },
 ];
 
 const URL_PARAM_SYNC_MAP: TUrlSyncEntry[] = [
