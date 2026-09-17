@@ -9,7 +9,6 @@ import type {
   TGeoSample,
   TGeoSampleIndex,
 } from "./composables/gridHoverUtils.ts";
-import { loadVectorComponents } from "./composables/streamlineData.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
@@ -25,6 +24,7 @@ import {
 } from "@/lib/data/coordinateVariables.ts";
 import { downsampleDataTexture } from "@/lib/data/dataTexture.ts";
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
+import { loadVectorComponents } from "@/lib/data/streamlineData.ts";
 import {
   castDataVarToFloat32,
   decodeVariableDataAndGetBounds,

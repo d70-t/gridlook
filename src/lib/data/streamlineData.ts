@@ -1,7 +1,7 @@
 import type * as zarr from "zarrita";
 
 import { verticalCoordinateScore } from "@/lib/data/dimensionData.ts";
-import { isTimeUnits } from "@/lib/data/timeHandling.ts";
+import { isTimeCoordinate } from "@/lib/data/timeHandling.ts";
 import {
   castDataVarToFloat32,
   decodeVariableDataAndGetBounds,
@@ -57,6 +57,8 @@ function fallbackCoordinateInfo(
   };
 }
 
+// TODO: Consolidate coordinate loading and caching with dimensionData.ts
+// so scalar controls and streamline level selection use the same metadata.
 async function loadCoordinateInfo(
   datasources: TSources,
   variable: string,
@@ -103,17 +105,6 @@ async function loadCoordinateInfo(
   return pending;
 }
 
-function isTimeCoordinate(info: TCoordinateInfo) {
-  const name = info.dimensionName.toLowerCase();
-  return (
-    name === "time" ||
-    name.endsWith("_time") ||
-    info.attrs.standard_name === "time" ||
-    info.attrs.axis === "T" ||
-    isTimeUnits(info.attrs.units)
-  );
-}
-
 async function findLevelDimension(
   options: TOptions,
   dimensionNames: string[],
@@ -121,11 +112,9 @@ async function findLevelDimension(
 ): Promise<TLevelDimension | undefined> {
   const candidates = await Promise.all(
     dimensionNames.map(async (dimensionName, dimensionIndex) => {
-      const normalizedName = dimensionName.toLowerCase();
       if (
         options.spatialDimensionNames.includes(dimensionName) ||
-        normalizedName === "time" ||
-        normalizedName.endsWith("_time")
+        isTimeCoordinate(dimensionName, {})
       ) {
         return undefined;
       }
@@ -135,15 +124,16 @@ async function findLevelDimension(
         dimensionName,
         shape[dimensionIndex]
       );
-      return isTimeCoordinate(info) ? undefined : { dimensionIndex, info };
+      return isTimeCoordinate(dimensionName, info.attrs)
+        ? undefined
+        : { dimensionIndex, info };
     })
   );
   const remaining = candidates.filter(
     (candidate): candidate is TLevelDimension => candidate !== undefined
   );
-  if (remaining.length === 1) {
-    return remaining[0];
-  }
+  // Only recognised vertical axes get an independent Level selector. Other
+  // dimensions, including forecast lead time, follow the scalar selection.
   return remaining
     .map((candidate) => ({
       candidate,

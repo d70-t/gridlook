@@ -2,7 +2,41 @@ import assert from "node:assert/strict";
 
 import { it } from "vitest";
 
-import { decodeTime, findTimeIndex } from "@/lib/data/timeHandling.ts";
+import {
+  decodeTime,
+  findTimeIndex,
+  isTimeCoordinate,
+} from "@/lib/data/timeHandling.ts";
+
+it("distinguishes absolute time coordinates from forecast durations", () => {
+  assert.equal(isTimeCoordinate("time", {}), true);
+  assert.equal(
+    isTimeCoordinate("init_time", {
+      ["standard_name"]: "forecast_reference_time",
+      units: "seconds since 1970-01-01",
+    }),
+    true
+  );
+  assert.equal(
+    isTimeCoordinate("validity", { ["standard_name"]: "time" }),
+    true
+  );
+  assert.equal(isTimeCoordinate("date", { axis: "T" }), true);
+  assert.equal(
+    isTimeCoordinate("date", { units: "days since 2000-01-01" }),
+    true
+  );
+  for (const name of ["Lead_time", "lead_time", "step"]) {
+    assert.equal(
+      isTimeCoordinate(name, {
+        ["standard_name"]: "forecast_period",
+        units: "seconds",
+      }),
+      false
+    );
+  }
+  assert.equal(isTimeCoordinate("lead_time", {}), false);
+});
 
 it("decodes raw CMIP6 int64 coordinates before selecting their timestamps", () => {
   const attrs = { units: "hours since 1915-01-16 12:00:00.000000" };

@@ -2,9 +2,9 @@ import type * as THREE from "three";
 import { onScopeDispose, type ComputedRef } from "vue";
 import type * as zarr from "zarrita";
 
-import { loadVectorComponents } from "./streamlineData.ts";
 import { useStreamlineLayer } from "./useStreamlineLayer.ts";
 
+import { loadVectorComponents } from "@/lib/data/streamlineData.ts";
 import {
   IrregularVectorField,
   resolveVectorVariablePair,

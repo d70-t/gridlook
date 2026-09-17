@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type * as zarr from "zarrita";
 
+import { loadVectorComponents } from "@/lib/data/streamlineData.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { getGridVariableData } from "@/lib/grids/gridDataWorkerClient.ts";
 import { ZARR_FORMAT, type TSources } from "@/lib/types/GlobeTypes.ts";
-import { loadVectorComponents } from "@/ui/grids/composables/streamlineData.ts";
 
 vi.mock("@/lib/grids/gridDataWorkerClient.ts", () => ({
   getGridVariableData: vi.fn(),
@@ -180,6 +180,51 @@ it("selects a vertical slice and exposes its coordinate values", async () => {
     expect.objectContaining({ variable: "v", selection: [7, 1, null] })
   );
 });
+
+it.each(["lead_time", "step"])(
+  "uses the scalar selection for forecast duration %s without exposing a Level",
+  async (leadDimension) => {
+    const dimensions = ["init_time", leadDimension, "cell"];
+    vi.spyOn(ZarrDataManager, "getDimensionNames").mockResolvedValue(
+      dimensions
+    );
+    vi.spyOn(ZarrDataManager, "getVariableInfo").mockImplementation(
+      async (_source, name) =>
+        dataVariable(
+          [2],
+          name === "init_time"
+            ? {
+                ["standard_name"]: "forecast_reference_time",
+                units: "seconds since 1970-01-01",
+              }
+            : { ["standard_name"]: "forecast_period", units: "seconds" }
+        )
+    );
+    vi.spyOn(ZarrDataManager, "getVariableDataFromArray").mockResolvedValue({
+      data: new Float64Array([0, 3600]),
+      shape: [2],
+      stride: [1],
+    });
+    vi.mocked(getGridVariableData).mockResolvedValue(new Float32Array([1, 2]));
+    const components = await loadVectorComponents({
+      pair: { u: "u", v: "v", kind: "u/v" },
+      datasources: sources(),
+      getDataVar: vi.fn().mockResolvedValue(dataVariable([10, 49, 2])),
+      currentDimensionNames: dimensions,
+      currentIndices: [7, 12, null],
+      spatialDimensionNames: ["cell"],
+      expectedDataLength: 2,
+      selectedLevelIndex: 1,
+    });
+    expect(components?.uData).toEqual(new Float32Array([1, 2]));
+    expect(components?.levelInfo).toBeUndefined();
+    for (const variable of ["u", "v"]) {
+      expect(getGridVariableData).toHaveBeenCalledWith(
+        expect.objectContaining({ variable, selection: [7, 12, null] })
+      );
+    }
+  }
+);
 
 it("does not start worker reads for incompatible components", async () => {
   const datasource = sources();
