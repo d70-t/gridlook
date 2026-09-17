@@ -108,6 +108,7 @@ const {
   paramStreamlines,
   paramStreamlineU,
   paramStreamlineV,
+  paramStreamlineMagnitude,
 } = storeToRefs(urlParameterStore);
 
 type TGlobeHandle = {
@@ -314,6 +315,10 @@ function initStreamlinesFromParams() {
   } else {
     store.resetStreamlineSelection();
   }
+  store.setStreamlineMagnitudeDisplayed(
+    store.isStreamlineLayerEnabled() &&
+      paramStreamlineMagnitude.value === "true"
+  );
 }
 
 async function loadCurrentSource(resetStore = true) {

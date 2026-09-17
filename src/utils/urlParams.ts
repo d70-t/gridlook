@@ -16,6 +16,7 @@ const URL_PARAMETERS = {
   STREAMLINES: "streamlines",
   STREAMLINE_U: "streamlineu",
   STREAMLINE_V: "streamlinev",
+  STREAMLINE_MAGNITUDE: "streamlinemagnitude",
   PROJECTION: "projection",
   LAT: "lat",
   LON: "lon",

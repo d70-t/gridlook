@@ -115,6 +115,8 @@ it.each([
       expect(magnitudeHtml).toContain("<code>v</code> (v)");
       expect(magnitudeHtml).toContain("<code>m s-1</code>");
       expect(magnitudeHtml).not.toContain("Air temperature");
+      expect(magnitudeHtml).not.toContain("is-selected-variable");
+      expect(magnitudeHtml).not.toContain('aria-pressed="true"');
       await vi.waitFor(() =>
         expect(ZarrDataManager.getVariableInfo).toHaveBeenCalledWith(
           source,
@@ -129,6 +131,8 @@ it.each([
       expect(scalarHtml).toContain("Air temperature");
       expect(scalarHtml).toContain("<code>K</code>");
       expect(scalarHtml).not.toContain("Derived</span>");
+      expect(scalarHtml).toContain("is-selected-variable");
+      expect(scalarHtml).toContain('aria-label="Visualize temperature"');
     } finally {
       scope.stop();
     }

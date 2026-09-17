@@ -14,7 +14,10 @@ const props = defineProps<{
 }>();
 
 const store = useGlobeControlStore();
-const { varnameSelector } = storeToRefs(store);
+const { varnameDisplay, varinfo } = storeToRefs(store);
+const displayedDataVariable = computed(() =>
+  varinfo.value?.derivedFrom ? null : varnameDisplay.value
+);
 
 const metadataByName = ref<Record<string, TVariableMetadata>>({});
 const selectedAttributesVariableName = ref<string | null>(null);
@@ -33,7 +36,7 @@ function normalizeDimensionNames(
 }
 
 function getDefaultAttributesVariableName(datasources?: TSources) {
-  const variableName = varnameSelector.value;
+  const variableName = displayedDataVariable.value;
   if (!datasources || !variableName || variableName === "-") {
     return null;
   }
@@ -150,6 +153,10 @@ function toggleVariableAttributes(varName: string) {
 
 function selectVariable(varName: string) {
   selectedAttributesVariableName.value = varName;
+  store.setStreamlineMagnitudeDisplayed(
+    false,
+    varName === store.varnameSelector
+  );
   store.selectVariable(varName);
 }
 
@@ -161,15 +168,11 @@ watch(
   { immediate: true }
 );
 
-watch(
-  () => varnameSelector.value,
-  () => {
-    const defaultVariable = getDefaultAttributesVariableName(props.datasources);
-    if (defaultVariable) {
-      selectedAttributesVariableName.value = defaultVariable;
-    }
-  }
-);
+watch(displayedDataVariable, () => {
+  selectedAttributesVariableName.value = getDefaultAttributesVariableName(
+    props.datasources
+  );
+});
 </script>
 
 <template>
@@ -196,7 +199,7 @@ watch(
         :rows="dataVariables"
         empty-label="No data variables found"
         :selected-attributes-variable="selectedAttributesVariableName"
-        :selected-variable="varnameSelector"
+        :selected-variable="displayedDataVariable"
         show-visualize
         @toggle-attributes="toggleVariableAttributes"
         @visualize="selectVariable"
