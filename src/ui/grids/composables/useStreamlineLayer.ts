@@ -121,11 +121,17 @@ export function useStreamlineLayer(options: TOptions) {
     store.streamlineLoadingStage = STREAMLINE_LOADING_STAGES.DATA;
   }
 
+  function setFieldProgress(progress: number) {
+    // Field preparation and path integration contribute half each.
+    store.streamlineProgress = Math.floor(progress / 2);
+  }
+
   async function prepareField(isCurrent: () => boolean) {
     if (disposed || !isCurrent() || !store.isStreamlineLayerEnabled()) {
       return false;
     }
     store.streamlineLoadingStage = STREAMLINE_LOADING_STAGES.FIELD;
+    setFieldProgress(0);
     // Allow the loading indicator to paint before synchronous field setup.
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
     return !disposed && isCurrent() && store.isStreamlineLayerEnabled();
@@ -146,7 +152,7 @@ export function useStreamlineLayer(options: TOptions) {
     store.setStreamlinePair(pair);
     store.streamlineLoading = true;
     store.streamlineLoadingStage = STREAMLINE_LOADING_STAGES.PATHS;
-    store.streamlineProgress = 0;
+    store.streamlineProgress = 50;
     try {
       const isCancelled = () =>
         disposed ||
@@ -159,7 +165,11 @@ export function useStreamlineLayer(options: TOptions) {
         isCancelled,
         (progress) => {
           if (!isCancelled()) {
-            store.streamlineProgress = progress;
+            // Reserve completion until the replacement background is ready.
+            store.streamlineProgress = Math.min(
+              99,
+              50 + Math.floor(progress / 2)
+            );
           }
         }
       );
@@ -178,6 +188,7 @@ export function useStreamlineLayer(options: TOptions) {
         return false;
       }
       installLayer(nextLayer);
+      store.streamlineProgress = 100;
       return true;
     } finally {
       if (revision === buildRevision && isCurrent()) {
@@ -212,6 +223,7 @@ export function useStreamlineLayer(options: TOptions) {
     clear,
     setAvailablePair,
     startLoading,
+    setFieldProgress,
     prepareField,
     setField,
     showCached,

@@ -767,21 +767,21 @@ function getLayerName(layer: TLayerEntry) {
             </template>
             <span
               v-if="layer.kind === LAYER_KINDS.STREAMLINES && streamlineLoading"
-              class="streamline-progress icon is-small ml-1 has-text-info"
+              class="streamline-progress ml-1"
               role="img"
               tabindex="0"
               title=""
               :aria-label="streamlineLoadingLabel"
             >
-              <i
-                class="fa-solid fa-circle-notch fa-spin"
-                aria-hidden="true"
-              ></i>
+              <span class="icon is-small" aria-hidden="true">
+                <span class="loader"></span>
+              </span>
+              <span aria-hidden="true">{{ streamlineProgress ?? 0 }}%</span>
               <span
                 class="streamline-progress-tooltip box px-2 py-1"
                 aria-hidden="true"
               >
-                {{ streamlineLoadingLabel }}
+                {{ streamlineLoadingStage }}
               </span>
             </span>
           </span>
@@ -1156,6 +1156,13 @@ function getLayerName(layer: TLayerEntry) {
   min-width: 4rem;
   cursor: grab;
   touch-action: none;
+}
+
+.streamline-progress {
+  --bulma-border: var(--bulma-info);
+  display: inline-flex;
+  align-items: center;
+  font-variant-numeric: tabular-nums;
 }
 
 .streamline-progress-tooltip {

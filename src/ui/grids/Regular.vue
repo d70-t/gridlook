@@ -927,7 +927,7 @@ async function makeVectorField(
       isCancelled: () => !isCurrent() || !store.isStreamlineLayerEnabled(),
       onProgress: (progress) => {
         if (isCurrent() && store.isStreamlineLayerEnabled()) {
-          store.streamlineProgress = progress;
+          streamlines.setFieldProgress(progress);
         }
       },
     }

@@ -68,11 +68,11 @@ it.each([false, true])(
     expect(store.streamlineLoadingStage).toBe(STREAMLINE_LOADING_STAGES.PATHS);
     const reportProgress = create.mock.calls[0][3];
     reportProgress(25);
-    expect(store.streamlineProgress).toBe(25);
+    expect(store.streamlineProgress).toBe(62);
 
     currentRequest = isCurrent;
     reportProgress(75);
-    expect(store.streamlineProgress).toBe(isCurrent ? 75 : 25);
+    expect(store.streamlineProgress).toBe(isCurrent ? 87 : 62);
     expect(create.mock.calls[0][2]()).toBe(!isCurrent);
     const dispose = vi.fn();
     finish({
@@ -87,11 +87,50 @@ it.each([false, true])(
     expect(dispose).toHaveBeenCalledTimes(isCurrent ? 0 : 1);
     expect(scene.children).toHaveLength(isCurrent ? 1 : 0);
     expect(store.streamlineLoading).toBe(!isCurrent);
-    expect(store.streamlineProgress).toBe(isCurrent ? undefined : 25);
+    expect(store.streamlineProgress).toBe(isCurrent ? undefined : 62);
     scope.stop();
     expect(store.streamlineProgress).toBeUndefined();
   }
 );
+
+it("reports one overall percentage across field preparation and integration", async () => {
+  const { store, scope, layer } = setupLayer();
+  const progress: number[] = [];
+  try {
+    layer.startLoading();
+    await layer.prepareField(() => true);
+    for (const value of [0, 50, 100]) {
+      layer.setFieldProgress(value);
+      progress.push(store.streamlineProgress!);
+    }
+    create.mockImplementation(async (_field, _projection, _cancel, report) => {
+      for (const value of [0, 50, 100]) {
+        report(value);
+        progress.push(store.streamlineProgress!);
+      }
+      return {
+        object: new Object3D(),
+        updateProjection: vi.fn(),
+        setRenderOrder: vi.fn(),
+        setOpacity: vi.fn(),
+        dispose: vi.fn(),
+      };
+    });
+    await layer.setField(
+      {} as TStreamlineVectorField,
+      { u: "u", v: "v", kind: "u/v" },
+      () => true,
+      async () => {
+        expect(store.streamlineProgress).toBe(99);
+        expect(store.streamlineLoading).toBe(true);
+      }
+    );
+    expect(progress).toEqual([0, 25, 50, 50, 75, 99]);
+    expect(store.streamlineLoading).toBe(false);
+  } finally {
+    scope.stop();
+  }
+});
 
 it("skips field preparation when the request is superseded while yielding", async () => {
   const { store, scope, layer } = setupLayer();

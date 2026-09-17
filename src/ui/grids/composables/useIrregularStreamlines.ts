@@ -177,7 +177,7 @@ export function useIrregularStreamlines(options: TOptions) {
               revision === requestRevision &&
               store.isStreamlineLayerEnabled()
             ) {
-              store.streamlineProgress = progress;
+              layer.setFieldProgress(progress);
             }
           },
         }
