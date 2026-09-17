@@ -1,3 +1,7 @@
+import {
+  isLatitudeName,
+  isLongitudeName,
+} from "@/lib/data/coordinateVariables.ts";
 import type { TDataSource, TModelInfo } from "@/lib/types/GlobeTypes.ts";
 
 function dimensionNames(source: TDataSource) {
@@ -16,8 +20,22 @@ export function isTemporalDimensionName(name: string) {
   return /(^|_)(time|date)(_|$)/.test(name.toLowerCase());
 }
 
-/** A supported volume has one vertical axis followed by a HEALPix cell axis. */
-export function isHealpixVolumeVariable(source: TDataSource) {
+export function volumeSpatialDimensions(dimensions: string[]) {
+  if (dimensions.at(-1) === "cell") {
+    return dimensions.slice(-1);
+  }
+  if (
+    dimensions.length >= 2 &&
+    isLatitudeName(dimensions.at(-2)!) &&
+    isLongitudeName(dimensions.at(-1)!)
+  ) {
+    return dimensions.slice(-2);
+  }
+  return [];
+}
+
+/** Supported volumes have one vertical axis and geographic horizontal axes. */
+export function isVolumeVariable(source: TDataSource) {
   if (source.hidden || !source.shape) {
     return false;
   }
@@ -26,12 +44,19 @@ export function isHealpixVolumeVariable(source: TDataSource) {
   if (dimensions.length !== shape.length) {
     return false;
   }
-  const cellIndex = dimensions.indexOf("cell");
-  if (cellIndex !== dimensions.length - 1 || shape[cellIndex] <= 1) {
+  const spatial = volumeSpatialDimensions(dimensions);
+  if (
+    spatial.length === 0 ||
+    shape.slice(-spatial.length).some((size) => size < 1)
+  ) {
     return false;
   }
   const verticalDimensions = dimensions.filter((name, index) =>
-    Boolean(shape[index] > 1 && isVerticalDimensionName(name))
+    Boolean(
+      !spatial.includes(name) &&
+      shape[index] > 1 &&
+      isVerticalDimensionName(name)
+    )
   );
   if (verticalDimensions.length !== 1) {
     return false;
@@ -39,12 +64,12 @@ export function isHealpixVolumeVariable(source: TDataSource) {
   return shape[dimensions.indexOf(verticalDimensions[0])] > 1;
 }
 
-export function getHealpixVolumeVariables(modelInfo?: TModelInfo) {
+export function getVolumeVariables(modelInfo?: TModelInfo) {
   if (!modelInfo) {
     return [];
   }
   return Object.keys(modelInfo.vars)
-    .filter((name) => isHealpixVolumeVariable(modelInfo.vars[name]))
+    .filter((name) => isVolumeVariable(modelInfo.vars[name]))
     .sort((a, b) => a.localeCompare(b));
 }
 
@@ -53,13 +78,21 @@ function variableGroup(name: string) {
   return slashIndex < 0 ? "" : name.slice(0, slashIndex);
 }
 
-export function getHealpixVolumeVariablesForGroup(
+export function getVolumeVariablesForGroup(
   modelInfo: TModelInfo | undefined,
   selectedVariable: string
 ) {
   const selectedGroup = variableGroup(selectedVariable);
-  return getHealpixVolumeVariables(modelInfo).filter(
-    (name) => variableGroup(name) === selectedGroup
+  const selected = modelInfo?.vars[selectedVariable];
+  const spatial = selected
+    ? volumeSpatialDimensions(dimensionNames(selected))
+    : [];
+  return getVolumeVariables(modelInfo).filter(
+    (name) =>
+      variableGroup(name) === selectedGroup &&
+      volumeSpatialDimensions(dimensionNames(modelInfo!.vars[name])).join(
+        "\0"
+      ) === spatial.join("\0")
   );
 }
 

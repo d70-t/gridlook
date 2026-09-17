@@ -1,4 +1,3 @@
-import type { GridOptions } from "healpix-geo";
 import type * as THREE from "three";
 import {
   onMounted,
@@ -9,18 +8,20 @@ import {
 } from "vue";
 import type * as zarr from "zarrita";
 
-import {
-  getMax3DTextureSize,
-  SphericalVolumeLayer,
-} from "@/lib/layers/volumeLayer.ts";
+import { getMax3DTextureSize, VolumeLayer } from "@/lib/layers/volumeLayer.ts";
 import type { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
 import {
-  inspectHealpixVolumeSources,
-  loadHealpixVolumeData,
-} from "@/lib/volume/healpixVolumeData.ts";
+  inspectVolumeSources,
+  loadVolumeData,
+} from "@/lib/volume/volumeData.ts";
+import {
+  VOLUME_GRID_TYPES,
+  type TVolumeGrid,
+} from "@/lib/volume/volumeGrid.ts";
 import {
   chooseVolumeTextureDimensions,
+  chooseRegularVolumeTextureDimensions,
   HIGH_RES_VOLUME_TEXTURE_BUDGET_BYTES,
   RESERVED_VOLUME_CHANNEL_COUNT,
 } from "@/lib/volume/volumeTexture.ts";
@@ -35,21 +36,13 @@ import {
 } from "@/store/store.ts";
 import { useLog } from "@/ui/common/useLog.ts";
 
-export type THealpixVolumeContext = {
+export type TVolumeContext = {
   dimensionNames: string[];
   indices: (number | null | zarr.Slice)[];
-  grid: GridOptions;
-  nside: number;
-  cellCoordinates?: number[];
+  grid: TVolumeGrid;
 };
 
-type TNormalizedHealpixVolumeContext = Omit<
-  THealpixVolumeContext,
-  "cellCoordinates"
-> & {
-  cellCoordinates?: Float64Array;
-  cellCoordinatesKey: string;
-};
+type TNormalizedVolumeContext = TVolumeContext & { gridKey: string };
 
 type TOptions = {
   getDatasources: () => TSources | undefined;
@@ -74,7 +67,7 @@ function renderOrder(store: ReturnType<typeof useGlobeControlStore>) {
 }
 
 function normalizeCellCoordinates(
-  coordinates: number[] | undefined,
+  coordinates: Float64Array | undefined,
   nside: number
 ) {
   if (!coordinates) {
@@ -99,12 +92,12 @@ function normalizeCellCoordinates(
 }
 
 // eslint-disable-next-line max-lines-per-function
-export function useHealpixVolume(options: TOptions) {
+export function useVolume(options: TOptions) {
   const store = useGlobeControlStore();
   store.volumeAvailable = true;
   const { logError } = useLog();
-  let context: TNormalizedHealpixVolumeContext | undefined;
-  let layer: SphericalVolumeLayer | undefined;
+  let context: TNormalizedVolumeContext | undefined;
+  let layer: VolumeLayer | undefined;
   let cachedKey: string | undefined;
   let hasData = false;
   let requestRevision = 0;
@@ -120,7 +113,7 @@ export function useHealpixVolume(options: TOptions) {
 
   function ensureLayer() {
     if (!layer) {
-      layer = new SphericalVolumeLayer();
+      layer = new VolumeLayer();
       options.getScene()?.add(layer.object);
     }
     return layer;
@@ -154,8 +147,8 @@ export function useHealpixVolume(options: TOptions) {
       !datasources ||
       selections.length === 0 ||
       !renderer ||
-      !store.isVolumeLayerEnabled() ||
-      options.projectionHelper.value.isFlat
+      options.projectionHelper.value.isFlat ||
+      !store.isVolumeLayerEnabled()
     ) {
       store.volumeLoading = false;
       store.volumeProgress = undefined;
@@ -166,7 +159,7 @@ export function useHealpixVolume(options: TOptions) {
     store.volumeLoading = true;
     store.volumeProgress = 0;
     try {
-      const sources = await inspectHealpixVolumeSources(
+      const sources = await inspectVolumeSources(
         datasources,
         selections.map((selection) => selection.variable),
         requestContext
@@ -180,21 +173,40 @@ export function useHealpixVolume(options: TOptions) {
       if (!(max3DTextureSize > 0)) {
         throw new Error("This device does not support WebGL 3D textures.");
       }
-      const dimensions = chooseVolumeTextureDimensions(
-        requestContext.nside,
-        first.sourceLevelCount,
-        max3DTextureSize,
-        // Reserve the common water/ice pair so toggling a second volume does
-        // not change the primary volume's spatial resolution.
-        Math.max(RESERVED_VOLUME_CHANNEL_COUNT, sources.length),
-        HIGH_RES_VOLUME_TEXTURE_BUDGET_BYTES
+      const grid = requestContext.grid;
+      // Reserve water/ice channels to keep resolution stable when adding a field.
+      const channelCount = Math.max(
+        RESERVED_VOLUME_CHANNEL_COUNT,
+        sources.length
       );
+      if (
+        grid.kind === VOLUME_GRID_TYPES.REGULAR &&
+        (first.spatialShape[0] !== grid.latitudes.length ||
+          first.spatialShape[1] !== grid.longitudes.length)
+      ) {
+        throw new Error("Volume coordinates do not match the displayed grid.");
+      }
+      const dimensions =
+        grid.kind === VOLUME_GRID_TYPES.HEALPIX
+          ? chooseVolumeTextureDimensions(
+              grid.nside,
+              first.sourceLevelCount,
+              max3DTextureSize,
+              channelCount,
+              HIGH_RES_VOLUME_TEXTURE_BUDGET_BYTES
+            )
+          : chooseRegularVolumeTextureDimensions(
+              grid.longitudes.length,
+              grid.latitudes.length,
+              first.sourceLevelCount,
+              max3DTextureSize,
+              channelCount,
+              HIGH_RES_VOLUME_TEXTURE_BUDGET_BYTES
+            );
       const key = JSON.stringify({
         variables: sources.map((source) => source.name),
         selection: first.selection,
-        grid: requestContext.grid,
-        nside: requestContext.nside,
-        cellCoordinates: requestContext.cellCoordinatesKey,
+        grid: requestContext.gridKey,
         dimensions,
       });
       if (key === cachedKey && hasData) {
@@ -206,7 +218,7 @@ export function useHealpixVolume(options: TOptions) {
         return;
       }
 
-      const { values, heights } = await loadHealpixVolumeData(
+      const { values, heights, levels } = await loadVolumeData(
         datasources,
         sources,
         requestContext,
@@ -217,13 +229,19 @@ export function useHealpixVolume(options: TOptions) {
       }
       const result = await buildVolumeTextureInWorker(
         {
-          grid: requestContext.grid,
-          nside: requestContext.nside,
-          cellCoordinates: requestContext.cellCoordinates?.slice(),
+          grid:
+            grid.kind === VOLUME_GRID_TYPES.HEALPIX
+              ? { ...grid, cellCoordinates: grid.cellCoordinates?.slice() }
+              : {
+                  ...grid,
+                  latitudes: grid.latitudes.slice(),
+                  longitudes: grid.longitudes.slice(),
+                },
           sourceLevelCount: first.sourceLevelCount,
           sourceCellCount: first.sourceCellCount,
           values,
           heights,
+          levels,
           dimensions,
         },
         (completed, total) =>
@@ -241,7 +259,8 @@ export function useHealpixVolume(options: TOptions) {
         result.channelCount,
         result.storageChannelCount,
         store.volumeSelections.map((selection) => selection.color),
-        store.volumeSelections.map((selection) => selection.opacity)
+        store.volumeSelections.map((selection) => selection.opacity),
+        result.bounds
       );
       cachedKey = key;
       hasData = true;
@@ -261,16 +280,28 @@ export function useHealpixVolume(options: TOptions) {
     }
   }
 
-  function setContext(nextContext: THealpixVolumeContext) {
-    const normalized = normalizeCellCoordinates(
-      nextContext.cellCoordinates,
-      nextContext.nside
-    );
-    context = {
-      ...nextContext,
-      cellCoordinates: normalized.coordinates,
-      cellCoordinatesKey: normalized.key,
-    };
+  function setContext(nextContext: TVolumeContext) {
+    const grid = nextContext.grid;
+    if (grid.kind === VOLUME_GRID_TYPES.HEALPIX) {
+      const normalized = normalizeCellCoordinates(
+        grid.cellCoordinates,
+        grid.nside
+      );
+      context = {
+        ...nextContext,
+        grid: { ...grid, cellCoordinates: normalized.coordinates },
+        gridKey: JSON.stringify([grid.options, grid.nside, normalized.key]),
+      };
+    } else {
+      context = {
+        ...nextContext,
+        gridKey: JSON.stringify([
+          grid.kind,
+          Array.from(grid.latitudes),
+          Array.from(grid.longitudes),
+        ]),
+      };
+    }
     void loadVolume();
   }
 

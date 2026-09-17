@@ -2,7 +2,8 @@ import type { WebGLRenderer } from "three";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
-import type { THealpixVolumeSource } from "@/lib/volume/healpixVolumeData.ts";
+import type { TVolumeSource } from "@/lib/volume/volumeData.ts";
+import { VOLUME_GRID_TYPES } from "@/lib/volume/volumeGrid.ts";
 import type { TVolumeTextureBuildResult } from "@/lib/volume/volumeTexture.ts";
 
 const { inspect, load, build, setData, logError } = vi.hoisted(() => ({
@@ -12,9 +13,9 @@ const { inspect, load, build, setData, logError } = vi.hoisted(() => ({
   setData: vi.fn(),
   logError: vi.fn(),
 }));
-vi.mock("@/lib/volume/healpixVolumeData.ts", () => ({
-  inspectHealpixVolumeSources: inspect,
-  loadHealpixVolumeData: load,
+vi.mock("@/lib/volume/volumeData.ts", () => ({
+  inspectVolumeSources: inspect,
+  loadVolumeData: load,
 }));
 vi.mock("@/lib/volume/volumeTextureWorkerClient.ts", () => ({
   buildVolumeTextureInWorker: build,
@@ -29,7 +30,7 @@ vi.mock("@/lib/layers/volumeLayer.ts", async () => {
   const { Object3D } = await import("three");
   return {
     getMax3DTextureSize: () => 4,
-    SphericalVolumeLayer: class {
+    VolumeLayer: class {
       object = new Object3D();
       setData = setData;
       setAppearance = vi.fn();
@@ -42,27 +43,32 @@ vi.mock("@/lib/layers/volumeLayer.ts", async () => {
 vi.stubGlobal("localStorage", { getItem: () => null });
 
 const { createPinia, setActivePinia } = await import("pinia");
-const { computed, effectScope, nextTick, ref } = await import("vue");
+const { computed, effectScope, nextTick, ref, shallowRef } =
+  await import("vue");
 const { Scene } = await import("three");
 const { ProjectionHelper, PROJECTION_TYPES } =
   await import("@/lib/projection/projectionUtils.ts");
 const { useGlobeControlStore } = await import("@/store/store.ts");
-const { useHealpixVolume } =
-  await import("@/ui/grids/composables/useHealpixVolume.ts");
+const { useVolume } = await import("@/ui/grids/composables/useVolume.ts");
 
 const scopes: ReturnType<typeof effectScope>[] = [];
+const projectionChanges: (() => void)[] = [];
 const source = {
   name: "water",
   selection: [0, null, null],
   sourceLevelCount: 2,
   sourceCellCount: 1,
-} as THealpixVolumeSource;
+  spatialShape: [1],
+} as TVolumeSource;
 const context = {
   dimensionNames: ["time", "level", "cell"],
   indices: [0, null, null],
-  nside: 2 ** 20,
-  grid: { level: 20, scheme: "nested" as const },
-  cellCoordinates: [2 ** 40 + 3],
+  grid: {
+    kind: VOLUME_GRID_TYPES.HEALPIX,
+    nside: 2 ** 20,
+    options: { level: 20, scheme: "nested" as const },
+    cellCoordinates: new Float64Array([2 ** 40 + 3]),
+  },
 };
 const result: TVolumeTextureBuildResult = {
   data: new Uint8Array(16),
@@ -70,6 +76,7 @@ const result: TVolumeTextureBuildResult = {
   valueScales: [1],
   channelCount: 1,
   storageChannelCount: 1,
+  bounds: { west: -180, south: -90, east: 180, north: 90 },
 };
 
 function deferred<T>() {
@@ -80,26 +87,27 @@ function deferred<T>() {
   return { promise, resolve: resolvePromise };
 }
 
-function setupVolume() {
+function setupVolume(
+  projection = shallowRef(
+    new ProjectionHelper(PROJECTION_TYPES.NEARSIDE_PERSPECTIVE, {
+      lat: 0,
+      lon: 0,
+    })
+  )
+) {
   const scope = effectScope();
   scopes.push(scope);
   const scene = new Scene();
   const datasources = {} as TSources;
   return scope.run(() =>
-    useHealpixVolume({
+    useVolume({
       getDatasources: () => datasources,
       getScene: () => scene,
       getRenderer: () => ({}) as WebGLRenderer,
       redraw: vi.fn(),
-      projectionHelper: computed(
-        () =>
-          new ProjectionHelper(PROJECTION_TYPES.NEARSIDE_PERSPECTIVE, {
-            lat: 0,
-            lon: 0,
-          })
-      ),
+      projectionHelper: computed(() => projection.value),
       isSceneInMotion: ref(false),
-      onProjectionChange: vi.fn(),
+      onProjectionChange: (callback) => projectionChanges.push(callback),
       onMotionStateChange: vi.fn(),
     })
   )!;
@@ -108,6 +116,7 @@ function setupVolume() {
 beforeEach(() => {
   setActivePinia(createPinia());
   vi.clearAllMocks();
+  projectionChanges.length = 0;
   inspect.mockReset().mockResolvedValue([source]);
   load.mockReset().mockResolvedValue({ values: [new Float32Array([1, 2])] });
   build.mockReset().mockResolvedValue(result);
@@ -127,20 +136,25 @@ it("preserves high-resolution regional cell IDs in worker requests", async () =>
   volume.setContext(context);
   await vi.waitFor(() => expect(setData).toHaveBeenCalledOnce());
 
-  expect(Array.from(build.mock.calls[0][0].cellCoordinates)).toEqual(
-    context.cellCoordinates
+  expect(build.mock.calls[0][0].grid.cellCoordinates).toEqual(
+    context.grid.cellCoordinates
   );
   expect(build.mock.calls[0][0].grid).toEqual(context.grid);
 
   volume.setContext({
     ...context,
-    cellCoordinates: [context.cellCoordinates[0] + 2 ** 32],
+    grid: {
+      ...context.grid,
+      cellCoordinates: new Float64Array([
+        context.grid.cellCoordinates[0] + 2 ** 32,
+      ]),
+    },
   });
   await vi.waitFor(() => expect(setData).toHaveBeenCalledTimes(2));
 });
 
 it("does not download stale metadata after a newer request completes", async () => {
-  const stale = deferred<THealpixVolumeSource[]>();
+  const stale = deferred<TVolumeSource[]>();
   inspect.mockImplementationOnce(() => stale.promise);
   const volume = setupVolume();
   volume.setContext(context);
@@ -156,7 +170,7 @@ it("does not download stale metadata after a newer request completes", async () 
 });
 
 it("does not start downloads after disposal during metadata loading", async () => {
-  const stale = deferred<THealpixVolumeSource[]>();
+  const stale = deferred<TVolumeSource[]>();
   inspect.mockImplementationOnce(() => stale.promise);
   const volume = setupVolume();
   volume.setContext(context);
@@ -182,5 +196,28 @@ it("keeps appearance changes made while the worker is building", async () => {
   pending.resolve(result);
   await pending.promise;
 
-  expect(setData.mock.calls[0].slice(-2)).toEqual([["#abcdef"], [0.5]]);
+  expect(setData.mock.calls[0].slice(4, 6)).toEqual([["#abcdef"], [0.5]]);
+});
+
+it("loads regular volumes through the shared worker", async () => {
+  const volume = setupVolume();
+  inspect.mockResolvedValue([
+    { ...source, sourceCellCount: 4, spatialShape: [2, 2] },
+  ]);
+  const grid = {
+    kind: VOLUME_GRID_TYPES.REGULAR,
+    latitudes: new Float32Array([21, 20]),
+    longitudes: new Float32Array([170, 171]),
+  };
+  volume.setContext({
+    dimensionNames: ["time", "lat", "lon"],
+    indices: [0, null, null],
+    grid,
+  });
+  await vi.waitFor(() => expect(setData).toHaveBeenCalledOnce());
+  expect(build.mock.calls[0][0].grid).toEqual(grid);
+  expect(build.mock.calls[0][0].grid.latitudes).not.toBe(grid.latitudes);
+  await nextTick();
+  expect(load).toHaveBeenCalledOnce();
+  expect(build).toHaveBeenCalledOnce();
 });

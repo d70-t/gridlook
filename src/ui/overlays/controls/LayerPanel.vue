@@ -32,7 +32,7 @@ import {
   saveTexture,
 } from "@/lib/layers/textureStore.ts";
 import type { TModelInfo } from "@/lib/types/GlobeTypes.ts";
-import { getHealpixVolumeVariablesForGroup } from "@/lib/volume/volumeVariables.ts";
+import { getVolumeVariablesForGroup } from "@/lib/volume/volumeVariables.ts";
 import {
   BUILTIN_LAYER_NAMES,
   COASTLINE_RESOLUTIONS,
@@ -127,10 +127,7 @@ const vectorVariables = computed(() =>
 );
 
 const volumeVariables = computed(() => {
-  return getHealpixVolumeVariablesForGroup(
-    props.modelInfo,
-    varnameSelector.value
-  );
+  return getVolumeVariablesForGroup(props.modelInfo, varnameSelector.value);
 });
 
 function vectorVariableLabel(name: string) {

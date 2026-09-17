@@ -7,7 +7,7 @@ import PopupDialog from "./PopupDialog.vue";
 import type { TModelInfo } from "@/lib/types/GlobeTypes.ts";
 import {
   DEFAULT_VOLUME_COLOR,
-  getHealpixVolumeVariablesForGroup,
+  getVolumeVariablesForGroup,
   preferredVolumeVariable,
   volumeVariableOpacity,
   volumeVariablesAreCompatible,
@@ -20,7 +20,7 @@ const store = useGlobeControlStore();
 const { volumeSelections, varnameSelector } = storeToRefs(store);
 
 const variables = computed(() =>
-  getHealpixVolumeVariablesForGroup(props.modelInfo, varnameSelector.value)
+  getVolumeVariablesForGroup(props.modelInfo, varnameSelector.value)
 );
 
 function ensureSelection() {

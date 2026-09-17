@@ -13,6 +13,7 @@ import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 import { useStreamlineLayer } from "./composables/useStreamlineLayer.ts";
+import { useVolume } from "./composables/useVolume.ts";
 
 import {
   getCRSWkt,
@@ -60,6 +61,7 @@ import {
   updateProjectionUniforms,
 } from "@/lib/shaders/gridShaders.ts";
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
+import { VOLUME_GRID_TYPES } from "@/lib/volume/volumeGrid.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 import { useLog } from "@/ui/common/useLog.ts";
@@ -137,6 +139,19 @@ const streamlines = useStreamlineLayer({
   onProjectionChange,
   registerAnimationCallback,
 });
+
+const volume = props.isRotated
+  ? undefined
+  : useVolume({
+      getDatasources: () => props.datasources,
+      getScene,
+      getRenderer,
+      redraw,
+      projectionHelper,
+      isSceneInMotion,
+      onProjectionChange,
+      onMotionStateChange,
+    });
 
 function updateMeshProjectionUniforms() {
   updateProjectionMeshes(meshes, {
@@ -1102,6 +1117,17 @@ async function fetchAndRenderData(
   };
   if (!isCurrent()) {
     return;
+  }
+  if (!isLatOnly.value && !isProjectedGrid.value) {
+    volume?.setContext({
+      dimensionNames: selectedDimensionNames.value,
+      indices,
+      grid: {
+        kind: VOLUME_GRID_TYPES.REGULAR,
+        latitudes: latitudes.value,
+        longitudes: longitudes.value,
+      },
+    });
   }
   scalarCache.captureScalar({
     render: renderScalar,

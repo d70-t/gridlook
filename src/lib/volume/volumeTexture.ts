@@ -1,5 +1,9 @@
 import { getHealpixVolumeSourceCells } from "./healpixVolumeMapping.ts";
 import type { THealpixVolumeGrid } from "./healpixVolumeMapping.ts";
+import { getRegularVolumeMapping } from "./regularVolumeMapping.ts";
+import { VOLUME_GRID_TYPES, type TVolumeGrid } from "./volumeGrid.ts";
+
+import type { TGeoBounds } from "@/lib/layers/equirectLayer.ts";
 
 const DEFAULT_VOLUME_TEXTURE_DEPTH = 64;
 const DEFAULT_VOLUME_TEXTURE_BUDGET_BYTES = 64 * 1024 * 1024;
@@ -21,12 +25,12 @@ export type TVolumeTextureDimensions = {
 };
 
 export type TVolumeTextureBuildRequest = {
-  nside: number;
+  grid: TVolumeGrid;
+  levels?: Float32Array;
   sourceLevelCount: number;
   sourceCellCount: number;
   values: Float32Array[];
   heights?: Float32Array;
-  cellCoordinates?: Float64Array;
   dimensions: TVolumeTextureDimensions;
 };
 
@@ -37,6 +41,7 @@ export type TVolumeTextureBuildResult = {
   channelCount: number;
   storageChannelCount: number;
   heightRange?: { min: number; max: number };
+  bounds: TGeoBounds;
 };
 
 function nextPowerOfTwo(value: number) {
@@ -128,6 +133,73 @@ function sampledPositiveQuantile(values: Float32Array, quantile: number) {
   return samples[index] || 1;
 }
 
+export function chooseRegularVolumeTextureDimensions(
+  width: number,
+  height: number,
+  sourceLevelCount: number,
+  max3DTextureSize: number,
+  channelCount: number,
+  budgetBytes = DEFAULT_VOLUME_TEXTURE_BUDGET_BYTES
+): TVolumeTextureDimensions {
+  width = Math.max(
+    1,
+    Math.min(width, max3DTextureSize, MAX_VOLUME_TEXTURE_WIDTH)
+  );
+  height = Math.max(
+    1,
+    Math.min(height, max3DTextureSize, MAX_VOLUME_TEXTURE_WIDTH)
+  );
+  const depth = Math.max(
+    1,
+    Math.min(sourceLevelCount, DEFAULT_VOLUME_TEXTURE_DEPTH, max3DTextureSize)
+  );
+  const channels = volumeStorageChannelCount(channelCount);
+  while (
+    width * height * depth * channels > budgetBytes &&
+    (width > 1 || height > 1)
+  ) {
+    width = Math.max(1, Math.floor(width / 2));
+    height = Math.max(1, Math.floor(height / 2));
+  }
+  return {
+    width,
+    height,
+    depth,
+    byteLength: width * height * depth * channels,
+  };
+}
+
+function volumeMapping(
+  request: TVolumeTextureBuildRequest,
+  healpix: THealpixVolumeGrid | undefined,
+  onProgress: (completed: number, total: number) => void
+) {
+  const { grid, dimensions, sourceCellCount } = request;
+  if (grid.kind === VOLUME_GRID_TYPES.REGULAR) {
+    return getRegularVolumeMapping(
+      grid.latitudes,
+      grid.longitudes,
+      dimensions.width,
+      dimensions.height,
+      onProgress
+    );
+  }
+  if (!healpix || healpix.nside !== grid.nside) {
+    throw new Error("Volume HEALPix grid does not match its resolution.");
+  }
+  return {
+    sourceCells: getHealpixVolumeSourceCells(
+      healpix,
+      dimensions.width,
+      dimensions.height,
+      sourceCellCount,
+      grid.cellCoordinates,
+      onProgress
+    ),
+    bounds: { west: -180, east: 180, south: -90, north: 90 },
+  };
+}
+
 function normalizeDensity(value: number, scale: number) {
   if (!Number.isFinite(value) || value <= 0) {
     return 0;
@@ -208,22 +280,43 @@ type TLevelSamples = {
 function makeLevelSamples(
   sourceCellCount: number,
   sourceLevelCount: number,
-  targetLevelCount: number
+  targetLevelCount: number,
+  levels: Float32Array = Float32Array.from(
+    { length: sourceLevelCount },
+    (_, index) => sourceLevelCount - 1 - index
+  )
 ): TLevelSamples {
+  if (levels.length !== sourceLevelCount || !levels.every(Number.isFinite)) {
+    throw new Error("Volume vertical coordinates do not match its levels.");
+  }
+  const descending = levels[0] > levels[levels.length - 1];
+  const ordered = descending ? levels.slice().reverse() : levels;
+  for (let index = 1; index < ordered.length; index++) {
+    if (ordered[index] <= ordered[index - 1]) {
+      throw new Error("Volume vertical coordinates must be strictly ordered.");
+    }
+  }
   const lowerOffsets = new Int32Array(targetLevelCount);
   const upperOffsets = new Int32Array(targetLevelCount);
   const fractions = new Float32Array(targetLevelCount);
-  const denominator = Math.max(1, targetLevelCount - 1);
-  const sourceSpan = sourceLevelCount - 1;
+  let lower = 0;
   for (let z = 0; z < targetLevelCount; z++) {
-    // Atmospheric model levels commonly run from top to bottom. Texture depth
-    // runs from the globe surface outwards, so reverse the source level order.
-    const sourcePosition = sourceSpan - (z / denominator) * sourceSpan;
-    const lower = Math.max(0, Math.floor(sourcePosition));
-    const upper = Math.min(sourceLevelCount - 1, lower + 1);
-    lowerOffsets[z] = lower * sourceCellCount;
-    upperOffsets[z] = upper * sourceCellCount;
-    fractions[z] = sourcePosition - lower;
+    const coordinate =
+      ordered[0] +
+      (z / Math.max(1, targetLevelCount - 1)) *
+        (ordered[ordered.length - 1] - ordered[0]);
+    while (lower + 1 < ordered.length - 1 && ordered[lower + 1] < coordinate) {
+      lower++;
+    }
+    const upper = Math.min(ordered.length - 1, lower + 1);
+    lowerOffsets[z] =
+      (descending ? sourceLevelCount - 1 - lower : lower) * sourceCellCount;
+    upperOffsets[z] =
+      (descending ? sourceLevelCount - 1 - upper : upper) * sourceCellCount;
+    fractions[z] =
+      upper === lower
+        ? 0
+        : (coordinate - ordered[lower]) / (ordered[upper] - ordered[lower]);
   }
   return { lowerOffsets, upperOffsets, fractions };
 }
@@ -345,20 +438,17 @@ function writeHeightColumn(
 export function buildVolumeTexture(
   request: TVolumeTextureBuildRequest,
   onProgress: ((completed: number, total: number) => void) | undefined,
-  grid: THealpixVolumeGrid
+  healpix?: THealpixVolumeGrid
 ): TVolumeTextureBuildResult {
   const {
-    nside,
+    grid,
+    levels,
     sourceLevelCount,
     sourceCellCount,
     values,
     heights,
-    cellCoordinates,
     dimensions,
   } = request;
-  if (grid.nside !== nside) {
-    throw new Error("Volume HEALPix grid does not match its resolution.");
-  }
   const expectedLength = sourceLevelCount * sourceCellCount;
   if (
     values.length === 0 ||
@@ -370,7 +460,11 @@ export function buildVolumeTexture(
   if (heights && heights.length !== expectedLength) {
     throw new Error("Volume height data does not match the source field.");
   }
-  if ((cellCoordinates?.length ?? 12 * nside * nside) !== sourceCellCount) {
+  const coordinateCount =
+    grid.kind === VOLUME_GRID_TYPES.HEALPIX
+      ? (grid.cellCoordinates?.length ?? 12 * grid.nside * grid.nside)
+      : grid.latitudes.length * grid.longitudes.length;
+  if (coordinateCount !== sourceCellCount) {
     throw new Error("Volume coordinates do not match the source grid.");
   }
 
@@ -411,13 +505,15 @@ export function buildVolumeTexture(
     : undefined;
   const levelSamples = heightRange
     ? undefined
-    : makeLevelSamples(sourceCellCount, sourceLevelCount, dimensions.depth);
-  const sourceCells = getHealpixVolumeSourceCells(
-    grid,
-    dimensions.width,
-    dimensions.height,
-    sourceCellCount,
-    cellCoordinates,
+    : makeLevelSamples(
+        sourceCellCount,
+        sourceLevelCount,
+        dimensions.depth,
+        levels
+      );
+  const { sourceCells, bounds } = volumeMapping(
+    request,
+    healpix,
     (completed, total) =>
       onProgress?.(
         heightRangeUnits + Math.round((completed / total) * pixelLookupUnits),
@@ -491,5 +587,6 @@ export function buildVolumeTexture(
     channelCount,
     storageChannelCount,
     heightRange,
+    bounds,
   };
 }

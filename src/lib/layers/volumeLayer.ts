@@ -1,5 +1,7 @@
 import * as THREE from "three";
 
+import type { TGeoBounds } from "./equirectLayer.ts";
+
 import type { TVolumeTextureDimensions } from "@/lib/volume/volumeTexture.ts";
 
 const INNER_RADIUS = 1.002;
@@ -33,7 +35,9 @@ const fragmentShader = `
   in vec3 volumeWorldPosition;
   out vec4 outputColor;
 
-  const float PI = 3.141592653589793;
+  uniform vec4 textureBounds;
+
+  const float RAD_TO_DEG = 180.0 / 3.141592653589793;
   const int MAX_STEP_COUNT = 72;
 
   vec2 intersectSphere(vec3 origin, vec3 direction, float radius) {
@@ -56,8 +60,8 @@ const fragmentShader = `
     float longitude = atan(position.y, position.x);
     float latitude = asin(clamp(position.z / radius, -1.0, 1.0));
     return vec3(
-      fract(longitude / (2.0 * PI) + 0.5),
-      latitude / PI + 0.5,
+      longitude * RAD_TO_DEG,
+      latitude * RAD_TO_DEG,
       clamp((radius - innerRadius) / (outerRadius - innerRadius), 0.0, 1.0)
     );
   }
@@ -92,6 +96,11 @@ const fragmentShader = `
         rayStart + (float(stepIndex) + jitter) * stepLength;
       vec3 samplePosition = rayOrigin + rayDirection * distanceAlongRay;
       vec3 textureCoordinate = sphericalTextureCoordinate(samplePosition);
+      float longitudeSpan = textureBounds.z - textureBounds.x;
+      float longitudeOffset = mod(textureCoordinate.x - textureBounds.x, 360.0);
+      textureCoordinate.x = longitudeOffset / longitudeSpan;
+      textureCoordinate.y = (textureCoordinate.y - textureBounds.y) / (textureBounds.w - textureBounds.y);
+      if (textureCoordinate.x > 1.0 || textureCoordinate.y < 0.0 || textureCoordinate.y > 1.0) continue;
       // The CPU stores complete vertical columns contiguously: texture X is
       // altitude, Y is longitude, and Z is latitude.
       vec4 channelDensities = texture(
@@ -142,7 +151,8 @@ export function getMax3DTextureSize(renderer: THREE.WebGLRenderer) {
 function makeVolumeTexture(
   data: Uint8Array,
   dimensions: TVolumeTextureDimensions,
-  storageChannelCount: number
+  storageChannelCount: number,
+  bounds: TGeoBounds
 ) {
   const texture = new THREE.Data3DTexture(
     data,
@@ -160,7 +170,10 @@ function makeVolumeTexture(
   texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
   texture.wrapS = THREE.ClampToEdgeWrapping;
-  texture.wrapT = THREE.RepeatWrapping;
+  texture.wrapT =
+    bounds.east - bounds.west >= 360 - 1e-6
+      ? THREE.RepeatWrapping
+      : THREE.ClampToEdgeWrapping;
   texture.wrapR = THREE.ClampToEdgeWrapping;
   texture.unpackAlignment = 1;
   texture.generateMipmaps = false;
@@ -168,7 +181,7 @@ function makeVolumeTexture(
   return texture;
 }
 
-export class SphericalVolumeLayer {
+export class VolumeLayer {
   readonly object: THREE.Mesh;
 
   private readonly material: THREE.ShaderMaterial;
@@ -180,7 +193,8 @@ export class SphericalVolumeLayer {
       vertexShader,
       fragmentShader,
       uniforms: {
-        volumeData: { value: new THREE.Data3DTexture() },
+        volumeData: { value: null },
+        textureBounds: { value: new THREE.Vector4(-180, -90, 180, 90) },
         innerRadius: { value: INNER_RADIUS },
         outerRadius: { value: OUTER_RADIUS },
         opacity: { value: 1 },
@@ -216,10 +230,22 @@ export class SphericalVolumeLayer {
     channelCount: number,
     storageChannelCount: number,
     colors: string[],
-    opacities: number[]
+    opacities: number[],
+    bounds: TGeoBounds
   ) {
     this.texture?.dispose();
-    this.texture = makeVolumeTexture(data, dimensions, storageChannelCount);
+    this.texture = makeVolumeTexture(
+      data,
+      dimensions,
+      storageChannelCount,
+      bounds
+    );
+    this.material.uniforms.textureBounds.value.set(
+      bounds.west,
+      bounds.south,
+      bounds.east,
+      bounds.north
+    );
     this.material.uniforms.volumeData.value = this.texture;
     this.material.uniforms.channelCount.value = channelCount;
     this.setAppearance(colors, opacities);

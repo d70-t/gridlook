@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import type { TDataSource, TModelInfo } from "@/lib/types/GlobeTypes.ts";
 import {
-  getHealpixVolumeVariables,
-  getHealpixVolumeVariablesForGroup,
-  isHealpixVolumeVariable,
+  getVolumeVariables,
+  getVolumeVariablesForGroup,
+  isVolumeVariable,
   preferredVolumeVariable,
   volumeVariableOpacity,
   volumeVariablesAreCompatible,
@@ -23,26 +23,20 @@ function source(dimensions: string[], shape: number[]): TDataSource {
 describe("volume variables", () => {
   it("requires one recognizable vertical and at least one spatial dimension", () => {
     expect(
-      isHealpixVolumeVariable(
-        source(["time", "level_full", "cell"], [2, 90, 48])
-      )
+      isVolumeVariable(source(["time", "level_full", "cell"], [2, 90, 48]))
     ).toBe(true);
-    expect(isHealpixVolumeVariable(source(["time", "cell"], [2, 48]))).toBe(
-      false
-    );
+    expect(isVolumeVariable(source(["time", "cell"], [2, 48]))).toBe(false);
     expect(
-      isHealpixVolumeVariable(
-        source(["time", "level", "lat", "lon"], [2, 3, 4, 8])
-      )
-    ).toBe(false);
+      isVolumeVariable(source(["time", "level", "lat", "lon"], [2, 3, 4, 8]))
+    ).toBe(true);
     expect(
-      isHealpixVolumeVariable(
+      isVolumeVariable(
         source(
           ["valid_time", "pressure", "latitude", "longitude"],
           [2, 3, 4, 8]
         )
       )
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("filters hidden variables and prefers cloud water over cloud ice", () => {
@@ -53,7 +47,7 @@ describe("volume variables", () => {
         surface: source(["time", "cell"], [2, 48]),
       },
     } as unknown as TModelInfo;
-    const variables = getHealpixVolumeVariables(modelInfo);
+    const variables = getVolumeVariables(modelInfo);
     expect(variables).toEqual(["cli", "clw"]);
     expect(preferredVolumeVariable(variables)).toBe("clw");
   });
@@ -74,7 +68,7 @@ describe("volume variables", () => {
     } as unknown as TModelInfo;
 
     expect(
-      getHealpixVolumeVariablesForGroup(modelInfo, "multiscales/zoom_6/clivi")
+      getVolumeVariablesForGroup(modelInfo, "multiscales/zoom_6/clivi")
     ).toEqual(["multiscales/zoom_6/clw"]);
   });
 

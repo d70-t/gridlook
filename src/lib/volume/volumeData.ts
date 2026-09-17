@@ -10,14 +10,15 @@ import type { TSources } from "@/lib/types/GlobeTypes.ts";
 import {
   isTemporalDimensionName,
   isVerticalDimensionName,
+  volumeSpatialDimensions,
 } from "@/lib/volume/volumeVariables.ts";
 
-export type THealpixVolumeDataContext = {
+export type TVolumeDataContext = {
   dimensionNames: string[];
   indices: (number | null | zarr.Slice)[];
 };
 
-export type THealpixVolumeSource = {
+export type TVolumeSource = {
   name: string;
   variable: zarr.Array<zarr.DataType, zarr.AsyncReadable>;
   dimensionNames: string[];
@@ -25,12 +26,10 @@ export type THealpixVolumeSource = {
   selection: (number | null)[];
   sourceLevelCount: number;
   sourceCellCount: number;
+  spatialShape: number[];
 };
 
-function selectedIndex(
-  dimensionName: string,
-  context: THealpixVolumeDataContext
-) {
+function selectedIndex(dimensionName: string, context: TVolumeDataContext) {
   const index = context.dimensionNames.indexOf(dimensionName);
   const value = context.indices[index];
   return typeof value === "number" ? value : 0;
@@ -39,10 +38,11 @@ function selectedIndex(
 function volumeSelection(
   dimensionNames: string[],
   verticalDimension: string,
-  context: THealpixVolumeDataContext
+  context: TVolumeDataContext
 ) {
+  const spatial = volumeSpatialDimensions(dimensionNames);
   return dimensionNames.map((name) => {
-    if (name === verticalDimension || name === "cell") {
+    if (name === verticalDimension || spatial.includes(name)) {
       return null;
     }
     return selectedIndex(name, context);
@@ -53,9 +53,12 @@ function findVerticalDimension(
   dimensionNames: string[],
   shape: readonly number[]
 ) {
+  const spatial = volumeSpatialDimensions(dimensionNames);
   const candidates = dimensionNames.filter(
     (name, index) =>
-      !isTemporalDimensionName(name) && name !== "cell" && shape[index] > 1
+      !isTemporalDimensionName(name) &&
+      !spatial.includes(name) &&
+      shape[index] > 1
   );
   const recognized = candidates.filter(isVerticalDimensionName);
   return recognized.length === 1
@@ -68,8 +71,8 @@ function findVerticalDimension(
 async function inspectSource(
   datasources: TSources,
   name: string,
-  context: THealpixVolumeDataContext
-): Promise<THealpixVolumeSource> {
+  context: TVolumeDataContext
+): Promise<TVolumeSource> {
   const [variable, dimensionNames] = await Promise.all([
     ZarrDataManager.getVariableInfoByDatasetSources(datasources, name),
     ZarrDataManager.getDimensionNames(datasources, name),
@@ -78,10 +81,16 @@ async function inspectSource(
     dimensionNames,
     variable.shape
   );
-  const cellIndex = dimensionNames.indexOf("cell");
-  if (!verticalDimension || cellIndex !== dimensionNames.length - 1) {
-    throw new Error(`${name} is not a supported HEALPix volume.`);
+  const spatial = volumeSpatialDimensions(dimensionNames);
+  if (
+    !verticalDimension ||
+    spatial.length === 0 ||
+    spatial.join("\0") !==
+      volumeSpatialDimensions(context.dimensionNames).join("\0")
+  ) {
+    throw new Error(`${name} is not a supported volume on this grid.`);
   }
+  const spatialShape = variable.shape.slice(-spatial.length);
   const verticalIndex = dimensionNames.indexOf(verticalDimension);
   return {
     name,
@@ -90,11 +99,12 @@ async function inspectSource(
     verticalDimension,
     selection: volumeSelection(dimensionNames, verticalDimension, context),
     sourceLevelCount: variable.shape[verticalIndex],
-    sourceCellCount: variable.shape[cellIndex],
+    sourceCellCount: spatialShape.reduce((count, size) => count * size, 1),
+    spatialShape,
   };
 }
 
-function assertCompatibleSources(sources: THealpixVolumeSource[]) {
+function assertCompatibleSources(sources: TVolumeSource[]) {
   const first = sources[0];
   for (const source of sources.slice(1)) {
     if (
@@ -103,17 +113,19 @@ function assertCompatibleSources(sources: THealpixVolumeSource[]) {
         (name, index) => name === first.dimensionNames[index]
       ) ||
       source.sourceLevelCount !== first.sourceLevelCount ||
-      source.sourceCellCount !== first.sourceCellCount
+      source.spatialShape.some(
+        (size, index) => size !== first.spatialShape[index]
+      )
     ) {
       throw new Error("Selected volume variables use incompatible grids.");
     }
   }
 }
 
-export async function inspectHealpixVolumeSources(
+export async function inspectVolumeSources(
   datasources: TSources,
   names: string[],
-  context: THealpixVolumeDataContext
+  context: TVolumeDataContext
 ) {
   const sources = await Promise.all(
     names.map((name) => inspectSource(datasources, name, context))
@@ -124,7 +136,7 @@ export async function inspectHealpixVolumeSources(
 
 async function loadSourceValues(
   datasources: TSources,
-  source: THealpixVolumeSource,
+  source: TVolumeSource,
   onProgress?: (completed: number, total: number) => void
 ) {
   const values = castDataVarToFloat32(
@@ -160,8 +172,8 @@ function coordinateCandidates(
 // eslint-disable-next-line max-lines-per-function
 async function loadHeightValues(
   datasources: TSources,
-  source: THealpixVolumeSource,
-  context: THealpixVolumeDataContext,
+  source: TVolumeSource,
+  context: TVolumeDataContext,
   onProgress?: (completed: number, total: number) => void
 ) {
   for (const coordinate of coordinateCandidates(source.variable)) {
@@ -184,7 +196,8 @@ async function loadHeightValues(
         String(coordinateVariable.attrs.standard_name ?? "").toLowerCase() !==
           "height" ||
         !dimensionNames.includes(source.verticalDimension) ||
-        !dimensionNames.includes("cell")
+        volumeSpatialDimensions(dimensionNames).join("\0") !==
+          volumeSpatialDimensions(source.dimensionNames).join("\0")
       ) {
         continue;
       }
@@ -231,10 +244,62 @@ function createDownloadProgress(
   };
 }
 
-export async function loadHealpixVolumeData(
+async function loadVerticalCoordinates(
   datasources: TSources,
-  sources: THealpixVolumeSource[],
-  context: THealpixVolumeDataContext,
+  source: TVolumeSource
+) {
+  const name = ZarrDataManager.resolveVariablePath(
+    source.name,
+    source.verticalDimension
+  );
+  let coordinate;
+  try {
+    coordinate = await ZarrDataManager.getVariableInfo(
+      datasources.levels[0].grid,
+      name
+    );
+  } catch {
+    // ponytail: Without a coordinate, retain top-to-bottom model-level order.
+    // CF vertical formula evaluation can replace this fallback later.
+    return undefined;
+  }
+  const { units, positive } = coordinate.attrs;
+  const standardName = String(coordinate.attrs.standard_name ?? "");
+  const pressure =
+    /pressure/.test(standardName) ||
+    /^(pa|hpa|mbar|millibar|bar)$/i.test(String(units));
+  if (
+    coordinate.shape.length !== 1 ||
+    coordinate.shape[0] !== source.sourceLevelCount ||
+    (!pressure &&
+      positive !== "up" &&
+      positive !== "down" &&
+      !/^(m|km|metres?|meters?)$/i.test(String(units)))
+  ) {
+    return undefined;
+  }
+  const levels = castDataVarToFloat32(
+    await getGridVariableData({
+      source: datasources.levels[0].grid,
+      variable: name,
+      format: datasources.zarr_format,
+      selection: [null],
+    })
+  );
+  decodeVariableDataAndGetBounds(coordinate, levels);
+  // Place increasing height (or decreasing pressure/depth) outward in the shell.
+  if (pressure || positive === "down") {
+    for (let index = 0; index < levels.length; index++) {
+      levels[index] = -levels[index];
+    }
+  }
+  return levels;
+}
+
+export async function loadVolumeData(
+  datasources: TSources,
+  sources: TVolumeSource[],
+  context: TVolumeDataContext,
   onProgress: (fraction: number) => void
 ) {
   const progress = createDownloadProgress(sources.length + 1, onProgress);
@@ -250,9 +315,10 @@ export async function loadHealpixVolumeData(
     context,
     (completed, total) => progress.update(heightIndex, completed, total)
   ).finally(() => progress.complete(heightIndex));
-  const [loadedValues, loadedHeights] = await Promise.all([
+  const [loadedValues, loadedHeights, levels] = await Promise.all([
     Promise.all(values),
     heights,
+    loadVerticalCoordinates(datasources, sources[0]),
   ]);
-  return { values: loadedValues, heights: loadedHeights };
+  return { values: loadedValues, heights: loadedHeights, levels };
 }

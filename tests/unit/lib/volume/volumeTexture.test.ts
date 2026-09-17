@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { THealpixVolumeGrid } from "@/lib/volume/healpixVolumeMapping.ts";
+import { VOLUME_GRID_TYPES } from "@/lib/volume/volumeGrid.ts";
 import {
   buildVolumeTexture as buildVolumeTextureWithGrid,
   chooseVolumeTextureDimensions,
@@ -21,10 +22,26 @@ const TEST_GRID: THealpixVolumeGrid = {
 };
 
 function buildVolumeTexture(
-  request: Parameters<typeof buildVolumeTextureWithGrid>[0],
+  request: Omit<Parameters<typeof buildVolumeTextureWithGrid>[0], "grid"> & {
+    nside: number;
+    cellCoordinates?: Float64Array;
+  },
   onProgress?: Parameters<typeof buildVolumeTextureWithGrid>[1]
 ) {
-  return buildVolumeTextureWithGrid(request, onProgress, TEST_GRID);
+  const { nside, cellCoordinates, ...data } = request;
+  return buildVolumeTextureWithGrid(
+    {
+      ...data,
+      grid: {
+        kind: VOLUME_GRID_TYPES.HEALPIX,
+        nside,
+        cellCoordinates,
+        options: { level: 0, scheme: "nested" },
+      },
+    },
+    onProgress,
+    TEST_GRID
+  );
 }
 
 describe("chooseVolumeTextureDimensions", () => {

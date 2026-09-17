@@ -12,10 +12,10 @@ import {
   type TGridHoverLookupResult,
 } from "./composables/gridHoverUtils.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
-import { useHealpixVolume } from "./composables/useHealpixVolume.ts";
 import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 import { useStreamlineLayer } from "./composables/useStreamlineLayer.ts";
+import { useVolume } from "./composables/useVolume.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
 import { loadVectorComponents } from "@/lib/data/streamlineData.ts";
@@ -63,6 +63,7 @@ import {
   makeGpuProjectedTextureMaterial,
 } from "@/lib/shaders/gridShaders.ts";
 import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
+import { VOLUME_GRID_TYPES } from "@/lib/volume/volumeGrid.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import {
   HOVERED_GRID_POINT_STATUS,
@@ -167,7 +168,7 @@ const streamlines = useStreamlineLayer({
   registerAnimationCallback,
 });
 
-const volume = useHealpixVolume({
+const volume = useVolume({
   getDatasources: () => props.datasources,
   getScene,
   getRenderer,
@@ -924,17 +925,20 @@ async function fetchAndRenderData(
     dimensionNames: selectedDimensionNames.value,
     indices,
     grid: {
-      scheme: grid.scheme,
-      level: grid.level,
-      ellipsoid: {
-        // eslint-disable-next-line camelcase
-        semi_major_axis: grid.semiMajorAxis,
-        // eslint-disable-next-line camelcase
-        semi_minor_axis: grid.semiMajorAxis * (1 - grid.flattening),
+      kind: VOLUME_GRID_TYPES.HEALPIX,
+      nside: grid.nside,
+      cellCoordinates: cellCoord ? Float64Array.from(cellCoord) : undefined,
+      options: {
+        scheme: grid.scheme,
+        level: grid.level,
+        ellipsoid: {
+          // eslint-disable-next-line camelcase
+          semi_major_axis: grid.semiMajorAxis,
+          // eslint-disable-next-line camelcase
+          semi_minor_axis: grid.semiMajorAxis * (1 - grid.flattening),
+        },
       },
     },
-    nside: grid.nside,
-    cellCoordinates: cellCoord,
   });
 
   if (!isCurrent()) {

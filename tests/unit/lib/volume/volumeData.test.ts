@@ -5,9 +5,9 @@ import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { getGridVariableData } from "@/lib/grids/gridDataWorkerClient.ts";
 import { ZARR_FORMAT, type TSources } from "@/lib/types/GlobeTypes.ts";
 import {
-  inspectHealpixVolumeSources,
-  loadHealpixVolumeData,
-} from "@/lib/volume/healpixVolumeData.ts";
+  inspectVolumeSources,
+  loadVolumeData,
+} from "@/lib/volume/volumeData.ts";
 
 vi.mock("@/lib/grids/gridDataWorkerClient.ts", () => ({
   getGridVariableData: vi.fn(),
@@ -36,6 +36,9 @@ function sources(): TSources {
 
 beforeEach(() => {
   vi.mocked(getGridVariableData).mockReset();
+  vi.spyOn(ZarrDataManager, "getVariableInfo").mockRejectedValue(
+    new Error("No coordinate")
+  );
   vi.spyOn(ZarrDataManager, "getDimensionNames").mockResolvedValue(
     context.dimensionNames
   );
@@ -66,18 +69,13 @@ it("loads all levels at the scalar timestep through the shared data worker", asy
         : new Int16Array([2, 4, 6, 8]);
     }
   );
-  const inspected = await inspectHealpixVolumeSources(
+  const inspected = await inspectVolumeSources(
     datasource,
     names.slice(0, 2),
     context
   );
   const progress = vi.fn();
-  const result = await loadHealpixVolumeData(
-    datasource,
-    inspected,
-    context,
-    progress
-  );
+  const result = await loadVolumeData(datasource, inspected, context, progress);
 
   expect(getGridVariableData).toHaveBeenCalledTimes(3);
   for (const variable of names) {
@@ -106,7 +104,56 @@ it("rejects mismatched vertical grids before downloading their values", async ()
     attrs: {},
   } as unknown as zarr.Array<zarr.DataType, zarr.AsyncReadable>);
   await expect(
-    inspectHealpixVolumeSources(sources(), names.slice(0, 2), context)
+    inspectVolumeSources(sources(), names.slice(0, 2), context)
   ).rejects.toThrow("incompatible grids");
   expect(getGridVariableData).not.toHaveBeenCalled();
+});
+
+it("loads a regular volume at the selected time and lead time, with upward pressure order", async () => {
+  const datasource = sources();
+  datasource.levels[0].datasources = { cloud: datasource.levels[0].grid };
+  vi.mocked(ZarrDataManager.getDimensionNames).mockResolvedValue([
+    "time",
+    "step",
+    "plev",
+    "latitude",
+    "longitude",
+  ]);
+  vi.mocked(ZarrDataManager.getVariableInfoByDatasetSources).mockResolvedValue({
+    shape: [10, 49, 3, 2, 2],
+    attrs: {},
+  } as unknown as zarr.Array<zarr.DataType, zarr.AsyncReadable>);
+  vi.mocked(ZarrDataManager.getVariableInfo).mockResolvedValue({
+    shape: [3],
+    attrs: { units: "hPa" },
+  } as unknown as zarr.Array<zarr.DataType, zarr.AsyncReadable>);
+  vi.mocked(getGridVariableData).mockImplementation(async ({ variable }) =>
+    variable === "plev"
+      ? new Float32Array([1000, 500, 100])
+      : new Float32Array(12).fill(1)
+  );
+  const selection = {
+    dimensionNames: ["time", "step", "latitude", "longitude"],
+    indices: [7, 12, null, null],
+  };
+  const inspected = await inspectVolumeSources(
+    datasource,
+    ["cloud"],
+    selection
+  );
+  const loaded = await loadVolumeData(
+    datasource,
+    inspected,
+    selection,
+    vi.fn()
+  );
+  expect(getGridVariableData).toHaveBeenCalledWith(
+    expect.objectContaining({
+      variable: "cloud",
+      selection: [7, 12, null, null, null],
+    })
+  );
+  expect(inspected[0].spatialShape).toEqual([2, 2]);
+  expect(loaded.values[0]).toHaveLength(12);
+  expect(loaded.levels).toEqual(new Float32Array([-1000, -500, -100]));
 });

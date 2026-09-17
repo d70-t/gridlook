@@ -1,4 +1,4 @@
-import { type TGeoBounds } from "./equirectLayer.ts";
+import type { TGeoBounds } from "./equirectLayer.ts";
 
 export const GridTextureExportUserDataKey = {
   METADATA: "gridTextureExport",

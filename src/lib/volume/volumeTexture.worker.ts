@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
 
+import { VOLUME_GRID_TYPES } from "./volumeGrid.ts";
 import { buildVolumeTexture } from "./volumeTexture.ts";
 import type {
   TVolumeTextureWorkerRequest,
@@ -12,8 +13,11 @@ workerScope.onmessage = async (
   event: MessageEvent<TVolumeTextureWorkerRequest>
 ) => {
   try {
-    const { Grid } = await import("healpix-geo");
-    using grid = new Grid(event.data.grid);
+    const { grid } = event.data;
+    using healpix =
+      grid.kind === VOLUME_GRID_TYPES.HEALPIX
+        ? new (await import("healpix-geo")).Grid(grid.options)
+        : undefined;
     const result = buildVolumeTexture(
       event.data,
       (completed, total) => {
@@ -25,7 +29,7 @@ workerScope.onmessage = async (
         };
         workerScope.postMessage(response);
       },
-      grid
+      healpix
     );
     const response: TVolumeTextureWorkerResponse = {
       requestId: event.data.requestId,

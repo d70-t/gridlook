@@ -1,3 +1,4 @@
+import { VOLUME_GRID_TYPES } from "./volumeGrid.ts";
 import type {
   TVolumeTextureWorkerBuildRequest,
   TVolumeTextureWorkerRequest,
@@ -60,13 +61,12 @@ export function buildVolumeTextureInWorker(
   onProgress?: (completed: number, total: number) => void
 ) {
   const requestId = ++nextRequestId;
-  const { values, heights, cellCoordinates } = request;
+  const { values, heights, levels, grid } = request;
   const message: TVolumeTextureWorkerRequest = {
     ...request,
     requestId,
     values,
     heights,
-    cellCoordinates,
   };
   const transfer: Transferable[] = values.map(
     (field) => field.buffer as ArrayBuffer
@@ -74,8 +74,13 @@ export function buildVolumeTextureInWorker(
   if (heights) {
     transfer.push(heights.buffer);
   }
-  if (cellCoordinates) {
-    transfer.push(cellCoordinates.buffer);
+  if (levels) {
+    transfer.push(levels.buffer);
+  }
+  if (grid.kind === VOLUME_GRID_TYPES.HEALPIX && grid.cellCoordinates) {
+    transfer.push(grid.cellCoordinates.buffer);
+  } else if (grid.kind === VOLUME_GRID_TYPES.REGULAR) {
+    transfer.push(grid.latitudes.buffer, grid.longitudes.buffer);
   }
   return new Promise<Extract<TVolumeTextureWorkerResponse, { type: "result" }>>(
     (resolve, reject) => {
