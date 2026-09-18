@@ -286,15 +286,16 @@ export class ZarrDataManager {
   }
 
   static getCRSVariableName(
-    attrs: zarr.Attributes,
+    variableAttrs: zarr.Attributes,
     groupAttrs: zarr.Attributes = {}
   ) {
-    const mapping = attrs.grid_mapping ?? groupAttrs.grid_mapping;
+    // The variable's CF mapping takes precedence; group metadata is a fallback.
+    const mapping = variableAttrs.grid_mapping ?? groupAttrs.grid_mapping;
     if (mapping) {
       return String(mapping).split(":")[0].trim();
     }
     if (
-      (attrs.coordinates as string | undefined)
+      (variableAttrs.coordinates as string | undefined)
         ?.split(/\s+/)
         .includes("spatial_ref")
     ) {

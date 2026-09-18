@@ -97,7 +97,7 @@ function getStringAttribute(
   return typeof value === "string" ? value : null;
 }
 
-export function getWktFromAttrs(attrs: zarr.Attributes) {
+function getWktFromAttrs(attrs: zarr.Attributes) {
   return (
     getStringAttribute(attrs, CrsWktAttributeName.CRS_WKT) ??
     getStringAttribute(attrs, CrsWktAttributeName.SPATIAL_REF) ??

@@ -211,6 +211,10 @@ it.each([
 
 it.each([
   { variableAttrs: { ["grid_mapping"]: "projection" }, groupAttrs: {} },
+  {
+    variableAttrs: { ["grid_mapping"]: "projection" },
+    groupAttrs: { ["grid_mapping"]: "group_projection" },
+  },
   { variableAttrs: {}, groupAttrs: { ["grid_mapping"]: "projection" } },
   { variableAttrs: {}, groupAttrs: { ["crs_wkt"]: "EPSG:3857" } },
 ])(
@@ -230,6 +234,10 @@ it.each([
         x: { shape: [2], attrs: { ["scale_factor"]: 1000 } },
         y: { shape: [2], attrs: { ["scale_factor"]: 1000 } },
         projection: { shape: [], attrs: { ["crs_wkt"]: "EPSG:3857" } },
+        ["group_projection"]: {
+          shape: [],
+          attrs: { ["crs_wkt"]: "EPSG:4326" },
+        },
       }).map(([name, metadata]) => [
         `${group}/${name}`,
         { ...datasource.levels[0].grid, groupAttrs, ...metadata },
