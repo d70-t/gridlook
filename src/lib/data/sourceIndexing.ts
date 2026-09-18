@@ -277,13 +277,16 @@ async function processZarrVariables(
 }
 
 function createIndex(
-  title: string,
+  groupAttrs: zarr.Attributes,
   datasources: Record<string, TDataSource>,
   src: string,
   zarrFormat: TZarrFormat,
   datasetPath = "",
   file?: File
 ): TSources {
+  for (const source of Object.values(datasources)) {
+    source.groupAttrs = groupAttrs;
+  }
   hideFormulaTermVariablesWithoutStandardName(datasources);
   const datasetSource = {
     store: src,
@@ -291,7 +294,7 @@ function createIndex(
     ...(file ? { file } : {}),
   };
   return {
-    name: title,
+    name: groupAttrs.title as string,
     zarr_format: zarrFormat, // eslint-disable-line camelcase
     levels: [
       {
@@ -362,7 +365,7 @@ export async function indexFromNetCDF(
     file,
   });
   return createIndex(
-    String(root.attrs.title ?? file.name),
+    { ...root.attrs, title: String(root.attrs.title ?? file.name) },
     datasources,
     src,
     ZARR_FORMAT.NETCDF,
@@ -385,7 +388,7 @@ async function indexFromIcechunk(src: string): Promise<TSources> {
     groupPath
   );
   return createIndex(
-    group.attrs?.title as string,
+    group.attrs,
     datasources,
     storePath,
     ZARR_FORMAT.ICECHUNK,
@@ -404,12 +407,7 @@ export async function indexFromZarr(src: string): Promise<TSources> {
     );
     const root = await zarr.open(store, { kind: "group" });
     const datasources = await processZarrVariables(store, root, src);
-    return createIndex(
-      root.attrs?.title as string,
-      datasources,
-      src,
-      ZARR_FORMAT.V2
-    );
+    return createIndex(root.attrs, datasources, src, ZARR_FORMAT.V2);
   } catch {
     try {
       const store = await zarr.withConsolidatedMetadata(
@@ -418,12 +416,7 @@ export async function indexFromZarr(src: string): Promise<TSources> {
       );
       const root = await zarr.open(store, { kind: "group" });
       const datasources = await processZarrVariables(store, root, src);
-      return createIndex(
-        root.attrs?.title as string,
-        datasources,
-        src,
-        ZARR_FORMAT.V3
-      );
+      return createIndex(root.attrs, datasources, src, ZARR_FORMAT.V3);
     } catch {
       // Some icechunk datasets do not use `.icechunk` suffix, so we try to detect
       // and read them with the icechunk reader as a fallback before giving up and
@@ -470,6 +463,7 @@ async function enrichMetadata(
     const root = await zarr.open(zarrStore, { kind: "group" });
 
     for (const varname of vars) {
+      datasources[varname].groupAttrs = root.attrs;
       try {
         const variable = await zarr.open(root.resolve(`/${varname}`), {
           kind: "array",

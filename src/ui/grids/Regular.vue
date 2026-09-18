@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { storeToRefs } from "pinia";
+import proj4, { type Converter as TProjectionConverter } from "proj4";
 import * as THREE from "three";
 import { onBeforeMount, onBeforeUnmount, ref } from "vue";
 import type * as zarr from "zarrita";
@@ -21,7 +22,9 @@ import {
   isLongitudeName,
   isProjectedXName,
   isProjectedYName,
+  loadGridAxes,
   projectedAxisCoordinatesToLonLat,
+  projectXYGridToLonLat,
 } from "@/lib/data/coordinateVariables.ts";
 import { downsampleDataTexture } from "@/lib/data/dataTexture.ts";
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
@@ -62,7 +65,10 @@ import {
 } from "@/lib/shaders/gridShaders.ts";
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
 import { loadProjectedVolumeGrid } from "@/lib/volume/volumeData.ts";
-import { VOLUME_GRID_TYPES } from "@/lib/volume/volumeGrid.ts";
+import {
+  VOLUME_GRID_TYPES,
+  type TProjectedVolumeGrid,
+} from "@/lib/volume/volumeGrid.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 import { useLog } from "@/ui/common/useLog.ts";
@@ -111,6 +117,8 @@ const { setHoverLookupFromIndex, clearHoverLookup } =
 const longitudes = ref<Float32Array>(new Float32Array());
 const latitudes = ref<Float32Array>(new Float32Array());
 const isProjectedGrid = ref(false);
+let projectedGrid: TProjectedVolumeGrid | undefined;
+let rotatedProjection: TProjectionConverter | undefined;
 const selectedDimensionNames = ref<string[]>([]);
 let lastStreamlineIndices: (number | null | zarr.Slice)[] | undefined;
 let streamlineRequestRevision = 0;
@@ -198,25 +206,6 @@ function getDimensionData(
   );
 }
 
-async function fetchProjectedXYDims(
-  grid: TSources["levels"][0]["grid"],
-  xDim: string,
-  yDim: string
-) {
-  const [xData, yData] = await Promise.all([
-    getDimensionData(grid, xDim),
-    getDimensionData(grid, yDim),
-  ]);
-  const crsWkt = await getCRSWkt(props.datasources!, varnameSelector.value);
-  const converted = projectedAxisCoordinatesToLonLat(
-    xData.data as Float32Array,
-    yData.data as Float32Array,
-    crsWkt
-  );
-  longitudes.value = Float32Array.from(converted.longitudes);
-  latitudes.value = Float32Array.from(converted.latitudes);
-}
-
 async function getDims() {
   const dimensions = await ZarrDataManager.getDimensionNames(
     props.datasources!,
@@ -237,60 +226,35 @@ async function getDims() {
     !isLongitudeName(secondLastDim);
   isLatOnly.value = latOnlyCheck;
 
+  projectedGrid = undefined;
+  rotatedProjection = undefined;
   const grid = props.datasources!.levels[0].grid;
-  if (isProjectedXY) {
-    await fetchProjectedXYDims(grid, lastDim, secondLastDim);
-  } else if (latOnlyCheck) {
+  if (latOnlyCheck) {
     const latitudesData = await getDimensionData(grid, lastDim);
     latitudes.value = latitudesData.data as Float32Array;
     longitudes.value = Float32Array.from({ length: 360 }, (_, i) => i - 179.5);
   } else {
-    const latName = secondLastDim;
-    const lonName = lastDim;
-    const [latitudesData, longitudesData] = await Promise.all([
-      getDimensionData(grid, latName),
-      getDimensionData(grid, lonName),
+    const [{ x, y }, crs] = await Promise.all([
+      loadGridAxes(props.datasources!, varnameSelector.value, dimensions),
+      isProjectedXY || props.isRotated
+        ? getCRSWkt(props.datasources!, varnameSelector.value)
+        : null,
     ]);
-    const myLongitudes = longitudesData.data as Float32Array;
-    const myLatitudes = latitudesData.data as Float32Array;
-    longitudes.value = new Float32Array(new Set(myLongitudes));
-    latitudes.value = new Float32Array(new Set(myLatitudes));
+    if (props.isRotated && !crs) {
+      throw new Error("Rotated grids need valid pole coordinates.");
+    }
+    if (crs) {
+      projectedGrid = { kind: VOLUME_GRID_TYPES.PROJECTED, x, y, crs };
+      if (props.isRotated) {
+        rotatedProjection = proj4(crs, "EPSG:4326");
+      }
+    }
+    const coordinates = isProjectedXY
+      ? projectedAxisCoordinatesToLonLat(x, y, crs)
+      : { longitudes: x, latitudes: y };
+    longitudes.value = new Float32Array(new Set(coordinates.longitudes));
+    latitudes.value = new Float32Array(new Set(coordinates.latitudes));
   }
-}
-
-function rotatedToGeographic(
-  latR: number,
-  lonR: number,
-  poleLat: number,
-  poleLon: number
-) {
-  const latRRad = THREE.MathUtils.degToRad(latR);
-  const lonRRad = THREE.MathUtils.degToRad(lonR);
-  const poleLatRad = THREE.MathUtils.degToRad(poleLat);
-  const poleLonRad = THREE.MathUtils.degToRad(poleLon);
-
-  const sinPhi =
-    Math.sin(poleLatRad) * Math.sin(latRRad) +
-    Math.cos(poleLatRad) * Math.cos(latRRad) * Math.cos(lonRRad);
-  const phi = Math.asin(sinPhi);
-
-  const y = -Math.cos(latRRad) * Math.sin(lonRRad);
-  const x =
-    Math.sin(latRRad) * Math.cos(poleLatRad) -
-    Math.cos(latRRad) * Math.sin(poleLatRad) * Math.cos(lonRRad);
-  const lambda = poleLonRad + Math.atan2(y, x);
-
-  // Normalize longitude to [-180, 180)
-  let lon = THREE.MathUtils.radToDeg(lambda);
-  if (lon > 180) {
-    lon -= 360;
-  }
-  if (lon < -180) {
-    lon += 360;
-  }
-
-  const lat = THREE.MathUtils.radToDeg(phi);
-  return { lat, lon };
 }
 
 function isLongitudeGlobal(longitudes: Float32Array): boolean {
@@ -319,9 +283,7 @@ function generateBatchVerticesAndUVs(
   latStart: number,
   latEnd: number,
   isLatReversed: boolean,
-  isRotated: boolean,
-  poleLat?: number,
-  poleLon?: number
+  transform: TProjectionConverter | undefined
 ) {
   const batchLatCount = latEnd - latStart + 1;
   const lonCount = longitudes.length;
@@ -341,9 +303,9 @@ function generateBatchVerticesAndUVs(
     for (let lj = 0; lj < lonCount; lj++) {
       const rawLon = longitudes[lj];
 
-      const { lat, lon } = isRotated
-        ? rotatedToGeographic(rawLat, rawLon, poleLat!, poleLon!)
-        : { lat: rawLat, lon: rawLon };
+      const [lon, lat] = transform
+        ? transform.forward([rawLon, rawLat])
+        : [rawLon, rawLat];
 
       const vertexIdx = li * lonCount + lj;
       helper.projectLatLonToArrays(
@@ -438,18 +400,7 @@ function getRegularTextureExportMetadata(isRotated: boolean | undefined) {
   };
 }
 
-async function getRegularGridPole(isRotated: boolean | undefined) {
-  if (!isRotated) {
-    return {};
-  }
-  const rotatedNorthPole = await getRotatedNorthPole();
-  return {
-    poleLat: rotatedNorthPole.lat,
-    poleLon: rotatedNorthPole.lon,
-  };
-}
-
-async function getRegularGridParameters() {
+function getRegularGridParameters() {
   const isRotated = props.isRotated;
   let longitudeValues = normalizeLongitudes(longitudes.value);
   let latitudeValues = latitudes.value;
@@ -485,8 +436,6 @@ async function getRegularGridParameters() {
     lonOrigIndices[lonOrigIndicesBase.length] = textureLonCount;
   }
 
-  const { poleLat, poleLon } = await getRegularGridPole(isRotated);
-
   return {
     geoLatitudes,
     geoLongitudes,
@@ -495,9 +444,7 @@ async function getRegularGridParameters() {
     originalLatCount,
     textureLonCount,
     isLatReversed,
-    isRotated,
-    poleLat,
-    poleLon,
+    transform: rotatedProjection,
     geoLatCount: geoLatitudes.length,
     geoLonCount: geoLongitudes.length,
     textureExportMetadata,
@@ -569,9 +516,7 @@ function createBatchGeometry(
     latStart,
     latEnd,
     gridParams.isLatReversed,
-    gridParams.isRotated,
-    gridParams.poleLat,
-    gridParams.poleLon
+    gridParams.transform
   );
 
   geometry.setAttribute(
@@ -616,7 +561,7 @@ function applyBatchGeometry(
 
 async function makeGeometry() {
   try {
-    const gridParams = await getRegularGridParameters();
+    const gridParams = getRegularGridParameters();
     const totalBatches = Math.ceil((gridParams.geoLatCount - 1) / BATCH_SIZE);
     cleanupMeshes(totalBatches);
 
@@ -702,16 +647,6 @@ function createRegularTexture(rawData: Float32Array, wrapRepeat: boolean) {
   return texture;
 }
 
-async function getRotatedNorthPole(): Promise<{ lat: number; lon: number }> {
-  const crs = await ZarrDataManager.getCRSInfo(
-    props.datasources!,
-    varnameSelector.value
-  );
-  const lat = crs.attrs["grid_north_pole_latitude"] as number;
-  const lon = crs.attrs["grid_north_pole_longitude"] as number;
-  return { lat, lon };
-}
-
 function makeMaterial(rawData: Float32Array) {
   const texture = createRegularTexture(
     rawData,
@@ -733,13 +668,8 @@ function makeMaterial(rawData: Float32Array) {
   );
 }
 
-async function buildHoverSamples(
-  rawData: Float32Array
-): Promise<TGeoSampleIndex> {
-  let rotPole: { lat: number; lon: number } | null = null;
-  if (props.isRotated) {
-    rotPole = await getRotatedNorthPole();
-  }
+function buildHoverSamples(rawData: Float32Array): TGeoSampleIndex {
+  const transform = rotatedProjection;
 
   const lats = latitudes.value;
   const lons = longitudes.value;
@@ -755,21 +685,24 @@ async function buildHoverSamples(
         return null;
       }
 
+      const [nativeLon, nativeLat] = transform
+        ? transform.inverse([queryLon, queryLat])
+        : [queryLon, queryLat];
       // Find nearest latitude index via binary search
-      const latIdx = nearestIndex(lats, queryLat);
+      const latIdx = nearestIndex(lats, nativeLat);
 
       if (isLatOnly.value) {
         return { lat: lats[latIdx], lon: 0, value: rawData[latIdx] };
       }
 
       // Find nearest longitude index (accounting for wrapping)
-      const lonIdx = nearestLonIndex(lons, queryLon);
+      const lonIdx = nearestLonIndex(lons, nativeLon);
 
       const rawLat = lats[latIdx];
       const rawLon = lons[lonIdx];
-      const { lat, lon } = rotPole
-        ? rotatedToGeographic(rawLat, rawLon, rotPole.lat, rotPole.lon)
-        : { lat: rawLat, lon: rawLon };
+      const [lon, lat] = transform
+        ? transform.forward([rawLon, rawLat])
+        : [rawLon, rawLat];
 
       return {
         lat,
@@ -897,7 +830,7 @@ function updateMeshMaterials(rawData: Float32Array) {
 
 async function showMagnitude(scalar: TVectorMagnitudeData) {
   await scalarCache.showMagnitude(scalar, async () => {
-    const hoverIndex = await buildHoverSamples(scalar.data);
+    const hoverIndex = buildHoverSamples(scalar.data);
     return () => {
       updateMeshMaterials(scalar.data);
       setHoverLookupFromIndex(hoverIndex, NaN, NaN);
@@ -918,25 +851,14 @@ async function makeVectorField(
       vData
     );
   }
-  const pole = await getRotatedNorthPole();
-  const geographicLatitudes = new Float32Array(uData.length);
-  const geographicLongitudes = new Float32Array(uData.length);
-  for (let y = 0; y < latitudes.value.length; y++) {
-    for (let x = 0; x < longitudes.value.length; x++) {
-      const index = y * longitudes.value.length + x;
-      const point = rotatedToGeographic(
-        latitudes.value[y],
-        longitudes.value[x],
-        pole.lat,
-        pole.lon
-      );
-      geographicLatitudes[index] = point.lat;
-      geographicLongitudes[index] = point.lon;
-    }
-  }
+  const coordinates = projectXYGridToLonLat(
+    longitudes.value,
+    latitudes.value,
+    projectedGrid!.crs
+  );
   return IrregularVectorField.create(
-    geographicLatitudes,
-    geographicLongitudes,
+    coordinates.latitudes.data,
+    coordinates.longitudes.data,
     uData,
     vData,
     {
@@ -1092,7 +1014,7 @@ async function fetchAndRenderData(
     rawData
   );
 
-  const hoverIndex = await buildHoverSamples(rawData);
+  const hoverIndex = buildHoverSamples(rawData);
 
   lastStreamlineIndices = indices;
 

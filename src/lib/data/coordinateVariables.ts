@@ -1,7 +1,11 @@
 import proj4 from "proj4";
 import * as zarr from "zarrita";
 
-import { decodeVariableChunkInPlace } from "./variableDecoding.ts";
+import {
+  castDataVarToFloat32,
+  decodeVariableChunkInPlace,
+  decodeVariableDataAndGetBounds,
+} from "./variableDecoding.ts";
 import { ZarrDataManager } from "./ZarrDataManager.ts";
 
 import { type TSources } from "@/lib/types/GlobeTypes.ts";
@@ -23,12 +27,11 @@ type TCrsWktAttributeName =
   (typeof CrsWktAttributeName)[keyof typeof CrsWktAttributeName];
 
 export function isWebMercatorCRS(crsWkt: string): boolean {
-  return (
-    crsWkt.includes('AUTHORITY["EPSG","3857"]') ||
-    crsWkt.includes("AUTHORITY['EPSG','3857']") ||
-    crsWkt.toLowerCase().includes("pseudo-mercator") ||
-    crsWkt.includes("+proj=merc")
-  );
+  try {
+    return new proj4.Proj(crsWkt).names.includes("merc");
+  } catch {
+    return false;
+  }
 }
 
 export function isProjectedXName(name: string): boolean {
@@ -102,11 +105,31 @@ export function getWktFromAttrs(attrs: zarr.Attributes) {
   );
 }
 
+export function getRotatedPoleCRS(attrs: zarr.Attributes) {
+  if (attrs.grid_mapping_name !== "rotated_latitude_longitude") {
+    return undefined;
+  }
+  const latitude = Number(attrs.grid_north_pole_latitude ?? NaN);
+  const longitude = Number(attrs.grid_north_pole_longitude ?? NaN);
+  const gridLongitude = Number(attrs.north_pole_grid_longitude ?? 0);
+  if (
+    ![latitude, longitude, gridLongitude].every(Number.isFinite) ||
+    Math.abs(latitude) > 90
+  ) {
+    return undefined;
+  }
+  return `+proj=ob_tran +o_proj=longlat +o_lat_p=${latitude} +o_lon_p=${gridLongitude} +lon_0=${longitude + 180} +datum=WGS84`;
+}
+
+export function getCRSFromAttrs(attrs: zarr.Attributes) {
+  return getWktFromAttrs(attrs) ?? getRotatedPoleCRS(attrs) ?? null;
+}
+
 async function getGroupCRSWkt(datasources: TSources, variable: string) {
   const group = await ZarrDataManager.getDatasetGroup(
     ZarrDataManager.getDatasetSource(datasources, variable)
   );
-  return getWktFromAttrs(group.attrs);
+  return getCRSFromAttrs(group.attrs);
 }
 
 export async function getCRSWkt(
@@ -115,7 +138,7 @@ export async function getCRSWkt(
 ): Promise<string | null> {
   try {
     const crs = await ZarrDataManager.getCRSInfo(datasources, variable);
-    const wkt = getWktFromAttrs(crs.attrs);
+    const wkt = getCRSFromAttrs(crs.attrs);
     if (wkt) {
       return wkt;
     }
@@ -142,7 +165,7 @@ function createFloat32Chunk(
   return { data, shape, stride };
 }
 
-function projectXYGridToLonLat(
+export function projectXYGridToLonLat(
   x: Float32Array,
   y: Float32Array,
   crsWkt: string | null
@@ -181,24 +204,31 @@ function getProjectedXYNames(dimensionNames: string[]) {
   return { xName, yName };
 }
 
-async function fetchProjectedXYVariables(
+export async function loadGridAxes(
   datasources: TSources,
   variable: string,
-  xName: string,
-  yName: string
+  dimensions: string[]
 ) {
-  const gridsource = datasources.levels[0].grid;
-  const [xVar, yVar] = await Promise.all([
-    ZarrDataManager.getVariableInfo(
-      gridsource,
-      ZarrDataManager.resolveVariablePath(variable, xName)
-    ),
-    ZarrDataManager.getVariableInfo(
-      gridsource,
-      ZarrDataManager.resolveVariablePath(variable, yName)
-    ),
-  ]);
-  return { xVar, yVar };
+  const level = datasources.levels[0];
+  const [y, x] = await Promise.all(
+    dimensions.slice(-2).map(async (name) => {
+      const path = ZarrDataManager.resolveVariablePath(variable, name);
+      const coordinate = await ZarrDataManager.getVariableInfo(
+        level.datasources[path] ?? level.grid,
+        path,
+        datasources.zarr_format
+      );
+      if (coordinate.shape.length !== 1) {
+        throw new Error(`${name} is not a one-dimensional coordinate.`);
+      }
+      const values = castDataVarToFloat32(
+        (await ZarrDataManager.getVariableDataFromArray(coordinate)).data
+      );
+      decodeVariableDataAndGetBounds(coordinate, values);
+      return values;
+    })
+  );
+  return { x, y };
 }
 
 export async function getProjectedXYLonLatData(
@@ -208,25 +238,11 @@ export async function getProjectedXYLonLatData(
   dimensionNames = datavar.dimensionNames ?? []
 ) {
   const { xName, yName } = getProjectedXYNames(dimensionNames);
-  const { xVar, yVar } = await fetchProjectedXYVariables(
-    datasources!,
-    variable,
-    xName,
-    yName
-  );
-  const [xCoordinates, yCoordinates] = await Promise.all([
-    ZarrDataManager.getVariableDataFromArray(xVar),
-    ZarrDataManager.getVariableDataFromArray(yVar),
+  const [{ x, y }, crsWkt] = await Promise.all([
+    loadGridAxes(datasources!, variable, [yName, xName]),
+    getCRSWkt(datasources!, variable),
   ]);
-  decodeVariableChunkInPlace(xCoordinates, xVar.attrs);
-  decodeVariableChunkInPlace(yCoordinates, yVar.attrs);
-
-  const crsWkt = await getCRSWkt(datasources!, variable);
-  const { latitudes, longitudes } = projectXYGridToLonLat(
-    xCoordinates.data as Float32Array,
-    yCoordinates.data as Float32Array,
-    crsWkt
-  );
+  const { latitudes, longitudes } = projectXYGridToLonLat(x, y, crsWkt);
   const geographicDimensionNames = [yName, xName];
 
   return {

@@ -67,6 +67,7 @@ export type TDataSource = TDatasetSource & {
   hidden?: boolean;
   default_range?: TBounds;
   attrs?: zarr.Attributes;
+  groupAttrs?: zarr.Attributes;
 };
 
 export type TModelInfo = {

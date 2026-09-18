@@ -279,17 +279,24 @@ export class ZarrDataManager {
       varname,
       datasources.zarr_format
     );
-    if (datavar.attrs?.grid_mapping) {
-      return String(datavar.attrs.grid_mapping).split(":")[0];
-    }
-    const group = await ZarrDataManager.getDatasetGroup(source);
-    if (group.attrs?.grid_mapping) {
-      return String(group.attrs.grid_mapping).split(":")[0];
+    const group = datavar.attrs?.grid_mapping
+      ? undefined
+      : await ZarrDataManager.getDatasetGroup(source);
+    return this.getCRSVariableName(datavar.attrs, group?.attrs);
+  }
+
+  static getCRSVariableName(
+    attrs: zarr.Attributes,
+    groupAttrs: zarr.Attributes = {}
+  ) {
+    const mapping = attrs.grid_mapping ?? groupAttrs.grid_mapping;
+    if (mapping) {
+      return String(mapping).split(":")[0].trim();
     }
     if (
-      (datavar.attrs?.coordinates as string | undefined)?.includes(
-        "spatial_ref"
-      )
+      (attrs.coordinates as string | undefined)
+        ?.split(/\s+/)
+        .includes("spatial_ref")
     ) {
       return "spatial_ref";
     }
