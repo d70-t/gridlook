@@ -25,6 +25,9 @@ describe("volume variables", () => {
     expect(
       isVolumeVariable(source(["time", "level_full", "cell"], [2, 90, 48]))
     ).toBe(true);
+    for (const level of ["sigma", "hybrid"]) {
+      expect(isVolumeVariable(source([level, "cell"], [3, 48]))).toBe(true);
+    }
     expect(isVolumeVariable(source(["time", "cell"], [2, 48]))).toBe(false);
     expect(
       isVolumeVariable(source(["time", "level", "lat", "lon"], [2, 3, 4, 8]))

@@ -8,9 +8,8 @@ import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { getGridVariableData } from "@/lib/grids/gridDataWorkerClient.ts";
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
 import {
-  isTemporalDimensionName,
-  isVerticalDimensionName,
   volumeSpatialDimensions,
+  volumeVerticalDimension,
 } from "@/lib/volume/volumeVariables.ts";
 
 export type TVolumeDataContext = {
@@ -49,25 +48,6 @@ function volumeSelection(
   });
 }
 
-function findVerticalDimension(
-  dimensionNames: string[],
-  shape: readonly number[]
-) {
-  const spatial = volumeSpatialDimensions(dimensionNames);
-  const candidates = dimensionNames.filter(
-    (name, index) =>
-      !isTemporalDimensionName(name) &&
-      !spatial.includes(name) &&
-      shape[index] > 1
-  );
-  const recognized = candidates.filter(isVerticalDimensionName);
-  return recognized.length === 1
-    ? recognized[0]
-    : candidates.length === 1
-      ? candidates[0]
-      : undefined;
-}
-
 async function inspectSource(
   datasources: TSources,
   name: string,
@@ -77,9 +57,11 @@ async function inspectSource(
     ZarrDataManager.getVariableInfoByDatasetSources(datasources, name),
     ZarrDataManager.getDimensionNames(datasources, name),
   ]);
-  const verticalDimension = findVerticalDimension(
+  const verticalDimension = volumeVerticalDimension(
     dimensionNames,
-    variable.shape
+    variable.shape,
+    name,
+    datasources.levels[0].datasources
   );
   const spatial = volumeSpatialDimensions(dimensionNames);
   if (
@@ -263,10 +245,13 @@ async function loadVerticalCoordinates(
     // CF vertical formula evaluation can replace this fallback later.
     return undefined;
   }
-  const { units, positive } = coordinate.attrs;
-  const standardName = String(coordinate.attrs.standard_name ?? "");
+  const { units } = coordinate.attrs;
+  // NEMO's deptht axis may omit CF metadata; its depths increase downward.
+  const positive =
+    coordinate.attrs.positive ??
+    (source.verticalDimension.toLowerCase() === "deptht" ? "down" : undefined);
   const pressure =
-    /pressure/.test(standardName) ||
+    /pressure/.test(String(coordinate.attrs.standard_name ?? "")) ||
     /^(pa|hpa|mbar|millibar|bar)$/i.test(String(units));
   if (
     coordinate.shape.length !== 1 ||

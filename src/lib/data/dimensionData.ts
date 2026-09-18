@@ -29,7 +29,7 @@ export function verticalCoordinateScore(
   ) {
     return 80;
   }
-  return /(^|_)(z|lev|level|plev|depth|height|altitude|pressure)(_|$)/.test(
+  return /(^|_)(z|lev|level|plev|depth|deptht|height|altitude|pressure|sigma|hybrid)(_|$)/.test(
     name
   )
     ? 70

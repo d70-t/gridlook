@@ -8,6 +8,7 @@ import {
   inspectVolumeSources,
   loadVolumeData,
 } from "@/lib/volume/volumeData.ts";
+import { getVolumeVariablesForGroup } from "@/lib/volume/volumeVariables.ts";
 
 vi.mock("@/lib/grids/gridDataWorkerClient.ts", () => ({
   getGridVariableData: vi.fn(),
@@ -109,51 +110,133 @@ it("rejects mismatched vertical grids before downloading their values", async ()
   expect(getGridVariableData).not.toHaveBeenCalled();
 });
 
-it("loads a regular volume at the selected time and lead time, with upward pressure order", async () => {
-  const datasource = sources();
-  datasource.levels[0].datasources = { cloud: datasource.levels[0].grid };
-  vi.mocked(ZarrDataManager.getDimensionNames).mockResolvedValue([
-    "time",
-    "step",
-    "plev",
-    "latitude",
-    "longitude",
-  ]);
-  vi.mocked(ZarrDataManager.getVariableInfoByDatasetSources).mockResolvedValue({
-    shape: [10, 49, 3, 2, 2],
-    attrs: {},
-  } as unknown as zarr.Array<zarr.DataType, zarr.AsyncReadable>);
-  vi.mocked(ZarrDataManager.getVariableInfo).mockResolvedValue({
-    shape: [3],
-    attrs: { units: "hPa" },
-  } as unknown as zarr.Array<zarr.DataType, zarr.AsyncReadable>);
-  vi.mocked(getGridVariableData).mockImplementation(async ({ variable }) =>
-    variable === "plev"
-      ? new Float32Array([1000, 500, 100])
-      : new Float32Array(12).fill(1)
-  );
-  const selection = {
-    dimensionNames: ["time", "step", "latitude", "longitude"],
-    indices: [7, 12, null, null],
-  };
-  const inspected = await inspectVolumeSources(
-    datasource,
-    ["cloud"],
-    selection
-  );
-  const loaded = await loadVolumeData(
-    datasource,
-    inspected,
-    selection,
-    vi.fn()
-  );
-  expect(getGridVariableData).toHaveBeenCalledWith(
-    expect.objectContaining({
-      variable: "cloud",
-      selection: [7, 12, null, null, null],
-    })
-  );
-  expect(inspected[0].spatialShape).toEqual([2, 2]);
-  expect(loaded.values[0]).toHaveLength(12);
-  expect(loaded.levels).toEqual(new Float32Array([-1000, -500, -100]));
-});
+it.each([
+  [
+    "pres",
+    {
+      axis: "Z",
+      ["standard_name"]: "sea_water_pressure",
+      positive: "down",
+      units: "dbar",
+    },
+  ],
+  ["deptht", {}],
+])(
+  "loads %s downward at the selected forecast time",
+  // eslint-disable-next-line max-lines-per-function
+  async (verticalDimension, pressureAttrs) => {
+    const datasource = sources();
+    const dimensions = [
+      "validity",
+      "lead_time",
+      verticalDimension,
+      "latitude",
+      "longitude",
+    ];
+    const variable = {
+      shape: [10, 49, 3, 2, 2],
+      attrs: { dimensionNames: dimensions },
+    };
+    const vars = {
+      [`${group}/oxy`]: { ...datasource.levels[0].grid, ...variable },
+      ...Object.fromEntries(
+        Object.entries({
+          validity: { axis: "T" },
+          ["lead_time"]: {
+            ["standard_name"]: "forecast_period",
+            units: "hours",
+          },
+          [verticalDimension]: pressureAttrs,
+        }).map(([name, attrs]) => [
+          `${group}/${name}`,
+          { ...datasource.levels[0].grid, attrs, hidden: true },
+        ])
+      ),
+    };
+    datasource.levels[0].datasources = vars;
+    expect(
+      getVolumeVariablesForGroup(
+        { vars, title: "Ocean", defaultVar: `${group}/oxy`, colormaps: [] },
+        `${group}/oxy`
+      )
+    ).toEqual([`${group}/oxy`]);
+    vi.mocked(ZarrDataManager.getDimensionNames).mockResolvedValue(dimensions);
+    vi.mocked(
+      ZarrDataManager.getVariableInfoByDatasetSources
+    ).mockResolvedValue(
+      variable as unknown as zarr.Array<zarr.DataType, zarr.AsyncReadable>
+    );
+    vi.mocked(ZarrDataManager.getVariableInfo).mockResolvedValue({
+      shape: [3],
+      attrs: pressureAttrs,
+    } as unknown as zarr.Array<zarr.DataType, zarr.AsyncReadable>);
+    vi.mocked(getGridVariableData).mockImplementation(async ({ variable }) =>
+      variable === `${group}/${verticalDimension}`
+        ? new Float32Array([1000, 500, 100])
+        : new Float32Array(12).fill(1)
+    );
+    const selection = {
+      dimensionNames: ["validity", "lead_time", "latitude", "longitude"],
+      indices: [7, 12, null, null],
+    };
+    const inspected = await inspectVolumeSources(
+      datasource,
+      [`${group}/oxy`],
+      selection
+    );
+    const loaded = await loadVolumeData(
+      datasource,
+      inspected,
+      selection,
+      vi.fn()
+    );
+    expect(getGridVariableData).toHaveBeenCalledWith(
+      expect.objectContaining({
+        variable: `${group}/oxy`,
+        selection: [7, 12, null, null, null],
+      })
+    );
+    expect(inspected[0].spatialShape).toEqual([2, 2]);
+    expect(loaded.values[0]).toHaveLength(12);
+    expect(loaded.levels).toEqual(new Float32Array([-1000, -500, -100]));
+  }
+);
+
+it.each([
+  ["level", { axis: "T" }],
+  ["lead_time", { ["standard_name"]: "forecast_period", units: "hours" }],
+  ["member", {}],
+])(
+  "does not treat %s as a vertical axis in the menu or loader",
+  async (name, attrs) => {
+    const datasource = sources();
+    const dimensionNames = [name, "latitude", "longitude"];
+    const variable = { shape: [3, 2, 2], attrs: { dimensionNames } };
+    const vars = {
+      field: { ...datasource.levels[0].grid, ...variable },
+      [name]: { ...datasource.levels[0].grid, attrs, hidden: true },
+    };
+    datasource.levels[0].datasources = vars;
+    expect(
+      getVolumeVariablesForGroup(
+        { vars, title: "Surface", defaultVar: "field", colormaps: [] },
+        "field"
+      )
+    ).toEqual([]);
+    vi.mocked(ZarrDataManager.getDimensionNames).mockResolvedValue(
+      dimensionNames
+    );
+    vi.mocked(
+      ZarrDataManager.getVariableInfoByDatasetSources
+    ).mockResolvedValue(
+      variable as unknown as zarr.Array<zarr.DataType, zarr.AsyncReadable>
+    );
+    await expect(
+      inspectVolumeSources(datasource, ["field"], {
+        dimensionNames,
+        indices: [0, null, null],
+      })
+    ).rejects.toThrow("not a supported volume");
+    expect(getGridVariableData).not.toHaveBeenCalled();
+  }
+);

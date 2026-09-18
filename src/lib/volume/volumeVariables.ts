@@ -2,22 +2,15 @@ import {
   isLatitudeName,
   isLongitudeName,
 } from "@/lib/data/coordinateVariables.ts";
+import { verticalCoordinateScore } from "@/lib/data/dimensionData.ts";
+import { isTimeCoordinate } from "@/lib/data/timeHandling.ts";
+import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import type { TDataSource, TModelInfo } from "@/lib/types/GlobeTypes.ts";
 
 function dimensionNames(source: TDataSource) {
   const names =
     source.attrs?.dimensionNames ?? source.attrs?._ARRAY_DIMENSIONS ?? [];
   return Array.isArray(names) ? names.map(String) : [];
-}
-
-export function isVerticalDimensionName(name: string) {
-  return /(^|_)(z|lev|level|plev|depth|height|altitude|pressure|sigma|hybrid)(_|$)/.test(
-    name.toLowerCase()
-  );
-}
-
-export function isTemporalDimensionName(name: string) {
-  return /(^|_)(time|date)(_|$)/.test(name.toLowerCase());
 }
 
 export function volumeSpatialDimensions(dimensions: string[]) {
@@ -34,8 +27,32 @@ export function volumeSpatialDimensions(dimensions: string[]) {
   return [];
 }
 
+export function volumeVerticalDimension(
+  dimensions: string[],
+  shape: readonly number[],
+  variable: string,
+  sources: Record<string, TDataSource>
+) {
+  const spatial = volumeSpatialDimensions(dimensions);
+  const candidates = dimensions.filter((name, index) => {
+    const path = ZarrDataManager.resolveVariablePath(variable, name);
+    const attrs = sources[path]?.attrs ?? {};
+    return (
+      shape[index] > 1 &&
+      !spatial.includes(name) &&
+      !isTimeCoordinate(name, attrs) &&
+      verticalCoordinateScore(name, attrs) > 0
+    );
+  });
+  return candidates.length === 1 ? candidates[0] : undefined;
+}
+
 /** Supported volumes have one vertical axis and geographic horizontal axes. */
-export function isVolumeVariable(source: TDataSource) {
+export function isVolumeVariable(
+  source: TDataSource,
+  variable = "",
+  sources: Record<string, TDataSource> = {}
+) {
   if (source.hidden || !source.shape) {
     return false;
   }
@@ -51,17 +68,9 @@ export function isVolumeVariable(source: TDataSource) {
   ) {
     return false;
   }
-  const verticalDimensions = dimensions.filter((name, index) =>
-    Boolean(
-      !spatial.includes(name) &&
-      shape[index] > 1 &&
-      isVerticalDimensionName(name)
-    )
+  return (
+    volumeVerticalDimension(dimensions, shape, variable, sources) !== undefined
   );
-  if (verticalDimensions.length !== 1) {
-    return false;
-  }
-  return shape[dimensions.indexOf(verticalDimensions[0])] > 1;
 }
 
 export function getVolumeVariables(modelInfo?: TModelInfo) {
@@ -69,7 +78,9 @@ export function getVolumeVariables(modelInfo?: TModelInfo) {
     return [];
   }
   return Object.keys(modelInfo.vars)
-    .filter((name) => isVolumeVariable(modelInfo.vars[name]))
+    .filter((name) =>
+      isVolumeVariable(modelInfo.vars[name], name, modelInfo.vars)
+    )
     .sort((a, b) => a.localeCompare(b));
 }
 
