@@ -567,6 +567,7 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
       <GlobeControls
         ref="controls"
         :model-info="modelInfo"
+        :grid-type="activeGridType"
         :current-source="props.src"
         :info-panel-open="infoPanelOpen"
         @on-snapshot="makeSnapshot"

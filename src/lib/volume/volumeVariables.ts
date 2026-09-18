@@ -6,6 +6,7 @@ import {
   isProjectedYName,
 } from "@/lib/data/coordinateVariables.ts";
 import { verticalCoordinateScore } from "@/lib/data/dimensionData.ts";
+import { GRID_TYPES, type T_GRID_TYPES } from "@/lib/data/gridTypeDetector.ts";
 import { isTimeCoordinate } from "@/lib/data/timeHandling.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import type { TDataSource, TModelInfo } from "@/lib/types/GlobeTypes.ts";
@@ -150,6 +151,50 @@ export function getVolumeVariablesForGroup(
       projectedVolumeCRS(name, modelInfo!.vars) ===
         projectedVolumeCRS(selectedVariable, modelInfo!.vars)
   );
+}
+
+export function getVolumeUnavailableReason(
+  modelInfo: TModelInfo | undefined,
+  selectedVariable: string,
+  gridType: T_GRID_TYPES | undefined,
+  rendererAvailable: boolean
+): string | undefined {
+  if (!modelInfo) {
+    return "Load a dataset to add a volume layer.";
+  }
+  if (!gridType) {
+    return "Waiting for grid information.";
+  }
+  if (gridType === GRID_TYPES.ERROR) {
+    return "The dataset's grid type could not be determined.";
+  }
+  const selected = modelInfo.vars[selectedVariable];
+  const dimensions = selected ? dimensionNames(selected) : [];
+  const projected =
+    isProjectedYName(dimensions.at(-2) ?? "") &&
+    isProjectedXName(dimensions.at(-1) ?? "");
+  if (
+    gridType !== GRID_TYPES.REGULAR &&
+    gridType !== GRID_TYPES.HEALPIX &&
+    !(gridType === GRID_TYPES.CURVILINEAR && projected)
+  ) {
+    return `Volume rendering is not supported for ${gridType.replaceAll("_", " ")} grids.`;
+  }
+  if (projected && !projectedVolumeCRS(selectedVariable, modelInfo.vars)) {
+    return "Volume rendering needs one-dimensional x/y axes with Lambert or Mercator projection metadata.";
+  }
+  if (gridType === GRID_TYPES.REGULAR && dimensions.length > 0) {
+    if (volumeSpatialDimensions(dimensions).length !== 2) {
+      return "Volume rendering requires latitude and longitude axes.";
+    }
+  }
+  if (getVolumeVariablesForGroup(modelInfo, selectedVariable).length === 0) {
+    return "No compatible variable with a recognized vertical axis and at least two levels.";
+  }
+  if (!rendererAvailable) {
+    return "Volume rendering is not ready for this grid yet.";
+  }
+  return undefined;
 }
 
 export function preferredVolumeVariable(variableNames: string[]) {

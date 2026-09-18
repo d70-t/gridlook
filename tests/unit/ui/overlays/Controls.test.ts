@@ -1,6 +1,7 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { effectScope, nextTick } from "vue";
 
+import { GRID_TYPES } from "@/lib/data/gridTypeDetector.ts";
 import type { TModelInfo } from "@/lib/types/GlobeTypes.ts";
 
 vi.mock("vue", async (importOriginal) => ({
@@ -40,6 +41,7 @@ function setupControls() {
         modelInfo: {
           vars: { rlds: { ["default_range"]: { low: 0, high: 600 } } },
         } as unknown as TModelInfo,
+        gridType: GRID_TYPES.TRIANGULAR,
         currentSource: "triangular",
         infoPanelOpen: false,
         onOnSnapshot: undefined,

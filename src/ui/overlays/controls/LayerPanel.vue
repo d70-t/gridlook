@@ -13,6 +13,7 @@ import {
 } from "vue3-select-component";
 import "vue3-select-component/styles.css";
 
+import type { T_GRID_TYPES } from "@/lib/data/gridTypeDetector.ts";
 import {
   getVariableGroup,
   levelAxesAreIdentical,
@@ -32,7 +33,7 @@ import {
   saveTexture,
 } from "@/lib/layers/textureStore.ts";
 import type { TModelInfo } from "@/lib/types/GlobeTypes.ts";
-import { getVolumeVariablesForGroup } from "@/lib/volume/volumeVariables.ts";
+import { getVolumeUnavailableReason } from "@/lib/volume/volumeVariables.ts";
 import {
   BUILTIN_LAYER_NAMES,
   COASTLINE_RESOLUTIONS,
@@ -48,6 +49,7 @@ import VolumeControls from "@/ui/overlays/controls/VolumeControls.vue";
 
 const props = defineProps<{
   modelInfo?: TModelInfo;
+  gridType?: T_GRID_TYPES;
 }>();
 
 const store = useGlobeControlStore();
@@ -107,6 +109,7 @@ type TAddLayerOption = {
   label: string;
   icon: string;
   disabled?: boolean;
+  disabledReason?: string;
 };
 
 const vectorVariableGroup = computed(() => {
@@ -126,9 +129,14 @@ const vectorVariables = computed(() =>
     .sort((a, b) => a.localeCompare(b))
 );
 
-const volumeVariables = computed(() => {
-  return getVolumeVariablesForGroup(props.modelInfo, varnameSelector.value);
-});
+const volumeUnavailableReason = computed(() =>
+  getVolumeUnavailableReason(
+    props.modelInfo,
+    varnameSelector.value,
+    props.gridType,
+    volumeAvailable.value
+  )
+);
 
 function vectorVariableLabel(name: string) {
   return name.slice(name.lastIndexOf("/") + 1);
@@ -615,7 +623,7 @@ function isLayerVisible(layer: TLayerEntry) {
 
 function isLayerAvailable(layer: TLayerEntry) {
   if (layer.kind === LAYER_KINDS.VOLUME) {
-    return volumeAvailable.value && volumeVariables.value.length > 0;
+    return !volumeUnavailableReason.value;
   }
   return layer.kind !== LAYER_KINDS.STREAMLINES || Boolean(props.modelInfo);
 }
@@ -665,7 +673,8 @@ const addLayerOptions = computed<TAddLayerOption[]>(() => {
       value: ADD_LAYER_ACTIONS.VOLUME,
       label: BUILTIN_LAYER_NAMES[LAYER_KINDS.VOLUME],
       icon: LAYER_ICONS[LAYER_KINDS.VOLUME],
-      disabled: !volumeAvailable.value || volumeVariables.value.length === 0,
+      disabled: Boolean(volumeUnavailableReason.value),
+      disabledReason: volumeUnavailableReason.value,
     });
   }
   options.push(
@@ -1161,12 +1170,18 @@ function getLayerName(layer: TLayerEntry) {
             :value="option.value"
             :label="option.label"
             :disabled="option.disabled"
+            :aria-description="option.disabledReason"
           >
             <span class="add-layer-option">
               <span class="icon is-small">
                 <i class="fa-solid" :class="option.icon"></i>
               </span>
-              <span>{{ option.label }}</span>
+              <span>
+                {{ option.label }}
+                <span v-if="option.disabledReason" class="is-block is-size-7">
+                  {{ option.disabledReason }}
+                </span>
+              </span>
             </span>
           </SelectOption>
         </SelectListbox>
