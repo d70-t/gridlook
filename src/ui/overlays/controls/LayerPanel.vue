@@ -330,8 +330,6 @@ const LAYER_ICONS: Record<TLayerKind, string> = {
 const MASK_LAYER_OPTIONS = {
   GLOBE: "globe",
   GLOBE_SIMPLE: "globe_simple",
-  LAND_AND_SEA: "land_and_sea",
-  LAND_AND_SEA_SIMPLE: "land_and_sea_simple",
   LAND: "land",
   LAND_SIMPLE: "land_simple",
   SEA: "sea",
@@ -358,14 +356,6 @@ const MASK_LAYER_OPTION_CONFIG: Record<
     mode: LAND_SEA_MASK_MODES.GLOBE,
     useTexture: false,
   },
-  [MASK_LAYER_OPTIONS.LAND_AND_SEA]: {
-    mode: LAND_SEA_MASK_MODES.LAND_AND_SEA,
-    useTexture: true,
-  },
-  [MASK_LAYER_OPTIONS.LAND_AND_SEA_SIMPLE]: {
-    mode: LAND_SEA_MASK_MODES.LAND_AND_SEA,
-    useTexture: false,
-  },
   [MASK_LAYER_OPTIONS.LAND]: {
     mode: LAND_SEA_MASK_MODES.LAND,
     useTexture: true,
@@ -388,15 +378,13 @@ function getMaskLayerOption(
   mode: TLandSeaMaskMode,
   useTexture: boolean
 ): TMaskLayerOption {
-  if (mode === LAND_SEA_MASK_MODES.GLOBE) {
+  if (
+    mode === LAND_SEA_MASK_MODES.GLOBE ||
+    mode === LAND_SEA_MASK_MODES.LAND_AND_SEA
+  ) {
     return useTexture
       ? MASK_LAYER_OPTIONS.GLOBE
       : MASK_LAYER_OPTIONS.GLOBE_SIMPLE;
-  }
-  if (mode === LAND_SEA_MASK_MODES.LAND_AND_SEA) {
-    return useTexture
-      ? MASK_LAYER_OPTIONS.LAND_AND_SEA
-      : MASK_LAYER_OPTIONS.LAND_AND_SEA_SIMPLE;
   }
   if (mode === LAND_SEA_MASK_MODES.SEA) {
     return useTexture ? MASK_LAYER_OPTIONS.SEA : MASK_LAYER_OPTIONS.SEA_SIMPLE;
@@ -887,12 +875,6 @@ function getLayerName(layer: TLayerEntry) {
                 <option :value="MASK_LAYER_OPTIONS.GLOBE">Globe</option>
                 <option :value="MASK_LAYER_OPTIONS.GLOBE_SIMPLE">
                   Globe simple
-                </option>
-                <option :value="MASK_LAYER_OPTIONS.LAND_AND_SEA">
-                  Land and sea
-                </option>
-                <option :value="MASK_LAYER_OPTIONS.LAND_AND_SEA_SIMPLE">
-                  Land and sea simple
                 </option>
                 <option :value="MASK_LAYER_OPTIONS.LAND">Land</option>
                 <option :value="MASK_LAYER_OPTIONS.LAND_SIMPLE">
