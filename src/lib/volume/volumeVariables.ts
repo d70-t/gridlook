@@ -1,5 +1,5 @@
 import {
-  getWktFromAttrs,
+  getCRSFromAttrs,
   isLatitudeName,
   isLongitudeName,
   isProjectedXName,
@@ -43,10 +43,7 @@ export function projectedVolumeCRS(
     return undefined;
   }
   const dimensions = dimensionNames(source);
-  if (
-    !isProjectedYName(dimensions.at(-2) ?? "") ||
-    !isProjectedXName(dimensions.at(-1) ?? "")
-  ) {
+  if (volumeSpatialDimensions(dimensions).length !== 2) {
     return undefined;
   }
   for (const name of dimensions.slice(-2)) {
@@ -55,13 +52,15 @@ export function projectedVolumeCRS(
       return undefined;
     }
   }
-  const mapping = String(source.attrs?.grid_mapping ?? "crs")
-    .split(":")[0]
-    .trim();
+  const mapping = ZarrDataManager.getCRSVariableName(
+    source.attrs ?? {},
+    source.groupAttrs
+  );
   const attrs =
     sources[ZarrDataManager.resolveVariablePath(variable, mapping)]?.attrs ??
     {};
-  const crs = getWktFromAttrs(attrs);
+  const crs =
+    getCRSFromAttrs(attrs) ?? getCRSFromAttrs(source.groupAttrs ?? {});
   return isSupportedVolumeCRS(crs) ? crs : undefined;
 }
 
@@ -173,15 +172,22 @@ export function getVolumeUnavailableReason(
   const projected =
     isProjectedYName(dimensions.at(-2) ?? "") &&
     isProjectedXName(dimensions.at(-1) ?? "");
+  const rotated = gridType === GRID_TYPES.REGULAR_ROTATED;
   if (
     gridType !== GRID_TYPES.REGULAR &&
     gridType !== GRID_TYPES.HEALPIX &&
+    !rotated &&
     !(gridType === GRID_TYPES.CURVILINEAR && projected)
   ) {
     return `Volume rendering is not supported for ${gridType.replaceAll("_", " ")} grids.`;
   }
-  if (projected && !projectedVolumeCRS(selectedVariable, modelInfo.vars)) {
-    return "Volume rendering needs one-dimensional x/y axes with Lambert or Mercator projection metadata.";
+  if (
+    (projected || rotated) &&
+    !projectedVolumeCRS(selectedVariable, modelInfo.vars)
+  ) {
+    return rotated
+      ? "Volume rendering needs one-dimensional rotated axes and valid pole coordinates."
+      : "Volume rendering needs one-dimensional x/y axes with Lambert or Mercator projection metadata.";
   }
   if (gridType === GRID_TYPES.REGULAR && dimensions.length > 0) {
     if (volumeSpatialDimensions(dimensions).length !== 2) {

@@ -10,7 +10,11 @@ import type { TProjectedVolumeGrid } from "./volumeGrid.ts";
 
 import { transformProjectedAxesToLonLat } from "@/lib/data/coordinateVariables.ts";
 
-const VOLUME_PROJECTIONS = { MERCATOR: "merc", LAMBERT: "lcc" } as const;
+const VOLUME_PROJECTIONS = {
+  MERCATOR: "merc",
+  LAMBERT: "lcc",
+  ROTATED: "ob_tran",
+} as const;
 
 export function isSupportedVolumeCRS(crs: string | null | undefined) {
   if (!crs) {
@@ -18,8 +22,12 @@ export function isSupportedVolumeCRS(crs: string | null | undefined) {
   }
   try {
     const projection = new proj4.Proj(crs);
-    return Object.values(VOLUME_PROJECTIONS).some((name) =>
-      projection.names.includes(name)
+    return (
+      projection.names.includes(VOLUME_PROJECTIONS.MERCATOR) ||
+      projection.names.includes(VOLUME_PROJECTIONS.LAMBERT) ||
+      (projection.names.includes(VOLUME_PROJECTIONS.ROTATED) &&
+        "o_proj" in projection &&
+        projection.o_proj === "longlat")
     );
   } catch {
     return false;
@@ -39,11 +47,22 @@ function axisBounds(axis: ReturnType<typeof orderedAxis>) {
   };
 }
 
+function wrapToAxis(
+  value: number,
+  axis: ReturnType<typeof axisBounds>,
+  wrap: boolean
+) {
+  return wrap
+    ? value + 360 * Math.round(((axis.min + axis.max) / 2 - value) / 360)
+    : value;
+}
+
 function projectedBounds(
   x: ReturnType<typeof axisBounds>,
   y: ReturnType<typeof axisBounds>,
   transform: TProjectionConverter,
-  steps: number
+  steps: number,
+  wrapLongitude: boolean
 ) {
   const boundary: number[][] = [];
   // ponytail: Sample the curved boundary at source resolution. Adaptive edge
@@ -77,36 +96,43 @@ function projectedBounds(
   });
   const bounds = { west, east: east < west ? east + 360 : east, south, north };
   for (const pole of [-90, 90]) {
-    const [px, py] = transform.inverse([0, pole]);
+    const [nativeX, py] = transform.inverse([0, pole]);
+    const px = wrapToAxis(nativeX, x, wrapLongitude);
     if (px >= x.min && px <= x.max && py >= y.min && py <= y.max) {
       bounds.west = -180;
       bounds.east = 180;
-      if (pole > 0) {
-        bounds.north = 90;
-      } else {
-        bounds.south = -90;
-      }
+      bounds[pole > 0 ? "north" : "south"] = pole;
     }
   }
   return bounds;
 }
 
-function getLambertVolumeMapping(
+function getNativeVolumeMapping(
   grid: TProjectedVolumeGrid,
   width: number,
   height: number,
+  wrapLongitude: boolean,
   onProgress?: (completed: number, total: number) => void
 ) {
-  const x = orderedAxis(grid.x);
+  const x = orderedAxis(grid.x, wrapLongitude);
   const y = orderedAxis(grid.y);
   const xBounds = axisBounds(x);
   const yBounds = axisBounds(y);
+  if (wrapLongitude) {
+    if (y.coordinates.some((latitude) => Math.abs(latitude) > 90)) {
+      throw new Error("Rotated volume latitudes must be in degrees.");
+    }
+    xBounds.max = Math.min(xBounds.max, xBounds.min + 360);
+    yBounds.min = Math.max(yBounds.min, -90);
+    yBounds.max = Math.min(yBounds.max, 90);
+  }
   const transform = proj4(grid.crs, "EPSG:4326");
   const bounds = projectedBounds(
     xBounds,
     yBounds,
     transform,
-    Math.max(64, grid.x.length, grid.y.length)
+    Math.max(64, grid.x.length, grid.y.length),
+    wrapLongitude
   );
   const sourceCells = new Int32Array(width * height).fill(-1);
   for (let row = 0; row < height; row++) {
@@ -115,7 +141,8 @@ function getLambertVolumeMapping(
     for (let column = 0; column < width; column++) {
       const lon =
         bounds.west + ((column + 0.5) / width) * (bounds.east - bounds.west);
-      const [px, py] = transform.inverse([lon, lat]);
+      const [nativeX, py] = transform.inverse([lon, lat]);
+      const px = wrapToAxis(nativeX, xBounds, wrapLongitude);
       if (
         px >= xBounds.min &&
         px <= xBounds.max &&
@@ -139,7 +166,7 @@ export function getProjectedVolumeMapping(
 ) {
   if (!isSupportedVolumeCRS(grid.crs)) {
     throw new Error(
-      "Volume rendering supports Lambert and Mercator projected grids."
+      "Volume rendering supports Lambert, Mercator and rotated-pole grids."
     );
   }
   const projection = new proj4.Proj(grid.crs);
@@ -157,5 +184,11 @@ export function getProjectedVolumeMapping(
       onProgress
     );
   }
-  return getLambertVolumeMapping(grid, width, height, onProgress);
+  return getNativeVolumeMapping(
+    grid,
+    width,
+    height,
+    projection.names.includes(VOLUME_PROJECTIONS.ROTATED),
+    onProgress
+  );
 }

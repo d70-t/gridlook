@@ -64,7 +64,6 @@ import {
   updateProjectionUniforms,
 } from "@/lib/shaders/gridShaders.ts";
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
-import { loadProjectedVolumeGrid } from "@/lib/volume/volumeData.ts";
 import {
   VOLUME_GRID_TYPES,
   type TProjectedVolumeGrid,
@@ -149,18 +148,16 @@ const streamlines = useStreamlineLayer({
   registerAnimationCallback,
 });
 
-const volume = props.isRotated
-  ? undefined
-  : useVolume({
-      getDatasources: () => props.datasources,
-      getScene,
-      getRenderer,
-      redraw,
-      projectionHelper,
-      isSceneInMotion,
-      onProjectionChange,
-      onMotionStateChange,
-    });
+const volume = useVolume({
+  getDatasources: () => props.datasources,
+  getScene,
+  getRenderer,
+  redraw,
+  projectionHelper,
+  isSceneInMotion,
+  onProjectionChange,
+  onMotionStateChange,
+});
 
 function updateMeshProjectionUniforms() {
   updateProjectionMeshes(meshes, {
@@ -1038,23 +1035,20 @@ async function fetchAndRenderData(
     updateMeshMaterials(rawData);
     setHoverLookupFromIndex(hoverIndex, fillValue, missingValue);
   };
-  const volumeGrid = isProjectedGrid.value
-    ? await loadProjectedVolumeGrid(
-        props.datasources!,
-        varnameSelector.value,
-        selectedDimensionNames.value
-      )
-    : !isLatOnly.value
-      ? {
-          kind: VOLUME_GRID_TYPES.REGULAR,
-          latitudes: latitudes.value,
-          longitudes: longitudes.value,
-        }
-      : undefined;
+  const volumeGrid =
+    isProjectedGrid.value || props.isRotated
+      ? projectedGrid
+      : !isLatOnly.value
+        ? {
+            kind: VOLUME_GRID_TYPES.REGULAR,
+            latitudes: latitudes.value,
+            longitudes: longitudes.value,
+          }
+        : undefined;
   if (!isCurrent()) {
     return;
   }
-  volume?.setContext(
+  volume.setContext(
     volumeGrid
       ? {
           dimensionNames: selectedDimensionNames.value,

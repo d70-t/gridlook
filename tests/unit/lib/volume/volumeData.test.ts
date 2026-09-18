@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type * as zarr from "zarrita";
 
+import {
+  getProjectedXYLonLatData,
+  projectedAxisCoordinatesToLonLat,
+} from "@/lib/data/coordinateVariables.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { getGridVariableData } from "@/lib/grids/gridDataWorkerClient.ts";
 import { ZARR_FORMAT, type TSources } from "@/lib/types/GlobeTypes.ts";
@@ -173,7 +177,9 @@ it.each([
     } as unknown as zarr.Array<zarr.DataType, zarr.AsyncReadable>);
     vi.mocked(getGridVariableData).mockImplementation(async ({ variable }) =>
       variable === `${group}/${verticalDimension}`
-        ? new Float32Array([1000, 500, 100])
+        ? verticalDimension === "pres"
+          ? new BigInt64Array([1000n, 500n, 100n])
+          : new Float32Array([1000, 500, 100])
         : new Float32Array(12).fill(1)
     );
     const selection = {
@@ -203,50 +209,75 @@ it.each([
   }
 );
 
-it("loads decoded native x/y coordinates using the declared projection", async () => {
-  const datasource = sources();
-  datasource.levels[0].datasources = Object.fromEntries(
-    Object.entries({
-      field: {
-        shape: [2, 2, 2],
-        attrs: {
-          dimensionNames: ["level", "y", "x"],
-          ["grid_mapping"]: "projection",
+it.each([
+  { variableAttrs: { ["grid_mapping"]: "projection" }, groupAttrs: {} },
+  { variableAttrs: {}, groupAttrs: { ["grid_mapping"]: "projection" } },
+  { variableAttrs: {}, groupAttrs: { ["crs_wkt"]: "EPSG:3857" } },
+])(
+  "shares decoded x/y coordinates and projection with the 2D grid: %j",
+  // eslint-disable-next-line max-lines-per-function
+  async ({ variableAttrs, groupAttrs }) => {
+    const datasource = sources();
+    datasource.levels[0].datasources = Object.fromEntries(
+      Object.entries({
+        field: {
+          shape: [2, 2, 2],
+          attrs: {
+            dimensionNames: ["level", "y", "x"],
+            ...variableAttrs,
+          },
         },
-      },
-      x: { shape: [2], attrs: { ["scale_factor"]: 1000 } },
-      y: { shape: [2], attrs: { ["scale_factor"]: 1000 } },
-      projection: { shape: [], attrs: { ["crs_wkt"]: "EPSG:3857" } },
-    }).map(([name, metadata]) => [
-      `${group}/${name}`,
-      { ...datasource.levels[0].grid, ...metadata },
-    ])
-  );
-  vi.mocked(ZarrDataManager.getVariableInfoByDatasetSources).mockImplementation(
-    async (_, name) =>
-      datasource.levels[0].datasources[name] as unknown as zarr.Array<
-        zarr.DataType,
-        zarr.AsyncReadable
-      >
-  );
-  vi.spyOn(ZarrDataManager, "getVariableDataFromArray").mockResolvedValue({
-    data: new Int16Array([-2, 3]),
-    shape: [2],
-    stride: [1],
-  });
-  expect(
-    await loadProjectedVolumeGrid(datasource, `${group}/field`, [
+        x: { shape: [2], attrs: { ["scale_factor"]: 1000 } },
+        y: { shape: [2], attrs: { ["scale_factor"]: 1000 } },
+        projection: { shape: [], attrs: { ["crs_wkt"]: "EPSG:3857" } },
+      }).map(([name, metadata]) => [
+        `${group}/${name}`,
+        { ...datasource.levels[0].grid, groupAttrs, ...metadata },
+      ])
+    );
+    vi.spyOn(ZarrDataManager, "getDatasetGroup").mockResolvedValue({
+      attrs: groupAttrs,
+    } as unknown as Awaited<
+      ReturnType<typeof ZarrDataManager.getDatasetGroup>
+    >);
+    vi.mocked(ZarrDataManager.getVariableInfo).mockImplementation(
+      async (_, name) =>
+        datasource.levels[0].datasources[name] as unknown as zarr.Array<
+          zarr.DataType,
+          zarr.AsyncReadable
+        >
+    );
+    vi.spyOn(ZarrDataManager, "getVariableDataFromArray").mockResolvedValue({
+      data: new Int16Array([-2, 3]),
+      shape: [2],
+      stride: [1],
+    });
+    const grid = await loadProjectedVolumeGrid(datasource, `${group}/field`, [
       "level",
       "y",
       "x",
-    ])
-  ).toEqual({
-    kind: "projected",
-    crs: "EPSG:3857",
-    x: new Float32Array([-2000, 3000]),
-    y: new Float32Array([-2000, 3000]),
-  });
-});
+    ]);
+    expect(grid).toEqual({
+      kind: "projected",
+      crs: "EPSG:3857",
+      x: new Float32Array([-2000, 3000]),
+      y: new Float32Array([-2000, 3000]),
+    });
+    const geographic = await getProjectedXYLonLatData(
+      `${group}/field`,
+      {} as zarr.Array<zarr.DataType, zarr.AsyncReadable>,
+      datasource,
+      ["level", "y", "x"]
+    );
+    const axes = projectedAxisCoordinatesToLonLat(grid!.x, grid!.y, grid!.crs);
+    expect(axes.longitudes[0]).toBe(geographic.longitudes.data[0]);
+    expect(axes.latitudes[1]).toBe(geographic.latitudes.data[2]);
+    expect(geographic.longitudes.data[0]).toBeCloseTo(-0.0179663, 6);
+    expect(geographic.longitudes.data[1]).toBeCloseTo(0.0269495, 6);
+    expect(geographic.latitudes.data[0]).toBeCloseTo(-0.0179663, 6);
+    expect(geographic.latitudes.data[2]).toBeCloseTo(0.0269495, 6);
+  }
+);
 
 it.each([
   ["level", { axis: "T" }],

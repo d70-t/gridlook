@@ -1,5 +1,6 @@
 import type * as zarr from "zarrita";
 
+import { loadGridAxes } from "@/lib/data/coordinateVariables.ts";
 import {
   castDataVarToFloat32,
   decodeVariableDataAndGetBounds,
@@ -26,21 +27,7 @@ export async function loadProjectedVolumeGrid(
   if (!crs) {
     return undefined;
   }
-  const [y, x] = await Promise.all(
-    dimensions.slice(-2).map(async (name) => {
-      const path = ZarrDataManager.resolveVariablePath(variable, name);
-      const coordinate = await ZarrDataManager.getVariableInfoByDatasetSources(
-        datasources,
-        path
-      );
-      const values = castDataVarToFloat32(
-        (await ZarrDataManager.getVariableDataFromArray(coordinate, [null]))
-          .data
-      );
-      decodeVariableDataAndGetBounds(coordinate, values);
-      return values;
-    })
-  );
+  const { x, y } = await loadGridAxes(datasources, variable, dimensions);
   return { kind: VOLUME_GRID_TYPES.PROJECTED, x, y, crs };
 }
 
