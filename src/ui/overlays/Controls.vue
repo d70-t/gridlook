@@ -16,6 +16,7 @@ import ProjectionControls from "./controls/ProjectionControls.vue";
 import VariableSelector from "./controls/VariableSelector.vue";
 
 // Import control components
+import type { T_GRID_TYPES } from "@/lib/data/gridTypeDetector.ts";
 import {
   clamp,
   PROJECTION_TYPES,
@@ -32,6 +33,7 @@ import { MOBILE_BREAKPOINT } from "@/ui/common/viewConstants.ts";
 
 const props = defineProps<{
   modelInfo?: TModelInfo;
+  gridType?: T_GRID_TYPES;
   currentSource: string;
   infoPanelOpen: boolean;
 }>();
@@ -454,7 +456,7 @@ defineExpose({
               </PopupDialog>
             </div>
           </div>
-          <LayerPanel :model-info="modelInfo" />
+          <LayerPanel :model-info="modelInfo" :grid-type="gridType" />
         </CollapsibleCard>
         <CollapsibleCard title="Actions">
           <ActionControls

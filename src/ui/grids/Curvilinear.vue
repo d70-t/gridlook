@@ -9,6 +9,7 @@ import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useIrregularStreamlines } from "./composables/useIrregularStreamlines.ts";
 import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
+import { useVolume } from "./composables/useVolume.ts";
 
 import {
   getLatLonData,
@@ -41,6 +42,7 @@ import {
 } from "@/lib/projection/projectionEdgeQuality.ts";
 import { makeInvertableGpuMeshMaterial } from "@/lib/shaders/gridShaders.ts";
 import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
+import { loadProjectedVolumeGrid } from "@/lib/volume/volumeData.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 
@@ -65,6 +67,7 @@ let magnitudeContext:
 
 const {
   getScene,
+  getRenderer,
   redraw,
   makeSnapshot,
   toggleRotate,
@@ -114,6 +117,17 @@ const scalarCache = useScalarFieldCache({
   updateHistogram,
   updateColormap: () => updateColormap(meshes),
   redraw,
+});
+
+const volume = useVolume({
+  getDatasources: () => props.datasources,
+  getScene,
+  getRenderer,
+  redraw,
+  projectionHelper,
+  isSceneInMotion,
+  onProjectionChange,
+  onMotionStateChange,
 });
 
 const streamlines = useIrregularStreamlines({
@@ -414,9 +428,17 @@ async function fetchAndRenderData(
     fitCameraToDataset(meshes);
     setHoverLookupFromIndex(hoverIndex, fillValue, missingValue);
   };
+  const projectedGrid = await loadProjectedVolumeGrid(
+    props.datasources!,
+    varnameSelector.value,
+    dimensionNames
+  );
   if (!isCurrent()) {
     return;
   }
+  volume.setContext(
+    projectedGrid ? { dimensionNames, indices, grid: projectedGrid } : undefined
+  );
   scalarCache.captureScalar({
     render: renderScalar,
     info: scalarInfo,

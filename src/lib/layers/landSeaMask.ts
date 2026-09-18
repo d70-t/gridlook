@@ -43,10 +43,6 @@ function getMaskConfig(mode: TLandSeaMaskMode): TMaskConfig {
   };
 }
 
-function isGlobeMaskMode(mode: TLandSeaMaskMode): boolean {
-  return mode === LAND_SEA_MASK_MODES.GLOBE;
-}
-
 /**
  * Threshold all alpha values to be exactly 0 or 255.
  * Canvas2D anti-aliases path edges, creating semi-transparent fringe pixels.
@@ -177,7 +173,7 @@ class GpuProjectedMaskRenderer {
     config: TMaskConfig
   ): Promise<THREE.Texture> {
     // Globe texture also goes through a canvas so its antimeridian columns match.
-    if (isGlobeMaskMode(mode) && useTexture) {
+    if (mode === LAND_SEA_MASK_MODES.GLOBE && useTexture) {
       return this.createGlobeTexture();
     }
 
@@ -200,7 +196,7 @@ class GpuProjectedMaskRenderer {
     const land = await ResourceCache.loadLandGeoJSON();
     const path = createEquirectangularPath(ctx, width, height);
 
-    if (isGlobeMaskMode(mode)) {
+    if (mode === LAND_SEA_MASK_MODES.GLOBE) {
       await this.renderGlobeMode(ctx, path, land, useTexture, width, height);
     } else {
       await this.renderMaskedMode(

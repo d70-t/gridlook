@@ -13,6 +13,7 @@ import {
 } from "vue3-select-component";
 import "vue3-select-component/styles.css";
 
+import type { T_GRID_TYPES } from "@/lib/data/gridTypeDetector.ts";
 import {
   getVariableGroup,
   levelAxesAreIdentical,
@@ -32,6 +33,7 @@ import {
   saveTexture,
 } from "@/lib/layers/textureStore.ts";
 import type { TModelInfo } from "@/lib/types/GlobeTypes.ts";
+import { getVolumeUnavailableReason } from "@/lib/volume/volumeVariables.ts";
 import {
   BUILTIN_LAYER_NAMES,
   COASTLINE_RESOLUTIONS,
@@ -43,9 +45,11 @@ import {
   type TLayerKind,
 } from "@/store/store.ts";
 import { useLog } from "@/ui/common/useLog.ts";
+import VolumeControls from "@/ui/overlays/controls/VolumeControls.vue";
 
 const props = defineProps<{
   modelInfo?: TModelInfo;
+  gridType?: T_GRID_TYPES;
 }>();
 
 const store = useGlobeControlStore();
@@ -65,6 +69,9 @@ const {
   streamlineLevelIndex,
   streamlineLevelInfo,
   streamlineSelection,
+  volumeLoading,
+  volumeProgress,
+  volumeAvailable,
   varnameDisplay,
   varnameSelector,
   varinfo,
@@ -89,6 +96,7 @@ const ADD_LAYER_ACTIONS = {
   GRATICULES: LAYER_KINDS.GRATICULES,
   MASK: LAYER_KINDS.MASK,
   STREAMLINES: LAYER_KINDS.STREAMLINES,
+  VOLUME: LAYER_KINDS.VOLUME,
   UPLOAD: "upload",
   VARIABLE_IMAGE: "variable-image",
 } as const;
@@ -101,6 +109,7 @@ type TAddLayerOption = {
   label: string;
   icon: string;
   disabled?: boolean;
+  disabledReason?: string;
 };
 
 const vectorVariableGroup = computed(() => {
@@ -118,6 +127,15 @@ const vectorVariables = computed(() =>
         getVariableGroup(name) === vectorVariableGroup.value
     )
     .sort((a, b) => a.localeCompare(b))
+);
+
+const volumeUnavailableReason = computed(() =>
+  getVolumeUnavailableReason(
+    props.modelInfo,
+    varnameSelector.value,
+    props.gridType,
+    volumeAvailable.value
+  )
 );
 
 function vectorVariableLabel(name: string) {
@@ -305,6 +323,7 @@ const LAYER_ICONS: Record<TLayerKind, string> = {
   [LAYER_KINDS.GRID]: "fa-border-all",
   [LAYER_KINDS.MASK]: "fa-mask",
   [LAYER_KINDS.STREAMLINES]: "fa-wind",
+  [LAYER_KINDS.VOLUME]: "fa-cloud",
   [LAYER_KINDS.TEXTURE]: "fa-image",
 };
 
@@ -422,6 +441,9 @@ const LAYER_PROPERTIES: Record<TLayerKind, TLayerProperties> = {
   [LAYER_KINDS.STREAMLINES]: {
     buttons: [LAYER_BUTTONS.OPACITY, LAYER_BUTTONS.REMOVE],
   },
+  [LAYER_KINDS.VOLUME]: {
+    buttons: [LAYER_BUTTONS.OPACITY, LAYER_BUTTONS.REMOVE],
+  },
   [LAYER_KINDS.TEXTURE]: {
     buttons: [
       LAYER_BUTTONS.OPACITY,
@@ -493,6 +515,11 @@ async function downloadLayer(layer: TLayerEntry) {
 }
 
 function onDragStart(event: DragEvent, layer: TLayerEntry) {
+  if (isLayerControl(event.target) || isLayerControl(document.activeElement)) {
+    event.preventDefault();
+    endDrag();
+    return;
+  }
   draggedId.value = layer.id;
   event.dataTransfer!.effectAllowed = "move";
 }
@@ -513,7 +540,9 @@ function isLayerControl(target: EventTarget | null) {
   return (
     target instanceof Element &&
     Boolean(
-      target.closest(".layer-actions, .layer-details, .streamline-components")
+      target.closest(
+        ".layer-actions, .layer-details, .streamline-components, .volume-controls"
+      )
     )
   );
 }
@@ -578,6 +607,9 @@ function isLayerVisible(layer: TLayerEntry) {
 }
 
 function isLayerAvailable(layer: TLayerEntry) {
+  if (layer.kind === LAYER_KINDS.VOLUME) {
+    return !volumeUnavailableReason.value;
+  }
   return layer.kind !== LAYER_KINDS.STREAMLINES || Boolean(props.modelInfo);
 }
 
@@ -589,6 +621,7 @@ function hasDisplayedLayer(kind: TLayerKind) {
   return displayedLayerStack.value.some((layer) => layer.kind === kind);
 }
 
+// eslint-disable-next-line max-lines-per-function
 const addLayerOptions = computed<TAddLayerOption[]>(() => {
   const options: TAddLayerOption[] = [];
   if (!hasDisplayedLayer(LAYER_KINDS.COASTLINES)) {
@@ -618,6 +651,15 @@ const addLayerOptions = computed<TAddLayerOption[]>(() => {
       label: BUILTIN_LAYER_NAMES[LAYER_KINDS.STREAMLINES],
       icon: LAYER_ICONS[LAYER_KINDS.STREAMLINES],
       disabled: !props.modelInfo,
+    });
+  }
+  if (!hasDisplayedLayer(LAYER_KINDS.VOLUME)) {
+    options.push({
+      value: ADD_LAYER_ACTIONS.VOLUME,
+      label: BUILTIN_LAYER_NAMES[LAYER_KINDS.VOLUME],
+      icon: LAYER_ICONS[LAYER_KINDS.VOLUME],
+      disabled: Boolean(volumeUnavailableReason.value),
+      disabledReason: volumeUnavailableReason.value,
     });
   }
   options.push(
@@ -660,6 +702,9 @@ function addLayer(action: TAddLayerAction) {
   } else if (action === ADD_LAYER_ACTIONS.STREAMLINES) {
     store.restoreBuiltinLayer(LAYER_KINDS.STREAMLINES);
     store.setStreamlineLayerEnabled(true);
+  } else if (action === ADD_LAYER_ACTIONS.VOLUME) {
+    store.restoreBuiltinLayer(LAYER_KINDS.VOLUME);
+    store.setVolumeLayerEnabled(true);
   } else if (action === ADD_LAYER_ACTIONS.UPLOAD) {
     fileInput.value?.click();
   } else if (
@@ -760,6 +805,16 @@ function getLayerName(layer: TLayerEntry) {
           </span>
           <span class="layer-name is-size-7" :title="getLayerName(layer)">
             {{ layer.name }}
+            <span
+              v-if="layer.kind === LAYER_KINDS.VOLUME && volumeLoading"
+              class="layer-progress ml-1"
+              title="Preparing volume"
+            >
+              <span class="icon is-small" aria-hidden="true">
+                <span class="loader"></span>
+              </span>
+              <span>{{ volumeProgress ?? 0 }}%</span>
+            </span>
             <template
               v-if="layer.kind === LAYER_KINDS.GRID && varnameDisplay !== '-'"
             >
@@ -767,7 +822,7 @@ function getLayerName(layer: TLayerEntry) {
             </template>
             <span
               v-if="layer.kind === LAYER_KINDS.STREAMLINES && streamlineLoading"
-              class="streamline-progress ml-1"
+              class="layer-progress ml-1"
               role="img"
               tabindex="0"
               title=""
@@ -871,7 +926,7 @@ function getLayerName(layer: TLayerEntry) {
             class="button is-small is-light"
             :class="{ 'is-info': isLayerVisible(layer) }"
             type="button"
-            :disabled="layer.kind === LAYER_KINDS.STREAMLINES && !modelInfo"
+            :disabled="!isLayerAvailable(layer)"
             :title="isLayerVisible(layer) ? 'Hide layer' : 'Show layer'"
             :aria-pressed="isLayerVisible(layer)"
             @click="toggleLayer(layer)"
@@ -1064,6 +1119,11 @@ function getLayerName(layer: TLayerEntry) {
             </button>
           </div>
         </div>
+        <VolumeControls
+          v-if="layer.kind === LAYER_KINDS.VOLUME && isLayerVisible(layer)"
+          class="volume-controls"
+          :model-info="modelInfo"
+        />
       </li>
     </ul>
     <SelectRoot
@@ -1089,12 +1149,18 @@ function getLayerName(layer: TLayerEntry) {
             :value="option.value"
             :label="option.label"
             :disabled="option.disabled"
+            :aria-description="option.disabledReason"
           >
             <span class="add-layer-option">
               <span class="icon is-small">
                 <i class="fa-solid" :class="option.icon"></i>
               </span>
-              <span>{{ option.label }}</span>
+              <span>
+                {{ option.label }}
+                <span v-if="option.disabledReason" class="is-block is-size-7">
+                  {{ option.disabledReason }}
+                </span>
+              </span>
             </span>
           </SelectOption>
         </SelectListbox>
@@ -1158,7 +1224,7 @@ function getLayerName(layer: TLayerEntry) {
   touch-action: none;
 }
 
-.streamline-progress {
+.layer-progress {
   --bulma-border: var(--bulma-info);
   display: inline-flex;
   align-items: center;
@@ -1175,8 +1241,8 @@ function getLayerName(layer: TLayerEntry) {
   pointer-events: none;
 }
 
-.streamline-progress:hover .streamline-progress-tooltip,
-.streamline-progress:focus-visible .streamline-progress-tooltip {
+.layer-progress:hover .streamline-progress-tooltip,
+.layer-progress:focus-visible .streamline-progress-tooltip {
   visibility: visible;
 }
 
@@ -1209,6 +1275,11 @@ function getLayerName(layer: TLayerEntry) {
     height: auto;
     white-space: normal;
   }
+}
+
+.volume-controls {
+  flex-basis: 100%;
+  padding-left: 1.65rem;
 }
 
 .layer-name {
@@ -1321,5 +1392,12 @@ function getLayerName(layer: TLayerEntry) {
   --vs-option-hover-background-color: var(--bulma-scheme-main-bis, #fafafa);
   --vs-option-focused-background-color: var(--bulma-scheme-main-ter, #f5f5f5);
   --vs-option-selected-background-color: var(--bulma-info-soft, #eef6fc);
+}
+
+@media (max-width: 480px) {
+  .volume-controls,
+  .streamline-components {
+    padding-left: 0;
+  }
 }
 </style>

@@ -6,6 +6,7 @@ import type { TDatasetSource, TZarrFormat } from "@/lib/types/GlobeTypes.ts";
 
 export const GridDataWorkerMessageType = {
   GET_DATA: "getData",
+  PROGRESS: "progress",
   RESULT: "result",
   ERROR: "error",
 } as const;
@@ -20,6 +21,7 @@ export type TGridDataWorkerRequest = {
   variable: string;
   format: TZarrFormat;
   selection: (number | null | zarr.Slice)[];
+  reportProgress?: boolean;
 };
 
 export type TGridDataWorkerResult = {
@@ -33,6 +35,11 @@ type TGridDataWorkerResponseBase = {
 };
 
 export type TGridDataWorkerResponse =
+  | (TGridDataWorkerResponseBase & {
+      type: typeof GridDataWorkerMessageType.PROGRESS;
+      completed: number;
+      total: number;
+    })
   | (TGridDataWorkerResponseBase & {
       type: typeof GridDataWorkerMessageType.RESULT;
       data: TGridDataWorkerResult["data"];

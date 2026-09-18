@@ -170,3 +170,19 @@ it("removes and restores built-in layers", () => {
     store.layerStack.filter((layer) => layer.id === BUILTIN_LAYER_IDS.MASK)
   ).toHaveLength(1);
 });
+
+it("sets volume layer visibility and selection", () => {
+  const store = useGlobeControlStore();
+
+  expect(store.isVolumeLayerEnabled()).toBe(false);
+  store.setVolumeSelections([
+    { variable: "clw", color: "#ffffff", opacity: 0.8 },
+  ]);
+  store.setVolumeLayerEnabled(true);
+  expect(store.isVolumeLayerEnabled()).toBe(true);
+  expect(store.volumeSelections).toEqual([
+    { variable: "clw", color: "#ffffff", opacity: 0.8 },
+  ]);
+  store.setVolumeLayerEnabled(false);
+  expect(store.isVolumeLayerEnabled()).toBe(false);
+});

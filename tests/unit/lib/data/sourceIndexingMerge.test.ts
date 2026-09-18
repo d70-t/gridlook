@@ -13,7 +13,7 @@ it("preserves grouped variables, coordinates, and special keys when merging", as
   ];
   const metadata: Record<string, unknown> = {
     ".zgroup": { zarr_format: 2 },
-    ".zattrs": {},
+    ".zattrs": { crs_wkt: "EPSG:3857" },
     "first/.zgroup": { zarr_format: 2 },
     "second/.zgroup": { zarr_format: 2 },
   };
@@ -40,6 +40,9 @@ it("preserves grouped variables, coordinates, and special keys when merging", as
     const sources = index.levels[0].datasources;
     expect(Object.keys(sources)).toEqual(names);
     expect(sources["first/temperature"].hidden).toBe(false);
+    expect(sources["first/temperature"].groupAttrs).toEqual({
+      crs_wkt: "EPSG:3857",
+    });
     expect(sources["second/temperature"].hidden).toBe(false);
     expect(sources["first/cell"].hidden).toBe(true);
     expect(sources["second/cell"].hidden).toBe(true);

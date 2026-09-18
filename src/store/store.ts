@@ -45,6 +45,7 @@ export const LAYER_KINDS = {
   GRID: "grid",
   MASK: "mask",
   STREAMLINES: "streamlines",
+  VOLUME: "volume",
   TEXTURE: "texture",
 } as const;
 
@@ -72,6 +73,7 @@ export const BUILTIN_LAYER_IDS = {
   GRID: "grid",
   MASK: "mask",
   STREAMLINES: "streamlines",
+  VOLUME: "volume",
 } as const;
 
 export const LAYER_OPACITY = {
@@ -99,6 +101,12 @@ export type TLayerEntry = {
   maskMode: TLandSeaMaskMode;
 };
 
+export type TVolumeSelection = {
+  variable: string;
+  color: string;
+  opacity: number;
+};
+
 function normalizeLayerOpacity(opacity: number) {
   if (!Number.isFinite(opacity)) {
     return LAYER_OPACITY.MAX;
@@ -118,6 +126,7 @@ export const BUILTIN_LAYER_NAMES = {
   [LAYER_KINDS.GRID]: "Data grid",
   [LAYER_KINDS.MASK]: "Land/sea mask",
   [LAYER_KINDS.STREAMLINES]: "Flow streamlines",
+  [LAYER_KINDS.VOLUME]: "Volume",
 } as const satisfies Record<
   Exclude<TLayerKind, typeof LAYER_KINDS.TEXTURE>,
   string
@@ -156,6 +165,12 @@ const BUILTIN_LAYER_DEFAULTS: Record<TBuiltinLayerKind, TBuiltinLayerDefaults> =
       id: BUILTIN_LAYER_IDS.STREAMLINES,
       kind: LAYER_KINDS.STREAMLINES,
       opacity: 0.55,
+      maskMode: LAND_SEA_MASK_MODES.OFF,
+    },
+    [LAYER_KINDS.VOLUME]: {
+      id: BUILTIN_LAYER_IDS.VOLUME,
+      kind: LAYER_KINDS.VOLUME,
+      opacity: LAYER_OPACITY.MAX,
       maskMode: LAND_SEA_MASK_MODES.OFF,
     },
   };
@@ -254,6 +269,10 @@ export const useGlobeControlStore = defineStore("globeControl", {
       // if the value is even, the change is a new dataset; if odd, it's a
       // variable change within the same dataset
       newDatasetSignifier: 0 as number,
+      volumeSelections: [] as TVolumeSelection[],
+      volumeLoading: false,
+      volumeProgress: undefined as number | undefined,
+      volumeAvailable: false,
     };
   },
   actions: {
@@ -264,6 +283,9 @@ export const useGlobeControlStore = defineStore("globeControl", {
         this.newDatasetSignifier += 1;
       }
       this.resetStreamlineSelection();
+      this.volumeSelections = [];
+      this.volumeLoading = false;
+      this.volumeProgress = undefined;
     },
     signifyVariableChange() {
       if (this.newDatasetSignifier % 2 === 0) {
@@ -451,6 +473,30 @@ export const useGlobeControlStore = defineStore("globeControl", {
           this.setStreamlineMagnitudeDisplayed(false);
         }
       }
+    },
+    isVolumeLayerEnabled() {
+      return Boolean(
+        this.layerStack.find((entry) => entry.id === BUILTIN_LAYER_IDS.VOLUME)
+          ?.visible
+      );
+    },
+    setVolumeLayerEnabled(enabled: boolean) {
+      if (enabled) {
+        this.restoreBuiltinLayer(LAYER_KINDS.VOLUME);
+      }
+      const layer = this.layerStack.find(
+        (entry) => entry.id === BUILTIN_LAYER_IDS.VOLUME
+      );
+      if (layer) {
+        layer.visible = enabled;
+      }
+    },
+    setVolumeSelections(selections: TVolumeSelection[]) {
+      this.volumeSelections = selections.slice(0, 4).map((selection) => ({
+        variable: selection.variable,
+        color: selection.color,
+        opacity: normalizeLayerOpacity(selection.opacity),
+      }));
     },
     // moves the entry so it ends up at index `toIndex` of the resulting array
     moveLayer(id: string, toIndex: number) {

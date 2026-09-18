@@ -131,6 +131,45 @@ it("reads NetCDF data through the main-thread wrapper", async () => {
   expect(TMockWorker.instances).toHaveLength(0);
 });
 
+it("keeps volume progress separate from concurrent streamline reads", async () => {
+  const onProgress = vi.fn();
+  const volume = getGridVariableData({
+    ...request([4, null, null]),
+    variable: "clw",
+    onProgress,
+  });
+  const wind = getGridVariableData({
+    ...request([4, 1, null]),
+    variable: "ua",
+  });
+  const worker = TMockWorker.instances[0];
+  const [volumeRequest, windRequest] = worker.messages;
+  expect(volumeRequest.reportProgress).toBe(true);
+  expect(windRequest.reportProgress).toBe(false);
+  worker.emit({
+    requestId: volumeRequest.requestId,
+    type: GridDataWorkerMessageType.PROGRESS,
+    completed: 1,
+    total: 2,
+  });
+  worker.emit({
+    requestId: windRequest.requestId,
+    type: GridDataWorkerMessageType.RESULT,
+    data: new Float32Array([3]),
+    shape: [1],
+  });
+  await expect(wind).resolves.toEqual(new Float32Array([3]));
+  worker.emit({
+    requestId: volumeRequest.requestId,
+    type: GridDataWorkerMessageType.RESULT,
+    data: new Float32Array([1, 2]),
+    shape: [2, 1],
+  });
+  await expect(volume).resolves.toEqual(new Float32Array([1, 2]));
+  expect(onProgress).toHaveBeenCalledExactlyOnceWith(1, 2);
+  expect(worker.terminated).toBe(false);
+});
+
 describe("grid data worker lifecycle", () => {
   it("terminates the worker after a synchronous post failure", async () => {
     TMockWorker.nextPostError = new Error("post failed");

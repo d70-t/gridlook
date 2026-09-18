@@ -15,6 +15,7 @@ import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 import { useStreamlineLayer } from "./composables/useStreamlineLayer.ts";
+import { useVolume } from "./composables/useVolume.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
 import { loadVectorComponents } from "@/lib/data/streamlineData.ts";
@@ -62,6 +63,7 @@ import {
   makeGpuProjectedTextureMaterial,
 } from "@/lib/shaders/gridShaders.ts";
 import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
+import { VOLUME_GRID_TYPES } from "@/lib/volume/volumeGrid.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import {
   HOVERED_GRID_POINT_STATUS,
@@ -102,6 +104,7 @@ const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
 
 const {
   getScene,
+  getRenderer,
   redraw,
   makeSnapshot,
   toggleRotate,
@@ -163,6 +166,17 @@ const streamlines = useStreamlineLayer({
   projectionHelper,
   onProjectionChange,
   registerAnimationCallback,
+});
+
+const volume = useVolume({
+  getDatasources: () => props.datasources,
+  getScene,
+  getRenderer,
+  redraw,
+  projectionHelper,
+  isSceneInMotion,
+  onProjectionChange,
+  onMotionStateChange,
 });
 
 /**
@@ -907,6 +921,25 @@ async function fetchAndRenderData(
   const { dataMin, dataMax, histogramSummaries, textures, batches } = result;
 
   lastStreamlineContext = { indices, grid, cellCoord };
+  volume.setContext({
+    dimensionNames: selectedDimensionNames.value,
+    indices,
+    grid: {
+      kind: VOLUME_GRID_TYPES.HEALPIX,
+      nside: grid.nside,
+      cellCoordinates: cellCoord ? Float64Array.from(cellCoord) : undefined,
+      options: {
+        scheme: grid.scheme,
+        level: grid.level,
+        ellipsoid: {
+          // eslint-disable-next-line camelcase
+          semi_major_axis: grid.semiMajorAxis,
+          // eslint-disable-next-line camelcase
+          semi_minor_axis: grid.semiMajorAxis * (1 - grid.flattening),
+        },
+      },
+    },
+  });
 
   if (!isCurrent()) {
     return;

@@ -244,7 +244,8 @@ export class ZarrDataManager {
 
   static getVariableDataFromArray(
     array: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
-    selection?: (number | null | zarr.Slice)[]
+    selection?: (number | null | zarr.Slice)[],
+    options?: zarr.GetOptions
   ) {
     if (this.isNetCDFNode(array)) {
       return this.getNetCDFBackend().getArray(
@@ -253,9 +254,9 @@ export class ZarrDataManager {
       );
     }
     if (selection && selection.length > 0) {
-      return zarr.get(array, selection);
+      return zarr.get(array, selection, options);
     }
-    return zarr.get(array);
+    return zarr.get(array, null, options);
   }
 
   static async getCRSInfo(
@@ -278,17 +279,25 @@ export class ZarrDataManager {
       varname,
       datasources.zarr_format
     );
-    if (datavar.attrs?.grid_mapping) {
-      return String(datavar.attrs.grid_mapping).split(":")[0];
-    }
-    const group = await ZarrDataManager.getDatasetGroup(source);
-    if (group.attrs?.grid_mapping) {
-      return String(group.attrs.grid_mapping).split(":")[0];
+    const group = datavar.attrs?.grid_mapping
+      ? undefined
+      : await ZarrDataManager.getDatasetGroup(source);
+    return this.getCRSVariableName(datavar.attrs, group?.attrs);
+  }
+
+  static getCRSVariableName(
+    variableAttrs: zarr.Attributes,
+    groupAttrs: zarr.Attributes = {}
+  ) {
+    // The variable's CF mapping takes precedence; group metadata is a fallback.
+    const mapping = variableAttrs.grid_mapping ?? groupAttrs.grid_mapping;
+    if (mapping) {
+      return String(mapping).split(":")[0].trim();
     }
     if (
-      (datavar.attrs?.coordinates as string | undefined)?.includes(
-        "spatial_ref"
-      )
+      (variableAttrs.coordinates as string | undefined)
+        ?.split(/\s+/)
+        .includes("spatial_ref")
     ) {
       return "spatial_ref";
     }

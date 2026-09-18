@@ -21,11 +21,13 @@ export type TGridDataRequest = {
   variable: string;
   format: TZarrFormat;
   selection: (number | null | zarr.Slice)[];
+  onProgress?: (completed: number, total: number) => void;
 };
 
 type TPendingRequest = {
   resolve: (result: TGridDataWorkerResult) => void;
   reject: (reason?: unknown) => void;
+  onProgress?: (completed: number, total: number) => void;
 };
 
 let worker: Worker | null = null;
@@ -49,6 +51,7 @@ function handleWorkerMessage(message: unknown) {
   }
   const response = message as TGridDataWorkerResponse;
   if (
+    response.type !== GridDataWorkerMessageType.PROGRESS &&
     response.type !== GridDataWorkerMessageType.RESULT &&
     response.type !== GridDataWorkerMessageType.ERROR
   ) {
@@ -63,6 +66,10 @@ function handleWorkerMessage(message: unknown) {
   }
   const pending = pendingRequests.get(response.requestId);
   if (!pending) {
+    return;
+  }
+  if (response.type === GridDataWorkerMessageType.PROGRESS) {
+    pending.onProgress?.(response.completed, response.total);
     return;
   }
   pendingRequests.delete(response.requestId);
@@ -147,6 +154,7 @@ export function getGridVariableChunk(request: TGridDataRequest) {
     },
     variable: request.variable,
     format: request.format,
+    reportProgress: Boolean(request.onProgress),
     selection: request.selection.map((selection) => {
       if (typeof selection !== "object" || selection === null) {
         return selection;
@@ -160,7 +168,11 @@ export function getGridVariableChunk(request: TGridDataRequest) {
   };
 
   return new Promise<TGridDataWorkerResult>((resolve, reject) => {
-    pendingRequests.set(requestId, { resolve, reject });
+    pendingRequests.set(requestId, {
+      resolve,
+      reject,
+      onProgress: request.onProgress,
+    });
     try {
       getWorker().postMessage(message);
     } catch (error) {
