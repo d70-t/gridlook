@@ -81,6 +81,8 @@ export function buildVolumeTextureInWorker(
     transfer.push(grid.cellCoordinates.buffer);
   } else if (grid.kind === VOLUME_GRID_TYPES.REGULAR) {
     transfer.push(grid.latitudes.buffer, grid.longitudes.buffer);
+  } else if (grid.kind === VOLUME_GRID_TYPES.PROJECTED) {
+    transfer.push(grid.x.buffer, grid.y.buffer);
   }
   return new Promise<Extract<TVolumeTextureWorkerResponse, { type: "result" }>>(
     (resolve, reject) => {

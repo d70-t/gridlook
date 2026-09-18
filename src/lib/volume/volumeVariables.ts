@@ -1,11 +1,15 @@
 import {
+  getWktFromAttrs,
   isLatitudeName,
   isLongitudeName,
+  isProjectedXName,
+  isProjectedYName,
 } from "@/lib/data/coordinateVariables.ts";
 import { verticalCoordinateScore } from "@/lib/data/dimensionData.ts";
 import { isTimeCoordinate } from "@/lib/data/timeHandling.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import type { TDataSource, TModelInfo } from "@/lib/types/GlobeTypes.ts";
+import { isSupportedVolumeCRS } from "@/lib/volume/projectedVolumeMapping.ts";
 
 function dimensionNames(source: TDataSource) {
   const names =
@@ -19,12 +23,45 @@ export function volumeSpatialDimensions(dimensions: string[]) {
   }
   if (
     dimensions.length >= 2 &&
-    isLatitudeName(dimensions.at(-2)!) &&
-    isLongitudeName(dimensions.at(-1)!)
+    ((isLatitudeName(dimensions.at(-2)!) &&
+      isLongitudeName(dimensions.at(-1)!)) ||
+      (isProjectedYName(dimensions.at(-2)!) &&
+        isProjectedXName(dimensions.at(-1)!)))
   ) {
     return dimensions.slice(-2);
   }
   return [];
+}
+
+export function projectedVolumeCRS(
+  variable: string,
+  sources: Record<string, TDataSource>
+) {
+  const source = sources[variable];
+  if (!source) {
+    return undefined;
+  }
+  const dimensions = dimensionNames(source);
+  if (
+    !isProjectedYName(dimensions.at(-2) ?? "") ||
+    !isProjectedXName(dimensions.at(-1) ?? "")
+  ) {
+    return undefined;
+  }
+  for (const name of dimensions.slice(-2)) {
+    const axis = sources[ZarrDataManager.resolveVariablePath(variable, name)];
+    if (axis?.shape?.length !== 1 || axis.shape[0] < 2) {
+      return undefined;
+    }
+  }
+  const mapping = String(source.attrs?.grid_mapping ?? "crs")
+    .split(":")[0]
+    .trim();
+  const attrs =
+    sources[ZarrDataManager.resolveVariablePath(variable, mapping)]?.attrs ??
+    {};
+  const crs = getWktFromAttrs(attrs);
+  return isSupportedVolumeCRS(crs) ? crs : undefined;
 }
 
 export function volumeVerticalDimension(
@@ -47,7 +84,7 @@ export function volumeVerticalDimension(
   return candidates.length === 1 ? candidates[0] : undefined;
 }
 
-/** Supported volumes have one vertical axis and geographic horizontal axes. */
+/** Supported volumes have one vertical axis and supported horizontal axes. */
 export function isVolumeVariable(
   source: TDataSource,
   variable = "",
@@ -62,6 +99,12 @@ export function isVolumeVariable(
     return false;
   }
   const spatial = volumeSpatialDimensions(dimensions);
+  if (
+    isProjectedXName(spatial.at(-1) ?? "") &&
+    !projectedVolumeCRS(variable, sources)
+  ) {
+    return false;
+  }
   if (
     spatial.length === 0 ||
     shape.slice(-spatial.length).some((size) => size < 1)
@@ -103,7 +146,9 @@ export function getVolumeVariablesForGroup(
       variableGroup(name) === selectedGroup &&
       volumeSpatialDimensions(dimensionNames(modelInfo!.vars[name])).join(
         "\0"
-      ) === spatial.join("\0")
+      ) === spatial.join("\0") &&
+      projectedVolumeCRS(name, modelInfo!.vars) ===
+        projectedVolumeCRS(selectedVariable, modelInfo!.vars)
   );
 }
 

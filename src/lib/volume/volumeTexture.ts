@@ -1,5 +1,6 @@
 import { getHealpixVolumeSourceCells } from "./healpixVolumeMapping.ts";
 import type { THealpixVolumeGrid } from "./healpixVolumeMapping.ts";
+import { getProjectedVolumeMapping } from "./projectedVolumeMapping.ts";
 import { getRegularVolumeMapping } from "./regularVolumeMapping.ts";
 import { VOLUME_GRID_TYPES, type TVolumeGrid } from "./volumeGrid.ts";
 
@@ -175,6 +176,14 @@ function volumeMapping(
   onProgress: (completed: number, total: number) => void
 ) {
   const { grid, dimensions, sourceCellCount } = request;
+  if (grid.kind === VOLUME_GRID_TYPES.PROJECTED) {
+    return getProjectedVolumeMapping(
+      grid,
+      dimensions.width,
+      dimensions.height,
+      onProgress
+    );
+  }
   if (grid.kind === VOLUME_GRID_TYPES.REGULAR) {
     return getRegularVolumeMapping(
       grid.latitudes,
@@ -463,7 +472,9 @@ export function buildVolumeTexture(
   const coordinateCount =
     grid.kind === VOLUME_GRID_TYPES.HEALPIX
       ? (grid.cellCoordinates?.length ?? 12 * grid.nside * grid.nside)
-      : grid.latitudes.length * grid.longitudes.length;
+      : grid.kind === VOLUME_GRID_TYPES.PROJECTED
+        ? grid.x.length * grid.y.length
+        : grid.latitudes.length * grid.longitudes.length;
   if (coordinateCount !== sourceCellCount) {
     throw new Error("Volume coordinates do not match the source grid.");
   }

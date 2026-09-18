@@ -39,7 +39,7 @@ export function isProjectedYName(name: string): boolean {
   return getVariableLocalName(name) === ProjectedCoordinateName.Y;
 }
 
-function transformProjectedAxesToLonLat(
+export function transformProjectedAxesToLonLat(
   x: Float32Array,
   y: Float32Array,
   crsWkt: string
@@ -94,7 +94,7 @@ function getStringAttribute(
   return typeof value === "string" ? value : null;
 }
 
-function getWktFromAttrs(attrs: zarr.Attributes) {
+export function getWktFromAttrs(attrs: zarr.Attributes) {
   return (
     getStringAttribute(attrs, CrsWktAttributeName.CRS_WKT) ??
     getStringAttribute(attrs, CrsWktAttributeName.SPATIAL_REF) ??

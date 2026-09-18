@@ -8,9 +8,41 @@ import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { getGridVariableData } from "@/lib/grids/gridDataWorkerClient.ts";
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
 import {
+  VOLUME_GRID_TYPES,
+  type TProjectedVolumeGrid,
+} from "@/lib/volume/volumeGrid.ts";
+import {
+  projectedVolumeCRS,
   volumeSpatialDimensions,
   volumeVerticalDimension,
 } from "@/lib/volume/volumeVariables.ts";
+
+export async function loadProjectedVolumeGrid(
+  datasources: TSources,
+  variable: string,
+  dimensions: string[]
+): Promise<TProjectedVolumeGrid | undefined> {
+  const crs = projectedVolumeCRS(variable, datasources.levels[0].datasources);
+  if (!crs) {
+    return undefined;
+  }
+  const [y, x] = await Promise.all(
+    dimensions.slice(-2).map(async (name) => {
+      const path = ZarrDataManager.resolveVariablePath(variable, name);
+      const coordinate = await ZarrDataManager.getVariableInfoByDatasetSources(
+        datasources,
+        path
+      );
+      const values = castDataVarToFloat32(
+        (await ZarrDataManager.getVariableDataFromArray(coordinate, [null]))
+          .data
+      );
+      decodeVariableDataAndGetBounds(coordinate, values);
+      return values;
+    })
+  );
+  return { kind: VOLUME_GRID_TYPES.PROJECTED, x, y, crs };
+}
 
 export type TVolumeDataContext = {
   dimensionNames: string[];

@@ -170,6 +170,46 @@ it("does not download stale metadata after a newer request completes", async () 
   expect(logError).not.toHaveBeenCalled();
 });
 
+it("cancels a pending volume when the selected grid is unsupported", async () => {
+  const pending = deferred<TVolumeTextureBuildResult>();
+  build.mockReturnValueOnce(pending.promise);
+  const volume = setupVolume();
+  volume.setContext(context);
+  await vi.waitFor(() => expect(build).toHaveBeenCalledOnce());
+  volume.setContext(undefined);
+  pending.resolve(result);
+  await pending.promise;
+  expect(setData).not.toHaveBeenCalled();
+  expect(useGlobeControlStore().volumeLoading).toBe(false);
+  expect(logError).not.toHaveBeenCalled();
+});
+
+it("copies projected axes for the worker and rebuilds when their CRS changes", async () => {
+  inspect.mockResolvedValue([
+    { ...source, sourceCellCount: 4, spatialShape: [2, 2] },
+  ]);
+  const volume = setupVolume();
+  const projected = {
+    dimensionNames: ["time", "y", "x"],
+    indices: [0, null, null],
+    grid: {
+      kind: VOLUME_GRID_TYPES.PROJECTED,
+      x: new Float32Array([0, 1000]),
+      y: new Float32Array([0, 1000]),
+      crs: "EPSG:3857",
+    },
+  };
+  volume.setContext(projected);
+  await vi.waitFor(() => expect(setData).toHaveBeenCalledOnce());
+  expect(build.mock.calls[0][0].grid).toEqual(projected.grid);
+  expect(build.mock.calls[0][0].grid.x).not.toBe(projected.grid.x);
+  projected.grid.crs =
+    "+proj=lcc +lat_1=56.7 +lat_0=56.7 +lon_0=25 +datum=WGS84";
+  volume.setContext(projected);
+  await vi.waitFor(() => expect(setData).toHaveBeenCalledTimes(2));
+  expect(load).toHaveBeenCalledTimes(2);
+});
+
 it("does not start downloads after disposal during metadata loading", async () => {
   const stale = deferred<TVolumeSource[]>();
   inspect.mockImplementationOnce(() => stale.promise);

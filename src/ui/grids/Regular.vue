@@ -61,6 +61,7 @@ import {
   updateProjectionUniforms,
 } from "@/lib/shaders/gridShaders.ts";
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
+import { loadProjectedVolumeGrid } from "@/lib/volume/volumeData.ts";
 import { VOLUME_GRID_TYPES } from "@/lib/volume/volumeGrid.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
@@ -1115,20 +1116,31 @@ async function fetchAndRenderData(
     updateMeshMaterials(rawData);
     setHoverLookupFromIndex(hoverIndex, fillValue, missingValue);
   };
+  const volumeGrid = isProjectedGrid.value
+    ? await loadProjectedVolumeGrid(
+        props.datasources!,
+        varnameSelector.value,
+        selectedDimensionNames.value
+      )
+    : !isLatOnly.value
+      ? {
+          kind: VOLUME_GRID_TYPES.REGULAR,
+          latitudes: latitudes.value,
+          longitudes: longitudes.value,
+        }
+      : undefined;
   if (!isCurrent()) {
     return;
   }
-  if (!isLatOnly.value && !isProjectedGrid.value) {
-    volume?.setContext({
-      dimensionNames: selectedDimensionNames.value,
-      indices,
-      grid: {
-        kind: VOLUME_GRID_TYPES.REGULAR,
-        latitudes: latitudes.value,
-        longitudes: longitudes.value,
-      },
-    });
-  }
+  volume?.setContext(
+    volumeGrid
+      ? {
+          dimensionNames: selectedDimensionNames.value,
+          indices,
+          grid: volumeGrid,
+        }
+      : undefined
+  );
   scalarCache.captureScalar({
     render: renderScalar,
     info: scalarInfo,

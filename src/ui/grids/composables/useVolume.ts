@@ -172,15 +172,21 @@ export function useVolume(options: TOptions) {
         throw new Error("This device does not support WebGL 3D textures.");
       }
       const grid = requestContext.grid;
+      const horizontalShape =
+        grid.kind === VOLUME_GRID_TYPES.HEALPIX
+          ? undefined
+          : grid.kind === VOLUME_GRID_TYPES.PROJECTED
+            ? [grid.y.length, grid.x.length]
+            : [grid.latitudes.length, grid.longitudes.length];
       // Reserve water/ice channels to keep resolution stable when adding a field.
       const channelCount = Math.max(
         RESERVED_VOLUME_CHANNEL_COUNT,
         sources.length
       );
       if (
-        grid.kind === VOLUME_GRID_TYPES.REGULAR &&
-        (first.spatialShape[0] !== grid.latitudes.length ||
-          first.spatialShape[1] !== grid.longitudes.length)
+        horizontalShape &&
+        (first.spatialShape[0] !== horizontalShape[0] ||
+          first.spatialShape[1] !== horizontalShape[1])
       ) {
         throw new Error("Volume coordinates do not match the displayed grid.");
       }
@@ -194,8 +200,8 @@ export function useVolume(options: TOptions) {
               HIGH_RES_VOLUME_TEXTURE_BUDGET_BYTES
             )
           : chooseRegularVolumeTextureDimensions(
-              grid.longitudes.length,
-              grid.latitudes.length,
+              horizontalShape![1],
+              horizontalShape![0],
               first.sourceLevelCount,
               max3DTextureSize,
               channelCount,
@@ -227,14 +233,7 @@ export function useVolume(options: TOptions) {
       }
       const result = await buildVolumeTextureInWorker(
         {
-          grid:
-            grid.kind === VOLUME_GRID_TYPES.HEALPIX
-              ? { ...grid, cellCoordinates: grid.cellCoordinates?.slice() }
-              : {
-                  ...grid,
-                  latitudes: grid.latitudes.slice(),
-                  longitudes: grid.longitudes.slice(),
-                },
+          grid: structuredClone(grid),
           sourceLevelCount: first.sourceLevelCount,
           sourceCellCount: first.sourceCellCount,
           values,
@@ -278,7 +277,13 @@ export function useVolume(options: TOptions) {
     }
   }
 
-  function setContext(nextContext: TVolumeContext) {
+  function setContext(nextContext?: TVolumeContext) {
+    if (!nextContext) {
+      context = undefined;
+      hasData = false;
+      void loadVolume();
+      return;
+    }
     const grid = nextContext.grid;
     if (grid.kind === VOLUME_GRID_TYPES.HEALPIX) {
       const normalized = normalizeCellCoordinates(
@@ -293,11 +298,7 @@ export function useVolume(options: TOptions) {
     } else {
       context = {
         ...nextContext,
-        gridKey: JSON.stringify([
-          grid.kind,
-          Array.from(grid.latitudes),
-          Array.from(grid.longitudes),
-        ]),
+        gridKey: JSON.stringify(grid),
       };
     }
     void loadVolume();

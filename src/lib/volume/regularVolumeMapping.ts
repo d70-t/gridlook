@@ -1,6 +1,6 @@
 import { getRegularLatLonGridBounds } from "@/lib/layers/gridExportMetadata.ts";
 
-function orderedAxis(values: Float32Array, longitude = false) {
+export function orderedAxis(values: Float32Array, longitude = false) {
   if (values.length === 0 || !values.every(Number.isFinite)) {
     throw new Error("Volume coordinates must be finite and non-empty.");
   }
@@ -10,8 +10,6 @@ function orderedAxis(values: Float32Array, longitude = false) {
       coordinates[index] +=
         360 * Math.round((coordinates[index - 1] - coordinates[index]) / 360);
     }
-  } else if (coordinates.some((latitude) => Math.abs(latitude) > 90)) {
-    throw new Error("Volume latitudes must be in degrees north.");
   }
   const reversed = coordinates[0] > coordinates[coordinates.length - 1];
   if (reversed) {
@@ -19,13 +17,16 @@ function orderedAxis(values: Float32Array, longitude = false) {
   }
   for (let index = 1; index < coordinates.length; index++) {
     if (coordinates[index] <= coordinates[index - 1]) {
-      throw new Error("Volume coordinates must form ordered geographic axes.");
+      throw new Error("Volume coordinates must form ordered axes.");
     }
   }
   return { coordinates, reversed };
 }
 
-function nearestIndex(axis: ReturnType<typeof orderedAxis>, value: number) {
+export function nearestIndex(
+  axis: ReturnType<typeof orderedAxis>,
+  value: number
+) {
   const { coordinates, reversed } = axis;
   let low = 0;
   let high = coordinates.length - 1;
@@ -50,6 +51,9 @@ export function getRegularVolumeMapping(
   height: number,
   onProgress?: (completed: number, total: number) => void
 ) {
+  if (latitudes.some((latitude) => Math.abs(latitude) > 90)) {
+    throw new Error("Volume latitudes must be in degrees north.");
+  }
   const latitude = orderedAxis(latitudes);
   const longitude = orderedAxis(longitudes, true);
   const bounds = getRegularLatLonGridBounds(

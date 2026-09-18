@@ -6,6 +6,7 @@ import { getGridVariableData } from "@/lib/grids/gridDataWorkerClient.ts";
 import { ZARR_FORMAT, type TSources } from "@/lib/types/GlobeTypes.ts";
 import {
   inspectVolumeSources,
+  loadProjectedVolumeGrid,
   loadVolumeData,
 } from "@/lib/volume/volumeData.ts";
 import { getVolumeVariablesForGroup } from "@/lib/volume/volumeVariables.ts";
@@ -201,6 +202,51 @@ it.each([
     expect(loaded.levels).toEqual(new Float32Array([-1000, -500, -100]));
   }
 );
+
+it("loads decoded native x/y coordinates using the declared projection", async () => {
+  const datasource = sources();
+  datasource.levels[0].datasources = Object.fromEntries(
+    Object.entries({
+      field: {
+        shape: [2, 2, 2],
+        attrs: {
+          dimensionNames: ["level", "y", "x"],
+          ["grid_mapping"]: "projection",
+        },
+      },
+      x: { shape: [2], attrs: { ["scale_factor"]: 1000 } },
+      y: { shape: [2], attrs: { ["scale_factor"]: 1000 } },
+      projection: { shape: [], attrs: { ["crs_wkt"]: "EPSG:3857" } },
+    }).map(([name, metadata]) => [
+      `${group}/${name}`,
+      { ...datasource.levels[0].grid, ...metadata },
+    ])
+  );
+  vi.mocked(ZarrDataManager.getVariableInfoByDatasetSources).mockImplementation(
+    async (_, name) =>
+      datasource.levels[0].datasources[name] as unknown as zarr.Array<
+        zarr.DataType,
+        zarr.AsyncReadable
+      >
+  );
+  vi.spyOn(ZarrDataManager, "getVariableDataFromArray").mockResolvedValue({
+    data: new Int16Array([-2, 3]),
+    shape: [2],
+    stride: [1],
+  });
+  expect(
+    await loadProjectedVolumeGrid(datasource, `${group}/field`, [
+      "level",
+      "y",
+      "x",
+    ])
+  ).toEqual({
+    kind: "projected",
+    crs: "EPSG:3857",
+    x: new Float32Array([-2000, 3000]),
+    y: new Float32Array([-2000, 3000]),
+  });
+});
 
 it.each([
   ["level", { axis: "T" }],
