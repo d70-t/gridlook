@@ -165,5 +165,8 @@ export function castDataVarToFloat32(rawData: zarr.TypedArray<zarr.DataType>) {
   if (rawData instanceof Float32Array) {
     return rawData;
   }
+  if (rawData instanceof BigInt64Array || rawData instanceof BigUint64Array) {
+    return Float32Array.from(rawData, Number);
+  }
   return Float32Array.from(rawData as ArrayLike<number>);
 }
