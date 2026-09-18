@@ -5,30 +5,22 @@
 
 ### Features
 
-* added distance scale ([605689b](https://github.com/d70-t/gridlook/commit/605689b070ead8de0f7a865c9062a26cf9446fed))
-* added distance scale ([0f14477](https://github.com/d70-t/gridlook/commit/0f14477ab5c72826542bd00364e505c614f9b3c5))
-* **lib:** recognize volume axes from coordinate metadata ([39e7566](https://github.com/d70-t/gridlook/commit/39e7566656edc712f08b0c37b0e1a35bc3f77f80))
-* **lib:** render volume composites on flat projections ([517541c](https://github.com/d70-t/gridlook/commit/517541cdf5c8066ee75f6d9c1850937e0189c333))
-* **lib:** render volumes on Lambert and Mercator grids ([de145a4](https://github.com/d70-t/gridlook/commit/de145a44853caebe78955b6d0c0eed79f47fe791))
-* **lib:** render volumes on rotated regular grids ([72a9b46](https://github.com/d70-t/gridlook/commit/72a9b4668d481a1553651c5ca726756a0b7343dc))
-* **lib:** support 64-bit integer data ([f1ce362](https://github.com/d70-t/gridlook/commit/f1ce3622a084e67a6984df0e0b979a3a8c169aa4))
-* **lib:** support regular grids in volume rendering ([cb80826](https://github.com/d70-t/gridlook/commit/cb80826a710104907b823a268653317be289ae43))
-* local zarr support ([eccbc49](https://github.com/d70-t/gridlook/commit/eccbc4924bf5c2c83e26e2c9dd42253a0dd484e5))
+* added distance scale ([605689b](https://github.com/d70-t/gridlook/commit/605689b070ead8de0f7a865c9062a26cf9446fed)) (#8)
+* volume rendering as a layer ([a8e2241](https://github.com/d70-t/gridlook/commit/a8e2241580668969cef9e822da147871a7b7424d))
+* local zarr support ([eccbc49](https://github.com/d70-t/gridlook/commit/eccbc4924bf5c2c83e26e2c9dd42253a0dd484e5)) (#219)
 * Play button for other dimensions than time ([31e42cc](https://github.com/d70-t/gridlook/commit/31e42ccf0d16d62e3542ae8cd5f5a9875adb16ab))
-* support multidimensional streamline fields ([8c9d364](https://github.com/d70-t/gridlook/commit/8c9d36485480d4297bc332d069c891f4e1e7cf2a))
-* UGRID support ([3b4d197](https://github.com/d70-t/gridlook/commit/3b4d19788f553c6ea4a469e65d697621fc038cb1))
-* **ui:** explain unavailable volume layers ([a52e9d5](https://github.com/d70-t/gridlook/commit/a52e9d5bda70c7065aaffff06a4ebc99a02ea29d))
-
+* support multidimensional streamline fields ([8c9d364](https://github.com/d70-t/gridlook/commit/8c9d36485480d4297bc332d069c891f4e1e7cf2a)) (#202)
+* UGRID support ([3b4d197](https://github.com/d70-t/gridlook/commit/3b4d19788f553c6ea4a469e65d697621fc038cb1)) (#170)
+* **lib:** recognize volume axes from coordinate metadata ([39e7566](https://github.com/d70-t/gridlook/commit/39e7566656edc712f08b0c37b0e1a35bc3f77f80))
 
 ### Bug Fixes
 
 * camera zoom gets closer to the surface now ([4b0c5ac](https://github.com/d70-t/gridlook/commit/4b0c5acda6de4e9fdcd723bf82fbba8eb3f267ef))
-* camera zoom gets closer to the surface now ([0fee12b](https://github.com/d70-t/gridlook/commit/0fee12ba09c6538a2df2c163797e03f1dfb52618))
-* fixed wrong decoding of float time values ([bf31527](https://github.com/d70-t/gridlook/commit/bf31527481065d2dafbd530cf8b275a35f5bc2de))
-* healpix level 13 works with chrome now ([62db9b6](https://github.com/d70-t/gridlook/commit/62db9b61c1c0eb4f4640a8b4edb695e54ce25f4a))
+* fixed wrong decoding of float time values ([bf31527](https://github.com/d70-t/gridlook/commit/bf31527481065d2dafbd530cf8b275a35f5bc2de)) (#209)
+* healpix level 13 works with chrome now ([62db9b6](https://github.com/d70-t/gridlook/commit/62db9b61c1c0eb4f4640a8b4edb695e54ce25f4a)) (#197)
 * **lib:** fix error message and name the codec when a dataset cannot be decoded ([b0244c5](https://github.com/d70-t/gridlook/commit/b0244c5b2b6520695311629bb21379663e74228b))
 * **ui:** Layer and Colormap-Selects have readable texts in dark mode again ([4df68c5](https://github.com/d70-t/gridlook/commit/4df68c5aed0dc0d17caffddd036d3917fe27173a))
-* zoom-level gets updated on closest position again ([a79dc82](https://github.com/d70-t/gridlook/commit/a79dc82ddca94f39fd3a6209c25427b6c3951eb5))
+* zoom-level in URL gets updated on closest position again ([a79dc82](https://github.com/d70-t/gridlook/commit/a79dc82ddca94f39fd3a6209c25427b6c3951eb5))
 
 ## [1.5.0](https://github.com/d70-t/gridlook/compare/v1.4.1...v1.5.0) (2026-09-09)
 
