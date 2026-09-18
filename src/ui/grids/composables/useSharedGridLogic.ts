@@ -129,14 +129,9 @@ export function useSharedGridLogic() {
   updateGraticules = updateGraticulesInternal;
   syncTextureLayersOnReady = () => updateTextureLayers();
 
-  store.positionMaskLayerForMode(landSeaMaskChoice.value);
-
   watch(
     [() => landSeaMaskChoice.value, () => landSeaMaskUseTexture.value],
-    ([newChoice], [oldChoice]) => {
-      if (newChoice !== oldChoice) {
-        store.positionMaskLayerForMode(newChoice);
-      }
+    () => {
       updateLandSeaMask();
     }
   );

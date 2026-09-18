@@ -8,7 +8,6 @@ vi.stubGlobal("localStorage", {
 });
 
 const { createPinia, setActivePinia } = await import("pinia");
-const { LAND_SEA_MASK_MODES } = await import("@/lib/layers/landSeaMask.ts");
 const {
   BUILTIN_LAYER_IDS,
   BUILTIN_LAYER_NAMES,
@@ -187,25 +186,3 @@ it("sets volume layer visibility and selection", () => {
   store.setVolumeLayerEnabled(false);
   expect(store.isVolumeLayerEnabled()).toBe(false);
 });
-
-it.each([
-  { mode: LAND_SEA_MASK_MODES.LAND, aboveGrid: true },
-  { mode: LAND_SEA_MASK_MODES.SEA, aboveGrid: true },
-  { mode: LAND_SEA_MASK_MODES.GLOBE, aboveGrid: false },
-])(
-  "positions the $mode mask relative to the scalar grid",
-  ({ mode, aboveGrid }) => {
-    const store = useGlobeControlStore();
-
-    store.restoreBuiltinLayer(LAYER_KINDS.MASK);
-    store.positionMaskLayerForMode(mode);
-
-    const maskIndex = store.layerStack.findIndex(
-      (layer) => layer.id === BUILTIN_LAYER_IDS.MASK
-    );
-    const gridIndex = store.layerStack.findIndex(
-      (layer) => layer.id === BUILTIN_LAYER_IDS.GRID
-    );
-    expect(maskIndex < gridIndex).toBe(aboveGrid);
-  }
-);

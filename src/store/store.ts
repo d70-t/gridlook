@@ -508,17 +508,6 @@ export const useGlobeControlStore = defineStore("globeControl", {
       const clamped = Math.max(0, Math.min(this.layerStack.length, toIndex));
       this.layerStack.splice(clamped, 0, entry);
     },
-    positionMaskLayerForMode(mode: TLandSeaMaskMode) {
-      const withoutMask = this.layerStack.filter(
-        (entry) => entry.kind !== LAYER_KINDS.MASK
-      );
-      const gridIndex = withoutMask.findIndex(
-        (entry) => entry.kind === LAYER_KINDS.GRID
-      );
-      const targetIndex =
-        mode === LAND_SEA_MASK_MODES.GLOBE ? gridIndex + 1 : gridIndex;
-      this.moveLayer(BUILTIN_LAYER_IDS.MASK, targetIndex);
-    },
     requestGridExport() {
       this.gridExportRequest++;
     },
