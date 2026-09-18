@@ -188,16 +188,24 @@ it("sets volume layer visibility and selection", () => {
   expect(store.isVolumeLayerEnabled()).toBe(false);
 });
 
-it("positions the full land-and-sea mask above the scalar grid", () => {
-  const store = useGlobeControlStore();
+it.each([
+  { mode: LAND_SEA_MASK_MODES.LAND, aboveGrid: true },
+  { mode: LAND_SEA_MASK_MODES.SEA, aboveGrid: true },
+  { mode: LAND_SEA_MASK_MODES.GLOBE, aboveGrid: false },
+])(
+  "positions the $mode mask relative to the scalar grid",
+  ({ mode, aboveGrid }) => {
+    const store = useGlobeControlStore();
 
-  store.positionMaskLayerForMode(LAND_SEA_MASK_MODES.LAND_AND_SEA);
+    store.restoreBuiltinLayer(LAYER_KINDS.MASK);
+    store.positionMaskLayerForMode(mode);
 
-  const maskIndex = store.layerStack.findIndex(
-    (layer) => layer.id === BUILTIN_LAYER_IDS.MASK
-  );
-  const gridIndex = store.layerStack.findIndex(
-    (layer) => layer.id === BUILTIN_LAYER_IDS.GRID
-  );
-  expect(maskIndex).toBeLessThan(gridIndex);
-});
+    const maskIndex = store.layerStack.findIndex(
+      (layer) => layer.id === BUILTIN_LAYER_IDS.MASK
+    );
+    const gridIndex = store.layerStack.findIndex(
+      (layer) => layer.id === BUILTIN_LAYER_IDS.GRID
+    );
+    expect(maskIndex < gridIndex).toBe(aboveGrid);
+  }
+);

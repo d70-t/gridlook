@@ -21,7 +21,6 @@ export const LAND_SEA_MASK_MODES = {
   OFF: "off",
   SEA: "sea",
   LAND: "land",
-  LAND_AND_SEA: "land_and_sea",
   GLOBE: "globe",
 } as const;
 

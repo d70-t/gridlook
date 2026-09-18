@@ -33,23 +33,14 @@ const MASK_COLORS = {
 };
 
 function getMaskConfig(mode: TLandSeaMaskMode): TMaskConfig {
-  const isFullMode =
-    mode === LAND_SEA_MASK_MODES.GLOBE ||
-    mode === LAND_SEA_MASK_MODES.LAND_AND_SEA;
+  const isGlobeMode = mode === LAND_SEA_MASK_MODES.GLOBE;
   const isLandMode = mode === LAND_SEA_MASK_MODES.LAND;
   const isSeaMode = mode === LAND_SEA_MASK_MODES.SEA;
 
   return {
-    showLand: isFullMode || isLandMode,
-    showSea: isFullMode || isSeaMode,
+    showLand: isGlobeMode || isLandMode,
+    showSea: isGlobeMode || isSeaMode,
   };
-}
-
-function isFullMaskMode(mode: TLandSeaMaskMode): boolean {
-  return (
-    mode === LAND_SEA_MASK_MODES.GLOBE ||
-    mode === LAND_SEA_MASK_MODES.LAND_AND_SEA
-  );
 }
 
 /**
@@ -182,7 +173,7 @@ class GpuProjectedMaskRenderer {
     config: TMaskConfig
   ): Promise<THREE.Texture> {
     // Globe texture also goes through a canvas so its antimeridian columns match.
-    if (isFullMaskMode(mode) && useTexture) {
+    if (mode === LAND_SEA_MASK_MODES.GLOBE && useTexture) {
       return this.createGlobeTexture();
     }
 
@@ -205,7 +196,7 @@ class GpuProjectedMaskRenderer {
     const land = await ResourceCache.loadLandGeoJSON();
     const path = createEquirectangularPath(ctx, width, height);
 
-    if (isFullMaskMode(mode)) {
+    if (mode === LAND_SEA_MASK_MODES.GLOBE) {
       await this.renderGlobeMode(ctx, path, land, useTexture, width, height);
     } else {
       await this.renderMaskedMode(

@@ -378,10 +378,7 @@ function getMaskLayerOption(
   mode: TLandSeaMaskMode,
   useTexture: boolean
 ): TMaskLayerOption {
-  if (
-    mode === LAND_SEA_MASK_MODES.GLOBE ||
-    mode === LAND_SEA_MASK_MODES.LAND_AND_SEA
-  ) {
+  if (mode === LAND_SEA_MASK_MODES.GLOBE) {
     return useTexture
       ? MASK_LAYER_OPTIONS.GLOBE
       : MASK_LAYER_OPTIONS.GLOBE_SIMPLE;
