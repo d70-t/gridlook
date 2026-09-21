@@ -148,6 +148,7 @@ function formatValue(value: unknown): string {
     </section>
 
     <div v-if="!hasLatLon" class="info-section">
+      <h4 class="title is-6">Spatial Coverage</h4>
       <div class="notification is-info is-light is-size-7">
         <strong>Note:</strong> No lat/lon coordinates found for this grid type.
       </div>

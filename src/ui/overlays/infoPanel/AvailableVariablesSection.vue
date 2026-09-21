@@ -10,7 +10,6 @@ import { useGlobeControlStore } from "@/store/store.ts";
 
 const props = defineProps<{
   datasources?: TSources;
-  varname?: string | null;
 }>();
 
 const store = useGlobeControlStore();
@@ -21,6 +20,7 @@ const displayedDataVariable = computed(() =>
 
 const metadataByName = ref<Record<string, TVariableMetadata>>({});
 const selectedAttributesVariableName = ref<string | null>(null);
+const searchQuery = ref("");
 
 function normalizeDimensionNames(
   dimensionNames: unknown,
@@ -102,48 +102,12 @@ const allVariables = computed(() =>
   })
 );
 
-const coordinateVariables = computed(() =>
-  allVariables.value.filter((variable) => variable.hidden)
-);
-
-const dataVariables = computed(() =>
-  allVariables.value.filter((variable) => !variable.hidden)
-);
-
-const isTimeFromAnotherFile = computed(() => {
-  if (!props.datasources) {
-    return true;
-  }
-  const time = props.datasources.levels[0].time;
-  const currentVariable =
-    props.datasources.levels[0].datasources[props.varname ?? ""] ?? null;
-  if (!time || !currentVariable) {
-    // We only show the warning if there is a time variable and a selected
-    // variable, otherwise it can be confusing
-    return true;
-  }
-  return (
-    time?.dataset + "/" + time?.store !==
-    currentVariable?.dataset + "/" + currentVariable?.store
-  );
-});
-
-const isGridFromAnotherFile = computed(() => {
-  if (!props.datasources) {
-    return true;
-  }
-  const grid = props.datasources.levels[0].grid;
-  const currentVariable =
-    props.datasources.levels[0].datasources[props.varname ?? ""] ?? null;
-  if (!grid || !currentVariable) {
-    // We only show the warning if there is a grid and a selected
-    // variable, otherwise it can be confusing
-    return true;
-  }
-  return (
-    grid?.dataset + "/" + grid?.store !==
-    currentVariable?.dataset + "/" + currentVariable?.store
-  );
+const variableCount = computed(() => {
+  const query = searchQuery.value.trim().toLowerCase();
+  const total = allVariables.value.length;
+  return query
+    ? `${allVariables.value.filter((row) => row.name.toLowerCase().includes(query)).length} / ${total}`
+    : total;
 });
 
 function toggleVariableAttributes(varName: string) {
@@ -178,28 +142,26 @@ watch(displayedDataVariable, () => {
 <template>
   <div>
     <section v-if="allVariables.length > 0" class="info-section">
-      <h4 class="title is-6">Variables</h4>
-      <p v-if="isTimeFromAnotherFile" class="is-size-7 has-text-danger">
-        Time variable is from a different file and may not be correctly
-        recognized.
-      </p>
-      <p v-if="isGridFromAnotherFile" class="is-size-7 has-text-danger">
-        Grid related dimensions are from a different file and may not be
-        correctly recognized.
-      </p>
+      <h4 class="title is-6">
+        Variables <span class="has-text-grey-light">({{ variableCount }})</span>
+      </h4>
+      <div class="control has-icons-left mb-2">
+        <input
+          v-model="searchQuery"
+          class="input is-small"
+          type="text"
+          placeholder="Search variables and coordinates…"
+        />
+        <span class="icon is-left is-small">
+          <i class="fa-solid fa-magnifying-glass"></i>
+        </span>
+      </div>
       <VariableTableSection
-        title="Coordinates"
-        :rows="coordinateVariables"
-        empty-label="No coordinates found"
-        :selected-attributes-variable="selectedAttributesVariableName"
-        @toggle-attributes="toggleVariableAttributes"
-      />
-      <VariableTableSection
-        title="Data Variables"
-        :rows="dataVariables"
-        empty-label="No data variables found"
+        :rows="allVariables"
+        empty-label="No variables or coordinates found"
         :selected-attributes-variable="selectedAttributesVariableName"
         :selected-variable="displayedDataVariable"
+        :search-query="searchQuery"
         show-visualize
         @toggle-attributes="toggleVariableAttributes"
         @visualize="selectVariable"

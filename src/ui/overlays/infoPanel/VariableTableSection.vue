@@ -16,16 +16,17 @@ type TGroupedVariableRows = {
 
 const props = withDefaults(
   defineProps<{
-    title: string;
     rows: TVariableTableRow[];
     emptyLabel: string;
     selectedAttributesVariable: string | null;
     selectedVariable?: string | null;
     showVisualize?: boolean;
+    searchQuery?: string;
   }>(),
   {
     selectedVariable: null,
     showVisualize: false,
+    searchQuery: "",
   }
 );
 
@@ -35,6 +36,10 @@ const emit = defineEmits<{
 }>();
 
 const ROOT_GROUP_NAME = "/";
+const VariableSection = {
+  DATA: "Data Variables",
+  COORDINATES: "Coordinates",
+} as const;
 
 const groupNameCollator = new Intl.Collator(undefined, {
   numeric: true,
@@ -58,7 +63,32 @@ function getVariableDisplayName(varName: string) {
     : varName;
 }
 
+const trimmedSearchQuery = computed(() =>
+  props.searchQuery.trim().toLowerCase()
+);
+const isSearching = computed(() => trimmedSearchQuery.value.length > 0);
+
+const filteredRows = computed(() =>
+  isSearching.value
+    ? props.rows.filter((row) =>
+        row.name.toLowerCase().includes(trimmedSearchQuery.value)
+      )
+    : props.rows
+);
+
 const groupedRows = computed<TGroupedVariableRows[]>(() => {
+  if (isSearching.value) {
+    return [
+      {
+        name: ROOT_GROUP_NAME,
+        rows: filteredRows.value.map((row) => ({
+          ...row,
+          displayName: row.name,
+        })),
+      },
+    ];
+  }
+
   const groups: Record<string, TVariableTableDisplayRow[]> = {};
 
   for (const row of props.rows) {
@@ -73,12 +103,19 @@ const groupedRows = computed<TGroupedVariableRows[]>(() => {
   }
 
   return Object.entries(groups)
-    .sort(([nameA], [nameB]) => groupNameCollator.compare(nameA, nameB))
+    .sort(
+      ([nameA], [nameB]) =>
+        Number(isVariableInGroup(props.selectedVariable, nameB)) -
+          Number(isVariableInGroup(props.selectedVariable, nameA)) ||
+        groupNameCollator.compare(nameA, nameB)
+    )
     .map(([name, rows]) => ({ name, rows }));
 });
 
-const hasGroups = computed(() =>
-  groupedRows.value.some((group) => group.name !== ROOT_GROUP_NAME)
+const hasGroups = computed(
+  () =>
+    !isSearching.value &&
+    groupedRows.value.some((group) => group.name !== ROOT_GROUP_NAME)
 );
 
 function formatDimensions(dimensions: string[]) {
@@ -122,147 +159,180 @@ function toggleGroup(groupName: string) {
 
 <template>
   <div class="dataset-table-section">
-    <p class="is-size-7 has-text-weight-bold mb-1">
-      {{ title }}
-      <span class="has-text-grey-light">({{ rows.length }})</span>
-    </p>
-
-    <div v-if="rows.length > 0" class="table-container">
-      <table class="table is-narrow is-fullwidth is-size-7 dataset-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Dimensions</th>
-            <th>dtype</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          <template v-for="group in groupedRows" :key="group.name">
-            <tr v-if="hasGroups" class="variable-group-row">
-              <th colspan="4">
-                <button
-                  type="button"
-                  class="button is-small is-light is-fullwidth variable-group-toggle"
-                  :aria-expanded="isGroupOpen(group.name)"
-                  @click="toggleGroup(group.name)"
-                >
-                  <span class="icon is-small">
-                    <i
-                      class="fa-solid"
-                      :class="
-                        isGroupOpen(group.name)
-                          ? 'fa-angle-down'
-                          : 'fa-angle-right'
-                      "
-                    ></i>
-                  </span>
-                  <code>{{ group.name }}</code>
-                  <span class="has-text-grey-light ml-1">
-                    ({{ group.rows.length }})
-                  </span>
-                </button>
-              </th>
-            </tr>
-            <template
-              v-for="row in !hasGroups || isGroupOpen(group.name)
-                ? group.rows
-                : []"
-              :key="row.name"
-            >
-              <tr
-                class="variable-row"
-                :class="{
-                  'is-selected-variable': row.name === selectedVariable,
-                }"
+    <div v-if="filteredRows.length > 0">
+      <div
+        v-for="group in groupedRows"
+        :key="group.name"
+        :class="{ box: hasGroups }"
+        class="p-0 mb-3"
+      >
+        <button
+          v-if="hasGroups"
+          type="button"
+          class="button is-light is-fullwidth is-justify-content-space-between variable-group-toggle"
+          :aria-expanded="isGroupOpen(group.name)"
+          @click="toggleGroup(group.name)"
+        >
+          <span class="is-flex is-align-items-center">
+            <span class="icon is-small mr-2" aria-hidden="true">
+              <i
+                class="fa-solid"
+                :class="
+                  isGroupOpen(group.name) ? 'fa-angle-down' : 'fa-angle-right'
+                "
+              ></i>
+            </span>
+            <span class="group-name">{{ group.name }}</span>
+          </span>
+          <span class="tag is-rounded ml-2">{{ group.rows.length }}</span>
+        </button>
+        <div
+          v-if="!hasGroups || isGroupOpen(group.name)"
+          :class="{ 'px-3 pb-3': hasGroups }"
+        >
+          <div
+            v-for="table in [
+              {
+                title: VariableSection.DATA,
+                rows: group.rows.filter((row) => !row.hidden),
+              },
+              {
+                title: VariableSection.COORDINATES,
+                rows: group.rows.filter((row) => row.hidden),
+              },
+            ]"
+            :key="table.title"
+          >
+            <h5 class="is-size-7 has-text-weight-semibold mt-3 mb-1">
+              {{ table.title }}
+              <span class="has-text-grey">({{ table.rows.length }})</span>
+            </h5>
+            <div v-if="table.rows.length" class="table-container">
+              <table
+                class="table is-narrow is-fullwidth is-size-7 dataset-table"
+                :aria-label="`${group.name} ${table.title}`"
               >
-                <td class="variable-name">
-                  <code :title="row.name">
-                    {{ hasGroups ? row.displayName : row.name }}
-                  </code>
-                </td>
-                <td class="variable-dimensions">
-                  <span
-                    v-if="row.error"
-                    class="has-text-danger"
-                    :title="row.error"
-                  >
-                    Unavailable
-                  </span>
-                  <code v-else>{{ formatDimensions(row.dimensions) }}</code>
-                </td>
-                <td>
-                  <span
-                    v-if="row.error || !row.dtype"
-                    class="has-text-grey-light"
-                  >
-                    -
-                  </span>
-                  <code v-else-if="row.dtype">{{ row.dtype }}</code>
-                </td>
-                <td class="variable-actions has-text-right">
-                  <button
-                    class="button is-small"
-                    :class="
-                      row.name === selectedAttributesVariable
-                        ? 'is-info'
-                        : 'is-light'
-                    "
-                    :aria-label="'View attributes for ' + row.name"
-                    :aria-pressed="row.name === selectedAttributesVariable"
-                    :title="'View attributes for ' + row.name"
-                    type="button"
-                    @click="emit('toggleAttributes', row.name)"
-                  >
-                    <span class="icon is-small">
-                      <i class="fa-solid fa-circle-info"></i>
-                    </span>
-                  </button>
-                  <button
-                    v-if="showVisualize"
-                    class="button is-small ml-1"
-                    :class="
-                      row.name === selectedVariable ? 'is-info' : 'is-light'
-                    "
-                    :aria-label="'Visualize ' + row.name"
-                    :title="'Visualize ' + row.name"
-                    type="button"
-                    :disabled="!!row.error"
-                    @click="emit('visualize', row.name)"
-                  >
-                    <span class="icon is-small">
-                      <i class="fa-solid fa-globe"></i>
-                    </span>
-                  </button>
-                </td>
-              </tr>
-              <tr
-                v-if="row.name === selectedAttributesVariable"
-                class="variable-attributes-row"
-              >
-                <td colspan="4">
-                  <div class="variable-attributes">
-                    <div
-                      v-if="row.error"
-                      class="notification is-danger is-light is-size-7"
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Dimensions</th>
+                    <th>dtype</th>
+                    <th><span class="is-sr-only">Actions</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template v-for="row in table.rows" :key="row.name">
+                    <tr
+                      class="variable-row"
+                      :class="{
+                        'is-selected-variable': row.name === selectedVariable,
+                      }"
                     >
-                      {{ row.error }}
-                    </div>
-                    <div v-else-if="hasAttributes(row.attrs)" class="info-pre">
-                      <VueJsonPretty :data="row.attrs" />
-                    </div>
-                    <p v-else class="has-text-grey-light">
-                      No variable attributes
-                    </p>
-                  </div>
-                </td>
-              </tr>
-            </template>
-          </template>
-        </tbody>
-      </table>
+                      <td class="variable-name">
+                        <code :title="row.name">
+                          {{ hasGroups ? row.displayName : row.name }}
+                        </code>
+                      </td>
+                      <td class="variable-dimensions">
+                        <span
+                          v-if="row.error"
+                          class="has-text-danger"
+                          :title="row.error"
+                        >
+                          Unavailable
+                        </span>
+                        <code v-else>{{
+                          formatDimensions(row.dimensions)
+                        }}</code>
+                      </td>
+                      <td>
+                        <span
+                          v-if="row.error || !row.dtype"
+                          class="has-text-grey-light"
+                        >
+                          -
+                        </span>
+                        <code v-else-if="row.dtype">{{ row.dtype }}</code>
+                      </td>
+                      <td class="variable-actions has-text-right">
+                        <button
+                          class="button is-small"
+                          :class="
+                            row.name === selectedAttributesVariable
+                              ? 'is-info'
+                              : 'is-light'
+                          "
+                          :aria-label="'View attributes for ' + row.name"
+                          :aria-pressed="
+                            row.name === selectedAttributesVariable
+                          "
+                          :title="'View attributes for ' + row.name"
+                          type="button"
+                          @click="emit('toggleAttributes', row.name)"
+                        >
+                          <span class="icon is-small">
+                            <i class="fa-solid fa-circle-info"></i>
+                          </span>
+                        </button>
+                        <button
+                          v-if="showVisualize && !row.hidden"
+                          class="button is-small ml-1"
+                          :class="
+                            row.name === selectedVariable
+                              ? 'is-info'
+                              : 'is-light'
+                          "
+                          :aria-label="'Visualize ' + row.name"
+                          :title="'Visualize ' + row.name"
+                          type="button"
+                          :disabled="!!row.error"
+                          @click="emit('visualize', row.name)"
+                        >
+                          <span class="icon is-small">
+                            <i class="fa-solid fa-globe"></i>
+                          </span>
+                        </button>
+                      </td>
+                    </tr>
+                    <tr
+                      v-if="row.name === selectedAttributesVariable"
+                      class="variable-attributes-row"
+                    >
+                      <td colspan="4">
+                        <div class="variable-attributes">
+                          <div
+                            v-if="row.error"
+                            class="notification is-danger is-light is-size-7"
+                          >
+                            {{ row.error }}
+                          </div>
+                          <div
+                            v-else-if="hasAttributes(row.attrs)"
+                            class="info-pre"
+                          >
+                            <VueJsonPretty :data="row.attrs" />
+                          </div>
+                          <p v-else class="has-text-grey-light">
+                            No variable attributes
+                          </p>
+                        </div>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+            <p v-else class="is-size-7 has-text-grey">
+              No {{ table.title.toLowerCase() }}
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
 
+    <p v-else-if="isSearching" class="has-text-grey-light is-size-7">
+      No matches
+    </p>
     <p v-else class="has-text-grey-light is-size-7">{{ emptyLabel }}</p>
   </div>
 </template>
@@ -283,16 +353,12 @@ function toggleGroup(groupName: string) {
   }
 }
 
-.variable-group-row {
-  th {
-    padding: 0.35rem 0.25rem;
-  }
-}
-
 .variable-group-toggle {
-  justify-content: flex-start;
+  height: auto;
+  padding: 0.75rem;
+  text-align: left;
 
-  code {
+  .group-name {
     white-space: normal;
     word-break: break-word;
   }

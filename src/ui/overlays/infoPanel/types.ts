@@ -28,9 +28,17 @@ export type TVariableMetadata = {
 
 export type TVariableTableRow = {
   name: string;
+  hidden: boolean;
 } & TVariableMetadata;
 
 export type TGroupInfo = {
   path: string;
   attrs: zarr.Attributes | null;
 };
+
+export const InfoPanelTab = {
+  OVERVIEW: "overview",
+  BROWSE: "browse",
+} as const;
+
+export type TInfoPanelTab = (typeof InfoPanelTab)[keyof typeof InfoPanelTab];

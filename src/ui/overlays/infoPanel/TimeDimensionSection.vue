@@ -1,9 +1,13 @@
 <script lang="ts" setup>
 import type { TTimeInfo } from "./types.ts";
 
-defineProps<{
-  timeInfo: TTimeInfo | null;
-}>();
+withDefaults(
+  defineProps<{
+    timeInfo: TTimeInfo | null;
+    noTimeCoordinate?: boolean;
+  }>(),
+  { noTimeCoordinate: false }
+);
 </script>
 
 <template>
@@ -51,6 +55,12 @@ defineProps<{
           </tbody>
         </table>
       </div>
+    </section>
+    <section v-else-if="noTimeCoordinate" class="info-section">
+      <h4 class="title is-6">Time Dimension</h4>
+      <p class="notification is-info is-light is-size-7">
+        No time coordinate variable is available for the current variable.
+      </p>
     </section>
   </div>
 </template>

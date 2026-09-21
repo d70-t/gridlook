@@ -21,6 +21,7 @@ vi.mock("@/lib/data/ZarrDataManager.ts", () => ({
       chunks: [3],
       shape: [3],
     }),
+    resolveVariablePath: (_variable: string, dimension: string) => dimension,
     getDimensionNames: vi.fn().mockResolvedValue(["cell"]),
   },
 }));
