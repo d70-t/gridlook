@@ -53,8 +53,7 @@ const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
 
 let meshes: THREE.Mesh[] = [];
 let magnitudeCoordinates:
-  | { latitudes: Float64Array; longitudes: Float64Array }
-  | undefined;
+  { latitudes: Float64Array; longitudes: Float64Array } | undefined;
 
 const {
   getScene,

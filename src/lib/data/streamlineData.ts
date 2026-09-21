@@ -93,8 +93,7 @@ async function loadCoordinateInfo(
         values: Array.from(rawValues),
         units: attrs.units as string | undefined,
         longName: (attrs.long_name ?? attrs.standard_name) as
-          | string
-          | undefined,
+          string | undefined,
         attrs,
       };
     } catch {

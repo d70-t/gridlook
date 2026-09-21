@@ -218,8 +218,7 @@ function getGeoBounds(objects: TGridObject[]): TGeoBounds {
 
 function getTextureImageSize(texture: THREE.Texture): TExportSize | undefined {
   const image = texture.image as
-    | { width?: number; height?: number }
-    | undefined;
+    { width?: number; height?: number } | undefined;
   const width = image?.width;
   const height = image?.height;
   if (

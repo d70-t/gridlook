@@ -40,8 +40,7 @@ export type TTriangularDataWorkerRequest = {
 };
 
 export type TTriangularWorkerRequest =
-  | TTriangularGeometryWorkerRequest
-  | TTriangularDataWorkerRequest;
+  TTriangularGeometryWorkerRequest | TTriangularDataWorkerRequest;
 
 export type TTriangularWorkerBatch = TGridPositionBatch | TGridDataValueBatch;
 

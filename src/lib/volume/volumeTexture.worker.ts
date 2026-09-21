@@ -1,5 +1,7 @@
 /// <reference lib="webworker" />
 
+import "@/utils/disposablePolyfill.ts";
+
 import { VOLUME_GRID_TYPES } from "./volumeGrid.ts";
 import { buildVolumeTexture } from "./volumeTexture.ts";
 import type {
