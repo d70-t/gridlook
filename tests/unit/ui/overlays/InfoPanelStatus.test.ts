@@ -185,7 +185,43 @@ it("shows valid time coverage without an absence message", async () => {
   }
 });
 
-it("ignores an old time-coordinate result after loading another dataset starts", async () => {
+it("keeps metadata and source notices stable during animation frame loads", async () => {
+  const { state, scope } = setupPanel({
+    ...sources,
+    levels: [
+      {
+        ...sources.levels[0],
+        datasources: { tas: source, other: source },
+      },
+    ],
+  });
+  try {
+    await vi.waitFor(() => expect(state.timeInfo.value?.numTimesteps).toBe(2));
+    const timeInfo = state.timeInfo.value;
+    const calls = vi.mocked(ZarrDataManager.getVariableInfo).mock.calls.length;
+    for (let frame = 0; frame < 3; frame++) {
+      useGlobeControlStore().loading = true;
+      await nextTick();
+      expect(state.timeInfo.value).toBe(timeInfo);
+      expect(state.isSourceDifferent(otherSource)).toBe(true);
+      useGlobeControlStore().loading = false;
+      await nextTick();
+    }
+    expect(ZarrDataManager.getVariableInfo).toHaveBeenCalledTimes(calls);
+    expect(state.timeInfo.value).toBe(timeInfo);
+    useGlobeControlStore().varnameDisplay = "other";
+    await vi.waitFor(() =>
+      expect(ZarrDataManager.getVariableInfo).toHaveBeenCalledWith(
+        source,
+        "other"
+      )
+    );
+  } finally {
+    scope.stop();
+  }
+});
+
+it("ignores an old time-coordinate result after the dataset changes", async () => {
   let rejectTime!: (error: Error) => void;
   const pending = new Promise<typeof variable>((_resolve, reject) => {
     rejectTime = reject;
@@ -193,7 +229,7 @@ it("ignores an old time-coordinate result after loading another dataset starts",
   vi.mocked(ZarrDataManager.getVariableInfo).mockImplementation(
     async (_source, name) => (name === "time" ? pending : variable)
   );
-  const { state, scope } = setupPanel();
+  const { state, scope, props } = setupPanel();
   try {
     await vi.waitFor(() =>
       expect(ZarrDataManager.getVariableInfo).toHaveBeenCalledWith(
@@ -202,6 +238,7 @@ it("ignores an old time-coordinate result after loading another dataset starts",
       )
     );
     useGlobeControlStore().loading = true;
+    props.datasources = undefined;
     await nextTick();
     rejectTime(new NotFoundError("time"));
     await nextTick();

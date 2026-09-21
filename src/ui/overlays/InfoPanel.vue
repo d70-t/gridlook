@@ -87,13 +87,13 @@ const variableFillValue = ref<number | null>(null);
 const timeInfo = ref<TTimeInfo | null>(null);
 const noTimeCoordinate = ref(false);
 let infoRequestId = 0;
+let infoRefreshPending = true;
 const error = ref<string | null>(null);
 
 function isSourceDifferent(source?: TDatasetSource) {
   const current =
     props.datasources?.levels[0]?.datasources[sourceVariable.value ?? ""];
   return (
-    !loading.value &&
     variableDtype.value !== null &&
     !!source &&
     !!current &&
@@ -433,13 +433,19 @@ async function fetchInfo(requestId: number) {
 }
 
 watch(
-  () => [props.datasources, sourceVariable.value, props.isOpen, loading.value],
-  () => {
-    const requestId = ++infoRequestId;
-    timeInfo.value = null;
-    noTimeCoordinate.value = false;
-    if (props.isOpen && !loading.value) {
-      fetchInfo(requestId);
+  [() => props.datasources, sourceVariable, () => props.isOpen, loading],
+  (values, previous) => {
+    // Frame loading alone does not change dataset metadata.
+    if (values.slice(0, 3).some((value, index) => value !== previous[index])) {
+      ++infoRequestId;
+      infoRefreshPending = true;
+      variableDtype.value = null;
+      timeInfo.value = null;
+      noTimeCoordinate.value = false;
+    }
+    if (infoRefreshPending && props.isOpen && !loading.value) {
+      infoRefreshPending = false;
+      fetchInfo(infoRequestId);
     }
   },
   { immediate: true }
@@ -513,7 +519,7 @@ watch(
           </p>
           <TimeDimensionSection
             :time-info="timeInfo"
-            :no-time-coordinate="!loading && noTimeCoordinate"
+            :no-time-coordinate="noTimeCoordinate"
           />
           <p
             v-if="isSourceDifferent(datasources?.levels[0]?.grid)"
