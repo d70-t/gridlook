@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.1](https://github.com/d70-t/gridlook/compare/v1.6.0...v1.6.1) (2026-09-21)
+
+
+### Bug Fixes
+
+* **lib:** fixed `Object is not disposable.` for Volume rendering on Safari Browsers ([4b028b5](https://github.com/d70-t/gridlook/commit/4b028b587655dc9a872f0b52d6ba34a2e40fc168))
+
 ## [1.6.0](https://github.com/d70-t/gridlook/compare/v1.5.0...v1.6.0) (2026-09-18)
 
 
