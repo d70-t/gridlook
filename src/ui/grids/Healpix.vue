@@ -51,6 +51,7 @@ import {
   terminateHealpixWorker,
 } from "@/lib/grids/healpixWorkerClient.ts";
 import type { THealpixBatch } from "@/lib/grids/healpixWorkerProtocol.ts";
+import { useBasemapLayer, type TBasemap } from "@/lib/layers/basemap.ts";
 import {
   createTriangleWrapProjectionGeometry,
   createWrappedProjectionMesh,
@@ -133,6 +134,8 @@ const selectedDimensionNames = ref<string[]>([]);
 
 const healpixGrid = ref<healpixGeo.Grid | null>(null);
 const gridPrepared = ref<boolean>(false);
+
+const basemap = ref<TBasemap | null>(null);
 
 type TStreamlineContext = {
   indices: (number | null | zarr.Slice)[];
@@ -985,6 +988,16 @@ onBeforeMount(async () => {
     return;
   }
   healpixGrid.value = grid;
+
+  if (store.showBasemap) {
+    basemap.value = useBasemapLayer(
+      store.basemaps,
+      box.value,
+      store.selectedBasemap ?? "osm",
+      store.showBasemap
+    );
+  }
+
   await datasourceUpdate();
   gridPrepared.value = true;
 });

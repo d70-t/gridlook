@@ -47,6 +47,7 @@ export const LAYER_KINDS = {
   STREAMLINES: "streamlines",
   VOLUME: "volume",
   TEXTURE: "texture",
+  BASEMAP: "basemap",
 } as const;
 
 export type TLayerKind = (typeof LAYER_KINDS)[keyof typeof LAYER_KINDS];
@@ -74,6 +75,7 @@ export const BUILTIN_LAYER_IDS = {
   MASK: "mask",
   STREAMLINES: "streamlines",
   VOLUME: "volume",
+  BASEMAP: "basemap",
 } as const;
 
 export const LAYER_OPACITY = {
@@ -127,6 +129,7 @@ export const BUILTIN_LAYER_NAMES = {
   [LAYER_KINDS.MASK]: "Land/sea mask",
   [LAYER_KINDS.STREAMLINES]: "Flow streamlines",
   [LAYER_KINDS.VOLUME]: "Volume",
+  [LAYER_KINDS.BASEMAP]: "Basemap",
 } as const satisfies Record<
   Exclude<TLayerKind, typeof LAYER_KINDS.TEXTURE>,
   string
@@ -173,6 +176,13 @@ const BUILTIN_LAYER_DEFAULTS: Record<TBuiltinLayerKind, TBuiltinLayerDefaults> =
       opacity: LAYER_OPACITY.MAX,
       maskMode: LAND_SEA_MASK_MODES.OFF,
     },
+    [LAYER_KINDS.BASEMAP]: {
+      id: BUILTIN_LAYER_IDS.BASEMAP,
+      kind: LAYER_KINDS.BASEMAP,
+      opacity: LAYER_OPACITY.MAX,
+      maskMode: LAND_SEA_MASK_MODES.OFF,
+      selectedBasemap: "osm",
+    },
   };
 
 const INITIAL_BUILTIN_LAYER_KINDS = [
@@ -199,6 +209,9 @@ export const useGlobeControlStore = defineStore("globeControl", {
       showCoastLines: true,
       showGraticules: false,
       showDistanceScale: false,
+      showBasemap: false,
+      basemaps: undefined as TBasemapEntry[] | undefined,
+      selectedBasemap: "osm" as string,
       coastlineResolution:
         COASTLINE_RESOLUTIONS.FIFTY_M as TCoastlineResolution,
       graticuleSpacing: GRATICULE_SPACINGS.THIRTY_DEGREES as TGraticuleSpacing,
@@ -231,6 +244,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
       hoverEnabled: false,
       hoveredGridPoint: undefined as THoveredGridPoint | undefined,
       distanceScale: null as TDistanceScale | null,
+      basemapCatalogUrl: undefined as string | undefined,
       catalogUrl: undefined as string | undefined,
       catalogData: undefined as TCatalog | undefined,
       // ── Live datasets ──────────────────────────────────────────────
@@ -337,6 +351,9 @@ export const useGlobeControlStore = defineStore("globeControl", {
     toggleCoastLines() {
       this.showCoastLines = !this.showCoastLines;
     },
+    toggleBasemap() {
+      this.showBasemap = !this.showBasemap;
+    },
     toggleGraticules() {
       this.showGraticules = !this.showGraticules;
     },
@@ -392,6 +409,9 @@ export const useGlobeControlStore = defineStore("globeControl", {
     },
     updateBounds(bounds: TBounds) {
       this.selection = bounds;
+    },
+    updateBasemaps(basemaps: TBasemapEntry[]) {
+      this.basemaps = basemaps;
     },
     updateHistogram(histogram: number[] | undefined) {
       this.histogram = histogram;
@@ -451,6 +471,12 @@ export const useGlobeControlStore = defineStore("globeControl", {
         } else {
           layer.visible = !layer.visible;
         }
+      }
+    },
+    setBasemap(id: string, basemapId: string) {
+      const layer = this.layerStack.find((entry) => entry.id === id);
+      if (layer) {
+        layer.basemap = basemapId;
       }
     },
     isStreamlineLayerEnabled() {
