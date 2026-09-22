@@ -281,7 +281,7 @@ function hasUnits(maybeHasUnits: unknown): maybeHasUnits is { units: string } {
   return typeof (maybeHasUnits as { units: string }).units === "string";
 }
 
-function isLongitudeVariable(name: string, attrs: unknown) {
+export function isLongitudeVariable(name: string, attrs: unknown) {
   const variableName = getVariableLocalName(name);
   return (
     (hasUnits(attrs) && !!attrs.units.match(/degrees?_?(E|east)/)) ||
@@ -301,7 +301,7 @@ export function isLongitudeName(name: string) {
   );
 }
 
-function isLatitudeVariable(name: string, attrs: unknown) {
+export function isLatitudeVariable(name: string, attrs: unknown) {
   const variableName = getVariableLocalName(name);
   return (
     (hasUnits(attrs) && !!attrs.units.match(/degrees?_?(N|north)/)) ||
