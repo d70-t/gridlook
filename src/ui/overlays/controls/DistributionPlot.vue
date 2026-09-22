@@ -526,7 +526,7 @@ onBeforeUnmount(() => {
       </div>
       <div
         v-else-if="isConstant"
-        class="is-overlay is-flex is-align-items-center has-text-centered is-size-7 has-text-grey"
+        class="is-overlay is-flex is-align-items-center is-justify-content-center has-text-centered is-size-7 has-text-grey"
         role="status"
       >
         Constant value: {{ formatValue(props.dataBoundsLow!) }}
