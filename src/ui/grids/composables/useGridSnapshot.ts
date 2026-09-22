@@ -236,9 +236,9 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
     renderer.getClearColor(clearColor);
     const clearAlpha = renderer.getClearAlpha();
 
-    const rt = new THREE.WebGLRenderTarget(width, height, {
-      colorSpace: THREE.SRGBColorSpace,
-    });
+    // Grid shaders already output display colors; an sRGB target encodes them
+    // again, brightening the pixels copied directly into the snapshot canvas.
+    const rt = new THREE.WebGLRenderTarget(width, height);
     const origVisible = baseSurface ? baseSurface.visible : true;
     const mat = baseSurface?.material as THREE.MeshBasicMaterial | undefined;
     const origColor = mat ? mat.color.getHex() : null;
