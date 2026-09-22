@@ -19,6 +19,7 @@ const DEFAULT_DATASET =
   "https://storage.googleapis.com/cmip6/CMIP6/ScenarioMIP/AWI/AWI-CM-1-1-MR/ssp585/r1i1p1f1/day/sfcWind/gn/v20190529/";
 
 const DEFAULT_CATALOG = "static/catalog.json";
+const DEFAULT_BASEMAP_CATALOG = "static/basemaps.json";
 
 const defaultSrc = ref(DEFAULT_DATASET);
 const src = ref(DEFAULT_DATASET);
@@ -73,8 +74,11 @@ const onHashChange = () => {
     }
     src.value = resource || defaultSrc.value;
     store.catalogUrl = params.value.catalog || DEFAULT_CATALOG;
+    store.basemapCatalogUrl =
+      params.value.basemapCatalog || DEFAULT_BASEMAP_CATALOG;
   } else {
     store.catalogUrl = DEFAULT_CATALOG;
+    store.basemapCatalogUrl = DEFAULT_BASEMAP_CATALOG;
     src.value = defaultSrc.value;
   }
 };
