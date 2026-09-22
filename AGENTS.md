@@ -46,6 +46,7 @@ When editing existing code:
 - Don't refactor things that aren't broken.
 - Match existing style, even if you'd do it differently.
 - If you notice unrelated dead code, mention it - don't delete it.
+- If you find bugs or issues "along the way" which are not directly related to the current task point them out, but don't try to fix them
 
 When your changes create orphans:
 

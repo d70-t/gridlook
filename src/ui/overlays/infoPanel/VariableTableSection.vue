@@ -1,9 +1,11 @@
 <script lang="ts" setup>
-import { computed, ref } from "vue";
+import { computed, nextTick, ref } from "vue";
 import VueJsonPretty from "vue-json-pretty";
 import * as zarr from "zarrita";
 
 import type { TVariableTableRow } from "./types";
+
+import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 
 type TVariableTableDisplayRow = TVariableTableRow & {
   displayName: string;
@@ -33,6 +35,7 @@ const props = withDefaults(
 const emit = defineEmits<{
   toggleAttributes: [varName: string];
   visualize: [varName: string];
+  goToVariable: [varName: string];
 }>();
 
 const ROOT_GROUP_NAME = "/";
@@ -118,8 +121,52 @@ const hasGroups = computed(
     groupedRows.value.some((group) => group.name !== ROOT_GROUP_NAME)
 );
 
-function formatDimensions(dimensions: string[]) {
-  return `(${dimensions.join(", ")})`;
+const variableNames = computed(
+  () => new Set(props.rows.map((row) => row.name))
+);
+
+function resolveDimensionVariable(rowName: string, dim: string): string | null {
+  const candidate = ZarrDataManager.resolveVariablePath(rowName, dim);
+  return variableNames.value.has(candidate) ? candidate : null;
+}
+
+const rowElements = ref<Record<string, HTMLElement>>({});
+const detailsElements = ref<Record<string, HTMLElement>>({});
+
+function registerRowElement(name: string, el: Element | null) {
+  if (el instanceof HTMLElement) {
+    rowElements.value[name] = el;
+  } else {
+    delete rowElements.value[name];
+  }
+}
+
+function registerDetailsElement(name: string, el: Element | null) {
+  if (el instanceof HTMLElement) {
+    detailsElements.value[name] = el;
+  } else {
+    delete detailsElements.value[name];
+  }
+}
+
+async function goToDimensionCoordinate(rowName: string, dim: string) {
+  const target = resolveDimensionVariable(rowName, dim);
+  if (!target) {
+    return;
+  }
+  const group = getVariableGroup(target);
+  openGroups.value = new Set(openGroups.value).add(group);
+  const nextClosedGroups = new Set(closedGroups.value);
+  nextClosedGroups.delete(group);
+  closedGroups.value = nextClosedGroups;
+  emit("goToVariable", target);
+  await nextTick();
+  // Scroll to the details row when present so its attributes are visible too,
+  // not just the name row above it.
+  (detailsElements.value[target] ?? rowElements.value[target])?.scrollIntoView({
+    behavior: "smooth",
+    block: "nearest",
+  });
 }
 
 function hasAttributes(attrs: zarr.Attributes | null) {
@@ -223,6 +270,10 @@ function toggleGroup(groupName: string) {
                 <tbody>
                   <template v-for="row in table.rows" :key="row.name">
                     <tr
+                      :ref="
+                        (el) =>
+                          registerRowElement(row.name, el as Element | null)
+                      "
                       class="variable-row"
                       :class="{
                         'is-selected-variable': row.name === selectedVariable,
@@ -241,9 +292,25 @@ function toggleGroup(groupName: string) {
                         >
                           Unavailable
                         </span>
-                        <code v-else>{{
-                          formatDimensions(row.dimensions)
-                        }}</code>
+                        <code v-else
+                          >(<template
+                            v-for="(dim, dimIndex) in row.dimensions"
+                            :key="dim"
+                            ><a
+                              v-if="resolveDimensionVariable(row.name, dim)"
+                              href="#"
+                              class="has-text-link dimension-link"
+                              @click.prevent="
+                                goToDimensionCoordinate(row.name, dim)
+                              "
+                              >{{ dim }}</a
+                            ><template v-else>{{ dim }}</template
+                            ><template
+                              v-if="dimIndex < row.dimensions.length - 1"
+                              >,
+                            </template></template
+                          >)</code
+                        >
                       </td>
                       <td>
                         <span
@@ -296,6 +363,10 @@ function toggleGroup(groupName: string) {
                     </tr>
                     <tr
                       v-if="row.name === selectedAttributesVariable"
+                      :ref="
+                        (el) =>
+                          registerDetailsElement(row.name, el as Element | null)
+                      "
                       class="variable-attributes-row"
                     >
                       <td colspan="4">
@@ -383,6 +454,10 @@ function toggleGroup(groupName: string) {
 
   code {
     white-space: normal;
+  }
+
+  .dimension-link:hover {
+    text-decoration: underline;
   }
 }
 

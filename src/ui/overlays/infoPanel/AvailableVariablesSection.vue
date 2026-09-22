@@ -115,6 +115,11 @@ function toggleVariableAttributes(varName: string) {
     selectedAttributesVariableName.value === varName ? null : varName;
 }
 
+function goToVariable(varName: string) {
+  searchQuery.value = "";
+  selectedAttributesVariableName.value = varName;
+}
+
 function selectVariable(varName: string) {
   selectedAttributesVariableName.value = varName;
   store.setStreamlineMagnitudeDisplayed(
@@ -165,6 +170,7 @@ watch(displayedDataVariable, () => {
         show-visualize
         @toggle-attributes="toggleVariableAttributes"
         @visualize="selectVariable"
+        @go-to-variable="goToVariable"
       />
     </section>
   </div>

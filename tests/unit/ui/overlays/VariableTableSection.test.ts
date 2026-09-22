@@ -86,3 +86,20 @@ it("shows a clear empty state for searches without matches", async () => {
   expect(html).toContain("No matches");
   expect(html).not.toContain("<table");
 });
+
+it("links a dimension only when a matching coordinate variable exists", async () => {
+  // atmosphere/tas has dimension "time", and atmosphere/time exists as a coordinate.
+  const atmosphereHtml = await render("", "atmosphere/tas");
+  expect(atmosphereHtml).toMatch(/atmosphere\/tas[\s\S]*?<a[^>]*>time<\/a>/);
+
+  // ocean/tas also has dimension "time", but no ocean/time coordinate exists.
+  const oceanHtml = await render("", "ocean/tas");
+  expect(oceanHtml).toContain('title="ocean/tas"');
+  expect(oceanHtml).not.toMatch(/ocean\/tas[\s\S]*?<a[^>]*>time<\/a>/);
+});
+
+it("links a coordinate's own dimension to itself instead of showing it as plain text", async () => {
+  // atmosphere/time is a coordinate whose only dimension is itself ("time").
+  const html = await render();
+  expect(html).toMatch(/title="atmosphere\/time"[\s\S]*?<a[^>]*>time<\/a>/);
+});
