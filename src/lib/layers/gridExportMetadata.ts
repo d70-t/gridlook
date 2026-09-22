@@ -18,6 +18,47 @@ export type TRegularLatLonTextureExportMetadata = {
 };
 
 const DEFAULT_SINGLE_COORD_SPAN = 1;
+// Coordinate arrays are commonly stored as Float32 (e.g. Zarr/NetCDF lat/lon
+// variables), which only carries ~1e-5deg precision at longitude magnitude.
+// Cell-edge bounds derived from them (first - step/2, last + step/2) can
+// overshoot the true edge by that much, which is enough to fail downstream
+// validation (e.g. a global grid landing a hair past +-180deg). Rounding to
+// this precision removes that noise while staying far finer than any real
+// grid resolution.
+const COORDINATE_PRECISION_DEGREES = 1e-4;
+
+function roundToCoordinatePrecision(value: number): number {
+  return (
+    Math.round(value / COORDINATE_PRECISION_DEGREES) *
+    COORDINATE_PRECISION_DEGREES
+  );
+}
+
+const UNIFORM_SPACING_RELATIVE_TOLERANCE = 0.01;
+
+// The direct-texture GeoTIFF export maps texture rows/columns linearly onto
+// the geographic bounds, which only reproduces the source grid correctly
+// when coordinate spacing is actually uniform. Equal-area grids (e.g.
+// EASE-Grid 2.0) space latitudes non-uniformly (denser near the equator),
+// so they must fall back to the slower per-vertex export path instead.
+export function isUniformlySpaced(values: Float32Array): boolean {
+  if (values.length < 3) {
+    return true;
+  }
+  const referenceStep = values[1] - values[0];
+  if (referenceStep === 0) {
+    return false;
+  }
+  const tolerance =
+    Math.abs(referenceStep) * UNIFORM_SPACING_RELATIVE_TOLERANCE;
+  for (let index = 2; index < values.length; index++) {
+    const step = values[index] - values[index - 1];
+    if (Math.abs(step - referenceStep) > tolerance) {
+      return false;
+    }
+  }
+  return true;
+}
 
 function getSingleCoordinateBounds(value: number) {
   const halfSpan = DEFAULT_SINGLE_COORD_SPAN / 2;
@@ -44,8 +85,8 @@ function getOrderedLongitudeBounds(
   }
 
   return {
-    west: first - firstStep / 2,
-    east: last + lastStep / 2,
+    west: roundToCoordinatePrecision(first - firstStep / 2),
+    east: roundToCoordinatePrecision(last + lastStep / 2),
   };
 }
 
