@@ -50,6 +50,7 @@ import {
 import {
   GridTextureExportUserDataKey,
   getRegularLatLonGridBounds,
+  isUniformlySpaced,
   TextureExportVCoordinate,
 } from "@/lib/layers/gridExportMetadata.ts";
 import {
@@ -379,7 +380,12 @@ function subsampleCoords(
 }
 
 function getRegularTextureExportMetadata(isRotated: boolean | undefined) {
-  if (isRotated || isProjectedGrid.value) {
+  if (
+    isRotated ||
+    isProjectedGrid.value ||
+    !isUniformlySpaced(latitudes.value) ||
+    !isUniformlySpaced(longitudes.value)
+  ) {
     return undefined;
   }
 

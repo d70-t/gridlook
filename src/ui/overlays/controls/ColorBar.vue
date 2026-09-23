@@ -76,7 +76,7 @@ let lutMesh: THREE.Mesh | undefined;
 let frameId = 0;
 
 const store = useGlobeControlStore();
-const { hoveredGridPoint } = storeToRefs(store);
+const { hoveredGridPoint, loading } = storeToRefs(store);
 
 const dataRange = computed(() => {
   if (props.dataBoundsLow === undefined || props.dataBoundsHigh === undefined) {
@@ -84,6 +84,8 @@ const dataRange = computed(() => {
   }
   return props.dataBoundsHigh - props.dataBoundsLow;
 });
+
+const hasData = computed(() => props.fullHistogram?.some((count) => count > 0));
 
 const selLowFraction = computed(() => {
   if (
@@ -394,6 +396,14 @@ function setupCanvas(
   return ctx;
 }
 
+function getBinMaxCount(bins: number[]): number {
+  let maxCount = 0;
+  for (const count of bins) {
+    maxCount = Math.max(maxCount, count);
+  }
+  return maxCount;
+}
+
 // ---------------------------------------------------------------------------
 // Draw: selection-range histogram
 // ---------------------------------------------------------------------------
@@ -415,7 +425,7 @@ function drawSelectionHistogram() {
     return;
   }
 
-  const maxCount = Math.max(...bins);
+  let maxCount = getBinMaxCount(bins);
   if (maxCount <= 0) {
     return;
   }
@@ -441,7 +451,11 @@ function drawSelectionHistogram() {
         ? "rgba(255, 255, 255, 0.75)"
         : "rgba(255, 255, 255, 0.42)";
     ctx.fillRect(
-      pixelStart + i * barWidth + gap / 2,
+      pixelStart +
+        (props.boundsLow === props.boundsHigh
+          ? (selWidth - barWidth) / 2
+          : i * barWidth) +
+        gap / 2,
       h - barHeight,
       drawWidth,
       barHeight
@@ -547,6 +561,7 @@ function onResize() {
 function onSelHistHover(event: MouseEvent) {
   if (
     !selHistCanvasRef.value ||
+    !hasData.value ||
     !props.histogram ||
     props.histogram.length === 0 ||
     props.boundsLow === undefined ||
@@ -570,7 +585,10 @@ function onSelHistHover(event: MouseEvent) {
     return;
   }
 
-  const binIndex = Math.floor(((x - pixelStart) / selWidth) * numBins);
+  const equalBounds = props.boundsLow === props.boundsHigh;
+  const binIndex = equalBounds
+    ? Math.floor(numBins / 2)
+    : Math.floor(((x - pixelStart) / selWidth) * numBins);
   if (binIndex < 0 || binIndex >= numBins) {
     hoveredSelBin.value = null;
     tooltipData.value = null;
@@ -583,7 +601,9 @@ function onSelHistHover(event: MouseEvent) {
   }
 
   const binCenterX =
-    rect.left + pixelStart + ((binIndex + 0.5) / numBins) * selWidth;
+    rect.left +
+    pixelStart +
+    (equalBounds ? 0.5 : (binIndex + 0.5) / numBins) * selWidth;
   tooltipX.value = binCenterX;
   tooltipY.value = rect.top - 4;
   tooltipData.value = computeBinTooltip(
@@ -661,6 +681,7 @@ onBeforeUnmount(() => {
       :data-bounds-high="props.dataBoundsHigh"
       :bounds-low="props.boundsLow"
       :bounds-high="props.boundsHigh"
+      :loading="loading"
       :is-pannable="isPannable"
       @pan-start="onDistributionPanStart"
       @handle-drag-start="onDistributionHandleDragStart"

@@ -15,16 +15,18 @@ import DimensionsSection from "./infoPanel/DimensionsSection.vue";
 import GridTypeSection from "./infoPanel/GridTypeSection.vue";
 import SpatialCoverageSection from "./infoPanel/SpatialCoverageSection.vue";
 import TimeDimensionSection from "./infoPanel/TimeDimensionSection.vue";
-import type {
-  TCoordinateSlice,
-  TGroupInfo,
-  TInfoDimension,
-  TTimeInfo,
+import {
+  InfoPanelTab,
+  type TCoordinateSlice,
+  type TGroupInfo,
+  type TInfoDimension,
+  type TInfoPanelTab,
+  type TTimeInfo,
 } from "./infoPanel/types.ts";
 
 import { getLatLonData } from "@/lib/data/coordinateVariables.ts";
 import { GRID_TYPES, type T_GRID_TYPES } from "@/lib/data/gridTypeDetector.ts";
-import { decodeTime } from "@/lib/data/timeHandling.ts";
+import { decodeTime, isTimeCoordinate } from "@/lib/data/timeHandling.ts";
 import { getMissingValue, getFillValue } from "@/lib/data/variableDecoding.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import type { TDatasetSource, TSources } from "@/lib/types/GlobeTypes.ts";
@@ -76,12 +78,30 @@ const lonLength = ref<number | null>(null);
 const lonMin = ref<number | null>(null);
 const lonMax = ref<number | null>(null);
 
+const activeTab = ref<TInfoPanelTab>(InfoPanelTab.OVERVIEW);
+
 const variableDtype = ref<string | null>(null);
 const variableChunks = ref<readonly (number | null)[] | null>(null);
 const variableMissingValue = ref<number | null>(null);
 const variableFillValue = ref<number | null>(null);
 const timeInfo = ref<TTimeInfo | null>(null);
+const noTimeCoordinate = ref(false);
+let infoRequestId = 0;
+let infoRefreshPending = true;
 const error = ref<string | null>(null);
+
+function isSourceDifferent(source?: TDatasetSource) {
+  const current =
+    props.datasources?.levels[0]?.datasources[sourceVariable.value ?? ""];
+  return (
+    variableDtype.value !== null &&
+    !!source &&
+    !!current &&
+    (source.store !== current.store ||
+      source.dataset !== current.dataset ||
+      source.file !== current.file)
+  );
+}
 
 /**
  * Converts a bigint or number to a number, handling BigInt64Array values.
@@ -101,7 +121,19 @@ async function fetchTimeData(
   const timeVar = await ZarrDataManager.getVariableInfo(
     varSource,
     ZarrDataManager.resolveVariablePath(varname, timeDimName)
-  );
+  ).catch((err: unknown) => {
+    if (
+      (zarr.isZarritaError(err, "NotFoundError") && !err.found) ||
+      (err instanceof Error &&
+        err.message.startsWith("NetCDF variable not found: "))
+    ) {
+      return null;
+    }
+    throw err;
+  });
+  if (!timeVar) {
+    return null;
+  }
 
   const units = (timeVar.attrs?.units as string) || "unknown";
   const calendar = (timeVar.attrs?.calendar as string) || "standard";
@@ -137,7 +169,16 @@ async function fetchTimeData(
   };
 }
 
-async function getTimeDimensionInfo(varname: string) {
+const timeDimNames = [
+  "time",
+  "t",
+  "datetime",
+  "date",
+  "valid_time",
+  "init_time",
+];
+
+async function getTimeDimensionInfo(varname: string, requestId: number) {
   if (!props.datasources) {
     return;
   }
@@ -146,24 +187,24 @@ async function getTimeDimensionInfo(varname: string) {
     props.datasources,
     varname
   );
-  if (!arrayDims || varname !== sourceVariable.value) {
+  if (
+    !arrayDims ||
+    requestId !== infoRequestId ||
+    varname !== sourceVariable.value
+  ) {
     return;
   }
 
-  // Find a time-like dimension
-  const timeDimNames = [
-    "time",
-    "t",
-    "datetime",
-    "date",
-    "valid_time",
-    "init_time",
-  ];
-  const timeDimIndex = arrayDims.findIndex((dim) =>
-    timeDimNames.includes(dim.toLowerCase())
-  );
+  const timeDimIndex = arrayDims.findIndex((dim) => {
+    const path = ZarrDataManager.resolveVariablePath(varname, dim);
+    const attrs = props.datasources?.levels[0].datasources[path]?.attrs ?? {};
+    return (
+      timeDimNames.includes(dim.toLowerCase()) || isTimeCoordinate(dim, attrs)
+    );
+  });
 
   if (timeDimIndex === -1) {
+    noTimeCoordinate.value = true;
     timeInfo.value = null;
     return;
   }
@@ -172,12 +213,15 @@ async function getTimeDimensionInfo(varname: string) {
 
   try {
     const varSource = props.datasources.levels[0].time;
-    const info = await fetchTimeData(varSource, timeDimName, varname);
-    if (varname === sourceVariable.value) {
+    const info = varSource
+      ? await fetchTimeData(varSource, timeDimName, varname)
+      : null;
+    if (requestId === infoRequestId && varname === sourceVariable.value) {
       timeInfo.value = info;
+      noTimeCoordinate.value = info === null;
     }
   } catch (err) {
-    if (varname === sourceVariable.value) {
+    if (requestId === infoRequestId && varname === sourceVariable.value) {
       logError(err, "Error fetching time dimension info");
       timeInfo.value = null;
     }
@@ -229,7 +273,8 @@ function processLonData(
 // eslint-disable-next-line max-lines-per-function
 async function getLatLonInfo(
   variable: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
-  varname: string
+  varname: string,
+  requestId: number
 ) {
   if (
     props.gridType === GRID_TYPES.TRIANGULAR ||
@@ -245,7 +290,7 @@ async function getLatLonInfo(
         props.datasources,
         props.gridType === GRID_TYPES.REGULAR_ROTATED
       );
-    if (varname !== sourceVariable.value) {
+    if (requestId !== infoRequestId || varname !== sourceVariable.value) {
       return;
     }
 
@@ -283,13 +328,14 @@ async function getLatLonInfo(
 
 async function loadVariableDetails(
   variable: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
-  varname: string
+  varname: string,
+  requestId: number
 ) {
   const arrayDims = await ZarrDataManager.getDimensionNames(
     props.datasources!,
     varname
   );
-  if (varname !== sourceVariable.value) {
+  if (requestId !== infoRequestId || varname !== sourceVariable.value) {
     return;
   }
   variableDtype.value = String(variable.dtype);
@@ -338,7 +384,7 @@ async function loadGroupAttrsChain(
   return chain;
 }
 
-async function fetchInfo() {
+async function fetchInfo(requestId: number) {
   const varname = sourceVariable.value;
   if (!props.datasources || !varname || varname === "-") {
     return;
@@ -365,30 +411,41 @@ async function fetchInfo() {
   try {
     const varSource = props.datasources.levels[0].datasources[varname];
     const groupChain = await loadGroupAttrsChain(varSource, varname);
-    if (varname !== sourceVariable.value) {
+    if (requestId !== infoRequestId || varname !== sourceVariable.value) {
       return;
     }
     groupAttrsChain.value = groupChain;
     groupAttrs.value = groupChain[0]?.attrs ?? null;
     const variable = await ZarrDataManager.getVariableInfo(varSource, varname);
-    if (varname !== sourceVariable.value) {
+    if (requestId !== infoRequestId || varname !== sourceVariable.value) {
       return;
     }
     await Promise.all([
-      loadVariableDetails(variable, varname),
-      getLatLonInfo(variable, varname),
-      getTimeDimensionInfo(varname),
+      loadVariableDetails(variable, varname, requestId),
+      getLatLonInfo(variable, varname, requestId),
+      getTimeDimensionInfo(varname, requestId),
     ]);
   } catch (err) {
-    logError(err);
+    if (requestId === infoRequestId) {
+      logError(err);
+    }
   }
 }
 
 watch(
-  () => [props.datasources, sourceVariable.value, props.isOpen, loading.value],
-  () => {
-    if (props.isOpen && !loading.value) {
-      fetchInfo();
+  [() => props.datasources, sourceVariable, () => props.isOpen, loading],
+  (values, previous) => {
+    // Frame loading alone does not change dataset metadata.
+    if (values.slice(0, 3).some((value, index) => value !== previous[index])) {
+      ++infoRequestId;
+      infoRefreshPending = true;
+      variableDtype.value = null;
+      timeInfo.value = null;
+      noTimeCoordinate.value = false;
+    }
+    if (infoRefreshPending && props.isOpen && !loading.value) {
+      infoRefreshPending = false;
+      fetchInfo(infoRequestId);
     }
   },
   { immediate: true }
@@ -413,58 +470,94 @@ watch(
       </div>
     </div>
 
-    <div v-else class="info-panel-content">
-      <GridTypeSection
-        :grid-type="gridType"
-        @select-grid-type="emit('selectGridType', $event)"
-      />
-      <CurrentVariableSection
-        :varname="varnameDisplay"
-        :variable-long-name="variableLongName"
-        :variable-standard-name="variableStandardName"
-        :variable-units="variableUnits"
-        :derived-from="varinfo?.derivedFrom"
-      />
-      <DatasetMetadataSection :group-attrs="groupAttrs" />
-      <DataStorageSection
-        v-if="!varinfo?.derivedFrom"
-        :dimensions="dimensions"
-        :variable-dtype="variableDtype"
-        :variable-chunks="variableChunks"
-        :variable-missing-value="variableMissingValue"
-        :variable-fill-value="variableFillValue"
-        :zarr-format="datasources?.zarr_format ?? null"
-      />
-      <DimensionsSection :dimensions="dimensions" />
-      <TimeDimensionSection :time-info="timeInfo" />
-      <SpatialCoverageSection
-        :lat-slice="latSlice"
-        :lat-dimensions="latDimensions"
-        :lat-length="latLength"
-        :lat-min="latMin"
-        :lat-max="latMax"
-        :lon-slice="lonSlice"
-        :lon-dimensions="lonDimensions"
-        :lon-length="lonLength"
-        :lon-min="lonMin"
-        :lon-max="lonMax"
-      />
-      <AvailableVariablesSection
-        :datasources="datasources"
-        :varname="sourceVariable"
-      />
-      <template v-for="group in groupAttrsChain" :key="group.path">
-        <AttributesSection
-          :title="
-            group.path === '/'
-              ? 'Global Attributes'
-              : `Group Attributes (${group.path})`
-          "
-          :attrs="group.attrs"
-          empty-label="No group attributes"
-        />
-      </template>
-    </div>
+    <template v-else>
+      <div class="tabs is-fullwidth mb-0 is-flex-shrink-0">
+        <ul>
+          <li :class="{ 'is-active': activeTab === InfoPanelTab.OVERVIEW }">
+            <a href="#" @click.prevent="activeTab = InfoPanelTab.OVERVIEW">
+              Overview
+            </a>
+          </li>
+          <li :class="{ 'is-active': activeTab === InfoPanelTab.BROWSE }">
+            <a href="#" @click.prevent="activeTab = InfoPanelTab.BROWSE">
+              Browse
+            </a>
+          </li>
+        </ul>
+      </div>
+
+      <div class="info-panel-content">
+        <div v-show="activeTab === InfoPanelTab.OVERVIEW">
+          <GridTypeSection
+            :grid-type="gridType"
+            @select-grid-type="emit('selectGridType', $event)"
+          />
+          <CurrentVariableSection
+            :varname="varnameDisplay"
+            :variable-long-name="variableLongName"
+            :variable-standard-name="variableStandardName"
+            :variable-units="variableUnits"
+            :derived-from="varinfo?.derivedFrom"
+          />
+          <DatasetMetadataSection :group-attrs="groupAttrs" />
+          <DataStorageSection
+            v-if="!varinfo?.derivedFrom"
+            :dimensions="dimensions"
+            :variable-dtype="variableDtype"
+            :variable-chunks="variableChunks"
+            :variable-missing-value="variableMissingValue"
+            :variable-fill-value="variableFillValue"
+            :zarr-format="datasources?.zarr_format ?? null"
+          />
+          <DimensionsSection :dimensions="dimensions" />
+          <p
+            v-if="timeInfo && isSourceDifferent(datasources?.levels[0]?.time)"
+            class="is-size-7 has-text-danger mb-2"
+          >
+            Time variable is from a different file and may not be correctly
+            recognized.
+          </p>
+          <TimeDimensionSection
+            :time-info="timeInfo"
+            :no-time-coordinate="noTimeCoordinate"
+          />
+          <p
+            v-if="isSourceDifferent(datasources?.levels[0]?.grid)"
+            class="is-size-7 has-text-danger mb-2"
+          >
+            Grid related dimensions are from a different file and may not be
+            correctly recognized.
+          </p>
+          <SpatialCoverageSection
+            :lat-slice="latSlice"
+            :lat-dimensions="latDimensions"
+            :lat-length="latLength"
+            :lat-min="latMin"
+            :lat-max="latMax"
+            :lon-slice="lonSlice"
+            :lon-dimensions="lonDimensions"
+            :lon-length="lonLength"
+            :lon-min="lonMin"
+            :lon-max="lonMax"
+          />
+          <template v-for="group in groupAttrsChain" :key="group.path">
+            <AttributesSection
+              :title="
+                group.path === '/'
+                  ? 'Global Attributes'
+                  : `Group Attributes (${group.path})`
+              "
+              :attrs="group.attrs"
+              empty-label="No group attributes"
+            />
+          </template>
+        </div>
+
+        <div v-show="activeTab === InfoPanelTab.BROWSE">
+          <AvailableVariablesSection :datasources="datasources" />
+        </div>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -474,8 +567,8 @@ watch(
 .info-panel {
   position: fixed;
   top: 0;
-  right: -400px;
-  width: 400px;
+  right: -500px;
+  width: 500px;
   height: 100vh;
   background: var(--bulma-scheme-main);
   box-shadow: -2px 0 8px rgba(0, 0, 0, 0.15);

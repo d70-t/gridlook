@@ -32,6 +32,7 @@ const props = defineProps<{
   boundsLow?: number;
   boundsHigh?: number;
   isPannable?: boolean;
+  loading?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -77,6 +78,15 @@ const dataRange = computed(() =>
   props.dataBoundsLow !== undefined && props.dataBoundsHigh !== undefined
     ? props.dataBoundsHigh - props.dataBoundsLow
     : 0
+);
+
+const hasData = computed(() => props.fullHistogram?.some((count) => count > 0));
+const isConstant = computed(() => hasData.value && dataRange.value === 0);
+const chartLow = computed(() =>
+  isConstant.value || !hasData.value ? 0 : props.dataBoundsLow
+);
+const chartHigh = computed(() =>
+  isConstant.value || !hasData.value ? 1 : props.dataBoundsHigh
 );
 
 /** Whether a data-space x value falls inside the current selection. */
@@ -131,12 +141,19 @@ function computeNiceTicks(lo: number, hi: number, maxCount = 5): number[] {
 }
 
 const niceTicks = computed(() =>
-  props.dataBoundsLow !== undefined && props.dataBoundsHigh !== undefined
-    ? computeNiceTicks(props.dataBoundsLow, props.dataBoundsHigh, 5)
-    : []
+  !hasData.value
+    ? []
+    : isConstant.value
+      ? [props.dataBoundsLow!]
+      : props.dataBoundsLow !== undefined && props.dataBoundsHigh !== undefined
+        ? computeNiceTicks(props.dataBoundsLow, props.dataBoundsHigh, 5)
+        : []
 );
 
 function tickFraction(tick: number): number {
+  if (isConstant.value) {
+    return 0.5;
+  }
   if (dataRange.value <= 0 || props.dataBoundsLow === undefined) {
     return 0;
   }
@@ -161,12 +178,15 @@ function setChartAnnotations() {
 // eslint-disable-next-line max-lines-per-function
 function buildAnnotations(): Record<string, object> {
   const annotations: Record<string, object> = {};
+  if (!hasData.value) {
+    return annotations;
+  }
 
   for (const [i, tick] of niceTicks.value.entries()) {
     annotations[`grid${i}`] = {
       type: "line",
-      xMin: tick,
-      xMax: tick,
+      xMin: isConstant.value ? 0.5 : tick,
+      xMax: isConstant.value ? 0.5 : tick,
       borderColor: "rgba(160, 160, 160, 0.25)",
       borderWidth: 1,
     };
@@ -224,39 +244,33 @@ function buildAnnotations(): Record<string, object> {
 // ---------------------------------------------------------------------------
 
 function buildChartData(): { x: number; y: number }[] {
+  if (isConstant.value) {
+    return [
+      { x: 0.5, y: 0 },
+      { x: 0.5, y: 1 },
+      { x: 0.5, y: 0 },
+    ];
+  }
   if (
-    !props.fullHistogram?.length ||
+    !hasData.value ||
     props.dataBoundsLow === undefined ||
     props.dataBoundsHigh === undefined ||
     dataRange.value <= 0
   ) {
     return [];
   }
-  const bins = props.fullHistogram;
+  const bins = props.fullHistogram!;
   const numBins = bins.length;
   const binSize = dataRange.value / numBins;
-  const maxCount = Math.max(...bins, 1);
+  let maxCount = 1;
+  for (const count of bins) {
+    maxCount = Math.max(maxCount, count);
+  }
   return bins.map((v, i) => ({
     x: props.dataBoundsLow! + (i + 0.5) * binSize,
     y: v / maxCount,
   }));
 }
-
-const noDataPlugin = {
-  id: "noData",
-  afterDraw(c: Chart) {
-    if (c.data.datasets[0]?.data.every((item) => item === 0)) {
-      const { ctx, width, height } = c;
-      c.clear();
-      ctx.save();
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillStyle = "var(--bulma-grey)";
-      ctx.fillText("No data to display", width / 2, height / 2);
-      ctx.restore();
-    }
-  },
-};
 
 function createChart() {
   if (!canvasRef.value) {
@@ -265,7 +279,6 @@ function createChart() {
 
   chart = new Chart<"line", { x: number; y: number }[]>(canvasRef.value, {
     type: "line",
-    plugins: [noDataPlugin],
     data: {
       datasets: [
         {
@@ -276,13 +289,13 @@ function createChart() {
           segment: {
             backgroundColor: (ctx) => {
               const mid = ((ctx.p0.parsed.x ?? 0) + (ctx.p1.parsed.x ?? 0)) / 2;
-              return inSelection(mid)
+              return inSelection(isConstant.value ? props.dataBoundsLow! : mid)
                 ? "rgba(74, 144, 217, 0.28)"
                 : "rgba(148, 163, 178, 0.18)";
             },
             borderColor: (ctx) => {
               const mid = ((ctx.p0.parsed.x ?? 0) + (ctx.p1.parsed.x ?? 0)) / 2;
-              return inSelection(mid)
+              return inSelection(isConstant.value ? props.dataBoundsLow! : mid)
                 ? "rgba(74, 144, 217, 0.6)"
                 : "rgba(148, 163, 178, 0.40)";
             },
@@ -298,8 +311,8 @@ function createChart() {
         x: {
           type: "linear",
           display: false,
-          min: props.dataBoundsLow ?? 0,
-          max: props.dataBoundsHigh ?? 1,
+          min: chartLow.value ?? 0,
+          max: chartHigh.value ?? 1,
         },
         y: { display: false },
       },
@@ -315,9 +328,9 @@ function updateChart() {
   }
   chart.data.datasets[0].data = buildChartData();
   (chart.options.scales!.x as { min: number; max: number }).min =
-    props.dataBoundsLow ?? 0;
+    chartLow.value ?? 0;
   (chart.options.scales!.x as { min: number; max: number }).max =
-    props.dataBoundsHigh ?? 1;
+    chartHigh.value ?? 1;
   setChartAnnotations();
   chart.update("none");
 }
@@ -350,7 +363,7 @@ watch(tooltipData, async (newVal) => {
 function onHover(event: MouseEvent) {
   if (
     !canvasRef.value ||
-    !props.fullHistogram?.length ||
+    !hasData.value ||
     props.dataBoundsLow === undefined ||
     props.dataBoundsHigh === undefined
   ) {
@@ -359,10 +372,10 @@ function onHover(event: MouseEvent) {
     return;
   }
   const rect = canvasRef.value.getBoundingClientRect();
-  const numBins = props.fullHistogram.length;
-  const binIndex = Math.floor(
-    ((event.clientX - rect.left) / rect.width) * numBins
-  );
+  const numBins = props.fullHistogram!.length;
+  const binIndex = isConstant.value
+    ? Math.floor(numBins / 2)
+    : Math.floor(((event.clientX - rect.left) / rect.width) * numBins);
   if (binIndex < 0 || binIndex >= numBins) {
     tooltipData.value = null;
     return;
@@ -372,11 +385,13 @@ function onHover(event: MouseEvent) {
     setChartAnnotations();
     chart?.update("none");
   }
-  tooltipX.value = rect.left + ((binIndex + 0.5) / numBins) * rect.width;
+  tooltipX.value =
+    rect.left +
+    (isConstant.value ? 0.5 : (binIndex + 0.5) / numBins) * rect.width;
   tooltipY.value = rect.top - 4;
   tooltipData.value = computeBinTooltip(
     binIndex,
-    props.fullHistogram,
+    props.fullHistogram!,
     props.dataBoundsLow,
     props.dataBoundsHigh
   );
@@ -494,6 +509,28 @@ onBeforeUnmount(() => {
         @pointercancel="() => emit('pointerEnd')"
         @lostpointercapture="() => emit('pointerEnd')"
       ></canvas>
+      <div
+        v-if="props.loading && !hasData"
+        class="is-overlay is-flex is-align-items-center is-justify-content-center is-size-7 has-text-grey"
+        role="status"
+      >
+        <span class="loader is-loading mr-2"></span> Loading histogram...
+      </div>
+      <div
+        v-else-if="!hasData"
+        class="is-overlay is-flex is-align-items-center has-text-centered is-size-7 has-text-grey"
+        role="status"
+      >
+        No values to display. NaN, ±Infinity, missing values and string data are
+        excluded.
+      </div>
+      <div
+        v-else-if="isConstant"
+        class="is-overlay is-flex is-align-items-center is-justify-content-center has-text-centered is-size-7 has-text-grey"
+        role="status"
+      >
+        Constant value: {{ formatValue(props.dataBoundsLow!) }}
+      </div>
     </div>
 
     <!-- Tick labels -->

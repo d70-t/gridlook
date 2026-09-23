@@ -1,3 +1,4 @@
+import "@/utils/disposablePolyfill.ts";
 import type { Grid } from "healpix-geo";
 
 import type { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";

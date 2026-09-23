@@ -42,6 +42,7 @@ const SPEED_LABELS: Record<TPlaybackSpeed, string> = {
 // step is scheduled once that fetch completes), so two dimensions animating
 // at once would race over the same loading pulse.
 const playingIndex = ref(-1);
+export const isAnimationPlaying = computed(() => playingIndex.value !== -1);
 const speed = ref<TPlaybackSpeed>(PLAYBACK_SPEED.NORMAL);
 let delayTimer: ReturnType<typeof setTimeout> | null = null;
 let loadingWatcherStarted = false;

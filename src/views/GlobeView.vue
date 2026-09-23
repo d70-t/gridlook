@@ -58,7 +58,11 @@ import GridIrregularDelaunay from "@/ui/grids/IrregularDelaunay.vue";
 import GridRegular from "@/ui/grids/Regular.vue";
 import GridTriangular from "@/ui/grids/Triangular.vue";
 import AboutView from "@/ui/overlays/AboutModal.vue";
-import { toggleTimeAnimation } from "@/ui/overlays/controls/useTimeAnimation.ts";
+import {
+  isAnimationPlaying,
+  stopAnimation,
+  toggleTimeAnimation,
+} from "@/ui/overlays/controls/useTimeAnimation.ts";
 import GlobeControls from "@/ui/overlays/Controls.vue";
 import DistanceScale from "@/ui/overlays/DistanceScale.vue";
 import HoverReadout from "@/ui/overlays/HoverReadout.vue";
@@ -577,7 +581,20 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
       />
     </div>
 
-    <div v-if="loading" class="top-right-loader loader" />
+    <div v-if="isAnimationPlaying" class="top-right-loader">
+      <button
+        type="button"
+        class="button is-ghost has-text-white is-fullwidth p-0 is-size-2"
+        title="Animation playing — click to stop"
+        aria-label="Stop animation"
+        @click="stopAnimation"
+      >
+        <span class="icon">
+          <i class="fa-solid fa-play fa-beat-fade" aria-hidden="true"></i>
+        </span>
+      </button>
+    </div>
+    <div v-else-if="loading" class="top-right-loader loader" />
     <section
       v-if="detectedGridType === GRID_TYPES.ERROR"
       class="hero is-fullheight w-100"
