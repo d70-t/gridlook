@@ -58,7 +58,7 @@ withDefaults(
     </section>
     <section v-else-if="noTimeCoordinate" class="info-section">
       <h4 class="title is-6">Time Dimension</h4>
-      <p class="notification is-info is-light is-size-7">
+      <p class="has-text-grey-light">
         No time coordinate variable is available for the current variable.
       </p>
     </section>
