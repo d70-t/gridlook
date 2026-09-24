@@ -3,9 +3,7 @@ import axios from "axios";
 export type TBasemapEntry = {
   id: string;
   name: string;
-  type: "raster";
-  tiles: string[];
-  tileSize: number;
+  url: string;
   attribution: string;
 };
 

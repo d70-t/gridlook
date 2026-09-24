@@ -45,6 +45,7 @@
     "d3-geo-projection": "^4.0.0",
     "dayjs": "^1.11.23",
     "fflate": "^0.8.3",
+    "geo-three": "^0.1.15",
     "geokdbush": "2.1.0",
     "geotiff": "^3.0.5",
     "healpix-geo": "^0.3.3",

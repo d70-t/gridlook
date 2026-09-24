@@ -19,6 +19,7 @@ import {
 } from "@/lib/projection/projectionUtils.ts";
 import type { TColorMap } from "@/lib/shaders/colormapShaders.ts";
 import type { TVarInfo, TBounds } from "@/lib/types/GlobeTypes.ts";
+import type { TBasemapEntry } from "@/utils/basemap.ts";
 import type { TCatalog } from "@/utils/catalog.ts";
 import type { THistogramSummary } from "@/utils/histogram.ts";
 
@@ -181,7 +182,6 @@ const BUILTIN_LAYER_DEFAULTS: Record<TBuiltinLayerKind, TBuiltinLayerDefaults> =
       kind: LAYER_KINDS.BASEMAP,
       opacity: LAYER_OPACITY.MAX,
       maskMode: LAND_SEA_MASK_MODES.OFF,
-      selectedBasemap: "osm",
     },
   };
 
@@ -209,15 +209,16 @@ export const useGlobeControlStore = defineStore("globeControl", {
       showCoastLines: true,
       showGraticules: false,
       showDistanceScale: false,
-      showBasemap: false,
-      basemaps: undefined as TBasemapEntry[] | undefined,
-      selectedBasemap: "osm" as string,
       coastlineResolution:
         COASTLINE_RESOLUTIONS.FIFTY_M as TCoastlineResolution,
       graticuleSpacing: GRATICULE_SPACINGS.THIRTY_DEGREES as TGraticuleSpacing,
       landSeaMaskChoice: LAND_SEA_MASK_MODES.OFF as TLandSeaMaskMode,
       // when true, use the textured versions; when false, use the simple versions
       landSeaMaskUseTexture: false,
+      showBasemap: false,
+      basemapAvailable: false,
+      basemaps: undefined as TBasemapEntry[] | undefined,
+      selectedBasemap: "osm" as string,
       varnameSelector: "-", // the varname currently selected in the dropdown
       varnameDisplay: "-", // the varname currently shown on the globe (will be updated after loading)
       loading: false,
@@ -473,10 +474,21 @@ export const useGlobeControlStore = defineStore("globeControl", {
         }
       }
     },
-    setBasemap(id: string, basemapId: string) {
-      const layer = this.layerStack.find((entry) => entry.id === id);
+    isBasemapLayerEnabled() {
+      return Boolean(
+        this.layerStack.find((entry) => entry.id === BUILTIN_LAYER_IDS.BASEMAP)
+          ?.visible
+      );
+    },
+    setBasemapLayerEnabled(enabled: boolean) {
+      if (enabled) {
+        this.restoreBuiltinLayer(LAYER_KINDS.BASEMAP);
+      }
+      const layer = this.layerStack.find(
+        (entry) => entry.id === BUILTIN_LAYER_IDS.BASEMAP
+      );
       if (layer) {
-        layer.basemap = basemapId;
+        layer.visible = enabled;
       }
     },
     isStreamlineLayerEnabled() {

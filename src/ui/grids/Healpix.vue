@@ -11,6 +11,7 @@ import {
   useGridHoverLookup,
   type TGridHoverLookupResult,
 } from "./composables/gridHoverUtils.ts";
+import { useBasemapLayer } from "./composables/useBasemapLayer.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
@@ -51,7 +52,6 @@ import {
   terminateHealpixWorker,
 } from "@/lib/grids/healpixWorkerClient.ts";
 import type { THealpixBatch } from "@/lib/grids/healpixWorkerProtocol.ts";
-import { useBasemapLayer, type TBasemap } from "@/lib/layers/basemap.ts";
 import {
   createTriangleWrapProjectionGeometry,
   createWrappedProjectionMesh,
@@ -135,8 +135,6 @@ const selectedDimensionNames = ref<string[]>([]);
 const healpixGrid = ref<healpixGeo.Grid | null>(null);
 const gridPrepared = ref<boolean>(false);
 
-const basemap = ref<TBasemap | null>(null);
-
 type TStreamlineContext = {
   indices: (number | null | zarr.Slice)[];
   grid: healpixGeo.Grid;
@@ -180,6 +178,15 @@ const volume = useVolume({
   isSceneInMotion,
   onProjectionChange,
   onMotionStateChange,
+});
+
+const basemap = useBasemapLayer({
+  getScene,
+  getRenderer,
+  redraw,
+  projectionHelper,
+  onProjectionChange,
+  basemaps: store.basemaps,
 });
 
 /**
@@ -980,6 +987,8 @@ async function fetchAndRenderData(
   if (isCurrent() && !store.streamlineMagnitudeDisplayed) {
     await scalarCache.restoreScalar();
   }
+
+  basemap.createLayer(store.selectedBasemap);
 }
 
 onBeforeMount(async () => {
@@ -988,15 +997,6 @@ onBeforeMount(async () => {
     return;
   }
   healpixGrid.value = grid;
-
-  if (store.showBasemap) {
-    basemap.value = useBasemapLayer(
-      store.basemaps,
-      box.value,
-      store.selectedBasemap ?? "osm",
-      store.showBasemap
-    );
-  }
 
   await datasourceUpdate();
   gridPrepared.value = true;
