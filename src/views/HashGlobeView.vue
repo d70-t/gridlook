@@ -75,7 +75,7 @@ const onHashChange = () => {
     src.value = resource || defaultSrc.value;
     store.catalogUrl = params.value.catalog || DEFAULT_CATALOG;
     store.basemapCatalogUrl =
-      params.value.basemapCatalog || DEFAULT_BASEMAP_CATALOG;
+      params.value.basemapcatalog || DEFAULT_BASEMAP_CATALOG;
   } else {
     store.catalogUrl = DEFAULT_CATALOG;
     store.basemapCatalogUrl = DEFAULT_BASEMAP_CATALOG;

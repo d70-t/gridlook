@@ -25,6 +25,7 @@ const URL_PARAMETERS = {
   LON: "lon",
   GRID_TYPE: "gridtype",
   CATALOG: "catalog",
+  BASEMAP_CATALOG: "basemapcatalog",
   DIM_INDICES: "dimIndices",
   DIM_MIN_BOUNDS: "dimMinBounds",
   DIM_MAX_BOUNDS: "dimMaxBounds",

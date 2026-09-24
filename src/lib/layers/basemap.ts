@@ -1,93 +1,125 @@
-import * as maplibregl from "maplibre-gl";
-import type { StyleSpecification } from "maplibre-gl";
-import "maplibre-gl/dist/maplibre-gl.css";
+import { MapView, MapProvider, UnitsUtils } from "geo-three";
 
-export type TBasemap = {
-  map: maplibregl.Map;
-  containerId: string;
-};
+import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
+import { type TBasemapEntry } from "@/utils/basemap.ts";
 
-function entryToStyle(basemap: TBasemapEntry): StyleSpecification {
-  return {
-    version: 8,
-    sources: {
-      basemap: {
-        type: basemap.type,
-        tiles: basemap.tiles,
-        tileSize: basemap.tileSize,
-        attribution: basemap.attribution,
-      },
-    },
-    layers: [
-      {
-        id: "basemap",
-        type: basemap.type,
-        source: "basemap",
-        layout: { visibility: "visible" },
-      },
-    ],
-  };
-}
+function format(template: string, values: Record<string, number>): string {
+  return template.replace(/\{(\w+)\}/g, (_match, key: string) => {
+    if (!(key in values)) {
+      throw new Error(`Unknown template parameter: "${key}"`);
+    }
 
-function lookupBasemapStyle(
-  basemaps: TBasemapEntry[],
-  id: string
-): StyleSpecification {
-  const entry = basemaps.find((entry) => entry.id === id);
-  if (entry === undefined) {
-    // should never be raised
-    console.log("undefined basemap:", id);
-    console.log("basemaps:", basemaps);
-    throw new Error(`unknown basemap: {id}`);
-  }
-  return entryToStyle(entry);
-}
-
-function createBasemap(
-  style: StyleSpecification,
-  containerId: string
-): maplibregl.Map {
-  return new maplibregl.Map({
-    container: containerId,
-    style: style,
-    // sync center / zoom with the current view?
+    return String(values[key]);
   });
 }
 
-function setBasemapVisibility(style: StyleSpecification, visible: bool) {
-  let visibility: "none" | "visible";
-  if (visible) {
-    visibility = "visible";
-  } else {
-    visibility = "none";
+class TileMapProvider extends MapProvider {
+  readonly address;
+  readonly name;
+
+  constructor(address: string, name: string) {
+    super();
+
+    this.address = address;
+    this.name = name;
   }
 
-  console.log("style:", style);
+  fetchTile(zoom: number, x: number, y: number): Promise<HTMLImageElement> {
+    return new Promise<HTMLImageElement>((resolve, reject) => {
+      const url = format(this.address, { z: zoom, y, x });
 
-  style.layers[0].layout.visibility = visibility;
+      const image = document.createElement("img");
+      image.onload = function () {
+        resolve(image);
+      };
+
+      image.onerror = function () {
+        reject();
+      };
+
+      image.crossOrigin = "Anonymous";
+      image.src = url;
+    });
+  }
 }
 
-export function toggleBasemapVisibility(map: maplibregl.Map) {
-  const style = map.getStyle();
-
-  const visibility = style.layers[0].layout.visibility;
-  const visible = visibility === "visible";
-
-  setBasemapVisibility(style, !visible);
-
-  map.setStyle(style);
-}
-
-export function useBasemapLayer(
+function createBasemapProvider(
   basemaps: TBasemapEntry[],
-  containerId: string,
-  basemapId: string,
-  visible: bool
-): TBasemap {
-  const style = lookupBasemapStyle(basemaps, basemapId);
-  setBasemapVisibility(style, visible);
+  basemapId: string
+): MapProvider {
+  const entry = basemaps.find((entry) => entry.id === basemapId);
+  if (entry === undefined) {
+    throw new Error(`unknown basemap: ${basemapId}`);
+  }
 
-  const map = createBasemap(style, containerId);
+  return new TileMapProvider(entry.url, entry.name);
+}
 
-  return new TBasemap(map, containerId);
+export class BasemapLayer {
+  private basemap: MapView;
+
+  readonly basemaps: TBasemapEntry[];
+  private basemapId: string;
+
+  constructor(basemaps: TBasemapEntry[], basemapId: string) {
+    this.basemaps = basemaps;
+    this.basemapId = basemapId;
+
+    const provider = createBasemapProvider(basemaps, basemapId);
+
+    // use a radius of 1 instead of the default 6371008
+    UnitsUtils.EARTH_RADIUS = 1;
+    this.basemap = new MapView(MapView.PLANAR, provider);
+  }
+
+  getBasemap() { return this.basemap; }
+
+  setProjection(projection: ProjectionHelper) {
+    let root: number;
+    if(projection.isFlat) {
+      root = MapView.PLANAR;
+    } else {
+      throw new Error("spherical view is unsupported");
+      root = MapView.SPHERICAL;
+    }
+
+    if(root === this.basemap.root) {
+      return;
+    }
+
+    this.basemap.setRoot(root);
+  }
+
+  setOpacity(opacity: number) {
+    this.basemap.traverse((object) => {
+      if(object.material && object.material.opacity !== opacity) {
+        object.material.transparent = opacity < 1;
+        object.material.opacity = opacity;
+        object.material.needsUpdate = true;
+      }
+    });
+    this.basemap.opacity = opacity;
+  }
+
+  setBasemap(id: string) {
+    if (id === this.basemapId) {
+      return;
+    }
+    this.basemapId = id;
+
+    this.basemap.clear();
+    this.basemap.setProvider(createBasemapProvider(this.basemaps, id));
+  }
+
+  setRenderOrder(renderOrder: number) {
+    this.basemap.renderOrder = renderOrder;
+  }
+
+  toggleVisibility() {
+    this.basemap.visible = !this.basemap.visible;
+  }
+
+  dispose() {
+    this.basemap.dispose();
+  }
 }
