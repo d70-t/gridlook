@@ -1,6 +1,10 @@
 import { beforeEach, expect, it, vi } from "vitest";
 
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
+import type {
+  TPreparedScalarFrame,
+  TScalarFrameRequest,
+} from "@/ui/grids/composables/scalarFrame.ts";
 
 const { logError } = vi.hoisted(() => ({ logError: vi.fn() }));
 
@@ -18,8 +22,33 @@ vi.stubGlobal("localStorage", {
 const { createPinia, setActivePinia } = await import("pinia");
 const { effectScope, nextTick } = await import("vue");
 const { useGlobeControlStore } = await import("@/store/store.ts");
+const { useScalarFieldCache } =
+  await import("@/ui/grids/composables/useScalarFieldCache.ts");
 const { useGridDataLoader } =
   await import("@/ui/grids/composables/useGridDataLoader.ts");
+
+function scalarCache() {
+  return useScalarFieldCache({
+    updateHistogram: vi.fn(),
+    updateColormap: vi.fn(),
+    redraw: vi.fn(),
+  });
+}
+
+function frame(
+  request: TScalarFrameRequest,
+  render: () => void
+): TPreparedScalarFrame {
+  return {
+    name: request.variable,
+    isCurrent: request.isCurrent,
+    render,
+    indices: (request.sliderIndices as number[]) ?? [],
+    info: { attrs: {}, dimInfo: [], dimRanges: [], bounds: {} },
+    data: new Float32Array(),
+    updateLayers: async () => {},
+  };
+}
 
 function deferred() {
   let resolvePromise!: () => void;
@@ -43,16 +72,17 @@ beforeEach(() => {
 it("retries the newest queued update when an older fetch fails", async () => {
   const sources = {} as TSources;
   const staleFetch = deferred();
-  const fetchAndRenderData = vi
+  const prepareFrame = vi
     .fn()
     .mockImplementationOnce(() => staleFetch.promise)
     .mockResolvedValueOnce(undefined);
   const scope = effectScope();
   const loader = scope.run(() =>
     useGridDataLoader({
+      scalarCache: scalarCache(),
       getDatasources: () => sources,
       getDataVar: vi.fn().mockResolvedValue({}),
-      fetchAndRenderData,
+      prepareFrame,
       clearHoverLookup: vi.fn(),
       updateLandSeaMask: vi.fn(),
       updateColormap: vi.fn(),
@@ -60,13 +90,13 @@ it("retries the newest queued update when an older fetch fails", async () => {
   )!;
 
   const initialUpdate = loader.getData();
-  await vi.waitFor(() => expect(fetchAndRenderData).toHaveBeenCalledTimes(1));
+  await vi.waitFor(() => expect(prepareFrame).toHaveBeenCalledTimes(1));
 
   await loader.getData();
   staleFetch.reject(new Error("timestep is no longer available"));
   await initialUpdate;
 
-  expect(fetchAndRenderData).toHaveBeenCalledTimes(2);
+  expect(prepareFrame).toHaveBeenCalledTimes(2);
   expect(logError).not.toHaveBeenCalled();
   expect(useGlobeControlStore().loading).toBe(false);
   scope.stop();
@@ -77,9 +107,10 @@ it("reports a fetch failure when no newer update is queued", async () => {
   const scope = effectScope();
   const loader = scope.run(() =>
     useGridDataLoader({
+      scalarCache: scalarCache(),
       getDatasources: () => sources,
       getDataVar: vi.fn().mockResolvedValue({}),
-      fetchAndRenderData: vi.fn().mockRejectedValue(new Error("unavailable")),
+      prepareFrame: vi.fn().mockRejectedValue(new Error("unavailable")),
       clearHoverLookup: vi.fn(),
       updateLandSeaMask: vi.fn(),
       updateColormap: vi.fn(),
@@ -111,17 +142,18 @@ it("commits only the latest complete timestep and preserves its derived variable
   const scope = effectScope();
   const loader = scope.run(() =>
     useGridDataLoader({
+      scalarCache: scalarCache(),
       getDatasources: () => sources,
       getDataVar: vi.fn().mockResolvedValue({}),
-      fetchAndRenderData: async (_data, isCurrent) => {
-        const step = store.dimSlidersValues[0]!;
+      prepareFrame: async (_data, request) => {
+        const step = request.sliderIndices![0]!;
         fetched.push(step);
         await (step === 0 ? firstFrame.promise : latestFrame.promise);
-        if (isCurrent()) {
+        return frame(request, () => {
           rendered.push(step);
           store.varnameDisplay = "wind_speed";
           store.dimSlidersDisplay = [step];
-        }
+        });
       },
       clearHoverLookup: vi.fn(),
       updateLandSeaMask: vi.fn(),
@@ -155,16 +187,17 @@ it("commits only the latest complete timestep and preserves its derived variable
 it("restores the selected scalar data when streamlines are disabled", async () => {
   const sources = {} as TSources;
   const store = useGlobeControlStore();
-  const fetchAndRenderData = vi.fn().mockResolvedValue(undefined);
+  const prepareFrame = vi.fn().mockResolvedValue(undefined);
   const refreshStreamlines = vi.fn().mockResolvedValue(undefined);
   const suspendStreamlines = vi.fn();
   const updateColormap = vi.fn();
   const scope = effectScope();
   scope.run(() =>
     useGridDataLoader({
+      scalarCache: scalarCache(),
       getDatasources: () => sources,
       getDataVar: vi.fn().mockResolvedValue({}),
-      fetchAndRenderData,
+      prepareFrame,
       clearHoverLookup: vi.fn(),
       updateLandSeaMask: vi.fn(),
       updateColormap,
@@ -176,11 +209,11 @@ it("restores the selected scalar data when streamlines are disabled", async () =
   store.setStreamlineLayerEnabled(true);
   await vi.waitFor(() => expect(refreshStreamlines).toHaveBeenCalledWith(true));
   store.setStreamlineMagnitudeDisplayed(true);
-  fetchAndRenderData.mockClear();
+  prepareFrame.mockClear();
   updateColormap.mockClear();
 
   store.setStreamlineLayerEnabled(false);
-  await vi.waitFor(() => expect(fetchAndRenderData).toHaveBeenCalledOnce());
+  await vi.waitFor(() => expect(prepareFrame).toHaveBeenCalledOnce());
 
   expect(suspendStreamlines).toHaveBeenCalledOnce();
   expect(updateColormap).toHaveBeenCalledOnce();
@@ -193,19 +226,20 @@ it("restarts an in-flight timestep when streamlines are disabled and enabled aga
   store.setStreamlineLayerEnabled(true);
   const pendingFrame = deferred();
   const rendered: boolean[] = [];
-  const fetchAndRenderData = vi.fn(async (_data, isCurrent: () => boolean) => {
+  const prepareFrame = vi.fn(async (_data, request: TScalarFrameRequest) => {
     await pendingFrame.promise;
-    if (isCurrent()) {
+    return frame(request, () => {
       rendered.push(store.isStreamlineLayerEnabled());
-    }
+    });
   });
   const refreshStreamlines = vi.fn();
   const scope = effectScope();
   const loader = scope.run(() =>
     useGridDataLoader({
+      scalarCache: scalarCache(),
       getDatasources: () => sources,
       getDataVar: vi.fn().mockResolvedValue({}),
-      fetchAndRenderData,
+      prepareFrame,
       clearHoverLookup: vi.fn(),
       updateLandSeaMask: vi.fn(),
       updateColormap: vi.fn(),
@@ -215,7 +249,7 @@ it("restarts an in-flight timestep when streamlines are disabled and enabled aga
   )!;
   try {
     const pending = loader.getData();
-    await vi.waitFor(() => expect(fetchAndRenderData).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(prepareFrame).toHaveBeenCalledOnce());
     store.setStreamlineLayerEnabled(false);
     await nextTick();
     store.setStreamlineLayerEnabled(true);
@@ -223,7 +257,7 @@ it("restarts an in-flight timestep when streamlines are disabled and enabled aga
     pendingFrame.resolve();
     await pending;
 
-    expect(fetchAndRenderData).toHaveBeenCalledTimes(2);
+    expect(prepareFrame).toHaveBeenCalledTimes(2);
     expect(rendered).toEqual([true]);
     expect(refreshStreamlines).not.toHaveBeenCalled();
     expect(store.loading).toBe(false);
@@ -239,8 +273,9 @@ it("switches cached scalar backgrounds without reloading data or streamlines", a
   store.varnameSelector = "temperature";
   store.varnameDisplay = "temperature";
   const getDataVar = vi.fn().mockResolvedValue({});
-  const fetchAndRenderData = vi.fn().mockResolvedValue(undefined);
-  const scalarCache = {
+  const prepareFrame = vi.fn().mockResolvedValue(undefined);
+  const cached = {
+    captureScalar: vi.fn(),
     clear: vi.fn(),
     restoreScalar: vi.fn().mockResolvedValue(true),
   };
@@ -255,8 +290,8 @@ it("switches cached scalar backgrounds without reloading data or streamlines", a
     useGridDataLoader({
       getDatasources: () => sources,
       getDataVar,
-      fetchAndRenderData,
-      scalarCache,
+      prepareFrame,
+      scalarCache: cached,
       clearHoverLookup: vi.fn(),
       updateLandSeaMask: vi.fn(),
       updateColormap: vi.fn(),
@@ -270,7 +305,7 @@ it("switches cached scalar backgrounds without reloading data or streamlines", a
     expect(store.streamlineMagnitudeRequested).toBe(false);
     expect(store.streamlineMagnitudeDisplayed).toBe(false);
     expect(store.varnameDisplay).toBe("temperature");
-    expect(fetchAndRenderData).not.toHaveBeenCalled();
+    expect(prepareFrame).not.toHaveBeenCalled();
 
     refreshStreamlines.mockClear();
     store.setStreamlineMagnitudeDisplayed(true, true);
@@ -278,16 +313,14 @@ it("switches cached scalar backgrounds without reloading data or streamlines", a
       expect(refreshStreamlines).toHaveBeenCalledWith(true)
     );
     expect(store.streamlineMagnitudeDisplayed).toBe(true);
-    expect(fetchAndRenderData).not.toHaveBeenCalled();
+    expect(prepareFrame).not.toHaveBeenCalled();
 
     store.setStreamlineMagnitudeDisplayed(false, true);
-    await vi.waitFor(() =>
-      expect(scalarCache.restoreScalar).toHaveBeenCalledOnce()
-    );
-    expect(fetchAndRenderData).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(cached.restoreScalar).toHaveBeenCalledOnce());
+    expect(prepareFrame).not.toHaveBeenCalled();
     expect(getDataVar).not.toHaveBeenCalled();
     expect(refreshStreamlines).toHaveBeenCalledOnce();
-    expect(scalarCache.clear).not.toHaveBeenCalled();
+    expect(cached.clear).not.toHaveBeenCalled();
     expect(store.streamlineMagnitudeRequested).toBe(false);
     expect(store.streamlineMagnitudeDisplayed).toBe(false);
     expect(store.isStreamlineLayerEnabled()).toBe(true);

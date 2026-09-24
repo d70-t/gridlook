@@ -5,13 +5,18 @@ import { computed, onBeforeMount, onBeforeUnmount } from "vue";
 import * as zarr from "zarrita";
 
 import { useGridHoverLookup } from "./composables/gridHoverUtils.ts";
+import {
+  fetchScalarFrameData,
+  getScalarFrameDimensions,
+  type TPreparedScalarFrame,
+  type TScalarFrameRequest,
+} from "./composables/scalarFrame.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useIrregularStreamlines } from "./composables/useIrregularStreamlines.ts";
 import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
 import { getLatLonData } from "@/lib/data/coordinateVariables.ts";
-import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
 import { reconcileCoordinates } from "@/lib/data/irregularGridHelpers.ts";
 import {
   castDataVarToFloat32,
@@ -19,10 +24,7 @@ import {
 } from "@/lib/data/variableDecoding.ts";
 import type { TVectorMagnitudeData } from "@/lib/data/vectorMagnitude.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
-import {
-  getGridVariableData,
-  terminateGridDataWorker,
-} from "@/lib/grids/gridDataWorkerClient.ts";
+import { terminateGridDataWorker } from "@/lib/grids/gridDataWorkerClient.ts";
 import type {
   TGridDataValueBatch,
   TGridPointBatch,
@@ -38,17 +40,12 @@ import {
 } from "@/lib/projection/projectionEdgeQuality.ts";
 import { makeInvertableGpuMeshMaterial } from "@/lib/shaders/gridShaders.ts";
 import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
-import { useUrlParameterStore } from "@/store/paramStore.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 
 const props = defineProps<{ datasources?: TSources }>();
 
 const store = useGlobeControlStore();
-const { dimSlidersValues, colormap, varnameSelector, invertColormap, varinfo } =
-  storeToRefs(store);
-const urlParameterStore = useUrlParameterStore();
-const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
-  storeToRefs(urlParameterStore);
+const { colormap, varnameSelector, invertColormap } = storeToRefs(store);
 
 const BATCH_SIZE = 1000000;
 let meshes: THREE.Mesh[] = [];
@@ -153,17 +150,18 @@ async function showMagnitude(scalar: TVectorMagnitudeData) {
   });
 }
 
-const { datasourceUpdate } = useGridDataLoader({
-  getDatasources: () => props.datasources,
-  getDataVar,
-  fetchAndRenderData,
-  scalarCache,
-  clearHoverLookup,
-  updateLandSeaMask,
-  updateColormap: () => updateColormap(meshes),
-  refreshStreamlines: streamlines.refresh,
-  suspendStreamlines: streamlines.suspend,
-});
+const { datasourceUpdate, prepareScalarFrame, commitScalarFrame } =
+  useGridDataLoader({
+    getDatasources: () => props.datasources,
+    getDataVar,
+    prepareFrame,
+    scalarCache,
+    clearHoverLookup,
+    updateLandSeaMask,
+    updateColormap: () => updateColormap(meshes),
+    refreshStreamlines: streamlines.refresh,
+    suspendStreamlines: streamlines.suspend,
+  });
 
 function cleanupMeshes() {
   for (const mesh of meshes) {
@@ -232,28 +230,25 @@ function getGeographicDimensionIndices(
 }
 
 async function buildDimensionConfig(
-  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
+  request: TScalarFrameRequest
 ) {
   const { latitudes, longitudes, latitudesAttrs, longitudesAttrs } =
-    await getLatLonData(varnameSelector.value, datavar, props.datasources);
+    await getLatLonData(request.variable, datavar, request.datasources);
   const dimensions = await ZarrDataManager.getDimensionNames(
-    props.datasources!,
-    varnameSelector.value
+    request.datasources,
+    request.variable
   );
   const geographicDimensions = getGeographicDimensionIndices(
     dimensions,
     latitudesAttrs,
     longitudesAttrs!
   );
-  const config = buildDimensionRangesAndIndices(
+  const config = getScalarFrameDimensions(
     datavar,
     dimensions,
-    paramDimIndices.value,
-    paramDimMinBounds.value,
-    paramDimMaxBounds.value,
-    dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
     geographicDimensions,
-    varinfo.value?.dimRanges
+    request
   );
   return {
     latitudes,
@@ -264,36 +259,25 @@ async function buildDimensionConfig(
   };
 }
 
-function fetchVariableData(selection: (number | null | zarr.Slice)[]) {
-  return getGridVariableData({
-    source: ZarrDataManager.getDatasetSource(
-      props.datasources!,
-      varnameSelector.value
-    ),
-    variable: varnameSelector.value,
-    format: props.datasources!.zarr_format,
-    selection,
-  });
-}
-
 async function getDimensionValues(
+  request: TScalarFrameRequest,
   dimensionRanges: TDimensionRange[],
   indices: (number | zarr.Slice | null)[]
 ) {
   return await fetchDimensionDetails(
-    varnameSelector.value,
-    props.datasources!,
+    request.variable,
+    request.datasources,
     dimensionRanges,
     indices
   );
 }
 
 /* eslint-disable-next-line max-lines-per-function */
-async function fetchAndRenderData(
+async function prepareFrame(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
-  isCurrent: () => boolean
-) {
-  const deferDisplay = store.isStreamlineLayerEnabled();
+  request: TScalarFrameRequest
+): Promise<TPreparedScalarFrame | undefined> {
+  const { isCurrent } = request;
   const {
     latitudes,
     longitudes,
@@ -301,9 +285,11 @@ async function fetchAndRenderData(
     indices,
     dimensions,
     geographicDimensions,
-  } = await buildDimensionConfig(datavar);
+  } = await buildDimensionConfig(datavar, request);
 
-  const rawData = castDataVarToFloat32(await fetchVariableData(indices));
+  const rawData = castDataVarToFloat32(
+    await fetchScalarFrameData(request, indices)
+  );
   if (!isCurrent()) {
     return;
   }
@@ -325,36 +311,20 @@ async function fetchAndRenderData(
     },
     {
       onMetadata: (metadata) => {
-        geometryPending = metadata.rebuildGeometry && deferDisplay;
-        if (metadata.rebuildGeometry && !deferDisplay && isCurrent()) {
-          cleanupMeshes();
-        }
+        geometryPending = metadata.rebuildGeometry;
       },
       onBatch: (batch) => {
         batches.push(batch);
-        if (deferDisplay || !isCurrent()) {
-          return;
-        }
-        if ("positionValues" in batch) {
-          updateGeometryBatch(batch);
-        } else {
-          updateDataBatch(batch);
-        }
       },
     }
   );
-  magnitudeCoordinates = {
-    latitudes: latitudes.data as Float32Array,
-    longitudes: longitudes.data as Float32Array,
-    latitudeShape: [...latitudes.shape],
-    longitudeShape: [...longitudes.shape],
-  };
+
   const hoverIndex = createSerializedGeoSampleIndex(result.hoverIndexData);
 
   if (!isCurrent()) {
     return;
   }
-  const dimInfo = await getDimensionValues(dimensionRanges, indices);
+  const dimInfo = await getDimensionValues(request, dimensionRanges, indices);
   const scalarInfo = {
     attrs: datavar.attrs,
     dimInfo,
@@ -385,7 +355,8 @@ async function fetchAndRenderData(
   if (!isCurrent()) {
     return;
   }
-  scalarCache.captureScalar({
+  return {
+    name: request.variable,
     render: renderScalar,
     info: scalarInfo,
     indices: indices as number[],
@@ -393,18 +364,24 @@ async function fetchAndRenderData(
     missingValue,
     fillValue,
     isCurrent,
-  });
-  await streamlines.setContext({
-    ...coordinates,
-    dimensionNames: dimensions,
-    indices,
-    spatialDimensionNames: geographicDimensions.map(
-      (index) => dimensions[index]
-    ),
-  });
-  if (isCurrent() && !store.streamlineMagnitudeDisplayed) {
-    await scalarCache.restoreScalar();
-  }
+    updateLayers: async () => {
+      magnitudeCoordinates = {
+        latitudes: latitudes.data as Float32Array,
+        longitudes: longitudes.data as Float32Array,
+        latitudeShape: [...latitudes.shape],
+        longitudeShape: [...longitudes.shape],
+      };
+
+      await streamlines.setContext({
+        ...coordinates,
+        dimensionNames: dimensions,
+        indices,
+        spatialDimensionNames: geographicDimensions.map(
+          (index) => dimensions[index]
+        ),
+      });
+    },
+  };
 }
 
 onBeforeMount(async () => {
@@ -416,7 +393,13 @@ onBeforeUnmount(() => {
   terminateGridDataWorker();
 });
 
-defineExpose({ makeSnapshot, toggleRotate, applyCameraPreset });
+defineExpose({
+  makeSnapshot,
+  toggleRotate,
+  applyCameraPreset,
+  prepareScalarFrame,
+  commitScalarFrame,
+});
 </script>
 
 <template>

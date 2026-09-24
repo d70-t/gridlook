@@ -5,13 +5,18 @@ import { computed, onBeforeMount, onBeforeUnmount } from "vue";
 import type * as zarr from "zarrita";
 
 import { useGridHoverLookup } from "./composables/gridHoverUtils.ts";
+import {
+  fetchScalarFrameData,
+  getScalarFrameDimensions,
+  type TPreparedScalarFrame,
+  type TScalarFrameRequest,
+} from "./composables/scalarFrame.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useIrregularStreamlines } from "./composables/useIrregularStreamlines.ts";
 import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
 import { getLatLonData } from "@/lib/data/coordinateVariables.ts";
-import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
 import {
   castDataVarToFloat32,
   decodeVariableDataAndGetBounds,
@@ -22,10 +27,7 @@ import {
   buildGaussianReducedGrid,
   terminateGaussianReducedWorker,
 } from "@/lib/grids/gaussianReducedWorkerClient.ts";
-import {
-  getGridVariableData,
-  terminateGridDataWorker,
-} from "@/lib/grids/gridDataWorkerClient.ts";
+import { terminateGridDataWorker } from "@/lib/grids/gridDataWorkerClient.ts";
 import type { TGridGeometryBatch } from "@/lib/grids/gridWorkerTypes.ts";
 import { createSerializedGeoSampleIndex } from "@/lib/grids/serializedGeoSampleIndex.ts";
 import {
@@ -35,7 +37,6 @@ import {
 } from "@/lib/projection/projectionEdgeQuality.ts";
 import { makeInvertableGpuMeshMaterial } from "@/lib/shaders/gridShaders.ts";
 import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
-import { useUrlParameterStore } from "@/store/paramStore.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 
 const props = defineProps<{
@@ -44,16 +45,12 @@ const props = defineProps<{
 
 const store = useGlobeControlStore();
 
-const { dimSlidersValues, colormap, varnameSelector, invertColormap, varinfo } =
-  storeToRefs(store);
-
-const urlParameterStore = useUrlParameterStore();
-const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
-  storeToRefs(urlParameterStore);
+const { colormap, varnameSelector, invertColormap } = storeToRefs(store);
 
 let meshes: THREE.Mesh[] = [];
 let magnitudeCoordinates:
-  { latitudes: Float64Array; longitudes: Float64Array } | undefined;
+  | { latitudes: Float64Array; longitudes: Float64Array }
+  | undefined;
 
 const {
   getScene,
@@ -126,8 +123,7 @@ async function showMagnitude(scalar: TVectorMagnitudeData) {
     const { hoverIndexData, render } = await buildGaussianReducedGeometry(
       coordinates.latitudes,
       coordinates.longitudes,
-      scalar.data,
-      true
+      scalar.data
     );
     const hoverIndex = createSerializedGeoSampleIndex(hoverIndexData);
     return () => {
@@ -137,17 +133,18 @@ async function showMagnitude(scalar: TVectorMagnitudeData) {
   });
 }
 
-const { datasourceUpdate } = useGridDataLoader({
-  getDatasources: () => props.datasources,
-  getDataVar,
-  fetchAndRenderData,
-  scalarCache,
-  clearHoverLookup,
-  updateLandSeaMask,
-  updateColormap: () => updateColormap(meshes),
-  refreshStreamlines: streamlines.refresh,
-  suspendStreamlines: streamlines.suspend,
-});
+const { datasourceUpdate, prepareScalarFrame, commitScalarFrame } =
+  useGridDataLoader({
+    getDatasources: () => props.datasources,
+    getDataVar,
+    prepareFrame,
+    scalarCache,
+    clearHoverLookup,
+    updateLandSeaMask,
+    updateColormap: () => updateColormap(meshes),
+    refreshStreamlines: streamlines.refresh,
+    suspendStreamlines: streamlines.suspend,
+  });
 
 const BATCH_SIZE = 64; // Adjust based on memory and browser limits
 
@@ -220,9 +217,7 @@ function updateGaussianReducedBatch(batch: TGridGeometryBatch) {
 async function buildGaussianReducedGeometry(
   latitudes: Float64Array,
   longitudes: Float64Array,
-  data: Float32Array,
-  deferDisplay = false,
-  isCurrent = () => true
+  data: Float32Array
 ) {
   const helper = projectionHelper.value;
   const batches: TGridGeometryBatch[] = [];
@@ -237,16 +232,9 @@ async function buildGaussianReducedGeometry(
       projectionCenter: { lat: helper.center.lat, lon: helper.center.lon },
     },
     {
-      onMetadata: (totalBatches) => {
-        if (!deferDisplay && isCurrent()) {
-          cleanupMeshes(totalBatches);
-        }
-      },
+      onMetadata: () => undefined,
       onBatch: (batch) => {
         batches.push(batch);
-        if (!deferDisplay && isCurrent()) {
-          updateGaussianReducedBatch(batch);
-        }
       },
     }
   );
@@ -261,12 +249,13 @@ async function buildGaussianReducedGeometry(
 }
 
 async function getDimensionValues(
+  request: TScalarFrameRequest,
   dimensionRanges: TDimensionRange[],
   indices: (number | zarr.Slice | null)[]
 ) {
   const dimValues = await fetchDimensionDetails(
-    varnameSelector.value,
-    props.datasources!,
+    request.variable,
+    request.datasources,
     dimensionRanges,
     indices
   );
@@ -274,65 +263,44 @@ async function getDimensionValues(
 }
 
 async function buildDimensionConfig(
-  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
+  request: TScalarFrameRequest
 ) {
   const dimensionNames = await ZarrDataManager.getDimensionNames(
-    props.datasources!,
-    varnameSelector.value
+    request.datasources,
+    request.variable
   );
   return {
-    ...buildDimensionRangesAndIndices(
+    ...getScalarFrameDimensions(
       datavar,
       dimensionNames,
-      paramDimIndices.value,
-      paramDimMinBounds.value,
-      paramDimMaxBounds.value,
-      dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
       [datavar.shape.length - 1],
-      varinfo.value?.dimRanges
+      request
     ),
     dimensionNames,
   };
 }
 
-function fetchGaussianReducedVariableData(
-  selection: (number | null | zarr.Slice)[]
-) {
-  return getGridVariableData({
-    source: ZarrDataManager.getDatasetSource(
-      props.datasources!,
-      varnameSelector.value
-    ),
-    variable: varnameSelector.value,
-    format: props.datasources!.zarr_format,
-    selection,
-  });
-}
-
 // eslint-disable-next-line max-lines-per-function
-async function fetchAndRenderData(
+async function prepareFrame(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
-  isCurrent: () => boolean
-) {
-  const deferDisplay = store.isStreamlineLayerEnabled();
+  request: TScalarFrameRequest
+): Promise<TPreparedScalarFrame | undefined> {
+  const { isCurrent } = request;
   const { dimensionRanges, indices, dimensionNames } =
-    await buildDimensionConfig(datavar);
+    await buildDimensionConfig(datavar, request);
 
-  const variableData = await fetchGaussianReducedVariableData(indices);
+  const variableData = await fetchScalarFrameData(request, indices);
 
   const rawData = castDataVarToFloat32(variableData);
 
   const { latitudes, longitudes } = await getLatLonData(
-    varnameSelector.value,
+    request.variable,
     datavar,
-    props.datasources
+    request.datasources
   );
   const latitudesData = latitudes.data as Float64Array;
   const longitudesData = longitudes!.data as Float64Array;
-  magnitudeCoordinates = {
-    latitudes: latitudesData,
-    longitudes: longitudesData,
-  };
 
   if (!isCurrent()) {
     return;
@@ -345,9 +313,7 @@ async function fetchAndRenderData(
   const { hoverIndexData, render } = await buildGaussianReducedGeometry(
     latitudesData,
     longitudesData,
-    rawData,
-    deferDisplay,
-    isCurrent
+    rawData
   );
 
   const hoverIndex = createSerializedGeoSampleIndex(hoverIndexData);
@@ -355,7 +321,7 @@ async function fetchAndRenderData(
   if (!isCurrent()) {
     return;
   }
-  const dimInfo = await getDimensionValues(dimensionRanges, indices);
+  const dimInfo = await getDimensionValues(request, dimensionRanges, indices);
 
   const scalarInfo = {
     attrs: datavar.attrs,
@@ -372,7 +338,8 @@ async function fetchAndRenderData(
   if (!isCurrent()) {
     return;
   }
-  scalarCache.captureScalar({
+  return {
+    name: request.variable,
     render: renderScalar,
     info: scalarInfo,
     indices: indices as number[],
@@ -380,17 +347,21 @@ async function fetchAndRenderData(
     missingValue,
     fillValue,
     isCurrent,
-  });
-  await streamlines.setContext({
-    latitudes: Float32Array.from(latitudesData),
-    longitudes: Float32Array.from(longitudesData),
-    dimensionNames,
-    indices,
-    spatialDimensionNames: [dimensionNames.at(-1)!],
-  });
-  if (isCurrent() && !store.streamlineMagnitudeDisplayed) {
-    await scalarCache.restoreScalar();
-  }
+    updateLayers: async () => {
+      magnitudeCoordinates = {
+        latitudes: latitudesData,
+        longitudes: longitudesData,
+      };
+
+      await streamlines.setContext({
+        latitudes: Float32Array.from(latitudesData),
+        longitudes: Float32Array.from(longitudesData),
+        dimensionNames,
+        indices,
+        spatialDimensionNames: [dimensionNames.at(-1)!],
+      });
+    },
+  };
 }
 
 onBeforeMount(async () => {
@@ -403,6 +374,8 @@ onBeforeUnmount(() => {
 });
 
 defineExpose({
+  prepareScalarFrame,
+  commitScalarFrame,
   makeSnapshot,
   toggleRotate,
   applyCameraPreset,

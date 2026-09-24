@@ -5,6 +5,12 @@ import { computed, onBeforeMount, onBeforeUnmount } from "vue";
 import * as zarr from "zarrita";
 
 import { useGridHoverLookup } from "./composables/gridHoverUtils.ts";
+import {
+  fetchScalarFrameData,
+  getScalarFrameDimensions,
+  type TPreparedScalarFrame,
+  type TScalarFrameRequest,
+} from "./composables/scalarFrame.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useIrregularStreamlines } from "./composables/useIrregularStreamlines.ts";
 import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
@@ -17,7 +23,6 @@ import {
   isProjectedXName,
   isProjectedYName,
 } from "@/lib/data/coordinateVariables.ts";
-import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
 import {
   castDataVarToFloat32,
   decodeVariableDataAndGetBounds,
@@ -28,10 +33,7 @@ import {
   buildCurvilinearGrid,
   terminateCurvilinearWorker,
 } from "@/lib/grids/curvilinearWorkerClient.ts";
-import {
-  getGridVariableData,
-  terminateGridDataWorker,
-} from "@/lib/grids/gridDataWorkerClient.ts";
+import { terminateGridDataWorker } from "@/lib/grids/gridDataWorkerClient.ts";
 import type { TGridGeometryBatch } from "@/lib/grids/gridWorkerTypes.ts";
 import { createSerializedGeoSampleIndex } from "@/lib/grids/serializedGeoSampleIndex.ts";
 import {
@@ -43,7 +45,6 @@ import {
 import { makeInvertableGpuMeshMaterial } from "@/lib/shaders/gridShaders.ts";
 import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
 import { loadProjectedVolumeGrid } from "@/lib/volume/volumeData.ts";
-import { useUrlParameterStore } from "@/store/paramStore.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 
 const props = defineProps<{
@@ -51,17 +52,14 @@ const props = defineProps<{
 }>();
 
 const store = useGlobeControlStore();
-const { dimSlidersValues, colormap, varnameSelector, invertColormap, varinfo } =
-  storeToRefs(store);
-const urlParameterStore = useUrlParameterStore();
-const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
-  storeToRefs(urlParameterStore);
+const { colormap, varnameSelector, invertColormap } = storeToRefs(store);
 
 let meshes: THREE.Mesh[] = [];
 let magnitudeContext:
   | {
       datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>;
       dimensionNames: string[];
+      request: TScalarFrameRequest;
     }
   | undefined;
 
@@ -155,7 +153,7 @@ async function showMagnitude(scalar: TVectorMagnitudeData) {
       context.dimensionNames,
       NaN,
       NaN,
-      true
+      context.request
     );
     const hoverIndex = createSerializedGeoSampleIndex(hoverIndexData);
     return () => {
@@ -165,17 +163,18 @@ async function showMagnitude(scalar: TVectorMagnitudeData) {
   });
 }
 
-const { datasourceUpdate } = useGridDataLoader({
-  getDatasources: () => props.datasources,
-  getDataVar,
-  fetchAndRenderData,
-  scalarCache,
-  clearHoverLookup,
-  updateLandSeaMask,
-  updateColormap: () => updateColormap(meshes),
-  refreshStreamlines: streamlines.refresh,
-  suspendStreamlines: streamlines.suspend,
-});
+const { datasourceUpdate, prepareScalarFrame, commitScalarFrame } =
+  useGridDataLoader({
+    getDatasources: () => props.datasources,
+    getDataVar,
+    prepareFrame,
+    scalarCache,
+    clearHoverLookup,
+    updateLandSeaMask,
+    updateColormap: () => updateColormap(meshes),
+    refreshStreamlines: streamlines.refresh,
+    suspendStreamlines: streamlines.suspend,
+  });
 
 const BATCH_SIZE = 30;
 
@@ -192,20 +191,17 @@ function hasTrailingProjectedXYDimensions(dimensionNames: string[]) {
 
 async function getCurvilinearCoordinates(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
-  dimensionNames: string[]
+  dimensionNames: string[],
+  request: TScalarFrameRequest
 ) {
   try {
-    return await getLatLonData(
-      varnameSelector.value,
-      datavar,
-      props.datasources
-    );
+    return await getLatLonData(request.variable, datavar, request.datasources);
   } catch (error) {
     if (hasTrailingProjectedXYDimensions(dimensionNames)) {
       return await getProjectedXYLonLatData(
-        varnameSelector.value,
+        request.variable,
         datavar,
-        props.datasources,
+        request.datasources,
         dimensionNames
       );
     }
@@ -260,19 +256,18 @@ function updateBatchMesh(batch: TGridGeometryBatch) {
   getScene()?.add(mesh);
 }
 
-// eslint-disable-next-line max-lines-per-function
 async function buildGridInWorker(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   rawData: Float32Array,
   dimensionNames: string[],
   missingValue: number,
   fillValue: number,
-  deferDisplay = false,
-  isCurrent = () => true
+  request: TScalarFrameRequest
 ) {
   const { latitudes, longitudes } = await getCurvilinearCoordinates(
     datavar,
-    dimensionNames
+    dimensionNames,
+    request
   );
   const latitudesData = latitudes.data as Float32Array;
   const longitudesData = longitudes!.data as Float32Array;
@@ -293,16 +288,9 @@ async function buildGridInWorker(
       projectionCenter: { lat: helper.center.lat, lon: helper.center.lon },
     },
     {
-      onMetadata: ({ totalBatches }) => {
-        if (!deferDisplay && isCurrent()) {
-          cleanupMeshes(totalBatches);
-        }
-      },
+      onMetadata: () => undefined,
       onBatch: (batch) => {
         batches.push(batch);
-        if (!deferDisplay && isCurrent()) {
-          updateBatchMesh(batch);
-        }
       },
     }
   );
@@ -319,51 +307,35 @@ async function buildGridInWorker(
 }
 
 async function getDimensionValues(
+  request: TScalarFrameRequest,
   dimensionRanges: TDimensionRange[],
   indices: (number | zarr.Slice | null)[]
 ) {
   return await fetchDimensionDetails(
-    varnameSelector.value,
-    props.datasources!,
+    request.variable,
+    request.datasources,
     dimensionRanges,
     indices
   );
 }
 
 async function buildDimensionConfig(
-  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
+  request: TScalarFrameRequest
 ) {
   const dimensionNames = await ZarrDataManager.getDimensionNames(
-    props.datasources!,
-    varnameSelector.value
+    request.datasources,
+    request.variable
   );
   return {
-    ...buildDimensionRangesAndIndices(
+    ...getScalarFrameDimensions(
       datavar,
       dimensionNames,
-      paramDimIndices.value,
-      paramDimMinBounds.value,
-      paramDimMaxBounds.value,
-      dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
       [datavar.shape.length - 2, datavar.shape.length - 1],
-      varinfo.value?.dimRanges
+      request
     ),
     dimensionNames,
   };
-}
-
-function fetchCurvilinearVariableData(
-  selection: (number | null | zarr.Slice)[]
-) {
-  return getGridVariableData({
-    source: ZarrDataManager.getDatasetSource(
-      props.datasources!,
-      varnameSelector.value
-    ),
-    variable: varnameSelector.value,
-    format: props.datasources!.zarr_format,
-    selection,
-  });
 }
 
 function updateStreamlines(
@@ -382,17 +354,16 @@ function updateStreamlines(
 }
 
 // eslint-disable-next-line max-lines-per-function
-async function fetchAndRenderData(
+async function prepareFrame(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
-  isCurrent: () => boolean
-) {
-  const deferDisplay = store.isStreamlineLayerEnabled();
+  request: TScalarFrameRequest
+): Promise<TPreparedScalarFrame | undefined> {
+  const { isCurrent } = request;
   const { dimensionNames, dimensionRanges, indices } =
-    await buildDimensionConfig(datavar);
-  magnitudeContext = { datavar, dimensionNames };
+    await buildDimensionConfig(datavar, request);
 
   const rawData = castDataVarToFloat32(
-    await fetchCurvilinearVariableData(indices)
+    await fetchScalarFrameData(request, indices)
   );
   if (!isCurrent()) {
     return;
@@ -408,15 +379,14 @@ async function fetchAndRenderData(
       dimensionNames,
       missingValue,
       fillValue,
-      deferDisplay,
-      isCurrent
+      request
     );
   const hoverIndex = createSerializedGeoSampleIndex(hoverIndexData);
 
   if (!isCurrent()) {
     return;
   }
-  const dimInfo = await getDimensionValues(dimensionRanges, indices);
+  const dimInfo = await getDimensionValues(request, dimensionRanges, indices);
   const scalarInfo = {
     attrs: datavar.attrs,
     dimInfo,
@@ -429,17 +399,15 @@ async function fetchAndRenderData(
     setHoverLookupFromIndex(hoverIndex, fillValue, missingValue);
   };
   const projectedGrid = await loadProjectedVolumeGrid(
-    props.datasources!,
-    varnameSelector.value,
+    request.datasources,
+    request.variable,
     dimensionNames
   );
   if (!isCurrent()) {
     return;
   }
-  volume.setContext(
-    projectedGrid ? { dimensionNames, indices, grid: projectedGrid } : undefined
-  );
-  scalarCache.captureScalar({
+  return {
+    name: request.variable,
     render: renderScalar,
     info: scalarInfo,
     indices: indices as number[],
@@ -447,16 +415,22 @@ async function fetchAndRenderData(
     missingValue,
     fillValue,
     isCurrent,
-  });
-  await updateStreamlines(
-    latitudesData,
-    longitudesData,
-    dimensionNames,
-    indices
-  );
-  if (isCurrent() && !store.streamlineMagnitudeDisplayed) {
-    await scalarCache.restoreScalar();
-  }
+    updateLayers: async () => {
+      magnitudeContext = { datavar, dimensionNames, request };
+      volume.setContext(
+        projectedGrid
+          ? { dimensionNames, indices, grid: projectedGrid }
+          : undefined
+      );
+
+      await updateStreamlines(
+        latitudesData,
+        longitudesData,
+        dimensionNames,
+        indices
+      );
+    },
+  };
 }
 
 onBeforeMount(async () => {
@@ -468,7 +442,13 @@ onBeforeUnmount(() => {
   terminateGridDataWorker();
 });
 
-defineExpose({ makeSnapshot, toggleRotate, applyCameraPreset });
+defineExpose({
+  makeSnapshot,
+  toggleRotate,
+  applyCameraPreset,
+  prepareScalarFrame,
+  commitScalarFrame,
+});
 </script>
 
 <template>

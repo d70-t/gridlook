@@ -18,11 +18,13 @@ type TOptions = {
   redraw: () => void;
 };
 
-type TScalarFrame = {
+export type TScalarFrame = {
+  name?: string;
   render: TRender;
   info: TVarInfo;
   indices: number[];
   data: ArrayLike<number> | THistogramSummary[];
+  histogram?: THistogramSummary;
   missingValue?: number;
   fillValue?: number;
   isCurrent?: () => boolean;
@@ -49,15 +51,18 @@ export function useScalarFieldCache(options: TOptions) {
     return {
       render: frame.render,
       info: frame.info,
-      indices: frame.indices,
+      indices: frame.indices.slice(),
       name,
-      histogram: createGridHistogramSummary(
-        frame.data,
-        frame.info.bounds.low ?? NaN,
-        frame.info.bounds.high ?? NaN,
-        frame.missingValue,
-        frame.fillValue
-      ),
+      histogram:
+        "histogram" in frame
+          ? frame.histogram
+          : createGridHistogramSummary(
+              frame.data,
+              frame.info.bounds.low ?? NaN,
+              frame.info.bounds.high ?? NaN,
+              frame.missingValue,
+              frame.fillValue
+            ),
       isCurrent: frame.isCurrent ?? (() => true),
     };
   }
@@ -102,7 +107,7 @@ export function useScalarFieldCache(options: TOptions) {
 
   function captureScalar(frame: TScalarFrame) {
     clear();
-    scalar = snapshot(frame, store.varnameSelector);
+    scalar = snapshot(frame, frame.name ?? store.varnameSelector);
     needsScalarRender = true;
   }
 

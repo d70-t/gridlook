@@ -1,31 +1,25 @@
 import { onScopeDispose, ref, watch, type Ref } from "vue";
-import type * as zarr from "zarrita";
 
-import type { TSources } from "@/lib/types/GlobeTypes.ts";
+import {
+  useScalarFrames,
+  type TScalarFramesOptions,
+} from "./useScalarFrames.ts";
+
 import { useGlobeControlStore } from "@/store/store.ts";
 import { useLog } from "@/ui/common/useLog.ts";
 
-type TDataVar = zarr.Array<zarr.DataType, zarr.AsyncReadable>;
 type TGlobeControlStore = ReturnType<typeof useGlobeControlStore>;
 type TLogError = (maybeError: unknown, context?: string) => void;
 
 type TLoaderState = {
   disposed: boolean;
+  controller?: AbortController;
   requestRevision: number;
   pendingUpdate: Ref<boolean>;
   updatingData: Ref<boolean>;
 };
 
-type TGridDataLoaderOptions = {
-  getDatasources: () => TSources | undefined;
-  getDataVar: (
-    varname: string,
-    datasources: TSources
-  ) => Promise<TDataVar | undefined>;
-  fetchAndRenderData: (
-    datavar: TDataVar,
-    isCurrent: () => boolean
-  ) => Promise<void>;
+type TGridDataLoaderOptions = TScalarFramesOptions & {
   clearHoverLookup: () => void;
   updateLandSeaMask: () => void | Promise<void>;
   updateColormap: () => void;
@@ -33,10 +27,6 @@ type TGridDataLoaderOptions = {
   resetDataVars?: () => void;
   refreshStreamlines?: (reuseCached?: boolean) => void | Promise<void>;
   suspendStreamlines?: () => void;
-  scalarCache?: {
-    clear: () => void;
-    restoreScalar: () => Promise<boolean>;
-  };
 };
 
 // eslint-disable-next-line max-lines-per-function
@@ -44,7 +34,8 @@ function createGetData(
   options: TGridDataLoaderOptions,
   store: TGlobeControlStore,
   state: TLoaderState,
-  logError: TLogError
+  logError: TLogError,
+  frames: ReturnType<typeof useScalarFrames>
 ) {
   // eslint-disable-next-line max-lines-per-function
   return async function getData() {
@@ -55,6 +46,7 @@ function createGetData(
 
     store.startLoading();
     state.requestRevision++;
+    state.controller?.abort();
     if (store.isStreamlineLayerEnabled()) {
       options.suspendStreamlines?.();
     }
@@ -70,13 +62,17 @@ function createGetData(
       do {
         state.pendingUpdate.value = false;
         const revision = state.requestRevision;
+        state.controller = new AbortController();
         const isCurrent = () =>
           !state.disposed &&
           revision === state.requestRevision &&
           datasources === options.getDatasources();
         try {
           const requestVarname = store.varnameSelector;
-          const datavar = await options.getDataVar(requestVarname, datasources);
+          const frame = await frames.prepareScalarFrame({
+            signal: state.controller.signal,
+            isCurrent,
+          });
           if (state.disposed || datasources !== options.getDatasources()) {
             shouldStopLoading = false;
             return;
@@ -85,8 +81,8 @@ function createGetData(
             state.pendingUpdate.value = true;
             continue;
           }
-          if (datavar !== undefined && isCurrent()) {
-            await options.fetchAndRenderData(datavar, isCurrent);
+          if (frame && isCurrent()) {
+            await frames.commitScalarFrame(frame);
           }
         } catch (error) {
           // A live source may roll over while an older timestep is loading.
@@ -145,7 +141,9 @@ function registerGridDataLoaderWatches(
       }
       await getData();
       options.updateColormap();
-    }
+    },
+    // Invalidate old work before its promise can resume on the next Vue tick.
+    { flush: "sync" }
   );
   watch(
     () => store.streamlineSelectionRevision,
@@ -222,17 +220,20 @@ export function useGridDataLoader(options: TGridDataLoaderOptions) {
     pendingUpdate: ref(false),
     updatingData: ref(false),
   };
-  const getData = createGetData(options, store, state, logError);
+  const frames = useScalarFrames(options);
+  const getData = createGetData(options, store, state, logError, frames);
   const datasourceUpdate = createDatasourceUpdate(options, getData);
 
   registerGridDataLoaderWatches(options, store, state, getData, logError);
 
   onScopeDispose(() => {
     state.disposed = true;
+    state.controller?.abort();
     state.pendingUpdate.value = false;
   });
 
   return {
+    ...frames,
     datasourceUpdate,
     getData,
   };

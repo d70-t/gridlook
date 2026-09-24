@@ -11,13 +11,18 @@ import {
   useGridHoverLookup,
   type TGridHoverLookupResult,
 } from "./composables/gridHoverUtils.ts";
+import {
+  fetchScalarFrameData,
+  getScalarFrameDimensions,
+  type TPreparedScalarFrame,
+  type TScalarFrameRequest,
+} from "./composables/scalarFrame.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 import { useStreamlineLayer } from "./composables/useStreamlineLayer.ts";
 import { useVolume } from "./composables/useVolume.ts";
 
-import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
 import { loadVectorComponents } from "@/lib/data/streamlineData.ts";
 import {
   castDataVarToFloat32,
@@ -33,10 +38,7 @@ import {
   type TVectorMagnitudeData,
 } from "@/lib/data/vectorMagnitude.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
-import {
-  getGridVariableData,
-  terminateGridDataWorker,
-} from "@/lib/grids/gridDataWorkerClient.ts";
+import { terminateGridDataWorker } from "@/lib/grids/gridDataWorkerClient.ts";
 import {
   HEALPIX_NUMCHUNKS,
   buildHealpixRegionCoordinates,
@@ -64,7 +66,6 @@ import {
 } from "@/lib/shaders/gridShaders.ts";
 import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
 import { VOLUME_GRID_TYPES } from "@/lib/volume/volumeGrid.ts";
-import { useUrlParameterStore } from "@/store/paramStore.ts";
 import {
   HOVERED_GRID_POINT_STATUS,
   useGlobeControlStore,
@@ -95,12 +96,7 @@ function getHealpixMissingAndFillValues(
 
 const store = useGlobeControlStore();
 const { logError } = useLog();
-const { varnameSelector, colormap, invertColormap, dimSlidersValues, varinfo } =
-  storeToRefs(store);
-
-const urlParameterStore = useUrlParameterStore();
-const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
-  storeToRefs(urlParameterStore);
+const { varnameSelector, colormap, invertColormap } = storeToRefs(store);
 
 const {
   getScene,
@@ -191,25 +187,26 @@ function updateMeshProjectionUniforms() {
   });
 }
 
-const { datasourceUpdate } = useGridDataLoader({
-  getDatasources: () => props.datasources,
-  getDataVar,
-  fetchAndRenderData,
-  scalarCache,
-  clearHoverLookup,
-  updateLandSeaMask,
-  updateColormap: () => updateColormap(mainMeshes),
-  refreshStreamlines: async (reuseCached) => {
-    if (lastStreamlineContext) {
-      await updateStreamlines(lastStreamlineContext, reuseCached);
-    }
-  },
-  suspendStreamlines: () => {
-    streamlineRequestRevision++;
-    store.streamlineLoading = false;
-    store.streamlineProgress = undefined;
-  },
-});
+const { datasourceUpdate, prepareScalarFrame, commitScalarFrame } =
+  useGridDataLoader({
+    getDatasources: () => props.datasources,
+    getDataVar,
+    prepareFrame,
+    scalarCache,
+    clearHoverLookup,
+    updateLandSeaMask,
+    updateColormap: () => updateColormap(mainMeshes),
+    refreshStreamlines: async (reuseCached) => {
+      if (lastStreamlineContext) {
+        await updateStreamlines(lastStreamlineContext, reuseCached);
+      }
+    },
+    suspendStreamlines: () => {
+      streamlineRequestRevision++;
+      store.streamlineLoading = false;
+      store.streamlineProgress = undefined;
+    },
+  });
 
 function coerceInteger(value: unknown): number | null {
   const cast = typeof value === "number" ? value : Number(value);
@@ -340,11 +337,11 @@ function unpackGrid(): healpixGeo.Grid {
   return grid as healpixGeo.Grid;
 }
 
-async function getCells() {
+async function getCells(request: TScalarFrameRequest) {
   let cellCoord = "cell";
   const dggsMetadata = await ZarrDataManager.getDggsMetadata(
-    props.datasources!,
-    varnameSelector.value
+    request.datasources,
+    request.variable
   );
   if (dggsMetadata !== null) {
     const coordinate = dggsMetadata["coordinate"];
@@ -356,30 +353,16 @@ async function getCells() {
   }
 
   try {
-    const rawCells = await fetchHealpixVariableData(
+    const rawCells = await fetchScalarFrameData(
+      request,
       [],
-      ZarrDataManager.resolveVariablePath(varnameSelector.value, cellCoord)
+      ZarrDataManager.resolveVariablePath(request.variable, cellCoord)
     );
 
     return Array.from(rawCells, (cell) => Number(cell));
   } catch {
     return undefined;
   }
-}
-
-function fetchHealpixVariableData(
-  selection: (number | zarr.Slice | null)[],
-  variable = varnameSelector.value
-) {
-  return getGridVariableData({
-    source: ZarrDataManager.getDatasetSource(
-      props.datasources!,
-      varnameSelector.value
-    ),
-    variable,
-    format: props.datasources!.zarr_format,
-    selection,
-  });
 }
 
 function createGeometry({
@@ -454,25 +437,21 @@ async function showMagnitude(scalar: TVectorMagnitudeData) {
 }
 
 async function prepareDimensionData(
-  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
+  request: TScalarFrameRequest
 ) {
   const dimensionNames = await ZarrDataManager.getDimensionNames(
-    props.datasources!,
-    varnameSelector.value
+    request.datasources,
+    request.variable
   );
-  selectedDimensionNames.value = dimensionNames;
-  const { dimensionRanges, indices } = buildDimensionRangesAndIndices(
+  const { dimensionRanges, indices } = getScalarFrameDimensions(
     datavar,
     dimensionNames,
-    paramDimIndices.value,
-    paramDimMinBounds.value,
-    paramDimMaxBounds.value,
-    dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
     [datavar.shape.length - 1],
-    varinfo.value?.dimRanges
+    request
   );
 
-  return { dimensionRanges, indices };
+  return { dimensionRanges, indices, dimensionNames };
 }
 
 function makeHealpixVectorField(
@@ -659,12 +638,13 @@ async function updateStreamlines(
 }
 
 async function getDimensionValues(
+  request: TScalarFrameRequest,
   dimensionRanges: TDimensionRange[],
   indices: (number | zarr.Slice | null)[]
 ) {
   const dimValues = await fetchDimensionDetails(
-    varnameSelector.value,
-    props.datasources!,
+    request.variable,
+    request.datasources,
     dimensionRanges,
     indices
   );
@@ -774,9 +754,9 @@ async function processHealpixChunks(
   cells: number[] | undefined,
   grid: healpixGeo.Grid,
   indices: (number | zarr.Slice | null)[],
-  deferDisplay: boolean,
-  isCurrent: () => boolean
+  request: TScalarFrameRequest
 ) {
+  const { isCurrent } = request;
   let dataMin = Number.POSITIVE_INFINITY;
   let dataMax = Number.NEGATIVE_INFINITY;
   const histogramSummaries: THistogramSummary[] = [];
@@ -799,10 +779,7 @@ async function processHealpixChunks(
     projectionType: helper.type,
     projectionCenter: { lat: helper.center.lat, lon: helper.center.lon },
   };
-  if (!deferDisplay) {
-    clearHoverLookup();
-  }
-  // Read one face at a time; with streamlines, stage the complete replacement.
+  // Read one face at a time and stage the complete replacement.
   for (let faceIndex = 0; faceIndex < HEALPIX_NUMCHUNKS; faceIndex++) {
     if (disposed || !isCurrent()) {
       return;
@@ -813,7 +790,7 @@ async function processHealpixChunks(
     const data =
       range.start === range.end
         ? new Float32Array()
-        : castDataVarToFloat32(await fetchHealpixVariableData(selection));
+        : castDataVarToFloat32(await fetchScalarFrameData(request, selection));
     if (disposed || !isCurrent()) {
       return;
     }
@@ -837,11 +814,7 @@ async function processHealpixChunks(
     if (!isCurrent()) {
       return;
     }
-    if (deferDisplay) {
-      batches.push(batch);
-    } else {
-      updateHealpixBatch(batch);
-    }
+    batches.push(batch);
   }
   return { dataMin, dataMax, histogramSummaries, textures, batches };
 }
@@ -897,54 +870,32 @@ function healpixHoverLookup(
 }
 
 // eslint-disable-next-line max-lines-per-function
-async function fetchAndRenderData(
+async function prepareFrame(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
-  isCurrent: () => boolean
-) {
-  const deferDisplay = store.isStreamlineLayerEnabled();
+  request: TScalarFrameRequest
+): Promise<TPreparedScalarFrame | undefined> {
+  const { isCurrent } = request;
   const grid = unpackGrid();
 
-  const cellCoord = await getCells();
-  fitCameraToCells(grid, cellCoord);
-  const { dimensionRanges, indices } = await prepareDimensionData(datavar);
+  const cellCoord = await getCells(request);
+  const { dimensionRanges, indices, dimensionNames } =
+    await prepareDimensionData(datavar, request);
   const result = await processHealpixChunks(
     datavar,
     cellCoord,
     grid,
     indices,
-    deferDisplay,
-    isCurrent
+    request
   );
   if (!result) {
     return;
   }
   const { dataMin, dataMax, histogramSummaries, textures, batches } = result;
 
-  lastStreamlineContext = { indices, grid, cellCoord };
-  volume.setContext({
-    dimensionNames: selectedDimensionNames.value,
-    indices,
-    grid: {
-      kind: VOLUME_GRID_TYPES.HEALPIX,
-      nside: grid.nside,
-      cellCoordinates: cellCoord ? Float64Array.from(cellCoord) : undefined,
-      options: {
-        scheme: grid.scheme,
-        level: grid.level,
-        ellipsoid: {
-          // eslint-disable-next-line camelcase
-          semi_major_axis: grid.semiMajorAxis,
-          // eslint-disable-next-line camelcase
-          semi_minor_axis: grid.semiMajorAxis * (1 - grid.flattening),
-        },
-      },
-    },
-  });
-
   if (!isCurrent()) {
     return;
   }
-  const dimInfo = await getDimensionValues(dimensionRanges, indices);
+  const dimInfo = await getDimensionValues(request, dimensionRanges, indices);
 
   const scalarInfo = {
     attrs: datavar.attrs,
@@ -952,8 +903,9 @@ async function fetchAndRenderData(
     bounds: { low: dataMin, high: dataMax },
     dimRanges: dimensionRanges,
   };
-  let geometryPending = deferDisplay;
+  let geometryPending = true;
   const renderScalar = () => {
+    fitCameraToCells(grid, cellCoord);
     if (geometryPending) {
       batches.forEach(updateHealpixBatch);
       batches.length = 0;
@@ -966,17 +918,39 @@ async function fetchAndRenderData(
   if (!isCurrent()) {
     return;
   }
-  scalarCache.captureScalar({
+  return {
+    name: request.variable,
     render: renderScalar,
     info: scalarInfo,
     indices: indices as number[],
     data: histogramSummaries,
     isCurrent,
-  });
-  await updateStreamlines(lastStreamlineContext);
-  if (isCurrent() && !store.streamlineMagnitudeDisplayed) {
-    await scalarCache.restoreScalar();
-  }
+    updateLayers: async () => {
+      selectedDimensionNames.value = dimensionNames;
+      lastStreamlineContext = { indices, grid, cellCoord };
+      volume.setContext({
+        dimensionNames,
+        indices,
+        grid: {
+          kind: VOLUME_GRID_TYPES.HEALPIX,
+          nside: grid.nside,
+          cellCoordinates: cellCoord ? Float64Array.from(cellCoord) : undefined,
+          options: {
+            scheme: grid.scheme,
+            level: grid.level,
+            ellipsoid: {
+              // eslint-disable-next-line camelcase
+              semi_major_axis: grid.semiMajorAxis,
+              // eslint-disable-next-line camelcase
+              semi_minor_axis: grid.semiMajorAxis * (1 - grid.flattening),
+            },
+          },
+        },
+      });
+
+      await updateStreamlines({ indices, grid, cellCoord });
+    },
+  };
 }
 
 onBeforeMount(async () => {
@@ -1000,6 +974,8 @@ onBeforeUnmount(() => {
 });
 
 defineExpose({
+  prepareScalarFrame,
+  commitScalarFrame,
   makeSnapshot,
   toggleRotate,
   applyCameraPreset,
