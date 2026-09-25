@@ -1,0 +1,114 @@
+name: Jupyter
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "jupyter/**"
+      - "src/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/jupyter.yml"
+  pull_request:
+    paths:
+      - "jupyter/**"
+      - "src/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/jupyter.yml"
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Create a fresh venv outside the checkout
+        # Outside on purpose: the repo root package.json declares "type": "module",
+        # and node would load jlpm's bundled yarn.js as ESM (and fail) from a venv
+        # nested under it. uv's isolated build env for the wheel is elsewhere already.
+        run: |
+          uv venv --python 3.12 "$RUNNER_TEMP/venv"
+          echo "VIRTUAL_ENV=$RUNNER_TEMP/venv" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+
+      - name: Build the wheel (runs the vite and jlpm build hooks)
+        run: uv build --wheel jupyter -o jupyter/dist-py
+
+      - name: Assert the wheel carries the SPA
+        run: unzip -l jupyter/dist-py/*.whl | grep -q "gridlook_jupyter/static/index.html"
+
+      - name: Assert the wheel carries the prebuilt labextension
+        run: |
+          listing=$(unzip -l jupyter/dist-py/*.whl)
+          echo "$listing" | grep -q "share/jupyter/labextensions/jupyterlab-gridlook/package.json"
+          echo "$listing" | grep -q "share/jupyter/labextensions/jupyterlab-gridlook/install.json"
+          echo "$listing" | grep -q "share/jupyter/labextensions/jupyterlab-gridlook/static/remoteEntry\."
+
+      - name: Assert the wheel ships no source maps
+        run: "! unzip -l jupyter/dist-py/*.whl | grep -q '\\.map$'"
+
+      - name: Install the wheel with jupyterlab and test deps
+        run: uv pip install "$(ls jupyter/dist-py/*.whl)[test]" "jupyterlab>=4" ruff
+
+      - name: Assert a development labextension build never ships
+        # The README's dev loop (`jlpm build`) leaves source maps and build_log.json
+        # in the labextension output. With sources present the hook rebuilds; with
+        # sources absent (the prebuilt path) it strips them. Exercise both.
+        run: |
+          (cd jupyter/labextension && jlpm build)
+          ls jupyter/gridlook_jupyter/labextension/build_log.json
+          rsync -a --exclude node_modules jupyter/ "$RUNNER_TEMP/prebuilt/"
+          rm "$RUNNER_TEMP/prebuilt/labextension/package.json"
+          uv build --wheel jupyter -o "$RUNNER_TEMP/rebuilt"
+          uv build --wheel "$RUNNER_TEMP/prebuilt" -o "$RUNNER_TEMP/prebuilt-dist"
+          for whl in "$RUNNER_TEMP"/rebuilt/*.whl "$RUNNER_TEMP"/prebuilt-dist/*.whl; do
+            listing=$(unzip -l "$whl")
+            echo "$listing" | grep -q "jupyterlab-gridlook/static/remoteEntry\."
+            ! echo "$listing" | grep -qE '\.map$|build_log\.json$'
+          done
+
+      - name: Assert both halves are enabled on install
+        run: |
+          # enabled AND validated: `OK` is the part that proves each half loads
+          servers=$(jupyter server extension list 2>&1) && echo "$servers"
+          echo "$servers" | grep -E "gridlook_jupyter .*enabled"
+          echo "$servers" | grep -E "gridlook_jupyter [0-9.]+ .*OK"
+          jupyter labextension list 2>&1 | tee /dev/stderr | grep -E "jupyterlab-gridlook v[0-9.]+ .*enabled.*OK"
+
+      - name: Ruff
+        run: |
+          ruff check jupyter/gridlook_jupyter jupyter/tests jupyter/hatch_build.py
+          ruff format --check jupyter/gridlook_jupyter jupyter/tests jupyter/hatch_build.py
+
+      - name: Pytest
+        run: pytest jupyter/tests -v
+
+      - name: Jest (labextension helpers)
+        working-directory: jupyter/labextension
+        run: |
+          jlpm install
+          jlpm test
+
+      - name: Assert the sdist carries sources only
+        # After the jlpm install above, labextension/node_modules is present: the
+        # sdist must still leave it (and the tsc outputs) out.
+        run: |
+          uv build --sdist jupyter -o "$RUNNER_TEMP/sdist"
+          listing=$(tar tzf "$RUNNER_TEMP"/sdist/*.tar.gz)
+          echo "$listing"
+          if echo "$listing" | grep -E 'node_modules/|tsbuildinfo$|labextension/lib/'; then
+            echo "::error::the sdist ships build outputs" && exit 1
+          fi
+          test "$(echo "$listing" | wc -l)" -lt 100
