@@ -184,10 +184,10 @@ export function useUrlSync() {
       store.layerStack.find((layer) => layer.id === BUILTIN_LAYER_IDS.BASEMAP)
         ?.opacity,
     (opacity) => {
-      if(store.isBasemapLayerEnabled()) {
+      if (store.isBasemapLayerEnabled()) {
         changeURLHash({
           [URL_PARAMETERS.BASEMAP_OPACITY]:
-          typeof opacity === "number" && opacity < 1 ? opacity : "",
+            typeof opacity === "number" && opacity < 1 ? opacity : "",
         });
       }
     }
@@ -195,7 +195,7 @@ export function useUrlSync() {
   watch(
     () => store.selectedBasemap,
     (id) => {
-      if(store.isBasemapLayerEnabled()) {
+      if (store.isBasemapLayerEnabled()) {
         changeURLHash({
           [URL_PARAMETERS.BASEMAP_ID]: id,
         });

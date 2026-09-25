@@ -1,6 +1,5 @@
 import type { Scene } from "three";
 import * as THREE from "three";
-import { MapView } from "geo-three";
 import { onScopeDispose, watch, type ComputedRef } from "vue";
 
 import { getLayerRenderOrder } from "./useGridOverlays.ts";
@@ -31,30 +30,6 @@ function findLayerEntry(store: TStore) {
   );
 }
 
-function disposeMap(map: MapView) {
-  map.traverse((object) => {
-    if (!object.isMesh) {
-      return;
-    }
-
-    object.geometry?.dispose();
-    const materials = Array.isArray(object.material)
-      ? object.material
-      : [object.material];
-    for (const material of materials) {
-      for (const key of Object.keys(material)) {
-        const value = material[key];
-        if (value?.isTexture) {
-          value.dispose();
-        }
-      }
-
-      material.dispose();
-    }
-  });
-  map.removeFromParent();
-}
-
 // eslint-disable-next-line max-lines-per-function
 export function useBasemapLayer(options: TOptions) {
   const store = useGlobeControlStore();
@@ -68,7 +43,8 @@ export function useBasemapLayer(options: TOptions) {
 
   function removeLayer() {
     if (layer) {
-      options.getScene()?.remove(layer.basemap);
+      const map = layer.getBasemap();
+      options.getScene()?.remove(map);
       layer.dispose();
       layer = undefined;
     }
@@ -111,20 +87,9 @@ export function useBasemapLayer(options: TOptions) {
       return;
     }
 
-    // const oldMap = layer.getBasemap();
-    // options.getScene()?.remove(oldMap);
-    // // disposing the old map avoids race conditions when changing basemap / projection
-    // disposeMap(oldMap);
+    layer.setProvider(basemapId);
 
-    // const nextLayer = new BasemapLayer(options.basemaps, basemapId);
-
-    // installLayer(nextLayer);
-
-    // options.getScene()?.add(layer.getBasemap());
-
-    layer.setBasemap(basemapId);
     updateAppearance();
-    options.redraw();
   }
 
   function setProjection(projection: ProjectionHelper) {
@@ -132,17 +97,8 @@ export function useBasemapLayer(options: TOptions) {
       return;
     }
 
-    // const oldMap = layer.getBasemap();
-
-    // options.getScene()?.remove(oldMap);
-    // disposeMap(oldMap);
-
-    // const nextLayer = new BasemapLayer(options.basemaps, layer.basemapId);
     layer.setProjection(projection);
 
-    // installLayer(nextLayer);
-
-    // options.getScene()?.add(layer.getBasemap());
     updateAppearance();
     options.redraw();
   }
@@ -173,7 +129,10 @@ export function useBasemapLayer(options: TOptions) {
     layer.setOpacity(entry?.opacity ?? LAYER_OPACITY.MAX);
 
     const visible = Boolean(entry?.visible && store.basemapAvailable);
-    layer.basemap.visible = visible;
+    
+    const map = layer.getBasemap();
+    map.visible = visible;
+
     options.redraw();
   }
 
@@ -183,7 +142,7 @@ export function useBasemapLayer(options: TOptions) {
     () => setBasemap(store.selectedBasemap)
   );
   watch(
-    () => `${store.isBasemapLayerEnabled()}:visible`,
+    () => store.isBasemapLayerEnabled(),
     () => {
       console.log("basemap state change");
       updateAppearance();
@@ -198,7 +157,8 @@ export function useBasemapLayer(options: TOptions) {
     disposed = true;
     store.basemapAvailable = false;
     if (layer) {
-      options.getScene()?.remove(layer.basemap);
+      options.getScene()?.remove(layer.getBasemap());
+
       layer.dispose();
       layer = undefined;
     }
