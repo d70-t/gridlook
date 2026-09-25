@@ -170,6 +170,39 @@ export function useUrlSync() {
     }
   );
 
+  watch(
+    () => store.isBasemapLayerEnabled(),
+    (enabled) => {
+      changeURLHash({
+        [URL_PARAMETERS.BASEMAP]: enabled ? "true" : "",
+      });
+    }
+  );
+
+  watch(
+    () =>
+      store.layerStack.find((layer) => layer.id === BUILTIN_LAYER_IDS.BASEMAP)
+        ?.opacity,
+    (opacity) => {
+      if (store.isBasemapLayerEnabled()) {
+        changeURLHash({
+          [URL_PARAMETERS.BASEMAP_OPACITY]:
+            typeof opacity === "number" && opacity < 1 ? opacity : "",
+        });
+      }
+    }
+  );
+  watch(
+    () => store.selectedBasemap,
+    (id) => {
+      if (store.isBasemapLayerEnabled()) {
+        changeURLHash({
+          [URL_PARAMETERS.BASEMAP_ID]: id,
+        });
+      }
+    }
+  );
+
   watchDebounced(
     () => encodeVolumeUrlState(store.volumeSelections),
     (state) => {

@@ -1,0 +1,17 @@
+{
+  "type": "gridlook_basemaps",
+  "basemaps": [
+    {
+      "id": "osm",
+      "name": "OpenStreetMap",
+      "url": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+      "attribution": "&copy; OpenStreetMap contributors"
+    },
+    {
+      "id": "esri-world-imagery",
+      "name": "ESRI WorldImagery",
+      "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      "attribution": "&copy; Esri World Imagery"
+    }
+  ]
+}

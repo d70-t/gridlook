@@ -46,6 +46,7 @@ import {
 } from "@/store/store.ts";
 import { useLog } from "@/ui/common/useLog.ts";
 import VolumeControls from "@/ui/overlays/controls/VolumeControls.vue";
+import { fetchBasemapCatalog } from "@/utils/basemap.ts";
 
 const props = defineProps<{
   modelInfo?: TModelInfo;
@@ -57,6 +58,7 @@ const {
   coastlineResolution,
   dimSlidersValues,
   graticuleSpacing,
+  selectedBasemap,
   landSeaMaskChoice,
   landSeaMaskUseTexture,
   layerStack,
@@ -97,6 +99,7 @@ const ADD_LAYER_ACTIONS = {
   MASK: LAYER_KINDS.MASK,
   STREAMLINES: LAYER_KINDS.STREAMLINES,
   VOLUME: LAYER_KINDS.VOLUME,
+  BASEMAP: LAYER_KINDS.BASEMAP,
   UPLOAD: "upload",
   VARIABLE_IMAGE: "variable-image",
 } as const;
@@ -325,6 +328,7 @@ const LAYER_ICONS: Record<TLayerKind, string> = {
   [LAYER_KINDS.STREAMLINES]: "fa-wind",
   [LAYER_KINDS.VOLUME]: "fa-cloud",
   [LAYER_KINDS.TEXTURE]: "fa-image",
+  [LAYER_KINDS.BASEMAP]: "fa-map",
 };
 
 const MASK_LAYER_OPTIONS = {
@@ -451,6 +455,9 @@ const LAYER_PROPERTIES: Record<TLayerKind, TLayerProperties> = {
       LAYER_BUTTONS.REMOVE,
     ],
   },
+  [LAYER_KINDS.BASEMAP]: {
+    buttons: [LAYER_BUTTONS.OPACITY, LAYER_BUTTONS.REMOVE],
+  },
 };
 
 onMounted(async () => {
@@ -463,6 +470,26 @@ onMounted(async () => {
     }
   } catch (error) {
     logError(error, "Couldn't load stored texture layers");
+  }
+
+  try {
+    if (store.basemapCatalogUrl === undefined) {
+      throw new Error("No basemap url found.");
+    }
+    const catalog = await fetchBasemapCatalog(store.basemapCatalogUrl);
+
+    if (typeof catalog !== "object") {
+      throw new Error(
+        "failed to parse the catalog. Make sure it is available and valid JSON."
+      );
+    } else if (catalog === null) {
+      throw new Error("Failed to fetch the catalog.");
+    } else if (catalog.basemaps.length === 0) {
+      throw new Error("The fetched catalog does not contain any entries.");
+    }
+    store.updateBasemaps(catalog.basemaps);
+  } catch (error) {
+    logError(error, "Couldn't load the list of basemaps");
   }
 });
 
@@ -662,6 +689,13 @@ const addLayerOptions = computed<TAddLayerOption[]>(() => {
       disabledReason: volumeUnavailableReason.value,
     });
   }
+  if (!hasDisplayedLayer(LAYER_KINDS.BASEMAP)) {
+    options.push({
+      value: ADD_LAYER_ACTIONS.BASEMAP,
+      label: BUILTIN_LAYER_NAMES[LAYER_KINDS.BASEMAP],
+      icon: LAYER_ICONS[LAYER_KINDS.BASEMAP],
+    });
+  }
   options.push(
     {
       value: ADD_LAYER_ACTIONS.UPLOAD,
@@ -705,6 +739,9 @@ function addLayer(action: TAddLayerAction) {
   } else if (action === ADD_LAYER_ACTIONS.VOLUME) {
     store.restoreBuiltinLayer(LAYER_KINDS.VOLUME);
     store.setVolumeLayerEnabled(true);
+  } else if (action === ADD_LAYER_ACTIONS.BASEMAP) {
+    store.restoreBuiltinLayer(LAYER_KINDS.BASEMAP);
+    store.setBasemapLayerEnabled(true);
   } else if (action === ADD_LAYER_ACTIONS.UPLOAD) {
     fileInput.value?.click();
   } else if (
@@ -908,6 +945,19 @@ function getLayerName(layer: TLayerEntry) {
               :class="{ 'is-light': !store.hoverEnabled }"
               >Active data</span
             >
+          </template>
+          <template v-if="layer.kind === LAYER_KINDS.BASEMAP">
+            <div class="select is-small layer-select">
+              <select v-model="selectedBasemap" title="Basemap">
+                <option
+                  v-for="entry in store.basemaps"
+                  :key="entry.id"
+                  :value="entry.id"
+                >
+                  {{ entry.name }}
+                </option>
+              </select>
+            </div>
           </template>
           <button
             v-if="LAYER_PROPERTIES[layer.kind].buttons.length >= 1"

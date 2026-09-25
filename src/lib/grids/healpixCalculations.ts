@@ -52,43 +52,50 @@ function generateHealpixIndices(positionValues: Float32Array, steps: number) {
   return indices;
 }
 
+const FULL_FACE: THealpixDataRect = { u: 0, v: 0, width: 1, height: 1 };
+
+/**
+ * The texture is interpolated linearly between vertices, but the face-to-
+ * lat/lon mapping is curved: over a whole face (~110 km quads) that misplaces
+ * data by up to ~1 km. Meshing only the data rect shrinks that quadratically.
+ */
 export function buildHealpixGeometry(
   grid: Grid,
   ipix: bigint,
   steps: number,
-  helper: ProjectionHelper
+  helper: ProjectionHelper,
+  dataRect: THealpixDataRect = FULL_FACE
 ) {
+  const rect = dataRect.width > 0 ? dataRect : FULL_FACE;
   const vertexCount = steps * steps;
   const positionValues = new Float32Array(vertexCount * 3);
   const uv = new Float32Array(vertexCount * 2);
   const latLonValues = new Float32Array(vertexCount * 2);
   let vertexIndex = 0;
 
-  const coords = grid.vertices(BigInt(ipix), steps);
-  for (let index = 0; index < Math.floor(coords.length / 2); ++index) {
-    const indexLon = 2 * index;
-    const indexLat = 2 * index + 1;
-    const lat = coords[indexLat];
-    const lon = coords[indexLon];
+  for (let i = 0; i < steps; ++i) {
+    for (let j = 0; j < steps; ++j) {
+      // UVs stay face-global; the shader maps them into the data rect.
+      const u = rect.u + (rect.width * i) / (steps - 1);
+      const v = rect.v + (rect.height * j) / (steps - 1);
+      using coordinate = grid.vertex(ipix, u, v);
 
-    const u = Math.floor(index / steps) / (steps - 1);
-    const v = (index % steps) / (steps - 1);
+      const positionOffset = vertexIndex * 3;
+      helper.projectLatLonToArrays(
+        coordinate.lat,
+        coordinate.lon,
+        positionValues,
+        positionOffset,
+        latLonValues,
+        vertexIndex * 2
+      );
 
-    const positionOffset = vertexIndex * 3;
-    helper.projectLatLonToArrays(
-      lat,
-      lon,
-      positionValues,
-      positionOffset,
-      latLonValues,
-      vertexIndex * 2
-    );
+      const uvIndex = vertexIndex * 2;
+      uv[uvIndex] = u;
+      uv[uvIndex + 1] = v;
 
-    const uvIndex = vertexIndex * 2;
-    uv[uvIndex] = u;
-    uv[uvIndex + 1] = v;
-
-    vertexIndex++;
+      vertexIndex++;
+    }
   }
 
   const indices = generateHealpixIndices(positionValues, steps);

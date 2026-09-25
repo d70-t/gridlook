@@ -19,6 +19,7 @@ import {
 } from "@/lib/projection/projectionUtils.ts";
 import type { TColorMap } from "@/lib/shaders/colormapShaders.ts";
 import type { TVarInfo, TBounds } from "@/lib/types/GlobeTypes.ts";
+import type { TBasemapEntry } from "@/utils/basemap.ts";
 import type { TCatalog } from "@/utils/catalog.ts";
 import type { THistogramSummary } from "@/utils/histogram.ts";
 
@@ -47,6 +48,7 @@ export const LAYER_KINDS = {
   STREAMLINES: "streamlines",
   VOLUME: "volume",
   TEXTURE: "texture",
+  BASEMAP: "basemap",
 } as const;
 
 export type TLayerKind = (typeof LAYER_KINDS)[keyof typeof LAYER_KINDS];
@@ -74,6 +76,7 @@ export const BUILTIN_LAYER_IDS = {
   MASK: "mask",
   STREAMLINES: "streamlines",
   VOLUME: "volume",
+  BASEMAP: "basemap",
 } as const;
 
 export const LAYER_OPACITY = {
@@ -127,6 +130,7 @@ export const BUILTIN_LAYER_NAMES = {
   [LAYER_KINDS.MASK]: "Land/sea mask",
   [LAYER_KINDS.STREAMLINES]: "Flow streamlines",
   [LAYER_KINDS.VOLUME]: "Volume",
+  [LAYER_KINDS.BASEMAP]: "Basemap",
 } as const satisfies Record<
   Exclude<TLayerKind, typeof LAYER_KINDS.TEXTURE>,
   string
@@ -173,6 +177,12 @@ const BUILTIN_LAYER_DEFAULTS: Record<TBuiltinLayerKind, TBuiltinLayerDefaults> =
       opacity: LAYER_OPACITY.MAX,
       maskMode: LAND_SEA_MASK_MODES.OFF,
     },
+    [LAYER_KINDS.BASEMAP]: {
+      id: BUILTIN_LAYER_IDS.BASEMAP,
+      kind: LAYER_KINDS.BASEMAP,
+      opacity: LAYER_OPACITY.MAX,
+      maskMode: LAND_SEA_MASK_MODES.OFF,
+    },
   };
 
 const INITIAL_BUILTIN_LAYER_KINDS = [
@@ -205,6 +215,10 @@ export const useGlobeControlStore = defineStore("globeControl", {
       landSeaMaskChoice: LAND_SEA_MASK_MODES.OFF as TLandSeaMaskMode,
       // when true, use the textured versions; when false, use the simple versions
       landSeaMaskUseTexture: false,
+      showBasemap: false,
+      basemapAvailable: false,
+      basemaps: undefined as TBasemapEntry[] | undefined,
+      selectedBasemap: "osm" as string,
       varnameSelector: "-", // the varname currently selected in the dropdown
       varnameDisplay: "-", // the varname currently shown on the globe (will be updated after loading)
       loading: false,
@@ -231,6 +245,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
       hoverEnabled: false,
       hoveredGridPoint: undefined as THoveredGridPoint | undefined,
       distanceScale: null as TDistanceScale | null,
+      basemapCatalogUrl: undefined as string | undefined,
       catalogUrl: undefined as string | undefined,
       catalogData: undefined as TCatalog | undefined,
       // ── Live datasets ──────────────────────────────────────────────
@@ -337,6 +352,9 @@ export const useGlobeControlStore = defineStore("globeControl", {
     toggleCoastLines() {
       this.showCoastLines = !this.showCoastLines;
     },
+    toggleBasemap() {
+      this.showBasemap = !this.showBasemap;
+    },
     toggleGraticules() {
       this.showGraticules = !this.showGraticules;
     },
@@ -392,6 +410,9 @@ export const useGlobeControlStore = defineStore("globeControl", {
     },
     updateBounds(bounds: TBounds) {
       this.selection = bounds;
+    },
+    updateBasemaps(basemaps: TBasemapEntry[]) {
+      this.basemaps = basemaps;
     },
     updateHistogram(histogram: number[] | undefined) {
       this.histogram = histogram;
@@ -451,6 +472,23 @@ export const useGlobeControlStore = defineStore("globeControl", {
         } else {
           layer.visible = !layer.visible;
         }
+      }
+    },
+    isBasemapLayerEnabled() {
+      return Boolean(
+        this.layerStack.find((entry) => entry.id === BUILTIN_LAYER_IDS.BASEMAP)
+          ?.visible
+      );
+    },
+    setBasemapLayerEnabled(enabled: boolean) {
+      if (enabled) {
+        this.restoreBuiltinLayer(LAYER_KINDS.BASEMAP);
+      }
+      const layer = this.layerStack.find(
+        (entry) => entry.id === BUILTIN_LAYER_IDS.BASEMAP
+      );
+      if (layer) {
+        layer.visible = enabled;
       }
     },
     isStreamlineLayerEnabled() {
