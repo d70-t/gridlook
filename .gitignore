@@ -28,3 +28,6 @@ tsconfig.tsbuildinfo
 *.njsproj
 *.sln
 *.sw?
+
+# uv lockfile from jupyter test runs (not committed for this package)
+jupyter/uv.lock
