@@ -346,14 +346,22 @@ function initVolumeFromParams() {
 }
 
 function initBasemapFromParams() {
-  console.log({enabled: paramBasemap, provider: paramBasemapProvider, opacity: paramBasemapOpacity });
-
-  const selectedBasemap = paramBasemapProvider.value === undefined || paramBasemapProvider.value === "" ? "osm" : String(paramBasemapProvider.value);
-  const opacity = paramBasemapOpacity.value === undefined || paramBasemapOpacity.value === "" ? LAYER_OPACITY.MAX : Number(paramBasemapOpacity.value);
+  const selectedBasemap =
+    paramBasemapProvider.value === undefined ||
+    paramBasemapProvider.value === ""
+      ? "osm"
+      : String(paramBasemapProvider.value);
+  const opacity =
+    paramBasemapOpacity.value === undefined || paramBasemapOpacity.value === ""
+      ? LAYER_OPACITY.MAX
+      : Number(paramBasemapOpacity.value);
 
   store.setBasemapLayerEnabled(paramBasemap.value === "true");
   store.selectedBasemap = selectedBasemap;
-  store.updateLayerOpacity(BUILTIN_LAYER_IDS.BASEMAP, Number.isFinite(opacity) ? opacity : LAYER_OPACITY.MAX);
+  store.updateLayerOpacity(
+    BUILTIN_LAYER_IDS.BASEMAP,
+    Number.isFinite(opacity) ? opacity : LAYER_OPACITY.MAX
+  );
 }
 
 async function loadCurrentSource(resetStore = true) {

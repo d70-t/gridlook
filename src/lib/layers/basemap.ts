@@ -282,13 +282,12 @@ export class BasemapLayer {
     this.applyMaterials();
   }
 
-  setBasemap(id: string) {
+  setProvider(id: string) {
     if (id === this.basemapId) {
       return;
     }
     this.basemapId = id;
 
-    this.basemap.clear();
     this.basemap.setProvider(
       createBasemapProvider(this.basemaps, id, this.onTileLoad)
     );
@@ -301,7 +300,6 @@ export class BasemapLayer {
   }
 
   toggleVisibility() {
-    console.log("toggle visibility");
     this.basemap.visible = !this.basemap.visible;
   }
 
