@@ -11,6 +11,11 @@ import {
   type TPreparedScalarFrame,
   type TScalarFrameRequest,
 } from "./composables/scalarFrame.ts";
+import {
+  scalarFrameMemory,
+  shareScalarBuffers,
+  shareScalarGeometry,
+} from "./composables/scalarFrameMemory.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useIrregularStreamlines } from "./composables/useIrregularStreamlines.ts";
 import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
@@ -150,18 +155,22 @@ async function showMagnitude(scalar: TVectorMagnitudeData) {
   });
 }
 
-const { datasourceUpdate, prepareScalarFrame, commitScalarFrame } =
-  useGridDataLoader({
-    getDatasources: () => props.datasources,
-    getDataVar,
-    prepareFrame,
-    scalarCache,
-    clearHoverLookup,
-    updateLandSeaMask,
-    updateColormap: () => updateColormap(meshes),
-    refreshStreamlines: streamlines.refresh,
-    suspendStreamlines: streamlines.suspend,
-  });
+const {
+  datasourceUpdate,
+  prepareScalarFrame,
+  commitScalarFrame,
+  getScalarFrameLayout,
+} = useGridDataLoader({
+  getDatasources: () => props.datasources,
+  getDataVar,
+  prepareFrame,
+  scalarCache,
+  clearHoverLookup,
+  updateLandSeaMask,
+  updateColormap: () => updateColormap(meshes),
+  refreshStreamlines: streamlines.refresh,
+  suspendStreamlines: streamlines.suspend,
+});
 
 function cleanupMeshes() {
   for (const mesh of meshes) {
@@ -287,6 +296,16 @@ async function prepareFrame(
     geographicDimensions,
   } = await buildDimensionConfig(datavar, request);
 
+  const sharedCoordinates = shareScalarBuffers(
+    "coordinates",
+    {
+      latitudesData: latitudes.data,
+      longitudesData: longitudes.data,
+    },
+    request.geometryCache
+  );
+  latitudes.data = sharedCoordinates.latitudesData;
+  longitudes.data = sharedCoordinates.longitudesData;
   const rawData = castDataVarToFloat32(
     await fetchScalarFrameData(request, indices)
   );
@@ -314,11 +333,12 @@ async function prepareFrame(
         geometryPending = metadata.rebuildGeometry;
       },
       onBatch: (batch) => {
-        batches.push(batch);
+        batches.push(shareScalarGeometry(batch, request.geometryCache));
       },
     }
   );
 
+  shareScalarBuffers("hover", result.hoverIndexData, request.geometryCache);
   const hoverIndex = createSerializedGeoSampleIndex(result.hoverIndexData);
 
   if (!isCurrent()) {
@@ -331,10 +351,10 @@ async function prepareFrame(
     bounds: { low: min, high: max },
     dimRanges: dimensionRanges,
   };
-  const coordinates = reconcileCoordinates(
-    latitudes,
-    longitudes,
-    rawData.length
+  const coordinates = shareScalarBuffers(
+    "reconciled",
+    reconcileCoordinates(latitudes, longitudes, rawData.length),
+    request.geometryCache
   );
   const renderScalar = () => {
     if (geometryPending) {
@@ -356,6 +376,15 @@ async function prepareFrame(
     return;
   }
   return {
+    memory: scalarFrameMemory(
+      batches,
+      rawData,
+      result.hoverIndexData,
+      latitudes.data,
+      longitudes.data,
+      coordinates,
+      scalarInfo
+    ),
     name: request.variable,
     render: renderScalar,
     info: scalarInfo,
@@ -399,6 +428,7 @@ defineExpose({
   applyCameraPreset,
   prepareScalarFrame,
   commitScalarFrame,
+  getScalarFrameLayout,
 });
 </script>
 

@@ -11,6 +11,15 @@ import {
   type TPreparedScalarFrame,
   type TScalarFrameRequest,
 } from "./composables/scalarFrame.ts";
+import {
+  scalarFrameMemory,
+  shareScalarBuffers,
+  shareScalarGeometry,
+} from "./composables/scalarFrameMemory.ts";
+import {
+  captureScalarGeometry,
+  updateScalarGeometry,
+} from "./composables/scalarGeometry.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useIrregularStreamlines } from "./composables/useIrregularStreamlines.ts";
 import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
@@ -154,18 +163,22 @@ async function showMagnitude(scalar: TVectorMagnitudeData) {
   });
 }
 
-const { datasourceUpdate, prepareScalarFrame, commitScalarFrame } =
-  useGridDataLoader({
-    getDatasources: () => props.datasources,
-    getDataVar,
-    prepareFrame,
-    scalarCache,
-    clearHoverLookup,
-    updateLandSeaMask,
-    updateColormap: () => updateColormap(points),
-    refreshStreamlines: streamlines.refresh,
-    suspendStreamlines: streamlines.suspend,
-  });
+const {
+  datasourceUpdate,
+  prepareScalarFrame,
+  commitScalarFrame,
+  getScalarFrameLayout,
+} = useGridDataLoader({
+  getDatasources: () => props.datasources,
+  getDataVar,
+  prepareFrame,
+  scalarCache,
+  clearHoverLookup,
+  updateLandSeaMask,
+  updateColormap: () => updateColormap(points),
+  refreshStreamlines: streamlines.refresh,
+  suspendStreamlines: streamlines.suspend,
+});
 
 function cleanupPoints(totalBatches: number) {
   if (points.length <= totalBatches) {
@@ -179,6 +192,9 @@ function cleanupPoints(totalBatches: number) {
 }
 
 function updateBatch(batch: TGridPointBatch) {
+  if (updateScalarGeometry(points[batch.batchIndex]?.geometry, batch)) {
+    return;
+  }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute(
     "position",
@@ -192,6 +208,7 @@ function updateBatch(batch: TGridPointBatch) {
     "data_value",
     new THREE.BufferAttribute(batch.dataValues, 1)
   );
+  captureScalarGeometry(geometry, batch);
   geometry.computeBoundingSphere();
   if (points[batch.batchIndex]) {
     points[batch.batchIndex].geometry.dispose();
@@ -306,6 +323,16 @@ async function prepareFrame(
     dimensions,
     geographicDimensions,
   } = await buildDimensionConfig(datavar, request);
+  const sharedCoordinates = shareScalarBuffers(
+    "coordinates",
+    {
+      latitudesData: latitudes.data,
+      longitudesData: longitudes.data,
+    },
+    request.geometryCache
+  );
+  latitudes.data = sharedCoordinates.latitudesData;
+  longitudes.data = sharedCoordinates.longitudesData;
   const rawData = castDataVarToFloat32(
     await fetchScalarFrameData(request, indices)
   );
@@ -335,11 +362,12 @@ async function prepareFrame(
         spacing = metadata.estimatedSpacing;
       },
       onBatch: (batch) => {
-        batches.push(batch);
+        batches.push(shareScalarGeometry(batch, request.geometryCache));
       },
     }
   );
 
+  shareScalarBuffers("hover", result.hoverIndexData, request.geometryCache);
   const hoverIndex = createSerializedGeoSampleIndex(result.hoverIndexData);
 
   if (!isCurrent()) {
@@ -352,10 +380,10 @@ async function prepareFrame(
     bounds: { low: min, high: max },
     dimRanges: dimensionRanges,
   };
-  const coordinates = reconcileCoordinates(
-    latitudes,
-    longitudes,
-    rawData.length
+  const coordinates = shareScalarBuffers(
+    "reconciled",
+    reconcileCoordinates(latitudes, longitudes, rawData.length),
+    request.geometryCache
   );
   const renderScalar = () => {
     cleanupPoints(batches.length);
@@ -370,6 +398,15 @@ async function prepareFrame(
     return;
   }
   return {
+    memory: scalarFrameMemory(
+      batches,
+      rawData,
+      result.hoverIndexData,
+      latitudes.data,
+      longitudes.data,
+      coordinates,
+      scalarInfo
+    ),
     name: request.variable,
     render: renderScalar,
     info: scalarInfo,
@@ -414,6 +451,7 @@ defineExpose({
   applyCameraPreset,
   prepareScalarFrame,
   commitScalarFrame,
+  getScalarFrameLayout,
 });
 </script>
 

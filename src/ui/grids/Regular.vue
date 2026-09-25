@@ -16,6 +16,11 @@ import {
   type TPreparedScalarFrame,
   type TScalarFrameRequest,
 } from "./composables/scalarFrame.ts";
+import {
+  scalarFrameMemory,
+  shareScalarBuffers,
+} from "./composables/scalarFrameMemory.ts";
+import { updateScalarTexture } from "./composables/scalarTexture.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
@@ -164,30 +169,34 @@ function updateMeshProjectionUniforms() {
   });
 }
 
-const { datasourceUpdate, prepareScalarFrame, commitScalarFrame } =
-  useGridDataLoader({
-    getDatasources: () => props.datasources,
-    getDataVar,
-    prepareFrame,
-    scalarCache,
-    clearHoverLookup,
-    prepareDatasource: async () => {
-      await getDims();
-      await makeGeometry();
-    },
-    updateLandSeaMask,
-    updateColormap: () => updateColormap(meshes),
-    refreshStreamlines: async (reuseCached) => {
-      if (lastStreamlineIndices) {
-        await updateStreamlines(lastStreamlineIndices, reuseCached);
-      }
-    },
-    suspendStreamlines: () => {
-      streamlineRequestRevision++;
-      store.streamlineLoading = false;
-      store.streamlineProgress = undefined;
-    },
-  });
+const {
+  datasourceUpdate,
+  prepareScalarFrame,
+  commitScalarFrame,
+  getScalarFrameLayout,
+} = useGridDataLoader({
+  getDatasources: () => props.datasources,
+  getDataVar,
+  prepareFrame,
+  scalarCache,
+  clearHoverLookup,
+  prepareDatasource: async () => {
+    await getDims();
+    await makeGeometry();
+  },
+  updateLandSeaMask,
+  updateColormap: () => updateColormap(meshes),
+  refreshStreamlines: async (reuseCached) => {
+    if (lastStreamlineIndices) {
+      await updateStreamlines(lastStreamlineIndices, reuseCached);
+    }
+  },
+  suspendStreamlines: () => {
+    streamlineRequestRevision++;
+    store.streamlineLoading = false;
+    store.streamlineProgress = undefined;
+  },
+});
 
 const isLatOnly = ref(false);
 
@@ -629,27 +638,18 @@ function prepareTextureData(rawData: Float32Array) {
   return fitDataToMaxTextureSize(textureData, lonCount, latCount);
 }
 
-function createRegularTexture(
+function updateRegularTexture(
   { data, texWidth, texHeight }: ReturnType<typeof prepareTextureData>,
-  wrapRepeat: boolean
+  wrapRepeat: boolean,
+  previous?: THREE.Texture
 ) {
-  const texture = new THREE.DataTexture(
-    data,
-    texWidth,
-    texHeight,
-    THREE.RedFormat,
-    THREE.FloatType,
-    THREE.UVMapping
-  );
-  if (wrapRepeat) {
-    texture.wrapS = THREE.RepeatWrapping;
-  }
-  texture.needsUpdate = true;
+  const texture = updateScalarTexture(previous, data, texWidth, texHeight);
+  texture.wrapS = wrapRepeat ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
   return texture;
 }
 
 function makeMaterial(textureData: ReturnType<typeof prepareTextureData>) {
-  const texture = createRegularTexture(
+  const texture = updateRegularTexture(
     textureData,
     isLongitudeGlobal(longitudes.value)
   );
@@ -808,9 +808,18 @@ function setMeshMaterials(material: THREE.ShaderMaterial) {
 function updateMeshMaterials(
   textureData: ReturnType<typeof prepareTextureData>
 ) {
-  const material = makeMaterial(textureData);
-  updateProjectionUniforms(material, projectionHelper.value);
-  setMeshMaterials(material);
+  const material = meshes[0]?.material as THREE.ShaderMaterial | undefined;
+  if (material?.uniforms.data) {
+    material.uniforms.data.value = updateRegularTexture(
+      textureData,
+      isLongitudeGlobal(longitudes.value),
+      material.uniforms.data.value
+    );
+  } else {
+    const initialMaterial = makeMaterial(textureData);
+    updateProjectionUniforms(initialMaterial, projectionHelper.value);
+    setMeshMaterials(initialMaterial);
+  }
   updateColormap(meshes);
 }
 
@@ -1028,6 +1037,14 @@ async function prepareFrame(
     updateMeshMaterials(textureData);
     setHoverLookupFromIndex(hoverIndex, fillValue, missingValue);
   };
+  shareScalarBuffers(
+    "coordinates",
+    {
+      latitudes: latitudes.value,
+      longitudes: longitudes.value,
+    },
+    request.geometryCache
+  );
   const volumeGrid =
     isProjectedGrid.value || props.isRotated
       ? projectedGrid
@@ -1042,6 +1059,14 @@ async function prepareFrame(
     return;
   }
   return {
+    memory: scalarFrameMemory(
+      textureData,
+      rawData,
+      latitudes.value,
+      longitudes.value,
+      volumeGrid,
+      scalarInfo
+    ),
     name: request.variable,
     render: renderScalar,
     info: scalarInfo,
@@ -1085,6 +1110,7 @@ onBeforeUnmount(() => {
 defineExpose({
   prepareScalarFrame,
   commitScalarFrame,
+  getScalarFrameLayout,
   makeSnapshot,
   toggleRotate,
   applyCameraPreset,

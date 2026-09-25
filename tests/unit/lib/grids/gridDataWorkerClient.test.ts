@@ -70,12 +70,14 @@ afterEach(() => {
 describe("grid data worker client", () => {
   it("snapshots requests and preserves chunk shape", async () => {
     const slice = reactive({ start: 1, stop: 3, step: 1, ignored: true });
-    const resultPromise = getGridVariableChunk(
-      request([slice as unknown as zarr.Slice])
-    );
+    const resultPromise = getGridVariableChunk({
+      ...request([slice as unknown as zarr.Slice]),
+      chunkConcurrency: 1,
+    });
     const worker = TMockWorker.instances[0];
     const message = worker.messages[0];
 
+    expect(message.chunkConcurrency).toBe(1);
     expect(message.source).toEqual({ store: "store", dataset: "dataset" });
     expect(message.selection).toEqual([{ start: 1, stop: 3, step: 1 }]);
     worker.emit({

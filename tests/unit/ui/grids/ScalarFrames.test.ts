@@ -10,6 +10,10 @@ import {
   ProjectionHelper,
 } from "@/lib/projection/projectionUtils.ts";
 import { ZARR_FORMAT, type TSources } from "@/lib/types/GlobeTypes.ts";
+import {
+  useScalarBake,
+  SCALAR_BAKE_PHASE,
+} from "@/ui/grids/composables/useScalarBake.ts";
 import type { useScalarFrames } from "@/ui/grids/composables/useScalarFrames.ts";
 
 type TFrameAPI = ReturnType<typeof useScalarFrames>;
@@ -70,7 +74,12 @@ vi.mock("@/ui/grids/composables/useSharedGridLogic.ts", () => ({
     toggleRotate: vi.fn(),
     applyCameraPreset: vi.fn(),
     fitCameraToDataset: vi.fn(),
-    getDataVar: async () => ({ shape: h.shape, attrs: { units: "K" } }),
+    getDataVar: async () => ({
+      shape: h.shape,
+      chunks: [1, ...h.shape.slice(1)],
+      dtype: "float32",
+      attrs: { units: "K" },
+    }),
     fetchDimensionDetails: async () => [],
     updateLandSeaMask: vi.fn(),
     updateColormap: vi.fn(),
@@ -309,19 +318,24 @@ const cases = [
   },
 ];
 function snapshot() {
-  return h.scene!.children.map((child) => {
-    const mesh = child as THREE.Mesh<
-      THREE.BufferGeometry,
-      THREE.ShaderMaterial
-    >;
-    const data =
-      mesh.geometry.getAttribute("data_value")?.array ??
-      mesh.material.uniforms.data.value.image.data;
-    return {
-      geometry: mesh.geometry.uuid,
-      data: Array.from(data as Float32Array),
-    };
-  });
+  return h
+    .scene!.children.filter((child) => !child.userData.testOverlay)
+    .map((child) => {
+      const mesh = child as THREE.Mesh<
+        THREE.BufferGeometry,
+        THREE.ShaderMaterial
+      >;
+      const data =
+        mesh.geometry.getAttribute("data_value")?.array ??
+        mesh.material.uniforms.data.value.image.data;
+      return {
+        geometry: mesh.geometry.uuid,
+        material: mesh.material.uuid,
+        materialVersion: mesh.material.version,
+        texture: mesh.material.uniforms.data?.value.uuid,
+        data: Array.from(data as Float32Array),
+      };
+    });
 }
 function reset(test: (typeof cases)[number]) {
   setActivePinia(createPinia());
@@ -385,7 +399,10 @@ it.each(cases)(
       await h.beforeMount[0]();
       expect(h.logError).not.toHaveBeenCalled();
       expect(snapshot().length).toBeGreaterThan(0);
-      await checkPreparation(expose.mock.lastCall![0] as TFrameAPI, store);
+      const api = expose.mock.lastCall![0] as TFrameAPI;
+      await checkPreparation(api, store);
+      const bake = scope.run(() => useScalarBake(() => api))!;
+      await checkBake(bake, store);
     } finally {
       scope.stop();
     }
@@ -476,4 +493,52 @@ async function checkCancelledPreparation(api: TFrameAPI) {
   }
   expect(await pending).toBeUndefined();
   expect(snapshot()).toEqual(before);
+}
+
+async function checkBake(
+  bake: ReturnType<typeof useScalarBake>,
+  store: ReturnType<typeof useGlobeControlStore>
+) {
+  const before = snapshot();
+  const overlay = new THREE.Object3D();
+  overlay.userData.testOverlay = true;
+  h.scene!.add(overlay);
+  await bake.plan({ start: 0, end: 2 });
+  expect(bake.message).toBe("");
+  expect(bake.phase).toBe(SCALAR_BAKE_PHASE.PLANNED);
+  expect(snapshot()).toEqual(before);
+  expect(bake.estimate!.retainedBytes).toBeGreaterThan(0);
+  await bake.bake();
+  expect(bake.message).toBe("");
+  expect(bake.phase).toBe(SCALAR_BAKE_PHASE.READY);
+  const reads = h.getData.mock.calls.length;
+  const resourcesBefore = snapshot().map(
+    ({ geometry, material, materialVersion, texture }) => [
+      geometry,
+      material,
+      materialVersion,
+      texture,
+    ]
+  );
+  for (const time of [2, 1, 0]) {
+    await bake.seek(time);
+    expect(snapshot().map((entry) => entry.data)).toEqual(
+      before.map((entry) => entry.data.map((value) => value + time * 10))
+    );
+    expect(store.dimSlidersDisplay[0]).toBe(time);
+    expect(h.scene!.children).toContain(overlay);
+    expect(
+      snapshot().map(({ geometry, material, materialVersion, texture }) => [
+        geometry,
+        material,
+        materialVersion,
+        texture,
+      ])
+    ).toEqual(resourcesBefore);
+  }
+  expect(h.getData).toHaveBeenCalledTimes(reads);
+  bake.clear();
+  expect(bake.completed).toBe(0);
+  expect(bake.estimate).toBeUndefined();
+  h.scene!.remove(overlay);
 }

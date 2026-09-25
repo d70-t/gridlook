@@ -1,5 +1,6 @@
 import type * as zarr from "zarrita";
 
+import { createGridDataQueue } from "./gridDataQueue.ts";
 import {
   GridDataWorkerMessageType,
   type TGridDataWorkerRequest,
@@ -21,6 +22,7 @@ export type TGridDataRequest = {
   variable: string;
   format: TZarrFormat;
   selection: (number | null | zarr.Slice)[];
+  chunkConcurrency?: number;
   onProgress?: (completed: number, total: number) => void;
 };
 
@@ -132,7 +134,19 @@ async function getMainThreadVariableChunk(request: TGridDataRequest) {
     request.format
   );
   return serializeGridDataChunk(
-    await ZarrDataManager.getVariableDataFromArray(array, request.selection)
+    await ZarrDataManager.getVariableDataFromArray(
+      array,
+      request.selection,
+      request.chunkConcurrency
+        ? {
+            createQueue: () =>
+              createGridDataQueue(
+                request.chunkConcurrency!,
+                request.onProgress
+              ),
+          }
+        : undefined
+    )
   );
 }
 
@@ -155,6 +169,7 @@ export function getGridVariableChunk(request: TGridDataRequest) {
     variable: request.variable,
     format: request.format,
     reportProgress: Boolean(request.onProgress),
+    chunkConcurrency: request.chunkConcurrency,
     selection: request.selection.map((selection) => {
       if (typeof selection !== "object" || selection === null) {
         return selection;

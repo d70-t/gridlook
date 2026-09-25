@@ -11,6 +11,15 @@ import {
   type TPreparedScalarFrame,
   type TScalarFrameRequest,
 } from "./composables/scalarFrame.ts";
+import {
+  scalarFrameMemory,
+  shareScalarBuffers,
+  shareScalarGeometry,
+} from "./composables/scalarFrameMemory.ts";
+import {
+  captureScalarGeometry,
+  updateScalarGeometry,
+} from "./composables/scalarGeometry.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useIrregularStreamlines } from "./composables/useIrregularStreamlines.ts";
 import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
@@ -133,18 +142,22 @@ async function showMagnitude(scalar: TVectorMagnitudeData) {
   });
 }
 
-const { datasourceUpdate, prepareScalarFrame, commitScalarFrame } =
-  useGridDataLoader({
-    getDatasources: () => props.datasources,
-    getDataVar,
-    prepareFrame,
-    scalarCache,
-    clearHoverLookup,
-    updateLandSeaMask,
-    updateColormap: () => updateColormap(meshes),
-    refreshStreamlines: streamlines.refresh,
-    suspendStreamlines: streamlines.suspend,
-  });
+const {
+  datasourceUpdate,
+  prepareScalarFrame,
+  commitScalarFrame,
+  getScalarFrameLayout,
+} = useGridDataLoader({
+  getDatasources: () => props.datasources,
+  getDataVar,
+  prepareFrame,
+  scalarCache,
+  clearHoverLookup,
+  updateLandSeaMask,
+  updateColormap: () => updateColormap(meshes),
+  refreshStreamlines: streamlines.refresh,
+  suspendStreamlines: streamlines.suspend,
+});
 
 const BATCH_SIZE = 64; // Adjust based on memory and browser limits
 
@@ -203,13 +216,19 @@ function createBatchGeometry(
 const EPSILON = 0.002; // Small overlap in degrees to avoid z-fighting
 
 function updateGaussianReducedBatch(batch: TGridGeometryBatch) {
+  if (updateScalarGeometry(meshes[batch.batchIndex]?.geometry, batch)) {
+    return;
+  }
   updateOrCreateMesh(
     batch.batchIndex,
-    createBatchGeometry(
-      batch.positionValues,
-      batch.dataValues,
-      batch.latLonValues,
-      batch.indices
+    captureScalarGeometry(
+      createBatchGeometry(
+        batch.positionValues,
+        batch.dataValues,
+        batch.latLonValues,
+        batch.indices
+      ),
+      batch
     )
   );
 }
@@ -217,7 +236,8 @@ function updateGaussianReducedBatch(batch: TGridGeometryBatch) {
 async function buildGaussianReducedGeometry(
   latitudes: Float64Array,
   longitudes: Float64Array,
-  data: Float32Array
+  data: Float32Array,
+  request?: TScalarFrameRequest
 ) {
   const helper = projectionHelper.value;
   const batches: TGridGeometryBatch[] = [];
@@ -234,12 +254,13 @@ async function buildGaussianReducedGeometry(
     {
       onMetadata: () => undefined,
       onBatch: (batch) => {
-        batches.push(batch);
+        batches.push(shareScalarGeometry(batch, request?.geometryCache));
       },
     }
   );
   return {
     hoverIndexData,
+    batches,
     render: () => {
       cleanupMeshes(batches.length);
       batches.forEach(updateGaussianReducedBatch);
@@ -299,8 +320,14 @@ async function prepareFrame(
     datavar,
     request.datasources
   );
-  const latitudesData = latitudes.data as Float64Array;
-  const longitudesData = longitudes!.data as Float64Array;
+  const { latitudesData, longitudesData } = shareScalarBuffers(
+    "coordinates",
+    {
+      latitudesData: latitudes.data as Float64Array,
+      longitudesData: longitudes!.data as Float64Array,
+    },
+    request.geometryCache
+  );
 
   if (!isCurrent()) {
     return;
@@ -310,12 +337,15 @@ async function prepareFrame(
     rawData
   );
 
-  const { hoverIndexData, render } = await buildGaussianReducedGeometry(
-    latitudesData,
-    longitudesData,
-    rawData
-  );
+  const { hoverIndexData, render, batches } =
+    await buildGaussianReducedGeometry(
+      latitudesData,
+      longitudesData,
+      rawData,
+      request
+    );
 
+  shareScalarBuffers("hover", hoverIndexData, request.geometryCache);
   const hoverIndex = createSerializedGeoSampleIndex(hoverIndexData);
 
   if (!isCurrent()) {
@@ -339,6 +369,14 @@ async function prepareFrame(
     return;
   }
   return {
+    memory: scalarFrameMemory(
+      batches,
+      rawData,
+      hoverIndexData,
+      latitudesData,
+      longitudesData,
+      scalarInfo
+    ),
     name: request.variable,
     render: renderScalar,
     info: scalarInfo,
@@ -376,6 +414,7 @@ onBeforeUnmount(() => {
 defineExpose({
   prepareScalarFrame,
   commitScalarFrame,
+  getScalarFrameLayout,
   makeSnapshot,
   toggleRotate,
   applyCameraPreset,

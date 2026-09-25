@@ -5,7 +5,9 @@ import type {
   TPreparedScalarFrame,
   TScalarFrameInput,
   TScalarFrameRequest,
+  TScalarFrameLayout,
 } from "./scalarFrame.ts";
+import { scalarFrameMemory } from "./scalarFrameMemory.ts";
 import { createGridHistogramSummary } from "./useGridHistogram.ts";
 import type { useScalarFieldCache } from "./useScalarFieldCache.ts";
 
@@ -62,6 +64,9 @@ export function useScalarFrames(options: TScalarFramesOptions) {
       presetMinBounds: { ...parameters.paramDimMinBounds },
       presetMaxBounds: { ...parameters.paramDimMaxBounds },
       signal,
+      geometryCache: input.geometryCache,
+      chunkConcurrency: input.chunkConcurrency,
+      timing: { fetchMs: 0 },
       isCurrent: () =>
         !disposed &&
         !signal?.aborted &&
@@ -71,7 +76,11 @@ export function useScalarFrames(options: TScalarFramesOptions) {
     } satisfies TScalarFrameRequest;
   }
 
-  async function prepareScalarFrame(input: TScalarFrameInput = {}) {
+  // eslint-disable-next-line max-lines-per-function
+  async function prepareScalarFrame(
+    input: TScalarFrameInput = {}
+  ): Promise<TPreparedScalarFrame | undefined> {
+    const start = performance.now();
     const request = createRequest(input);
     if (!request?.isCurrent()) {
       return;
@@ -84,7 +93,7 @@ export function useScalarFrames(options: TScalarFramesOptions) {
       return;
     }
     // ponytail: in-flight worker work finishes; cancellation discards its result.
-    // Worker-level abort belongs with the bounded bake executor.
+    // The bake executor waits for this work before accepting another job.
     let frame: TPreparedScalarFrame | undefined;
     try {
       frame = await options.prepareFrame(datavar, request);
@@ -97,15 +106,28 @@ export function useScalarFrames(options: TScalarFramesOptions) {
     if (!frame || !request.isCurrent()) {
       return;
     }
+    const histogram = createGridHistogramSummary(
+      frame.data,
+      frame.info.bounds.low ?? NaN,
+      frame.info.bounds.high ?? NaN,
+      frame.missingValue,
+      frame.fillValue
+    );
+    if (frame.memory) {
+      const histogramMemory = scalarFrameMemory(undefined, histogram);
+      frame.memory = {
+        ...frame.memory,
+        buffers: [...frame.memory.buffers, ...histogramMemory.buffers],
+        extraBytes: frame.memory.extraBytes + histogramMemory.extraBytes,
+      };
+    }
     return {
       ...frame,
-      histogram: createGridHistogramSummary(
-        frame.data,
-        frame.info.bounds.low ?? NaN,
-        frame.info.bounds.high ?? NaN,
-        frame.missingValue,
-        frame.fillValue
-      ),
+      timing: {
+        fetchMs: request.timing.fetchMs,
+        totalMs: performance.now() - start,
+      },
+      histogram,
       updateLayers: async () => {
         for (const [name, value] of Object.entries(request.presetIndices)) {
           if (parameters.paramDimIndices[name] === value) {
@@ -122,8 +144,14 @@ export function useScalarFrames(options: TScalarFramesOptions) {
       return false;
     }
     const revision = ++displayRevision;
+    const displayedRequest = createRequest({})!;
+    let committed = false;
+    // A completed frame becomes the ordinary scalar background. Releasing the
+    // bake must not invalidate later colormap or vector-background interactions.
     const isCurrent = () =>
-      !disposed && revision === displayRevision && frame.isCurrent();
+      !disposed &&
+      revision === displayRevision &&
+      (committed ? displayedRequest.isCurrent() : frame.isCurrent());
     options.scalarCache.captureScalar({ ...frame, isCurrent });
     await frame.updateLayers();
     if (!isCurrent()) {
@@ -132,8 +160,37 @@ export function useScalarFrames(options: TScalarFramesOptions) {
     if (!store.streamlineMagnitudeDisplayed) {
       await options.scalarCache.restoreScalar();
     }
-    return isCurrent();
+    if (!isCurrent()) {
+      return false;
+    }
+    committed = true;
+    return true;
   }
 
-  return { prepareScalarFrame, commitScalarFrame };
+  async function getScalarFrameLayout(): Promise<
+    TScalarFrameLayout | undefined
+  > {
+    const request = createRequest({});
+    if (!request) {
+      return;
+    }
+    const array = await options.getDataVar(
+      request.variable,
+      request.datasources
+    );
+    if (!array || !request.isCurrent()) {
+      return;
+    }
+    const bits = /^(?:u?int|float)(8|16|32|64)$/.exec(array.dtype)?.[1];
+    if (!bits) {
+      throw new Error("Baking requires a numeric scalar variable.");
+    }
+    return {
+      shape: [...array.shape],
+      chunks: [...array.chunks],
+      bytesPerValue: Number(bits) / 8,
+    };
+  }
+
+  return { prepareScalarFrame, commitScalarFrame, getScalarFrameLayout };
 }

@@ -17,6 +17,11 @@ import {
   type TPreparedScalarFrame,
   type TScalarFrameRequest,
 } from "./composables/scalarFrame.ts";
+import {
+  scalarFrameMemory,
+  shareScalarGeometry,
+} from "./composables/scalarFrameMemory.ts";
+import { updateScalarTexture } from "./composables/scalarTexture.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
@@ -187,26 +192,30 @@ function updateMeshProjectionUniforms() {
   });
 }
 
-const { datasourceUpdate, prepareScalarFrame, commitScalarFrame } =
-  useGridDataLoader({
-    getDatasources: () => props.datasources,
-    getDataVar,
-    prepareFrame,
-    scalarCache,
-    clearHoverLookup,
-    updateLandSeaMask,
-    updateColormap: () => updateColormap(mainMeshes),
-    refreshStreamlines: async (reuseCached) => {
-      if (lastStreamlineContext) {
-        await updateStreamlines(lastStreamlineContext, reuseCached);
-      }
-    },
-    suspendStreamlines: () => {
-      streamlineRequestRevision++;
-      store.streamlineLoading = false;
-      store.streamlineProgress = undefined;
-    },
-  });
+const {
+  datasourceUpdate,
+  prepareScalarFrame,
+  commitScalarFrame,
+  getScalarFrameLayout,
+} = useGridDataLoader({
+  getDatasources: () => props.datasources,
+  getDataVar,
+  prepareFrame,
+  scalarCache,
+  clearHoverLookup,
+  updateLandSeaMask,
+  updateColormap: () => updateColormap(mainMeshes),
+  refreshStreamlines: async (reuseCached) => {
+    if (lastStreamlineContext) {
+      await updateStreamlines(lastStreamlineContext, reuseCached);
+    }
+  },
+  suspendStreamlines: () => {
+    streamlineRequestRevision++;
+    store.streamlineLoading = false;
+    store.streamlineProgress = undefined;
+  },
+});
 
 function coerceInteger(value: unknown): number | null {
   const cast = typeof value === "number" ? value : Number(value);
@@ -652,6 +661,7 @@ async function getDimensionValues(
 }
 
 function disposeHealpixMesh(batchIndex: number) {
+  displayedGeometry.delete(batchIndex);
   const mesh = mainMeshes[batchIndex];
   if (!mesh) {
     return;
@@ -695,13 +705,36 @@ function createHealpixMesh(
   return mesh;
 }
 
+const displayedGeometry = new Map<
+  number,
+  Pick<THealpixBatch, "positionValues" | "uv" | "latLonValues" | "indices">
+>();
+
 function updateHealpixBatch(batch: THealpixBatch) {
   if (batch.width === 0 || batch.height === 0) {
     // No cells of a regional/sparse dataset fall in this face.
     disposeHealpixMesh(batch.batchIndex);
     return;
   }
+  const previous = displayedGeometry.get(batch.batchIndex);
+  if (
+    previous &&
+    previous.positionValues === batch.positionValues &&
+    previous.uv === batch.uv &&
+    previous.latLonValues === batch.latLonValues &&
+    previous.indices === batch.indices
+  ) {
+    updateHealpixTexture(batch);
+    return;
+  }
   const geometry = createGeometry(batch);
+  const { positionValues, uv, latLonValues, indices } = batch;
+  displayedGeometry.set(batch.batchIndex, {
+    positionValues,
+    uv,
+    latLonValues,
+    indices,
+  });
   let mesh = mainMeshes[batch.batchIndex];
   if (mesh) {
     mesh.geometry.dispose();
@@ -726,17 +759,12 @@ function updateHealpixTexture(batch: THealpixTexture) {
   }
   mesh.userData.dataRect = batch.dataRect;
   const material = mesh.material as THREE.ShaderMaterial;
-  material.uniforms.data.value.dispose();
-  const texture = new THREE.DataTexture(
+  material.uniforms.data.value = updateScalarTexture(
+    material.uniforms.data.value,
     batch.dataValues,
     batch.width,
-    batch.height,
-    THREE.RedFormat,
-    THREE.FloatType,
-    THREE.UVMapping
+    batch.height
   );
-  texture.needsUpdate = true;
-  material.uniforms.data.value = texture;
   material.uniforms.dataUvOffset.value.set(batch.dataRect.u, batch.dataRect.v);
   material.uniforms.dataUvScale.value.set(
     batch.dataRect.width,
@@ -814,7 +842,7 @@ async function processHealpixChunks(
     if (!isCurrent()) {
       return;
     }
-    batches.push(batch);
+    batches.push(shareScalarGeometry(batch, request.geometryCache));
   }
   return { dataMin, dataMax, histogramSummaries, textures, batches };
 }
@@ -919,6 +947,15 @@ async function prepareFrame(
     return;
   }
   return {
+    memory: {
+      ...scalarFrameMemory(batches, textures, cellCoord, scalarInfo),
+      // Expanded triangles carry position, UV, lat/lon and three corner attributes.
+      gpuBytes: batches.reduce(
+        (bytes, batch) =>
+          bytes + batch.indices.length * 13 * 4 + batch.dataValues.byteLength,
+        0
+      ),
+    },
     name: request.variable,
     render: renderScalar,
     info: scalarInfo,
@@ -976,6 +1013,7 @@ onBeforeUnmount(() => {
 defineExpose({
   prepareScalarFrame,
   commitScalarFrame,
+  getScalarFrameLayout,
   makeSnapshot,
   toggleRotate,
   applyCameraPreset,

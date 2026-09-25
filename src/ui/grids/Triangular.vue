@@ -11,6 +11,11 @@ import {
   type TPreparedScalarFrame,
   type TScalarFrameRequest,
 } from "./composables/scalarFrame.ts";
+import {
+  scalarFrameMemory,
+  shareScalarBuffers,
+  shareScalarGeometry,
+} from "./composables/scalarFrameMemory.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useIrregularStreamlines } from "./composables/useIrregularStreamlines.ts";
 import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
@@ -145,19 +150,23 @@ const colormapMaterial = computed(() =>
 
 const gridsource = computed(() => props.datasources?.levels[0].grid);
 
-const { datasourceUpdate, prepareScalarFrame, commitScalarFrame } =
-  useGridDataLoader({
-    getDatasources: () => props.datasources,
-    getDataVar,
-    prepareFrame,
-    scalarCache,
-    clearHoverLookup,
-    prepareDatasource: fetchGrid,
-    updateLandSeaMask,
-    updateColormap: () => updateColormap(meshes),
-    refreshStreamlines: streamlines.refresh,
-    suspendStreamlines: streamlines.suspend,
-  });
+const {
+  datasourceUpdate,
+  prepareScalarFrame,
+  commitScalarFrame,
+  getScalarFrameLayout,
+} = useGridDataLoader({
+  getDatasources: () => props.datasources,
+  getDataVar,
+  prepareFrame,
+  scalarCache,
+  clearHoverLookup,
+  prepareDatasource: fetchGrid,
+  updateLandSeaMask,
+  updateColormap: () => updateColormap(meshes),
+  refreshStreamlines: streamlines.refresh,
+  suspendStreamlines: streamlines.suspend,
+});
 
 function cleanupMeshes() {
   for (const mesh of meshes) {
@@ -337,11 +346,12 @@ async function prepareFrame(
       onMetadata: () => undefined,
       onBatch: (batch) => {
         if (!("positionValues" in batch)) {
-          batches.push(batch);
+          batches.push(shareScalarGeometry(batch, request.geometryCache));
         }
       },
     }
   );
+  shareScalarBuffers("hover", result.hoverIndexData, request.geometryCache);
   const hoverIndex = createSerializedGeoSampleIndex(result.hoverIndexData);
 
   if (!isCurrent()) {
@@ -362,6 +372,12 @@ async function prepareFrame(
     return;
   }
   return {
+    memory: scalarFrameMemory(
+      batches,
+      plotData,
+      result.hoverIndexData,
+      scalarInfo
+    ),
     name: request.variable,
     render: renderScalar,
     info: scalarInfo,
@@ -399,6 +415,7 @@ defineExpose({
   applyCameraPreset,
   prepareScalarFrame,
   commitScalarFrame,
+  getScalarFrameLayout,
 });
 </script>
 

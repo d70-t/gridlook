@@ -21,6 +21,7 @@ export type TGridDataWorkerRequest = {
   variable: string;
   format: TZarrFormat;
   selection: (number | null | zarr.Slice)[];
+  chunkConcurrency?: number;
   reportProgress?: boolean;
 };
 

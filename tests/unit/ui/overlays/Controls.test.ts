@@ -7,6 +7,7 @@ import type { TModelInfo } from "@/lib/types/GlobeTypes.ts";
 vi.mock("vue", async (importOriginal) => ({
   ...(await importOriginal<typeof import("vue")>()),
   onBeforeMount: vi.fn(),
+  inject: vi.fn(),
   useSSRContext: () => ({}),
 }));
 vi.stubGlobal("localStorage", { getItem: () => null });

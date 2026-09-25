@@ -11,6 +11,15 @@ import {
   type TPreparedScalarFrame,
   type TScalarFrameRequest,
 } from "./composables/scalarFrame.ts";
+import {
+  scalarFrameMemory,
+  shareScalarBuffers,
+  shareScalarGeometry,
+} from "./composables/scalarFrameMemory.ts";
+import {
+  captureScalarGeometry,
+  updateScalarGeometry,
+} from "./composables/scalarGeometry.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useIrregularStreamlines } from "./composables/useIrregularStreamlines.ts";
 import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
@@ -163,18 +172,22 @@ async function showMagnitude(scalar: TVectorMagnitudeData) {
   });
 }
 
-const { datasourceUpdate, prepareScalarFrame, commitScalarFrame } =
-  useGridDataLoader({
-    getDatasources: () => props.datasources,
-    getDataVar,
-    prepareFrame,
-    scalarCache,
-    clearHoverLookup,
-    updateLandSeaMask,
-    updateColormap: () => updateColormap(meshes),
-    refreshStreamlines: streamlines.refresh,
-    suspendStreamlines: streamlines.suspend,
-  });
+const {
+  datasourceUpdate,
+  prepareScalarFrame,
+  commitScalarFrame,
+  getScalarFrameLayout,
+} = useGridDataLoader({
+  getDatasources: () => props.datasources,
+  getDataVar,
+  prepareFrame,
+  scalarCache,
+  clearHoverLookup,
+  updateLandSeaMask,
+  updateColormap: () => updateColormap(meshes),
+  refreshStreamlines: streamlines.refresh,
+  suspendStreamlines: streamlines.suspend,
+});
 
 const BATCH_SIZE = 30;
 
@@ -239,7 +252,10 @@ function createBatchGeometry(batch: TGridGeometryBatch) {
 }
 
 function updateBatchMesh(batch: TGridGeometryBatch) {
-  const geometry = createBatchGeometry(batch);
+  if (updateScalarGeometry(meshes[batch.batchIndex]?.geometry, batch)) {
+    return;
+  }
+  const geometry = captureScalarGeometry(createBatchGeometry(batch), batch);
   setupProjectionGeometryWrap(geometry);
   if (meshes[batch.batchIndex]) {
     meshes[batch.batchIndex].geometry.dispose();
@@ -256,6 +272,7 @@ function updateBatchMesh(batch: TGridGeometryBatch) {
   getScene()?.add(mesh);
 }
 
+// eslint-disable-next-line max-lines-per-function
 async function buildGridInWorker(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   rawData: Float32Array,
@@ -269,8 +286,14 @@ async function buildGridInWorker(
     dimensionNames,
     request
   );
-  const latitudesData = latitudes.data as Float32Array;
-  const longitudesData = longitudes!.data as Float32Array;
+  const { latitudesData, longitudesData } = shareScalarBuffers(
+    "coordinates",
+    {
+      latitudesData: latitudes.data as Float32Array,
+      longitudesData: longitudes!.data as Float32Array,
+    },
+    request.geometryCache
+  );
   const [nj, ni] = latitudes.shape;
   const helper = projectionHelper.value;
   const batches: TGridGeometryBatch[] = [];
@@ -290,7 +313,7 @@ async function buildGridInWorker(
     {
       onMetadata: () => undefined,
       onBatch: (batch) => {
-        batches.push(batch);
+        batches.push(shareScalarGeometry(batch, request.geometryCache));
       },
     }
   );
@@ -303,6 +326,7 @@ async function buildGridInWorker(
     hoverIndexData: result.hoverIndexData,
     latitudesData,
     longitudesData,
+    batches,
   };
 }
 
@@ -372,7 +396,7 @@ async function prepareFrame(
     datavar,
     rawData
   );
-  const { hoverIndexData, latitudesData, longitudesData, render } =
+  const { hoverIndexData, latitudesData, longitudesData, render, batches } =
     await buildGridInWorker(
       datavar,
       rawData,
@@ -381,6 +405,7 @@ async function prepareFrame(
       fillValue,
       request
     );
+  shareScalarBuffers("hover", hoverIndexData, request.geometryCache);
   const hoverIndex = createSerializedGeoSampleIndex(hoverIndexData);
 
   if (!isCurrent()) {
@@ -407,6 +432,22 @@ async function prepareFrame(
     return;
   }
   return {
+    memory: {
+      ...scalarFrameMemory(
+        batches,
+        rawData,
+        hoverIndexData,
+        latitudesData,
+        longitudesData,
+        projectedGrid,
+        scalarInfo
+      ),
+      // Expanded triangles include the three lat/lon corner attributes.
+      gpuBytes: batches.reduce(
+        (bytes, batch) => bytes + batch.indices.length * 12 * 4,
+        0
+      ),
+    },
     name: request.variable,
     render: renderScalar,
     info: scalarInfo,
@@ -448,6 +489,7 @@ defineExpose({
   applyCameraPreset,
   prepareScalarFrame,
   commitScalarFrame,
+  getScalarFrameLayout,
 });
 </script>
 

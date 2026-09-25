@@ -245,7 +245,7 @@ export function useSharedGridLogic() {
           ? high
           : 1e38;
       }
-      material.needsUpdate = true;
+      // Uniform values refresh on the next draw; the shader program is unchanged.
     }
     redraw();
   }

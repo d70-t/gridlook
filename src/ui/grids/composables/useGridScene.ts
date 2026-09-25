@@ -190,14 +190,30 @@ export function useGridScene(options: UseGridSceneOptions) {
     };
   }
 
+  let redrawFrame: number | undefined;
   function redraw() {
-    if (store.isRotating || projectionDragActive || mouseDown || wheelActive) {
+    if (
+      store.isRotating ||
+      projectionDragActive ||
+      mouseDown ||
+      wheelActive ||
+      redrawFrame !== undefined
+    ) {
       return;
     }
-    render();
+    // Scalar commits update geometry, bounds and colors together. Draw once after
+    // those updates, instead of rendering the whole scene after each one.
+    redrawFrame = requestAnimationFrame(() => {
+      redrawFrame = undefined;
+      render();
+    });
   }
 
   function render() {
+    if (redrawFrame !== undefined) {
+      cancelAnimationFrame(redrawFrame);
+      redrawFrame = undefined;
+    }
     if (updateLOD) {
       updateLOD();
     }
@@ -1361,6 +1377,9 @@ export function useGridScene(options: UseGridSceneOptions) {
   useResizeObserver(box, onCanvasResize);
 
   onBeforeUnmount(() => {
+    if (redrawFrame !== undefined) {
+      cancelAnimationFrame(redrawFrame);
+    }
     store.distanceScale = null;
     if (frameId.value) {
       cancelAnimationFrame(frameId.value);

@@ -1,3 +1,4 @@
+import * as THREE from "three";
 import { beforeEach, expect, it, vi } from "vitest";
 import { effectScope, nextTick } from "vue";
 
@@ -6,7 +7,7 @@ const { updateLandSeaMask } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/ui/grids/composables/useGridScene.ts", () => ({
-  useGridScene: () => ({}),
+  useGridScene: () => ({ redraw: vi.fn() }),
 }));
 
 vi.mock("@/ui/grids/composables/useGridOverlays.ts", () => ({
@@ -83,3 +84,37 @@ it.each([0, 2])(
     }
   }
 );
+
+it("updates scalar appearance uniforms without invalidating the shader program", () => {
+  const store = useGlobeControlStore();
+  const scope = effectScope();
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      colormap: { value: 0 },
+      addOffset: { value: 0 },
+      scaleFactor: { value: 1 },
+      posterizeLevels: { value: 0 },
+      hideBelowValue: { value: 0 },
+      hideAboveValue: { value: 0 },
+    },
+  });
+  try {
+    const logic = scope.run(() => useSharedGridLogic())!;
+    store.selection = { low: -5, high: 5 };
+    store.posterizeLevels = 4;
+    store.hideLowerBound = true;
+    store.hideUpperBound = true;
+    const version = material.version;
+    logic.updateColormap([
+      new THREE.Mesh(new THREE.BufferGeometry(), material),
+    ]);
+    expect(material.uniforms.addOffset.value).toBe(0.5);
+    expect(material.uniforms.scaleFactor.value).toBe(0.1);
+    expect(material.uniforms.posterizeLevels.value).toBe(4);
+    expect(material.uniforms.hideBelowValue.value).toBe(-5);
+    expect(material.uniforms.hideAboveValue.value).toBe(5);
+    expect(material.version).toBe(version);
+  } finally {
+    scope.stop();
+  }
+});

@@ -5,6 +5,10 @@ import { effectScope, watch } from "vue";
 import type { TGridDataRequest } from "@/lib/grids/gridDataWorkerClient.ts";
 import { ZARR_FORMAT, type TSources } from "@/lib/types/GlobeTypes.ts";
 import type { TGeoSampleIndex } from "@/ui/grids/composables/gridHoverUtils.ts";
+import {
+  useScalarBake,
+  SCALAR_BAKE_PHASE,
+} from "@/ui/grids/composables/useScalarBake.ts";
 import type { useScalarFrames } from "@/ui/grids/composables/useScalarFrames.ts";
 
 const { beforeMount, scene, logError, grid, setHoverLookupFromIndex } =
@@ -102,6 +106,8 @@ vi.mock("@/lib/data/variableData.ts", () => ({
     sources.levels[0].datasources[variable],
   fetchDataVariable: async () => ({
     shape: grid.latitudeOnly ? [96, 2] : [96, 2, 2],
+    chunks: grid.latitudeOnly ? [1, 2] : [1, 2, 2],
+    dtype: "float32",
     attrs: { units: "Pa" },
   }),
 }));
@@ -181,7 +187,10 @@ it.each([
         expectProjectedCoordinates(mesh.geometry);
       }
       await expectScalarTimesteps(store, mesh, latitudeOnly);
-      await expectPreparedFrames(expose.mock.lastCall![0], store, mesh);
+      const api = expose.mock.lastCall![0];
+      await expectPreparedFrames(api, store, mesh);
+      const bake = scope.run(() => useScalarBake(() => api))!;
+      await expectBakedFrames(bake, store, mesh);
     } finally {
       scope.stop();
     }
@@ -287,4 +296,46 @@ async function expectPreparedFrames(
   expect(getGridVariableData).toHaveBeenCalledTimes(reads);
   cancelled.abort();
   expect(await api.commitScalarFrame(first)).toBe(false);
+}
+
+async function expectBakedFrames(
+  bake: ReturnType<typeof useScalarBake>,
+  store: ReturnType<typeof useGlobeControlStore>,
+  mesh: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>
+) {
+  const before = mesh.material.uniforms.data.value.image.data as Float32Array;
+  const originalTime = store.dimSlidersDisplay[0]!;
+  const base = Float32Array.from(before, (value) => value - originalTime * 100);
+  await bake.plan({ start: 0, end: 2 });
+  expect(bake.message).toBe("");
+  expect(bake.phase).toBe(SCALAR_BAKE_PHASE.PLANNED);
+  expect(mesh.material.uniforms.data.value.image.data).toBe(before);
+  await bake.bake();
+  expect(bake.message).toBe("");
+  expect(bake.phase).toBe(SCALAR_BAKE_PHASE.READY);
+  const reads = vi.mocked(getGridVariableData).mock.calls.length;
+  const material = mesh.material;
+  const texture = material.uniforms.data.value as THREE.DataTexture;
+  const geometry = mesh.geometry;
+  const materialVersion = material.version;
+  const disposeMaterial = vi.fn();
+  const disposeTexture = vi.fn();
+  material.addEventListener("dispose", disposeMaterial);
+  texture.addEventListener("dispose", disposeTexture);
+  for (const time of [2, 1, 0]) {
+    await bake.seek(time);
+    expect(mesh.material.uniforms.data.value.image.data).toEqual(
+      Float32Array.from(base, (value) => value + time * 100)
+    );
+    expect(store.dimSlidersDisplay[0]).toBe(time);
+    expect(mesh.geometry).toBe(geometry);
+    expect(mesh.material).toBe(material);
+    expect(mesh.material.version).toBe(materialVersion);
+    expect(mesh.material.uniforms.data.value).toBe(texture);
+  }
+  expect(disposeMaterial).not.toHaveBeenCalled();
+  expect(disposeTexture).not.toHaveBeenCalled();
+  expect(getGridVariableData).toHaveBeenCalledTimes(reads);
+  bake.clear();
+  expect(bake.completed).toBe(0);
 }

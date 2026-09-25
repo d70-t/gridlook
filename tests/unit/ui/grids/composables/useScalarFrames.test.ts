@@ -88,20 +88,22 @@ function setup() {
     }
   );
   const scope = effectScope();
+  let cache!: ReturnType<typeof useScalarFieldCache>;
   const frames = scope.run(() =>
     useScalarFrames({
       getDatasources: () => source.current,
       getDataVar,
       prepareFrame,
-      scalarCache: useScalarFieldCache({
+      scalarCache: (cache = useScalarFieldCache({
         updateHistogram: vi.fn(),
         updateColormap: vi.fn(),
         redraw: vi.fn(),
-      }),
+      })),
     })
   )!;
   return {
     ...frames,
+    cache,
     store,
     parameters,
     source,
@@ -260,6 +262,26 @@ it("keeps the newest commit when older layer synchronization finishes later", as
     expect(h.store.varinfo?.bounds).toEqual({ low: 2, high: 3 });
   } finally {
     olderLayers.resolve();
+    h.scope.stop();
+  }
+});
+
+it("keeps the committed background usable after releasing its bake", async () => {
+  const h = setup();
+  const controller = new AbortController();
+  try {
+    h.metadata.resolve();
+    h.ready.resolve();
+    const frame = (await h.prepareScalarFrame({
+      dimensionIndices: { time: 2 },
+      signal: controller.signal,
+    }))!;
+    expect(await h.commitScalarFrame(frame)).toBe(true);
+    controller.abort();
+    expect(await h.commitScalarFrame(frame)).toBe(false);
+    expect(await h.cache.restoreScalar()).toBe(true);
+    expect(h.store.dimSlidersDisplay).toEqual([2, null]);
+  } finally {
     h.scope.stop();
   }
 });

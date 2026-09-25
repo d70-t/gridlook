@@ -2,6 +2,7 @@
 import { storeToRefs } from "pinia";
 import { computed } from "vue";
 
+import BakeAnimationButton from "./BakeAnimationButton.vue";
 import ShareButton from "./ShareButton.vue";
 import SnapshotButton from "./SnapshotButton.vue";
 
@@ -80,6 +81,7 @@ const showPresenter = !isMobileDevice();
         </span>
         <span> Rotate </span>
       </button>
+      <BakeAnimationButton v-if="showPresenter" />
       <ShareButton class="cell" />
       <button
         v-if="showPresenter"

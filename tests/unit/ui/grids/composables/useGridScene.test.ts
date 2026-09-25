@@ -181,6 +181,7 @@ it("updates the distance scale with the picker disabled and clears it on mouse l
   camera.position.z /= 2;
   camera.updateMatrixWorld();
   grid.redraw();
+  vi.advanceTimersByTime(16);
   const zoomed = store.distanceScale!;
   expect(zoomed.distanceMeters / zoomed.widthPx).toBeCloseTo(
     initial.distanceMeters / initial.widthPx / 2
@@ -202,6 +203,7 @@ it.each(
       position: [2, 1, 0.0001],
       quaternion: [0, 0, 0, 1],
     });
+    vi.advanceTimersByTime(16);
     expect(camera.position.z).toBeCloseTo(0.001, 6);
     expect(camera.near).toBeCloseTo(0.0005, 6);
     expect(Number(params.paramCameraAlt)).toBe(
@@ -294,3 +296,21 @@ it.each([
     }
   }
 );
+
+it("coalesces scalar geometry/color redraws and cancels pending draws on disposal", () => {
+  const { grid, scope } = setupRegionalScene();
+  vi.advanceTimersByTime(500);
+  const update = vi.fn();
+  grid.registerUpdateLOD(update);
+  grid.redraw();
+  grid.redraw();
+  grid.redraw();
+  expect(update).not.toHaveBeenCalled();
+  vi.advanceTimersByTime(16);
+  expect(update).toHaveBeenCalledOnce();
+  grid.redraw();
+  unmounted.forEach((callback) => callback());
+  vi.advanceTimersByTime(16);
+  expect(update).toHaveBeenCalledOnce();
+  scope.stop();
+});

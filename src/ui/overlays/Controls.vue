@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { useEventListener } from "@vueuse/core";
 import { storeToRefs } from "pinia";
-import { computed, onBeforeMount, ref, watch, type Ref } from "vue";
+import { computed, inject, onBeforeMount, ref, watch, type Ref } from "vue";
 
 import CollapsibleCard from "../common/CollapsibleCard.vue";
 
@@ -30,6 +30,10 @@ import type {
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 import { MOBILE_BREAKPOINT } from "@/ui/common/viewConstants.ts";
+import {
+  SCALAR_BAKE_KEY,
+  SCALAR_BAKE_PHASE,
+} from "@/ui/grids/composables/useScalarBake.ts";
 
 const props = defineProps<{
   modelInfo?: TModelInfo;
@@ -54,6 +58,7 @@ const BOUND_MODES = {
 type TBoundModes = (typeof BOUND_MODES)[keyof typeof BOUND_MODES];
 
 const store = useGlobeControlStore();
+const scalarBake = inject(SCALAR_BAKE_KEY, undefined);
 const {
   colormap,
   invertColormap,
@@ -398,7 +403,15 @@ defineExpose({
             v-model="varnameSelector"
             :model-info="modelInfo"
           />
-          <DimensionControl />
+          <fieldset
+            :disabled="
+              scalarBake &&
+              scalarBake.phase !== SCALAR_BAKE_PHASE.EMPTY &&
+              scalarBake.phase !== SCALAR_BAKE_PHASE.ERROR
+            "
+          >
+            <DimensionControl />
+          </fieldset>
         </CollapsibleCard>
 
         <CollapsibleCard title="Appearance">

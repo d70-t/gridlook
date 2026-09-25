@@ -1,5 +1,9 @@
 import type * as zarr from "zarrita";
 
+import type {
+  TScalarFrameMemory,
+  TScalarGeometryCache,
+} from "./scalarFrameMemory.ts";
 import type { TScalarFrame } from "./useScalarFieldCache.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
@@ -10,6 +14,8 @@ import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
 export type TScalarFrameInput = {
   /** Original source indices, including time; no wall-clock conversion. */
   dimensionIndices?: Readonly<Record<string, number>>;
+  geometryCache?: TScalarGeometryCache;
+  chunkConcurrency?: number;
   signal?: AbortSignal;
   isCurrent?: () => boolean;
 };
@@ -23,11 +29,22 @@ export type TScalarFrameRequest = {
   presetIndices: Record<string, string>;
   presetMinBounds: Record<string, string>;
   presetMaxBounds: Record<string, string>;
+  timing: { fetchMs: number };
+  geometryCache?: TScalarGeometryCache;
+  chunkConcurrency?: number;
   signal?: AbortSignal;
   isCurrent: () => boolean;
 };
 
+export type TScalarFrameLayout = {
+  shape: number[];
+  chunks: number[];
+  bytesPerValue: number;
+};
+
 export type TPreparedScalarFrame = TScalarFrame & {
+  memory?: TScalarFrameMemory;
+  timing?: { fetchMs: number; totalMs: number };
   name: string;
   isCurrent: () => boolean;
   /** Existing flow/volume synchronization runs only when the frame is committed. */
@@ -66,7 +83,7 @@ export function getScalarFrameDimensions(
   return config;
 }
 
-export function fetchScalarFrameData(
+export async function fetchScalarFrameData(
   request: TScalarFrameRequest,
   selection: (number | null | zarr.Slice)[],
   variable = request.variable
@@ -74,7 +91,8 @@ export function fetchScalarFrameData(
   if (!request.isCurrent()) {
     throw new DOMException("Scalar frame preparation cancelled", "AbortError");
   }
-  return getGridVariableData({
+  const start = performance.now();
+  const data = await getGridVariableData({
     source: ZarrDataManager.getDatasetSource(
       request.datasources,
       request.variable
@@ -82,5 +100,8 @@ export function fetchScalarFrameData(
     variable,
     format: request.datasources.zarr_format,
     selection,
+    chunkConcurrency: request.chunkConcurrency,
   });
+  request.timing.fetchMs += performance.now() - start;
+  return data;
 }
