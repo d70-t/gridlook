@@ -17,6 +17,15 @@ import {
 } from "./scalarBakePlan.ts";
 import type { TPreparedScalarFrame } from "./scalarFrame.ts";
 import type { TScalarGeometryCache } from "./scalarFrameMemory.ts";
+import { compatibleScalarFrames } from "./scalarInterpolation.ts";
+import {
+  SCALAR_INTERPOLATION,
+  createScalarTimeline,
+  scalarInterpolationWeight,
+  scalarPresentationCount,
+  scalarPresentationFrame,
+  type TScalarInterpolation,
+} from "./scalarTimeline.ts";
 import type { useScalarFrames } from "./useScalarFrames.ts";
 
 import { isTimeCoordinate } from "@/lib/data/timeHandling.ts";
@@ -53,6 +62,20 @@ export function useScalarBake(
   const elapsedSeconds = ref(0);
   const remainingSeconds = ref(0);
   const commitMs = ref(0);
+  const interpolationMode = ref<TScalarInterpolation>(
+    SCALAR_INTERPOLATION.ORIGINAL
+  );
+  const intermediateFrames = ref(4);
+  const interpolationUnavailable = ref(
+    "Estimate the animation to check interpolation support."
+  );
+  const unequalTimeGaps = ref(false);
+  let timeline: ReturnType<typeof createScalarTimeline> | undefined;
+  const frameCount = computed(() =>
+    interpolationMode.value !== SCALAR_INTERPOLATION.ORIGINAL
+      ? scalarPresentationCount(completed.value, intermediateFrames.value)
+      : completed.value
+  );
   const busy = computed(() =>
     [
       SCALAR_BAKE_PHASE.ESTIMATING,
@@ -65,7 +88,9 @@ export function useScalarBake(
   const allocations = new Set<ArrayBufferLike>();
   let retainedBytes = 0;
   let controller: AbortController | undefined;
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let animationFrame: number | undefined;
+  let nextFrameAt = 0;
+  let playbackRevision = 0;
   let generation = 0;
   let seeking = false;
   let seekRevision = 0;
@@ -135,11 +160,18 @@ export function useScalarBake(
 
   function pause() {
     playing.value = false;
-    clearTimeout(timer);
-    timer = undefined;
+    playbackRevision++;
+    if (animationFrame !== undefined) {
+      cancelAnimationFrame(animationFrame);
+      animationFrame = undefined;
+    }
   }
   function release() {
     frames.length = 0;
+    timeline = undefined;
+    unequalTimeGaps.value = false;
+    interpolationUnavailable.value =
+      "Estimate the animation to check interpolation support.";
     geometry.clear();
     allocations.clear();
     retainedBytes = 0;
@@ -187,6 +219,13 @@ export function useScalarBake(
         estimate.value.peakBytes,
         (retainedBytes + estimate.value.workingBytes) * 1.25
       );
+    }
+    if (
+      frames.length &&
+      !compatibleScalarFrames(frames[frames.length - 1], frame)
+    ) {
+      interpolationUnavailable.value =
+        "The grid geometry changes between keyframes. Use original timesteps.";
     }
     frames.push(frame);
     completed.value = frames.length;
@@ -286,6 +325,21 @@ export function useScalarBake(
         config.end - config.start + 1
       );
       retain(frame);
+      try {
+        timeline = createScalarTimeline(
+          frame,
+          range.index,
+          config.start,
+          config.end
+        );
+        unequalTimeGaps.value = timeline.unequalGaps;
+        interpolationUnavailable.value = frame.interpolation
+          ? ""
+          : "This renderer does not provide interpolatable scalar frames.";
+      } catch (error) {
+        interpolationUnavailable.value =
+          error instanceof Error ? error.message : String(error);
+      }
       phase.value = SCALAR_BAKE_PHASE.PLANNED;
     } catch (error) {
       fail(error, token);
@@ -325,18 +379,22 @@ export function useScalarBake(
         }
       }
       phase.value = SCALAR_BAKE_PHASE.READY;
+      if (interpolationUnavailable.value) {
+        interpolationMode.value = SCALAR_INTERPOLATION.ORIGINAL;
+      }
       await seek(0);
     } catch (error) {
       fail(error, token);
     }
   }
 
+  // eslint-disable-next-line max-lines-per-function
   async function seek(index: number) {
     if (
       phase.value !== SCALAR_BAKE_PHASE.READY ||
       !Number.isInteger(index) ||
       index < 0 ||
-      index >= frames.length
+      index >= frameCount.value
     ) {
       return;
     }
@@ -345,9 +403,32 @@ export function useScalarBake(
     seeking = true;
     const start = performance.now();
     try {
-      const committed =
-        isCurrent(token) &&
-        (await job!.handle.commitScalarFrame(frames[index]));
+      let committed = false;
+      if (interpolationMode.value !== SCALAR_INTERPOLATION.ORIGINAL) {
+        if (interpolationUnavailable.value || !timeline || !frameCount.value) {
+          return;
+        }
+        const { first, next, alpha } = scalarPresentationFrame(
+          index,
+          frames.length,
+          intermediateFrames.value
+        );
+        store.scalarAnimationBounds ??= { ...store.selection };
+        committed =
+          isCurrent(token) &&
+          (await job!.handle.commitScalarFrame(frames[first], {
+            next: frames[next],
+            alpha: scalarInterpolationWeight(alpha, interpolationMode.value),
+            timeIndex: time.value!.index,
+            // Ease scalar values, while the timestamp advances through source time.
+            label: timeline.label(first, alpha),
+          }));
+      } else {
+        store.scalarAnimationBounds = undefined;
+        committed =
+          isCurrent(token) &&
+          (await job!.handle.commitScalarFrame(frames[index]));
+      }
       if (revision !== seekRevision || generation !== token) {
         return;
       }
@@ -371,11 +452,12 @@ export function useScalarBake(
       }
     }
   }
-  async function tick() {
+  async function tick(timestamp: number) {
+    animationFrame = undefined;
     if (!playing.value) {
       return;
     }
-    if (current.value + 1 >= frames.length) {
+    if (current.value + 1 >= frameCount.value) {
       pause();
       return;
     }
@@ -387,18 +469,35 @@ export function useScalarBake(
       pause();
       return;
     }
-    const token = generation;
-    const start = performance.now();
-    await seek(current.value + 1);
-    if (playing.value && generation === token) {
-      timer = setTimeout(
-        tick,
-        Math.max(0, 1000 / fps.value - (performance.now() - start))
-      );
+    if (timestamp >= nextFrameAt) {
+      const revision = playbackRevision;
+      const token = generation;
+      await seek(current.value + 1);
+      if (
+        !playing.value ||
+        generation !== token ||
+        playbackRevision !== revision
+      ) {
+        return;
+      }
+      if (current.value + 1 >= frameCount.value) {
+        pause();
+        return;
+      }
+      // Keep the cadence tied to display time, rather than adding commit time.
+      // ponytail: Slow frames stretch playback; never burst through missed frames.
+      nextFrameAt = Math.max(nextFrameAt + 1000 / fps.value, performance.now());
     }
+    animationFrame = requestAnimationFrame(tick);
   }
   async function play() {
-    if (phase.value !== SCALAR_BAKE_PHASE.READY || seeking) {
+    if (
+      phase.value !== SCALAR_BAKE_PHASE.READY ||
+      seeking ||
+      frameCount.value < 2 ||
+      (interpolationMode.value !== SCALAR_INTERPOLATION.ORIGINAL &&
+        interpolationUnavailable.value)
+    ) {
       return;
     }
     if (
@@ -411,14 +510,19 @@ export function useScalarBake(
     const token = generation;
     pause();
     stopAnimation();
-    if (current.value === frames.length - 1) {
+    if (current.value >= frameCount.value - 1) {
       await seek(0);
     }
     if (phase.value !== SCALAR_BAKE_PHASE.READY || generation !== token) {
       return;
     }
     playing.value = true;
-    timer = setTimeout(tick, 1000 / fps.value);
+    nextFrameAt = performance.now() + 1000 / fps.value;
+    animationFrame = requestAnimationFrame(tick);
+  }
+  async function resetPlayback() {
+    pause();
+    await seek(0);
   }
   // One lifecycle watcher for the captured bake settings; camera/colormap changes remain interactive.
   watch(
@@ -445,6 +549,12 @@ export function useScalarBake(
     elapsedSeconds,
     remainingSeconds,
     commitMs,
+    interpolationMode,
+    intermediateFrames,
+    interpolationUnavailable,
+    unequalTimeGaps,
+    frameCount,
+    resetPlayback,
     plan,
     bake,
     seek,

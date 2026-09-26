@@ -201,6 +201,8 @@ const {
   getDatasources: () => props.datasources,
   getDataVar,
   prepareFrame,
+  getScalarObjects: () => mainMeshes,
+  setHoverLookup,
   scalarCache,
   clearHoverLookup,
   updateLandSeaMask,
@@ -849,11 +851,13 @@ async function processHealpixChunks(
 
 function healpixHoverLookup(
   lat: number,
-  lon: number
+  lon: number,
+  textures?: THealpixTexture[],
+  preparedGrid?: healpixGeo.Grid
 ): TGridHoverLookupResult | null {
   let grid;
   try {
-    grid = unpackGrid();
+    grid = preparedGrid ?? unpackGrid();
   } catch {
     return null;
   }
@@ -861,29 +865,31 @@ function healpixHoverLookup(
   const normalizedLon = ProjectionHelper.normalizeLongitude(lon);
   const coords = new Float64Array([normalizedLon, lat]);
   const pixelIndices = grid.lonLatToHealpix(coords);
-  const pixelIndex = pixelIndices[0];
-
-  const pixel = Number(pixelIndex);
+  const pixel = Number(pixelIndices[0]);
   const faceSize = grid.nside * grid.nside;
-  const mesh = mainMeshes[Math.floor(pixel / faceSize)];
-  if (!mesh) {
+  const face = Math.floor(pixel / faceSize);
+  const mesh = mainMeshes[face];
+  const prepared = textures?.[face];
+  if (!prepared && !mesh) {
     return null;
   }
-  const texture = (mesh.material as THREE.ShaderMaterial).uniforms.data
-    .value as THREE.DataTexture;
-  // Hover reads the same array as the texture, without retaining a second 3 GiB grid.
-  const data = texture.image.data as Float32Array;
-  const dataRect = mesh.userData.dataRect as THealpixDataRect;
+  const texture = prepared
+    ? undefined
+    : ((mesh!.material as THREE.ShaderMaterial).uniforms.data
+        .value as THREE.DataTexture);
+  // Sample retained keyframes directly; interpolation never allocates a full CPU field.
+  const data = prepared?.dataValues ?? (texture!.image.data as Float32Array);
+  const width = prepared?.width ?? texture!.image.width;
+  const height = prepared?.height ?? texture!.image.height;
+  const dataRect =
+    prepared?.dataRect ?? (mesh!.userData.dataRect as THealpixDataRect);
   const { x, y } = decodeHealpixFaceXY(pixel % faceSize);
   const localX = x - Math.round(dataRect.u * grid.nside);
   const localY = y - Math.round(dataRect.v * grid.nside);
   const value =
-    localX < 0 ||
-    localX >= texture.image.width ||
-    localY < 0 ||
-    localY >= texture.image.height
+    localX < 0 || localX >= width || localY < 0 || localY >= height
       ? NaN
-      : data[localY * texture.image.width + localX];
+      : data[localY * width + localX];
   const pixelAngles = grid.healpixToLonLat(pixelIndices);
 
   const isMissing = !Number.isFinite(value) || value === HEALPIX_UNSEEN;
@@ -955,6 +961,16 @@ async function prepareFrame(
           bytes + batch.indices.length * 13 * 4 + batch.dataValues.byteLength,
         0
       ),
+    },
+    interpolation: {
+      values: textures.map((texture) => texture.dataValues),
+      geometry: batches.flatMap((batch) => [
+        batch.positionValues,
+        batch.uv,
+        batch.latLonValues,
+        batch.indices,
+      ]),
+      sample: (lat, lon) => healpixHoverLookup(lat, lon, textures, grid),
     },
     name: request.variable,
     render: renderScalar,

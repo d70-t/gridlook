@@ -64,6 +64,7 @@ function setup() {
       const time = indices[0] as number;
       return {
         name: request.variable,
+        interpolation: { values: [], geometry: [], sample: () => null },
         indices: indices as number[],
         isCurrent: request.isCurrent,
         info: {
@@ -92,6 +93,7 @@ function setup() {
   const frames = scope.run(() =>
     useScalarFrames({
       getDatasources: () => source.current,
+      getScalarObjects: () => [],
       getDataVar,
       prepareFrame,
       scalarCache: (cache = useScalarFieldCache({
@@ -281,6 +283,46 @@ it("keeps the committed background usable after releasing its bake", async () =>
     expect(await h.commitScalarFrame(frame)).toBe(false);
     expect(await h.cache.restoreScalar()).toBe(true);
     expect(h.store.dimSlidersDisplay).toEqual([2, null]);
+  } finally {
+    h.scope.stop();
+  }
+});
+
+it("updates dependent layer context only at source boundaries during interpolation", async () => {
+  const h = setup();
+  try {
+    h.metadata.resolve();
+    h.ready.resolve();
+    const first = (await h.prepareScalarFrame({
+      dimensionIndices: { time: 0 },
+    }))!;
+    const next = (await h.prepareScalarFrame({
+      dimensionIndices: { time: 1 },
+    }))!;
+    for (const alpha of [0.25, 0.5, 0.75]) {
+      expect(
+        await h.commitScalarFrame(first, {
+          next,
+          alpha,
+          timeIndex: 0,
+          label: "intermediate",
+        })
+      ).toBe(true);
+    }
+    expect(h.updateLayers).toHaveBeenCalledOnce();
+    expect(h.rendered).toEqual([0]);
+    expect(h.store.scalarAnimationTime?.label).toBe("intermediate");
+    await h.commitScalarFrame(first, {
+      next,
+      alpha: 1,
+      timeIndex: 0,
+      label: "endpoint",
+    });
+    expect(h.updateLayers).toHaveBeenCalledTimes(2);
+    expect(h.store.dimSlidersDisplay[0]).toBe(1);
+    await h.commitScalarFrame(first);
+    expect(h.updateLayers).toHaveBeenCalledTimes(3);
+    expect(h.store.scalarAnimationTime).toBeUndefined();
   } finally {
     h.scope.stop();
   }

@@ -2,6 +2,8 @@ import * as THREE from "three";
 import { expect, it, vi } from "vitest";
 import { effectScope, watch } from "vue";
 
+import { checkScalarInterpolation } from "./scalarInterpolationAssertions.ts";
+
 import type { TGridDataRequest } from "@/lib/grids/gridDataWorkerClient.ts";
 import { ZARR_FORMAT, type TSources } from "@/lib/types/GlobeTypes.ts";
 import type { TGeoSampleIndex } from "@/ui/grids/composables/gridHoverUtils.ts";
@@ -28,9 +30,13 @@ vi.mock("vue", async (original) => ({
   useSSRContext: () => ({}),
 }));
 vi.mock("@/ui/common/useLog.ts", () => ({ useLog: () => ({ logError }) }));
-vi.mock("@/ui/grids/composables/gridHoverUtils.ts", () => ({
+vi.mock("@/ui/grids/composables/gridHoverUtils.ts", async (original) => ({
+  ...(await original<
+    typeof import("@/ui/grids/composables/gridHoverUtils.ts")
+  >()),
   useGridHoverLookup: () => ({
     clearHoverLookup: vi.fn(),
+    setHoverLookup: vi.fn(),
     setHoverLookupFromIndex,
   }),
 }));
@@ -112,7 +118,13 @@ vi.mock("@/lib/data/variableData.ts", () => ({
   }),
 }));
 vi.mock("@/lib/data/dimensionData.ts", () => ({
-  fetchDimensionDetails: async () => [],
+  fetchDimensionDetails: async () => [
+    {
+      current: 0,
+      values: [0, 2, 5, 8],
+      attrs: { units: "days since 2000-01-01" },
+    },
+  ],
 }));
 vi.mock("@/lib/grids/gridDataWorkerClient.ts", () => ({
   getGridVariableData: vi.fn(async ({ selection }: TGridDataRequest) =>
@@ -153,7 +165,8 @@ it.each([
       // The bounds controls react before the staged frame's nextTick completes.
       watch(
         () => store.varinfo?.bounds,
-        (bounds) => bounds && store.updateBounds(bounds)
+        (bounds) =>
+          bounds && store.updateBounds(store.scalarAnimationBounds ?? bounds)
       );
       Regular.setup!(
         {
@@ -335,6 +348,7 @@ async function expectBakedFrames(
   }
   expect(disposeMaterial).not.toHaveBeenCalled();
   expect(disposeTexture).not.toHaveBeenCalled();
+  await checkScalarInterpolation(bake, store, [mesh], 100);
   expect(getGridVariableData).toHaveBeenCalledTimes(reads);
   bake.clear();
   expect(bake.completed).toBe(0);

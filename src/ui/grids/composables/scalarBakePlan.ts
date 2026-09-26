@@ -13,7 +13,7 @@ export const SCALAR_BAKE_LIMITS = {
   GIB: 1024 ** 3,
   DEFAULT_MEMORY_GIB: 8,
   MAX_FRAMES: 10000,
-  DEFAULT_FPS: 5,
+  DEFAULT_FPS: 30,
   MAX_FPS: 60,
 } as const;
 

@@ -7,6 +7,7 @@ import {
   SCALAR_BAKE_LIMITS,
   scalarBakeMemoryUsage,
 } from "@/ui/grids/composables/scalarBakePlan.ts";
+import { SCALAR_INTERPOLATION } from "@/ui/grids/composables/scalarTimeline.ts";
 import {
   SCALAR_BAKE_KEY,
   SCALAR_BAKE_PHASE,
@@ -46,6 +47,15 @@ function toggle() {
 function changed() {
   bake?.clear();
 }
+function useFullTimeRange() {
+  if (!bake?.time) {
+    return;
+  }
+  start.value = bake.time.minBound;
+  end.value = bake.time.maxBound;
+  configured.value = true;
+  changed();
+}
 function memory(bytes: number) {
   return `${(bytes / SCALAR_BAKE_LIMITS.GIB).toFixed(2)} GiB`;
 }
@@ -75,8 +85,8 @@ function duration(seconds: number) {
     <section v-if="bake" aria-label="Bake scalar animation">
       <p class="has-text-weight-semibold mb-2">Bake scalar animation</p>
       <p class="is-size-7 mb-3">
-        Preload original timesteps for interactive playback. Interpolation and
-        video export follow in later steps.
+        Preload original timesteps for interactive playback and interpolate
+        between them. Video export follows in a later step.
       </p>
       <p
         v-if="bake.unavailable"
@@ -117,6 +127,14 @@ function duration(seconds: number) {
           Available indices: {{ bake.time.minBound }}–{{ bake.time.maxBound }}.
           Other dimensions use their current selections.
         </p>
+        <button
+          class="button is-small mr-2"
+          type="button"
+          :disabled="!bake.time"
+          @click="useFullTimeRange"
+        >
+          Full time range
+        </button>
         <button
           class="button is-small"
           type="button"
@@ -199,15 +217,91 @@ function duration(seconds: number) {
         ></progress>
       </div>
       <div v-if="previewing" class="mt-3">
+        <div class="field">
+          <label class="label is-small" for="bake-interpolation"
+            >Interpolation</label
+          >
+          <div class="select is-small">
+            <select
+              id="bake-interpolation"
+              v-model="bake.interpolationMode"
+              @change="bake.resetPlayback()"
+            >
+              <option :value="SCALAR_INTERPOLATION.ORIGINAL">
+                Original timesteps
+              </option>
+              <option
+                :value="SCALAR_INTERPOLATION.LINEAR"
+                :disabled="!!bake.interpolationUnavailable"
+              >
+                Linear
+              </option>
+              <option
+                :value="SCALAR_INTERPOLATION.SMOOTHSTEP"
+                :disabled="!!bake.interpolationUnavailable"
+              >
+                Smoothstep (cubic)
+              </option>
+            </select>
+          </div>
+          <p v-if="bake.interpolationUnavailable" class="help">
+            {{ bake.interpolationUnavailable }}
+          </p>
+        </div>
+        <div
+          v-if="bake.interpolationMode !== SCALAR_INTERPOLATION.ORIGINAL"
+          class="field"
+        >
+          <label class="label is-small" for="bake-intermediate"
+            >Intermediate frames per interval</label
+          >
+          <input
+            id="bake-intermediate"
+            v-model.number="bake.intermediateFrames"
+            class="input is-small"
+            type="number"
+            min="0"
+            step="1"
+            @input="bake.resetPlayback()"
+          />
+          <p class="help">
+            Only original keyframes are stored. Missing cells stay missing
+            between endpoints; source-time gaps are bridged.
+          </p>
+          <p
+            v-if="bake.interpolationMode === SCALAR_INTERPOLATION.SMOOTHSTEP"
+            class="help"
+          >
+            Eases into and out of each keyframe with zero slope and no
+            overshoot.
+          </p>
+          <p v-if="!bake.frameCount" class="help is-danger">
+            Enter a non-negative whole number of intermediate frames.
+          </p>
+          <p
+            v-if="bake.unequalTimeGaps"
+            class="notification is-warning is-light p-2 is-size-7"
+            role="status"
+          >
+            Source timestamps have unequal gaps. Equal frame counts per interval
+            mean the simulated time advances at different speeds.
+          </p>
+        </div>
+        <p v-if="bake.frameCount && bake.fps > 0" class="help mb-2">
+          {{ bake.frameCount }} frames ·
+          {{ ((bake.frameCount - 1) / bake.fps).toFixed(2) }} s at
+          {{ bake.fps }} fps
+        </p>
         <label class="label is-small" for="bake-seek"
-          >Keyframe {{ bake.current + 1 }} / {{ bake.completed }}</label
+          >Frame {{ bake.current + 1 }} / {{ bake.frameCount }}</label
         >
         <input
           id="bake-seek"
           class="w-100"
           type="range"
           :min="0"
-          :max="bake.completed - 1"
+          :max="Math.max(0, bake.frameCount - 1)"
+          :disabled="!bake.frameCount"
           :value="bake.current"
           @input="
             bake.pause();
@@ -218,12 +312,13 @@ function duration(seconds: number) {
           <button
             class="button is-small is-info mr-2"
             type="button"
+            :disabled="!bake.frameCount"
             @click="bake.playing ? bake.pause() : bake.play()"
           >
             {{ bake.playing ? "Pause" : "Play" }}
           </button>
           <label class="label is-small mr-2" for="bake-fps"
-            >Steps / second</label
+            >Frames / second</label
           >
           <input
             id="bake-fps"
@@ -237,8 +332,8 @@ function duration(seconds: number) {
           />
         </div>
         <p class="help">
-          One original timestep per frame. Rotate and zoom the globe as usual.
-          Close this popup to see the full view.
+          Rotate and zoom the globe as usual. Close this popup to see the full
+          view.
         </p>
       </div>
       <div class="buttons mt-3 mb-0">

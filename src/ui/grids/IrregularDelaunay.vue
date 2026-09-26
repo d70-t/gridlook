@@ -4,7 +4,10 @@ import * as THREE from "three";
 import { computed, onBeforeMount, onBeforeUnmount } from "vue";
 import * as zarr from "zarrita";
 
-import { useGridHoverLookup } from "./composables/gridHoverUtils.ts";
+import {
+  createSampleIndexLookup,
+  useGridHoverLookup,
+} from "./composables/gridHoverUtils.ts";
 import {
   fetchScalarFrameData,
   getScalarFrameDimensions,
@@ -86,7 +89,7 @@ const {
   hoveredGeoPoint,
 } = useSharedGridLogic();
 
-const { setHoverLookupFromIndex, clearHoverLookup } =
+const { setHoverLookup, setHoverLookupFromIndex, clearHoverLookup } =
   useGridHoverLookup(hoveredGeoPoint);
 
 onColormapChange(() => updateColormap(meshes));
@@ -164,6 +167,8 @@ const {
   getDatasources: () => props.datasources,
   getDataVar,
   prepareFrame,
+  getScalarObjects: () => meshes,
+  setHoverLookup,
   scalarCache,
   clearHoverLookup,
   updateLandSeaMask,
@@ -385,6 +390,14 @@ async function prepareFrame(
       coordinates,
       scalarInfo
     ),
+    interpolation: {
+      values: batches.map((batch) => batch.dataValues),
+      geometry: [
+        latitudes.data as Float32Array,
+        longitudes.data as Float32Array,
+      ],
+      sample: createSampleIndexLookup(hoverIndex, fillValue, missingValue),
+    },
     name: request.variable,
     render: renderScalar,
     info: scalarInfo,

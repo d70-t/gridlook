@@ -2,6 +2,8 @@ import * as THREE from "three";
 import { expect, it, vi } from "vitest";
 import { effectScope, ref } from "vue";
 
+import { checkScalarInterpolation } from "./scalarInterpolationAssertions.ts";
+
 import type { TGridDataRequest } from "@/lib/grids/gridDataWorkerClient.ts";
 import type { TGridGeometryBatch } from "@/lib/grids/gridWorkerTypes.ts";
 import { TriangularWorkerOperation } from "@/lib/grids/triangularWorkerProtocol.ts";
@@ -41,7 +43,10 @@ vi.mock("vue", async (original) => ({
 vi.mock("@/ui/common/useLog.ts", () => ({
   useLog: () => ({ logError: h.logError }),
 }));
-vi.mock("@/ui/grids/composables/gridHoverUtils.ts", () => ({
+vi.mock("@/ui/grids/composables/gridHoverUtils.ts", async (original) => ({
+  ...(await original<
+    typeof import("@/ui/grids/composables/gridHoverUtils.ts")
+  >()),
   useGridHoverLookup: () => ({
     clearHoverLookup: vi.fn(),
     setHoverLookup: h.setHover,
@@ -80,7 +85,13 @@ vi.mock("@/ui/grids/composables/useSharedGridLogic.ts", () => ({
       dtype: "float32",
       attrs: { units: "K" },
     }),
-    fetchDimensionDetails: async () => [],
+    fetchDimensionDetails: async () => [
+      {
+        current: 0,
+        values: [0, 2, 5, 8],
+        attrs: { units: "days since 2000-01-01" },
+      },
+    ],
     updateLandSeaMask: vi.fn(),
     updateColormap: vi.fn(),
     updateHistogram: vi.fn(),
@@ -495,6 +506,7 @@ async function checkCancelledPreparation(api: TFrameAPI) {
   expect(snapshot()).toEqual(before);
 }
 
+// eslint-disable-next-line max-lines-per-function
 async function checkBake(
   bake: ReturnType<typeof useScalarBake>,
   store: ReturnType<typeof useGlobeControlStore>
@@ -536,6 +548,14 @@ async function checkBake(
       ])
     ).toEqual(resourcesBefore);
   }
+  await checkScalarInterpolation(
+    bake,
+    store,
+    h.scene!.children.filter(
+      (child) => !child.userData.testOverlay
+    ) as THREE.Mesh[],
+    10
+  );
   expect(h.getData).toHaveBeenCalledTimes(reads);
   bake.clear();
   expect(bake.completed).toBe(0);

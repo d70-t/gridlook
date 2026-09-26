@@ -9,7 +9,10 @@ uniform int colormap;
 uniform float posterizeLevels;
 uniform float hideBelowValue;
 uniform float hideAboveValue;
+#include "./scalarTime.glsl"
+
 uniform sampler2D data;
+uniform sampler2D dataNext;
 uniform vec2 dataUvOffset;
 uniform vec2 dataUvScale;
 uniform int clipToDataRect;
@@ -30,6 +33,7 @@ void main() {
         discard;
     }
     float v_value = texture(data, dataUv).r;
+    if (scalarMix > 0.0) v_value = scalarAtTime(v_value, texture(dataNext, dataUv).r);
     if ((edgeQuality > 0 && !isInsideProjectionDomain(vProjectedXY, projectionType, projectionRadius))
     || is_nan(v_value) || v_value <= hideBelowValue || v_value >= hideAboveValue) {
         discard;

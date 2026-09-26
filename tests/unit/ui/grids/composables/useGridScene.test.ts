@@ -1,7 +1,8 @@
 import { useEventListener } from "@vueuse/core";
 import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { afterEach, expect, it, vi } from "vitest";
-import { computed, effectScope, ref } from "vue";
+import { computed, effectScope, nextTick, ref } from "vue";
 
 import type { TProjectionType } from "@/lib/projection/projectionUtils.ts";
 
@@ -57,6 +58,7 @@ type TSceneSetupOptions = {
   lat?: string;
   lon?: string;
   flat?: boolean;
+  frameDuration?: number;
   projection?: TProjectionType;
 };
 
@@ -64,7 +66,7 @@ function setupRegionalScene(saved: TSceneSetupOptions = {}) {
   vi.useFakeTimers();
   vi.stubGlobal("window", { innerWidth: 800, innerHeight: 600 });
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) =>
-    setTimeout(() => callback(performance.now()), 16)
+    setTimeout(() => callback(performance.now()), saved.frameDuration ?? 16)
   );
   vi.stubGlobal("cancelAnimationFrame", clearTimeout);
   setActivePinia(createPinia());
@@ -314,3 +316,45 @@ it("coalesces scalar geometry/color redraws and cancels pending draws on disposa
   expect(update).toHaveBeenCalledOnce();
   scope.stop();
 });
+
+it.each([
+  { frameDuration: 16, flat: false },
+  { frameDuration: 32, flat: false },
+  { frameDuration: 16, flat: true },
+  { frameDuration: 32, flat: true },
+])(
+  "rotates by elapsed time without extra scalar redraws (%j)",
+  async (settings) => {
+    const update = vi.spyOn(OrbitControls.prototype, "update");
+    const { grid, scope, camera, center } = setupRegionalScene(settings);
+    try {
+      // Remove interaction damping to isolate the automatic angular speed.
+      (update.mock.contexts[0] as OrbitControls).enableDamping = false;
+      await vi.advanceTimersByTimeAsync(512);
+      const before = camera.position.clone();
+      const longitude = center.value.lon;
+      const draw = vi.spyOn(grid.getRenderer()!, "render");
+      grid.toggleRotate();
+      await nextTick();
+      draw.mockClear();
+      for (let i = 0; i < 1600 / settings.frameDuration; i++) {
+        grid.redraw();
+        grid.redraw();
+        await vi.advanceTimersByTimeAsync(settings.frameDuration);
+      }
+      expect(draw).toHaveBeenCalledTimes(1600 / settings.frameDuration);
+      if (settings.flat) {
+        expect(center.value.lon - longitude).toBeCloseTo(-18 * 1.6, 5);
+      } else {
+        expect(
+          THREE.MathUtils.radToDeg(camera.position.angleTo(before))
+        ).toBeCloseTo(12 * 1.6, 5);
+      }
+      grid.toggleRotate();
+      await nextTick();
+    } finally {
+      scope.stop();
+      update.mockRestore();
+    }
+  }
+);

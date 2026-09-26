@@ -108,7 +108,7 @@ const dataBounds = computed(() => {
 
 const currentBounds = computed(() => {
   if (pickedBoundsMode.value === BOUND_MODES.DATA) {
-    return dataBounds.value;
+    return store.scalarAnimationBounds ?? dataBounds.value;
   } else if (pickedBoundsMode.value === BOUND_MODES.USER) {
     const isLowEmpty =
       userBoundsLow.value === undefined ||

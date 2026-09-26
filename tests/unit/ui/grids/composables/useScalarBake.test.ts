@@ -1,9 +1,10 @@
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { effectScope, shallowRef } from "vue";
 
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
 import type { TPreparedScalarFrame } from "@/ui/grids/composables/scalarFrame.ts";
 import { scalarFrameMemory } from "@/ui/grids/composables/scalarFrameMemory.ts";
+import { SCALAR_INTERPOLATION } from "@/ui/grids/composables/scalarTimeline.ts";
 import {
   SCALAR_BAKE_PHASE,
   useScalarBake,
@@ -13,7 +14,14 @@ import {
 vi.stubGlobal("localStorage", { getItem: () => null });
 const { createPinia, setActivePinia } = await import("pinia");
 const { useGlobeControlStore } = await import("@/store/store.ts");
-beforeEach(() => setActivePinia(createPinia()));
+beforeEach(() => {
+  setActivePinia(createPinia());
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) =>
+    setTimeout(() => callback(performance.now()), 16)
+  );
+  vi.stubGlobal("cancelAnimationFrame", clearTimeout);
+});
+afterEach(() => vi.unstubAllGlobals());
 
 function deferred() {
   let finish!: () => void;
@@ -31,7 +39,13 @@ function setup() {
   store.varinfo = {
     attrs: {},
     bounds: { low: 0, high: 3 },
-    dimInfo: [],
+    dimInfo: [
+      {
+        current: 0,
+        values: [0, 2, 5, 8],
+        attrs: { units: "days since 2000-01-01" },
+      },
+    ],
     dimRanges: [
       { name: "time", minBound: 0, maxBound: 3, startPos: 0 },
       { name: "level", minBound: 0, maxBound: 2, startPos: 0 },
@@ -51,6 +65,7 @@ function setup() {
       const data = new Float32Array([time, time + 1]);
       const frame: TPreparedScalarFrame = {
         name: "temperature",
+        interpolation: { values: [data], geometry: [], sample: () => null },
         data,
         indices: [time, 0],
         info: store.varinfo!,
@@ -210,7 +225,7 @@ it("plays at the selected cadence, pauses, and stops at the last keyframe", asyn
     vi.useFakeTimers();
     h.bake.fps = 5;
     await h.bake.play();
-    await vi.advanceTimersByTimeAsync(200);
+    await vi.advanceTimersByTimeAsync(208);
     expect(h.bake.current).toBe(1);
     h.bake.pause();
     await vi.advanceTimersByTimeAsync(1000);
@@ -326,3 +341,123 @@ it.each([false, true])(
     }
   }
 );
+
+it("plays subdivisions through the final keyframe without preparing extra fields", async () => {
+  const h = setup();
+  try {
+    await h.bake.plan(config);
+    await h.bake.bake();
+    const retained = h.bake.estimate!.retainedBytes;
+    expect(h.bake.interpolationUnavailable).toBe("");
+    expect(h.bake.unequalTimeGaps).toBe(true);
+    h.bake.interpolationMode = SCALAR_INTERPOLATION.LINEAR;
+    h.bake.intermediateFrames = 1;
+    await h.bake.resetPlayback();
+    expect(h.bake.frameCount).toBe(5);
+    h.bake.fps = 2;
+    vi.useFakeTimers();
+    await h.bake.play();
+    await vi.advanceTimersByTimeAsync(2500);
+    expect(h.bake.current).toBe(4);
+    expect(h.bake.playing).toBe(false);
+    const blends = vi
+      .mocked(h.handle.value!.commitScalarFrame)
+      .mock.calls.map((call) => call[1])
+      .filter((blend) => !!blend);
+    expect(blends.map((blend) => blend.alpha)).toEqual([0, 0.5, 0, 0.5, 1]);
+    expect(blends[3].label).toBe("04 Jan 2000 • 12:00:00.000");
+    expect(h.prepare).toHaveBeenCalledTimes(3);
+    expect(h.bake.completed).toBe(3);
+    expect(h.bake.estimate!.retainedBytes).toBe(retained);
+    h.bake.intermediateFrames = 0.5;
+    await h.bake.resetPlayback();
+    await h.bake.play();
+    expect(h.bake.frameCount).toBe(0);
+    expect(h.bake.playing).toBe(false);
+  } finally {
+    h.scope.stop();
+    vi.useRealTimers();
+  }
+});
+
+it("keeps 30 fps deadlines across late display callbacks and avoids catch-up bursts", async () => {
+  const h = setup();
+  let callback: FrameRequestCallback | undefined;
+  try {
+    await h.bake.plan(config);
+    await h.bake.bake();
+    h.bake.interpolationMode = SCALAR_INTERPOLATION.LINEAR;
+    h.bake.intermediateFrames = 10;
+    await h.bake.resetPlayback();
+    vi.useFakeTimers();
+    vi.stubGlobal("requestAnimationFrame", (next: FrameRequestCallback) => {
+      callback = next;
+      return 1;
+    });
+    vi.stubGlobal("cancelAnimationFrame", () => {
+      callback = undefined;
+    });
+    h.bake.fps = 30;
+    await h.bake.play();
+    let previous = 0;
+    for (const [time, expected] of [
+      [16, 0],
+      [34, 1],
+      [50, 1],
+      [68, 2],
+      [84, 2],
+      [102, 3],
+      [1000, 4],
+    ]) {
+      await vi.advanceTimersByTimeAsync(time - previous);
+      previous = time;
+      const pending = callback;
+      callback = undefined;
+      await pending!(performance.now());
+      expect(h.bake.current).toBe(expected);
+    }
+    expect(h.prepare).toHaveBeenCalledTimes(3);
+    h.bake.pause();
+    expect(callback).toBeUndefined();
+    await h.bake.play();
+    h.scope.stop();
+    expect(callback).toBeUndefined();
+  } finally {
+    h.scope.stop();
+    vi.useRealTimers();
+  }
+});
+
+it("eases scalar values without easing timestamps or rebaking", async () => {
+  const h = setup();
+  try {
+    await h.bake.plan(config);
+    await h.bake.bake();
+    h.bake.interpolationMode = SCALAR_INTERPOLATION.SMOOTHSTEP;
+    h.bake.intermediateFrames = 3;
+    await h.bake.resetPlayback();
+    await h.bake.seek(1);
+    expect(h.bake.frameCount).toBe(9);
+    expect(
+      vi.mocked(h.handle.value!.commitScalarFrame).mock.lastCall![1]
+    ).toMatchObject({
+      alpha: 5 / 32,
+      label: "01 Jan 2000 • 12:00:00.000",
+    });
+    h.bake.interpolationMode = SCALAR_INTERPOLATION.LINEAR;
+    await h.bake.seek(1);
+    expect(
+      vi.mocked(h.handle.value!.commitScalarFrame).mock.lastCall![1]
+    ).toMatchObject({
+      alpha: 0.25,
+      label: "01 Jan 2000 • 12:00:00.000",
+    });
+    h.bake.interpolationMode = SCALAR_INTERPOLATION.SMOOTHSTEP;
+    h.bake.interpolationUnavailable = "Source timestamps are incompatible.";
+    await h.bake.play();
+    expect(h.bake.playing).toBe(false);
+    expect(h.prepare).toHaveBeenCalledTimes(3);
+  } finally {
+    h.scope.stop();
+  }
+});

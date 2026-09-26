@@ -5,7 +5,10 @@ import * as THREE from "three";
 import { onBeforeMount, onBeforeUnmount, ref } from "vue";
 import type * as zarr from "zarrita";
 
-import { useGridHoverLookup } from "./composables/gridHoverUtils.ts";
+import {
+  createSampleIndexLookup,
+  useGridHoverLookup,
+} from "./composables/gridHoverUtils.ts";
 import type {
   TGeoSample,
   TGeoSampleIndex,
@@ -112,7 +115,7 @@ const {
   hoveredGeoPoint,
 } = useSharedGridLogic();
 
-const { setHoverLookupFromIndex, clearHoverLookup } =
+const { setHoverLookup, setHoverLookupFromIndex, clearHoverLookup } =
   useGridHoverLookup(hoveredGeoPoint);
 
 const longitudes = ref<Float32Array>(new Float32Array());
@@ -178,6 +181,8 @@ const {
   getDatasources: () => props.datasources,
   getDataVar,
   prepareFrame,
+  getScalarObjects: () => meshes,
+  setHoverLookup,
   scalarCache,
   clearHoverLookup,
   prepareDatasource: async () => {
@@ -1067,6 +1072,11 @@ async function prepareFrame(
       volumeGrid,
       scalarInfo
     ),
+    interpolation: {
+      values: meshes.map(() => textureData.data),
+      geometry: [latitudes.value, longitudes.value],
+      sample: createSampleIndexLookup(hoverIndex, fillValue, missingValue),
+    },
     name: request.variable,
     render: renderScalar,
     info: scalarInfo,

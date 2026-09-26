@@ -1,6 +1,7 @@
 import { onScopeDispose } from "vue";
 import type * as zarr from "zarrita";
 
+import type { useGridHoverLookup } from "./gridHoverUtils.ts";
 import type {
   TPreparedScalarFrame,
   TScalarFrameInput,
@@ -8,6 +9,12 @@ import type {
   TScalarFrameLayout,
 } from "./scalarFrame.ts";
 import { scalarFrameMemory } from "./scalarFrameMemory.ts";
+import {
+  compatibleScalarFrames,
+  createScalarInterpolator,
+  interpolateScalarSample,
+  type TScalarObject,
+} from "./scalarInterpolation.ts";
 import { createGridHistogramSummary } from "./useGridHistogram.ts";
 import type { useScalarFieldCache } from "./useScalarFieldCache.ts";
 
@@ -18,6 +25,8 @@ import { useGlobeControlStore } from "@/store/store.ts";
 type TDataVar = zarr.Array<zarr.DataType, zarr.AsyncReadable>;
 export type TScalarFramesOptions = {
   getDatasources: () => TSources | undefined;
+  getScalarObjects?: () => (TScalarObject | undefined)[];
+  setHoverLookup?: ReturnType<typeof useGridHoverLookup>["setHoverLookup"];
   getDataVar: (
     variable: string,
     sources: TSources
@@ -36,11 +45,16 @@ export type TScalarFramesOptions = {
 export function useScalarFrames(options: TScalarFramesOptions) {
   const store = useGlobeControlStore();
   const parameters = useUrlParameterStore();
+  const interpolation = createScalarInterpolator(
+    options.getScalarObjects ?? (() => [])
+  );
   let disposed = false;
   let displayRevision = 0;
+  let layerFrame: TPreparedScalarFrame | undefined;
   onScopeDispose(() => {
     disposed = true;
     displayRevision++;
+    interpolation.clear();
   });
 
   function createRequest(input: TScalarFrameInput) {
@@ -139,9 +153,62 @@ export function useScalarFrames(options: TScalarFramesOptions) {
     };
   }
 
-  async function commitScalarFrame(frame: TPreparedScalarFrame) {
+  // eslint-disable-next-line max-lines-per-function
+  async function commitScalarFrame(
+    frame: TPreparedScalarFrame,
+    blend?: {
+      next: TPreparedScalarFrame;
+      alpha: number;
+      timeIndex: number;
+      label: string;
+    }
+  ) {
     if (disposed || !frame.isCurrent()) {
       return false;
+    }
+    if (blend) {
+      if (
+        !options.getScalarObjects ||
+        !compatibleScalarFrames(frame, blend.next) ||
+        !Number.isFinite(blend.alpha) ||
+        blend.alpha < 0 ||
+        blend.alpha > 1 ||
+        !blend.next.isCurrent()
+      ) {
+        throw new Error(
+          "These scalar frames cannot be interpolated on the same grid."
+        );
+      }
+      const first = frame;
+      const { next, alpha } = blend;
+      const endpoint = alpha === 1 ? next : first;
+      frame = {
+        ...endpoint,
+        histogram: alpha === 0 || alpha === 1 ? endpoint.histogram : undefined,
+        isCurrent: () => first.isCurrent() && next.isCurrent(),
+        updateLayers: async () => {
+          if (layerFrame !== endpoint) {
+            await endpoint.updateLayers();
+            layerFrame = endpoint;
+          }
+        },
+        render: () => {
+          interpolation.render(first, next, alpha);
+          options.setHoverLookup?.((lat, lon) =>
+            interpolateScalarSample(
+              first.interpolation!,
+              next.interpolation!,
+              alpha,
+              lat,
+              lon
+            )
+          );
+        },
+      };
+    } else {
+      interpolation.clear();
+      layerFrame = undefined;
+      store.scalarAnimationBounds = undefined;
     }
     const revision = ++displayRevision;
     const displayedRequest = createRequest({})!;
@@ -164,6 +231,9 @@ export function useScalarFrames(options: TScalarFramesOptions) {
       return false;
     }
     committed = true;
+    store.scalarAnimationTime = blend
+      ? { index: blend.timeIndex, label: blend.label }
+      : undefined;
     return true;
   }
 

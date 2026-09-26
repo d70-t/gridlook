@@ -9,12 +9,15 @@ uniform float minPointSize;
 uniform float maxPointSize;
 
 attribute vec2 latLon;  // lat, lon in degrees
+#include "./scalarTime.glsl"
+
 attribute float data_value;
+attribute float data_value_next;
 
 varying float v_value;
 
 void main() {
-  v_value = data_value;
+  v_value = scalarAtTime(data_value, data_value_next);
   vec3 projected = projectLatLon(
     latLon.x,
     latLon.y,

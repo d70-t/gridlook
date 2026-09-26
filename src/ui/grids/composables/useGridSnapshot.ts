@@ -328,6 +328,10 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
       if (!range.maxBound) {
         continue;
       }
+      if (store.scalarAnimationTime?.index === i) {
+        lines.push(`${range.name}: ${store.scalarAnimationTime.label}`);
+        continue;
+      }
       const val = dimInfo.current;
       const isObj = val && typeof val === "object";
       const hasFormat = isObj && typeof (val as Dayjs).format === "function";

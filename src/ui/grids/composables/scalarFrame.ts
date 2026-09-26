@@ -4,6 +4,7 @@ import type {
   TScalarFrameMemory,
   TScalarGeometryCache,
 } from "./scalarFrameMemory.ts";
+import type { TScalarInterpolationData } from "./scalarInterpolation.ts";
 import type { TScalarFrame } from "./useScalarFieldCache.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
@@ -43,6 +44,7 @@ export type TScalarFrameLayout = {
 };
 
 export type TPreparedScalarFrame = TScalarFrame & {
+  interpolation?: TScalarInterpolationData;
   memory?: TScalarFrameMemory;
   timing?: { fetchMs: number; totalMs: number };
   name: string;
