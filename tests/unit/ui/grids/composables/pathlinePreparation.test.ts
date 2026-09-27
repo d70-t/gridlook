@@ -2,14 +2,27 @@ import { Grid } from "healpix-geo";
 import { beforeEach, expect, it, vi } from "vitest";
 import { effectScope } from "vue";
 
-import { PATHLINE_GRID, type TPathlineGrid } from "@/lib/data/pathlineField.ts";
+import {
+  PATHLINE_GRID,
+  samplePathlineTime,
+  type TPathlineGrid,
+} from "@/lib/data/pathlineField.ts";
+import {
+  pathlineGeographic,
+  PATHLINE_WGS84,
+} from "@/lib/data/pathlineIntegration.ts";
+import {
+  integratePathlines,
+  pathlinePositionAt,
+  planPathlineTrajectories,
+  type TPathlineConfig,
+} from "@/lib/data/pathlineTrajectories.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { getGridVariableData } from "@/lib/grids/gridDataWorkerClient.ts";
 import { ZARR_FORMAT, type TSources } from "@/lib/types/GlobeTypes.ts";
 import {
   planPathlinePreparation,
   extendPathlineEstimate,
-  pathlineTrajectoryBytes,
 } from "@/ui/grids/composables/pathlinePreparation.ts";
 import type { TPreparedScalarFrame } from "@/ui/grids/composables/scalarFrame.ts";
 import { scalarFrameMemory } from "@/ui/grids/composables/scalarFrameMemory.ts";
@@ -35,6 +48,16 @@ const sources: TSources = {
     },
   ],
 };
+const pathlineConfig: TPathlineConfig = {
+  particleCount: 3,
+  randomSeed: 17,
+  sampleSeconds: 600,
+  maxStepSeconds: 60,
+  maxStepMetres: 1000,
+  errorToleranceMetres: 1,
+  lifetimeSeconds: 1800,
+  respawn: true,
+};
 const axis = new Float32Array([0, 1]);
 const regular: TPathlineGrid = {
   kind: PATHLINE_GRID.REGULAR,
@@ -50,12 +73,23 @@ const hp = new Grid({ level: 0, scheme: "nested" });
 const cases = [
   { name: "regular", grid: regular, spatial: ["y", "x"], shape: [2, 2] },
   {
-    name: "rotated/projected",
+    name: "projected regular",
     grid: {
       kind: PATHLINE_GRID.PROJECTED,
-      x: axis,
-      y: axis,
-      crs: "EPSG:4326",
+      x: new Float32Array([-111319, 111319]),
+      y: new Float32Array([-111325, 111325]),
+      crs: "EPSG:3857",
+    } as TPathlineGrid,
+    spatial: ["y", "x"],
+    shape: [2, 2],
+  },
+  {
+    name: "rotated regular",
+    grid: {
+      kind: PATHLINE_GRID.PROJECTED,
+      x: new Float32Array([-180, 180]),
+      y: new Float32Array([-89, 89]),
+      crs: "+proj=ob_tran +o_proj=longlat +o_lat_p=39.25 +o_lon_p=0 +lon_0=18 +datum=WGS84",
     } as TPathlineGrid,
     spatial: ["y", "x"],
     shape: [2, 2],
@@ -177,17 +211,17 @@ beforeEach(() => {
 
 it.each(cases)(
   "plans and prepares physical velocity on $name with bounded reads",
+
   async (test) => {
     const h = setup(test);
     const plan = await planPathlinePreparation(h.options);
     expect(getGridVariableData).not.toHaveBeenCalled();
     expect(plan.times).toEqual([0, 7200, 18000]);
     const prepared = await plan.prepare(1);
-    expect(prepared.field.sample(0, 0)).toEqual({
-      u: 2,
-      v: 4,
-      speed: Math.hypot(2, 4),
-    });
+    const velocity = prepared.field.sample(0, 0)!;
+    expect(velocity.u).toBeCloseTo(2);
+    expect(velocity.v).toBeCloseTo(4);
+    expect(velocity.speed).toBeCloseTo(Math.hypot(2, 4));
     expect(prepared.memory.gpuBytes).toBe(0);
     expect(getGridVariableData).toHaveBeenCalledTimes(2);
     expect(getGridVariableData).toHaveBeenCalledWith(
@@ -214,11 +248,14 @@ it.each(cases)(
       plan,
       prepared,
       new Set(plan.sharedMemory.buffers),
-      pathlineTrajectoryBytes(2, 10)
+      planPathlineTrajectories([0, 10], pathlineConfig).bytes
     );
     const fieldBytes = test.shape.reduce((a, b) => a * b, 1) * 8;
     expect(estimate.retainedBytes).toBe(
-      100 + plan.sharedMemory.extraBytes + 3 * fieldBytes + 400
+      100 +
+        plan.sharedMemory.extraBytes +
+        3 * fieldBytes +
+        planPathlineTrajectories([0, 10], pathlineConfig).bytes
     );
     expect(estimate.gpuBytes).toBe(40);
     expect(estimate.peakBytes).toBe(
@@ -239,6 +276,7 @@ it.each(["badUnits", "shiftedTime", "badLevel"] as const)(
 
 it.each(cases)(
   "discards a cancelled $name fetch before starting the next component",
+
   async (test) => {
     const h = setup(test);
     const plan = await planPathlinePreparation(h.options);
@@ -254,8 +292,13 @@ it.each(cases)(
   }
 );
 
-it.each(cases)(
-  "shares the scalar job lifecycle and releases $name velocity fields on settings changes",
+it.each(
+  cases.flatMap((grid) =>
+    [false, true].map((trajectories) => ({ ...grid, trajectories }))
+  )
+)(
+  "shares the scalar job lifecycle and releases $name velocity fields on settings changes (trajectories: $trajectories)",
+  // eslint-disable-next-line max-lines-per-function
   async (test) => {
     const h = setup(test);
     const store = useGlobeControlStore();
@@ -280,19 +323,40 @@ it.each(cases)(
       )
     )!;
     try {
-      await bake.plan({ start: 0, end: 2, prepareVelocity: true });
+      await bake.plan({
+        start: 0,
+        end: 2,
+        prepareVelocity: true,
+        pathlines: test.trajectories ? pathlineConfig : undefined,
+      });
       expect(bake.message).toBe("");
       expect(bake.phase).toBe(SCALAR_BAKE_PHASE.PLANNED);
       expect(bake.estimate!.vectorBytes).toBeGreaterThan(0);
-      expect(bake.estimate!.trajectoryBytes).toBe(0);
+      expect(bake.estimate!.trajectoryBytes).toBe(
+        test.trajectories
+          ? planPathlineTrajectories([0, 7200, 18000], pathlineConfig).bytes
+          : 0
+      );
       await bake.bake();
       expect(bake.phase).toBe(SCALAR_BAKE_PHASE.READY);
+      if (test.trajectories) {
+        expect(bake.trajectoryProgress).toBe(1);
+        bake.fps = 60;
+        bake.intermediateFrames = 20;
+        expect(bake.pathlinePosition(0, 0)).toBeDefined();
+        const initial = bake.pathlinePosition(0, 0);
+        bake.pathlinePosition(0, 1200);
+        expect(bake.pathlinePosition(0, 0)).toEqual(initial);
+        expect(bake.pathlineTrail(0, 0, 1000)).toEqual([]);
+      }
       expect(getGridVariableData).toHaveBeenCalledTimes(6);
-      expect(bake.sampleVelocity(0, 0, 3600)?.u).toBe(1.5);
+      expect(bake.sampleVelocity(0, 0, 3600)?.u).toBeCloseTo(1.5);
       expect(getGridVariableData).toHaveBeenCalledTimes(6);
       store.streamlineLevelIndex = 0;
       expect(bake.phase).toBe(SCALAR_BAKE_PHASE.EMPTY);
       expect(bake.sampleVelocity(0, 0, 3600)).toBeUndefined();
+      expect(bake.pathlinePosition(0, 0)).toBeUndefined();
+      expect(bake.pathlineTrail(0, 0, 1000)).toEqual([]);
     } finally {
       scope.stop();
     }
@@ -343,7 +407,12 @@ it("rejects changed geometry and invalid trajectory allocations", async () => {
     })
   ).toBe(false);
   for (const value of [-1, NaN, 1.5, Number.MAX_SAFE_INTEGER]) {
-    expect(() => pathlineTrajectoryBytes(value, 20)).toThrow();
+    expect(() =>
+      planPathlineTrajectories([0, 10], {
+        ...pathlineConfig,
+        particleCount: value,
+      })
+    ).toThrow();
   }
 });
 
@@ -380,3 +449,82 @@ it("rejects same-named projections with different definitions in another store",
   );
   expect(getGridVariableData).not.toHaveBeenCalled();
 });
+
+it.each(cases)(
+  "integrates a known time-dependent physical flow through $name",
+  async (test) => {
+    const h = setup(test);
+    const plan = await planPathlinePreparation(h.options);
+    const fields = [
+      (await plan.prepare(0)).field,
+      (await plan.prepare(1)).field,
+      (await plan.prepare(2)).field,
+    ];
+    const data = await integratePathlines(
+      {
+        sourceTimes: [0, 60],
+        seedPosition: () => ({ latitude: 0.5, longitude: 0.5 }),
+        sample: (lat, lon, time) =>
+          samplePathlineTime(plan.times, fields, lat, lon, time),
+        surface: plan.surface,
+      },
+      {
+        ...pathlineConfig,
+        particleCount: 1,
+        sampleSeconds: 30,
+        maxStepSeconds: 10,
+      }
+    );
+    const end = pathlineGeographic(pathlinePositionAt(data, 0, 60)!);
+    const surface = plan.surface ?? PATHLINE_WGS84;
+    const latitude = (0.5 * Math.PI) / 180;
+    const e2 = surface.flattening * (2 - surface.flattening);
+    const factor = 1 - e2 * Math.sin(latitude) ** 2;
+    const n = surface.semiMajorAxis / Math.sqrt(factor),
+      m = (n * (1 - e2)) / factor;
+    // u(t) = 1 + t/7200, v(t) = 4. Curvature variation over 240 m is below this tolerance.
+    expect(end.latitude).toBeCloseTo(0.5 + ((240 / m) * 180) / Math.PI, 6);
+    expect(end.longitude).toBeCloseTo(
+      0.5 + ((60.25 / (n * Math.cos(latitude))) * 180) / Math.PI,
+      6
+    );
+  }
+);
+
+it.each(cases)(
+  "stops $name trajectories when a component becomes missing",
+  async (test) => {
+    const h = setup(test);
+    vi.mocked(getGridVariableData).mockImplementation(async (request) =>
+      new Float32Array(test.shape.reduce((a, b) => a * b, 1)).fill(
+        request.variable === "u" && request.selection[0] === 2 ? NaN : 4
+      )
+    );
+    const plan = await planPathlinePreparation(h.options);
+    const fields = [
+      (await plan.prepare(0)).field,
+      (await plan.prepare(1)).field,
+      (await plan.prepare(2)).field,
+    ];
+    const times = [0, 10, 20];
+    const data = await integratePathlines(
+      {
+        sourceTimes: times,
+        seedPosition: () => ({ latitude: 0.5, longitude: 0.5 }),
+        sample: (lat, lon, time) =>
+          samplePathlineTime(times, fields, lat, lon, time),
+        surface: plan.surface,
+      },
+      {
+        ...pathlineConfig,
+        particleCount: 1,
+        sampleSeconds: 10,
+        maxStepSeconds: 2,
+        respawn: false,
+      }
+    );
+    expect(pathlinePositionAt(data, 0, 10)).toBeDefined();
+    expect(pathlinePositionAt(data, 0, 11)).toBeUndefined();
+    expect(data.times[data.counts[0] - 1]).toBe(10);
+  }
+);

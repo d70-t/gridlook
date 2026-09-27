@@ -7,6 +7,7 @@ import {
   type TScalarGeometryCache,
 } from "./scalarFrameMemory.ts";
 
+import type { TPathlineConfig } from "@/lib/data/pathlineTrajectories.ts";
 import { scalarChunkConcurrency } from "@/lib/grids/gridDataQueue.ts";
 
 export const SCALAR_BAKE_LIMITS = {
@@ -22,6 +23,7 @@ export type TScalarBakeConfig = {
   end: number;
   /** P1 preparation API; pathline display is a separate milestone. */
   prepareVelocity?: boolean;
+  pathlines?: TPathlineConfig;
 };
 export type TScalarBakeEstimate = {
   count: number;

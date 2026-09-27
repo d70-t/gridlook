@@ -151,7 +151,7 @@ function pointWeights(
   }
   index.finish();
   // ponytail: native inverse-distance samples with a spacing-based search radius.
-  // Cell-edge topology and coastline stopping belong to the trajectory integrator.
+  // Masks and bounding boxes define validity; exact coastlines need cell topology.
   const radius =
     4 *
     Math.sqrt(
@@ -271,6 +271,33 @@ export function createPathlineGrid(grid: TPathlineGrid) {
     length,
     buffers,
     extraBytes,
+    /** Deterministic callers supply unit-interval coordinates, never Math.random. */
+    seedPosition(u: number, v: number) {
+      if (grid.kind === PATHLINE_GRID.POINTS) {
+        const index = Math.floor(u * length);
+        return {
+          latitude: grid.latitudes[index],
+          longitude: grid.longitudes[index],
+        };
+      }
+      if (grid.kind === PATHLINE_GRID.HEALPIX) {
+        const index = Math.floor(u * length);
+        const cell = grid.cells ? grid.cells[index] : index;
+        const [longitude, latitude] = grid.grid.healpixToLonLat(
+          new BigUint64Array([BigInt(cell)])
+        );
+        return { latitude, longitude };
+      }
+      const x = grid.x[0] + u * (grid.x.at(-1)! - grid.x[0]);
+      if (projection) {
+        const y = grid.y[0] + v * (grid.y.at(-1)! - grid.y[0]);
+        const [longitude, latitude] = projection.forward([x, y]);
+        return { latitude, longitude };
+      }
+      const a = Math.sin(grid.y[0] * RAD),
+        b = Math.sin(grid.y.at(-1)! * RAD);
+      return { latitude: Math.asin(a + v * (b - a)) / RAD, longitude: x };
+    },
     // eslint-disable-next-line max-lines-per-function
     field(
       u: Float32Array,

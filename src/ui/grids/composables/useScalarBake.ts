@@ -38,6 +38,13 @@ import {
   samplePathlineTime,
   type TPathlineField,
 } from "@/lib/data/pathlineField.ts";
+import {
+  integratePathlines,
+  planPathlineTrajectories,
+  pathlinePositionAt,
+  pathlineSegments,
+  type TPathlineTrajectories,
+} from "@/lib/data/pathlineTrajectories.ts";
 import { isTimeCoordinate } from "@/lib/data/timeHandling.ts";
 import { resolveVectorVariablePair } from "@/lib/data/vectorField.ts";
 import { ZARR_FORMAT, type TSources } from "@/lib/types/GlobeTypes.ts";
@@ -107,6 +114,8 @@ export function useScalarBake(
   const includeVelocity = ref(false);
   let velocity: TPathlinePreparation | undefined;
   const velocityFields: TPathlineField[] = [];
+  let trajectories: TPathlineTrajectories | undefined;
+  const trajectoryProgress = ref(0);
   const geometry: TScalarGeometryCache = new Map();
   const allocations = new Set<ArrayBufferLike>();
   let retainedBytes = 0;
@@ -163,7 +172,7 @@ export function useScalarBake(
       return "Turn off Live mode before preparing a fixed time range.";
     }
     if (store.isStreamlineLayerEnabled() || store.isVolumeLayerEnabled()) {
-      return "Turn off streamlines and volumes to prepare scalar animation. Static layers are included.";
+      return "Animation currently supports scalar fields and static layers. Turn off streamlines and volumes to continue.";
     }
     return "";
   });
@@ -197,6 +206,8 @@ export function useScalarBake(
     frames.length = 0;
     velocity = undefined;
     velocityFields.length = 0;
+    trajectories = undefined;
+    trajectoryProgress.value = 0;
     timeline = undefined;
     unequalTimeGaps.value = false;
     interpolationUnavailable.value =
@@ -354,6 +365,97 @@ export function useScalarBake(
       seconds
     );
   }
+  function trajectoryInputs() {
+    const active = velocity!;
+    return {
+      sourceTimes: active.times,
+      sample: (lat: number, lon: number, time: number) =>
+        samplePathlineTime(active.times, velocityFields, lat, lon, time),
+      seedPosition: active.seedPosition,
+      surface: active.surface,
+    };
+  }
+  async function estimateTrajectories(token: number) {
+    const config = job!.config.pathlines;
+    if (!config) {
+      return;
+    }
+    const inputs = trajectoryInputs();
+    const planned = planPathlineTrajectories(inputs.sourceTimes, config);
+    estimate.value!.trajectoryBytes = planned.bytes;
+    estimate.value!.retainedBytes += planned.bytes;
+    estimate.value!.peakBytes =
+      (estimate.value!.retainedBytes + estimate.value!.workingBytes) * 1.25;
+    const sampleCount = Math.min(config.particleCount, 8);
+    const duration = Math.min(
+      config.sampleSeconds,
+      inputs.sourceTimes[1] - inputs.sourceTimes[0]
+    );
+    const started = performance.now();
+    const first = velocityFields[0];
+    // Calibration uses the available first field, not a forecast of later winds.
+    await integratePathlines(
+      {
+        ...inputs,
+        sourceTimes: [0, duration],
+        sample: (lat, lon) => first.sample(lat, lon),
+      },
+      { ...config, particleCount: sampleCount },
+      { signal: controller!.signal, isCurrent: () => isCurrent(token) }
+    );
+    if (!isCurrent(token)) {
+      return;
+    }
+    const ms =
+      ((((performance.now() - started) * config.particleCount) / sampleCount) *
+        planned.duration) /
+      duration;
+    estimate.value!.secondsLow += ms / 2000;
+    estimate.value!.secondsHigh += ms / 500;
+  }
+  async function prepareTrajectories(token: number) {
+    const config = job!.config.pathlines;
+    if (!config) {
+      return;
+    }
+    const started = performance.now();
+    retainedBytes += estimate.value!.trajectoryBytes!;
+    estimate.value!.retainedBytes = retainedBytes;
+    const prepared = await integratePathlines(trajectoryInputs(), config, {
+      signal: controller!.signal,
+      isCurrent: () => isCurrent(token),
+      onProgress: (done, total) => {
+        if (isCurrent(token)) {
+          trajectoryProgress.value = done / total;
+          if (done) {
+            remainingSeconds.value =
+              ((performance.now() - started) / 1000 / done) * (total - done);
+          }
+        }
+      },
+    });
+    if (isCurrent(token)) {
+      trajectories = prepared;
+    }
+  }
+  function pathlinePosition(particle: number, seconds: number) {
+    return phase.value === SCALAR_BAKE_PHASE.READY &&
+      trajectories &&
+      isCurrent(generation)
+      ? pathlinePositionAt(trajectories, particle, seconds)
+      : undefined;
+  }
+  function pathlineTrail(
+    particle: number,
+    seconds: number,
+    trailSeconds: number
+  ) {
+    return phase.value === SCALAR_BAKE_PHASE.READY &&
+      trajectories &&
+      isCurrent(generation)
+      ? [...pathlineSegments(trajectories, particle, seconds, trailSeconds)]
+      : [];
+  }
   function finishCancelled() {
     if (phase.value === SCALAR_BAKE_PHASE.CANCELLING) {
       release();
@@ -375,7 +477,11 @@ export function useScalarBake(
       return;
     }
     clear();
-    includeVelocity.value = !!config.prepareVelocity;
+    config = {
+      ...config,
+      pathlines: config.pathlines && { ...config.pathlines },
+    };
+    includeVelocity.value = !!(config.prepareVelocity || config.pathlines);
     const token = generation;
     try {
       if (unavailable.value) {
@@ -430,7 +536,7 @@ export function useScalarBake(
         source,
         config.end - config.start + 1
       );
-      if (config.prepareVelocity) {
+      if (includeVelocity.value) {
         const pair = resolveVectorVariablePair(
           Object.keys(job.source?.levels[0]?.datasources ?? {}),
           store.varnameSelector,
@@ -468,6 +574,11 @@ export function useScalarBake(
           prepared,
           scalarBuffers
         );
+        await estimateTrajectories(token);
+        if (!isCurrent(token)) {
+          finishCancelled();
+          return;
+        }
       }
       retain(frame);
       try {
@@ -523,6 +634,13 @@ export function useScalarBake(
           return;
         }
       }
+      await prepareTrajectories(token);
+      if (!isCurrent(token)) {
+        finishCancelled();
+        return;
+      }
+      elapsedSeconds.value = (performance.now() - start) / 1000;
+      remainingSeconds.value = 0;
       phase.value = SCALAR_BAKE_PHASE.READY;
       if (interpolationUnavailable.value) {
         interpolationMode.value = SCALAR_INTERPOLATION.ORIGINAL;
@@ -774,6 +892,9 @@ export function useScalarBake(
     withPreparedFrames,
     cancelExport,
     sampleVelocity,
+    pathlinePosition,
+    pathlineTrail,
+    trajectoryProgress,
     resetPlayback,
     plan,
     bake,

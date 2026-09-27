@@ -330,6 +330,14 @@ export async function planPathlinePreparation(options: TOptions) {
   const geometryMs = performance.now() - start;
   return {
     times,
+    seedPosition: grid.seedPosition,
+    surface:
+      context.grid.kind === PATHLINE_GRID.HEALPIX
+        ? {
+            semiMajorAxis: context.grid.grid.semiMajorAxis,
+            flattening: context.grid.grid.flattening,
+          }
+        : undefined,
     context,
     geometryMs,
     sharedMemory: {
@@ -390,20 +398,6 @@ export async function planPathlinePreparation(options: TOptions) {
 export type TPathlinePreparation = Awaited<
   ReturnType<typeof planPathlinePreparation>
 >;
-
-/** Explicit future trajectory allocation: xyz float32 plus one float64 dataset time. */
-export function pathlineTrajectoryBytes(particles: number, samples: number) {
-  if (
-    !Number.isSafeInteger(particles) ||
-    !Number.isSafeInteger(samples) ||
-    particles < 0 ||
-    samples < 0 ||
-    !Number.isSafeInteger(particles * samples * 20)
-  ) {
-    throw new Error("Invalid pathline trajectory allocation.");
-  }
-  return particles * samples * 20;
-}
 
 /** Geometry may be reloaded, but every retained velocity field must use the same grid. */
 // eslint-disable-next-line max-lines-per-function
