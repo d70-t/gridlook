@@ -29,6 +29,7 @@ import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
 import { getLatLonData } from "@/lib/data/coordinateVariables.ts";
+import { PATHLINE_GRID } from "@/lib/data/pathlineField.ts";
 import {
   castDataVarToFloat32,
   decodeVariableDataAndGetBounds,
@@ -374,6 +375,15 @@ async function prepareFrame(
     return;
   }
   return {
+    pathlineGrid: {
+      grid: {
+        kind: PATHLINE_GRID.POINTS,
+        latitudes: latitudesData,
+        longitudes: longitudesData,
+      },
+      spatialDimensionNames: dimensionNames.slice(-1),
+      spatialShape: datavar.shape.slice(-1),
+    },
     memory: scalarFrameMemory(
       batches,
       rawData,

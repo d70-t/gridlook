@@ -28,6 +28,7 @@ import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 import { useStreamlineLayer } from "./composables/useStreamlineLayer.ts";
 import { useVolume } from "./composables/useVolume.ts";
 
+import { PATHLINE_GRID } from "@/lib/data/pathlineField.ts";
 import { loadVectorComponents } from "@/lib/data/streamlineData.ts";
 import {
   castDataVarToFloat32,
@@ -954,6 +955,11 @@ async function prepareFrame(
     return;
   }
   return {
+    pathlineGrid: {
+      grid: { kind: PATHLINE_GRID.HEALPIX, grid, cells: cellCoord },
+      spatialDimensionNames: dimensionNames.slice(-1),
+      spatialShape: datavar.shape.slice(-1),
+    },
     memory: {
       ...scalarFrameMemory(batches, textures, cellCoord, scalarInfo),
       // Expanded triangles carry position, UV, lat/lon and three corner attributes.

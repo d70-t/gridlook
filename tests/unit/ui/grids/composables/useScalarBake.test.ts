@@ -704,3 +704,15 @@ it("waits for an in-flight preview frame before exporting", async () => {
     h.scope.stop();
   }
 });
+
+it("keeps scalar-only preparation when an unused velocity selection changes", async () => {
+  const h = setup();
+  try {
+    await h.bake.plan(config);
+    h.store.streamlineLevelIndex = 1;
+    h.store.streamlineSelection = { automatic: false, u: "u", v: "v" };
+    expect(h.bake.phase).toBe(SCALAR_BAKE_PHASE.PLANNED);
+  } finally {
+    h.scope.stop();
+  }
+});

@@ -26,6 +26,7 @@ import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
 import { getLatLonData } from "@/lib/data/coordinateVariables.ts";
 import { reconcileCoordinates } from "@/lib/data/irregularGridHelpers.ts";
+import { PATHLINE_GRID } from "@/lib/data/pathlineField.ts";
 import {
   castDataVarToFloat32,
   decodeVariableDataAndGetBounds,
@@ -382,6 +383,13 @@ async function prepareFrame(
     return;
   }
   return {
+    pathlineGrid: {
+      grid: { kind: PATHLINE_GRID.POINTS, ...coordinates },
+      spatialDimensionNames: geographicDimensions.map(
+        (index) => dimensions[index]
+      ),
+      spatialShape: geographicDimensions.map((index) => datavar.shape[index]),
+    },
     memory: scalarFrameMemory(
       batches,
       rawData,

@@ -1,9 +1,15 @@
+import proj4 from "proj4";
 import * as THREE from "three";
 import { expect, it, vi } from "vitest";
 import { effectScope, watch } from "vue";
 
 import { checkScalarInterpolation } from "./scalarInterpolationAssertions.ts";
 
+import {
+  createPathlineGrid,
+  PATHLINE_GRID,
+  samplePathlineTime,
+} from "@/lib/data/pathlineField.ts";
 import type { TGridDataRequest } from "@/lib/grids/gridDataWorkerClient.ts";
 import { ZARR_FORMAT, type TSources } from "@/lib/types/GlobeTypes.ts";
 import type { TGeoSampleIndex } from "@/ui/grids/composables/gridHoverUtils.ts";
@@ -273,6 +279,7 @@ function expectProjectedCoordinates(geometry: THREE.BufferGeometry) {
   });
 }
 
+// eslint-disable-next-line max-lines-per-function
 async function expectPreparedFrames(
   api: ReturnType<typeof useScalarFrames>,
   store: ReturnType<typeof useGlobeControlStore>,
@@ -290,6 +297,39 @@ async function expectPreparedFrames(
   const second = (await api.prepareScalarFrame({
     dimensionIndices: { time: 3 },
   }))!;
+  expect(!!first.pathlineGrid).toBe(!grid.latitudeOnly);
+  if (first.pathlineGrid) {
+    const context = first.pathlineGrid;
+    const spatial = createPathlineGrid(context.grid);
+    let latitude =
+      context.grid.kind === PATHLINE_GRID.POINTS
+        ? context.grid.latitudes[0]
+        : context.grid.kind === PATHLINE_GRID.REGULAR
+          ? context.grid.y[0]
+          : 0;
+    let longitude =
+      context.grid.kind === PATHLINE_GRID.POINTS
+        ? context.grid.longitudes[0]
+        : context.grid.kind === PATHLINE_GRID.REGULAR
+          ? context.grid.x[0]
+          : 0;
+    if (context.grid.kind === PATHLINE_GRID.PROJECTED) {
+      [longitude, latitude] = proj4(context.grid.crs, "EPSG:4326").forward([
+        (context.grid.x[0] + context.grid.x.at(-1)!) / 2,
+        (context.grid.y[0] + context.grid.y.at(-1)!) / 2,
+      ]);
+    }
+    const field = spatial.field(
+      new Float32Array(spatial.length).fill(3),
+      new Float32Array(spatial.length).fill(4),
+      false
+    );
+    expect(
+      samplePathlineTime([0, 3600], [field, field], latitude, longitude, 1800)
+        ?.speed
+    ).toBeCloseTo(5);
+  }
+
   expect(mesh.material.uniforms.data.value.image.data).toBe(data);
   expect(store.varinfo).toBe(info);
   expect(store.dimSlidersValues).toEqual(indices);

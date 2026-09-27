@@ -8,6 +8,7 @@ import type { TScalarInterpolationData } from "./scalarInterpolation.ts";
 import type { TScalarFrame } from "./useScalarFieldCache.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
+import type { TPathlineGridContext } from "@/lib/data/pathlineField.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { getGridVariableData } from "@/lib/grids/gridDataWorkerClient.ts";
 import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
@@ -45,6 +46,7 @@ export type TScalarFrameLayout = {
 
 export type TPreparedScalarFrame = TScalarFrame & {
   interpolation?: TScalarInterpolationData;
+  pathlineGrid?: TPathlineGridContext;
   memory?: TScalarFrameMemory;
   timing?: { fetchMs: number; totalMs: number };
   name: string;

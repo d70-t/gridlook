@@ -8,6 +8,12 @@ import {
 } from "vue";
 
 import {
+  extendPathlineEstimate,
+  planPathlinePreparation,
+  samePathlineGrid,
+  type TPathlinePreparation,
+} from "./pathlinePreparation.ts";
+import {
   SCALAR_BAKE_LIMITS,
   estimateScalarBake,
   scalarSourceCost,
@@ -28,7 +34,12 @@ import {
 } from "./scalarTimeline.ts";
 import type { useScalarFrames } from "./useScalarFrames.ts";
 
+import {
+  samplePathlineTime,
+  type TPathlineField,
+} from "@/lib/data/pathlineField.ts";
 import { isTimeCoordinate } from "@/lib/data/timeHandling.ts";
+import { resolveVectorVariablePair } from "@/lib/data/vectorField.ts";
 import { ZARR_FORMAT, type TSources } from "@/lib/types/GlobeTypes.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 import { stopAnimation } from "@/ui/overlays/controls/useTimeAnimation.ts";
@@ -93,6 +104,9 @@ export function useScalarBake(
     ].some((value) => value === phase.value)
   );
   const frames: TPreparedScalarFrame[] = [];
+  const includeVelocity = ref(false);
+  let velocity: TPathlinePreparation | undefined;
+  const velocityFields: TPathlineField[] = [];
   const geometry: TScalarGeometryCache = new Map();
   const allocations = new Set<ArrayBufferLike>();
   let retainedBytes = 0;
@@ -165,6 +179,9 @@ export function useScalarBake(
       projection: store.projectionMode,
       layers: store.layerStack,
       live: store.live,
+      velocitySelection: includeVelocity.value
+        ? [store.streamlineSelection, store.streamlineLevelIndex]
+        : undefined,
     })
   );
 
@@ -178,6 +195,8 @@ export function useScalarBake(
   }
   function release() {
     frames.length = 0;
+    velocity = undefined;
+    velocityFields.length = 0;
     timeline = undefined;
     unequalTimeGaps.value = false;
     interpolationUnavailable.value =
@@ -273,7 +292,67 @@ export function useScalarBake(
         "The source changed or a timestep could not be prepared."
       );
     }
+    if (velocity) {
+      await attachVelocity(frame, index, token);
+      if (!isCurrent(token)) {
+        return;
+      }
+    }
     return frame;
+  }
+  async function attachVelocity(
+    frame: TPreparedScalarFrame,
+    index: number,
+    token: number
+  ) {
+    const active = velocity!;
+    if (!samePathlineGrid(active.context, frame.pathlineGrid)) {
+      throw new Error(
+        "The grid changes between velocity keyframes; prepare a fixed grid."
+      );
+    }
+    const prepared = await active.prepare(index);
+    if (!isCurrent(token)) {
+      return;
+    }
+    const first = velocityFields.length === 0;
+    const memory = frame.memory!;
+    frame.memory = {
+      buffers: [
+        ...new Set([
+          ...memory.buffers,
+          ...active.sharedMemory.buffers,
+          ...prepared.memory.buffers,
+        ]),
+      ],
+      extraBytes:
+        memory.extraBytes +
+        prepared.memory.extraBytes +
+        (first ? active.sharedMemory.extraBytes : 0),
+      gpuBytes: memory.gpuBytes,
+    };
+    velocityFields.push(prepared.field);
+    return prepared;
+  }
+  function sampleVelocity(
+    latitude: number,
+    longitude: number,
+    seconds: number
+  ) {
+    if (
+      phase.value !== SCALAR_BAKE_PHASE.READY ||
+      !velocity ||
+      !isCurrent(generation)
+    ) {
+      return;
+    }
+    return samplePathlineTime(
+      velocity.times,
+      velocityFields,
+      latitude,
+      longitude,
+      seconds
+    );
   }
   function finishCancelled() {
     if (phase.value === SCALAR_BAKE_PHASE.CANCELLING) {
@@ -296,6 +375,7 @@ export function useScalarBake(
       return;
     }
     clear();
+    includeVelocity.value = !!config.prepareVelocity;
     const token = generation;
     try {
       if (unavailable.value) {
@@ -350,6 +430,45 @@ export function useScalarBake(
         source,
         config.end - config.start + 1
       );
+      if (config.prepareVelocity) {
+        const pair = resolveVectorVariablePair(
+          Object.keys(job.source?.levels[0]?.datasources ?? {}),
+          store.varnameSelector,
+          store.streamlineSelection
+        );
+        if (!pair || !job.source) {
+          throw new Error(
+            "Choose compatible horizontal velocity components before preparing pathlines."
+          );
+        }
+        velocity = await planPathlinePreparation({
+          sources: job.source,
+          pair,
+          levelIndex: store.streamlineLevelIndex,
+          timeName: range.name,
+          timeDimension: range.index,
+          config,
+          frame,
+          selection,
+          isCurrent: () => isCurrent(token),
+        });
+        if (!isCurrent(token)) {
+          finishCancelled();
+          return;
+        }
+        const scalarBuffers = new Set(frame.memory!.buffers);
+        const prepared = await attachVelocity(frame, config.start, token);
+        if (!prepared) {
+          finishCancelled();
+          return;
+        }
+        extendPathlineEstimate(
+          estimate.value,
+          velocity,
+          prepared,
+          scalarBuffers
+        );
+      }
       retain(frame);
       try {
         timeline = createScalarTimeline(
@@ -654,6 +773,7 @@ export function useScalarBake(
     exporting,
     withPreparedFrames,
     cancelExport,
+    sampleVelocity,
     resetPlayback,
     plan,
     bake,

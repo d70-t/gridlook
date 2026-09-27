@@ -20,6 +20,8 @@ export const SCALAR_BAKE_LIMITS = {
 export type TScalarBakeConfig = {
   start: number;
   end: number;
+  /** P1 preparation API; pathline display is a separate milestone. */
+  prepareVelocity?: boolean;
 };
 export type TScalarBakeEstimate = {
   count: number;
@@ -28,6 +30,8 @@ export type TScalarBakeEstimate = {
   gpuBytes: number;
   workingBytes: number;
   sourceWorkingBytes: number;
+  vectorBytes?: number;
+  trajectoryBytes?: number;
   chunkConcurrency?: number;
   uniqueChunks: number;
   decodedBytes: number;

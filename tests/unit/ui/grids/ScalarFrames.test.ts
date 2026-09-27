@@ -4,6 +4,11 @@ import { effectScope, ref } from "vue";
 
 import { checkScalarInterpolation } from "./scalarInterpolationAssertions.ts";
 
+import {
+  createPathlineGrid,
+  PATHLINE_GRID,
+  samplePathlineTime,
+} from "@/lib/data/pathlineField.ts";
 import type { TGridDataRequest } from "@/lib/grids/gridDataWorkerClient.ts";
 import type { TGridGeometryBatch } from "@/lib/grids/gridWorkerTypes.ts";
 import { TriangularWorkerOperation } from "@/lib/grids/triangularWorkerProtocol.ts";
@@ -455,6 +460,33 @@ async function checkPreparation(
   const second = (await api.prepareScalarFrame({
     dimensionIndices: { time: 2 },
   }))!;
+  expect(first.pathlineGrid).toBeDefined();
+  if (first.pathlineGrid) {
+    const context = first.pathlineGrid;
+    const spatial = createPathlineGrid(context.grid);
+    const latitude =
+      context.grid.kind === PATHLINE_GRID.POINTS
+        ? context.grid.latitudes[0]
+        : context.grid.kind === PATHLINE_GRID.REGULAR
+          ? context.grid.y[0]
+          : 0;
+    const longitude =
+      context.grid.kind === PATHLINE_GRID.POINTS
+        ? context.grid.longitudes[0]
+        : context.grid.kind === PATHLINE_GRID.REGULAR
+          ? context.grid.x[0]
+          : 0;
+    const field = spatial.field(
+      new Float32Array(spatial.length).fill(3),
+      new Float32Array(spatial.length).fill(4),
+      false
+    );
+    expect(
+      samplePathlineTime([0, 3600], [field, field], latitude, longitude, 1800)
+        ?.speed
+    ).toBeCloseTo(5);
+  }
+
   expect(snapshot()).toEqual(before);
   expect(store.dimSlidersValues).toEqual(indices);
   const reads = h.getData.mock.calls.length;

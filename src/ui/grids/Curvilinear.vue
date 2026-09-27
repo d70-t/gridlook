@@ -35,6 +35,7 @@ import {
   isProjectedXName,
   isProjectedYName,
 } from "@/lib/data/coordinateVariables.ts";
+import { PATHLINE_GRID } from "@/lib/data/pathlineField.ts";
 import {
   castDataVarToFloat32,
   decodeVariableDataAndGetBounds,
@@ -438,6 +439,17 @@ async function prepareFrame(
     return;
   }
   return {
+    pathlineGrid: {
+      grid: projectedGrid
+        ? { ...projectedGrid, kind: PATHLINE_GRID.PROJECTED }
+        : {
+            kind: PATHLINE_GRID.POINTS,
+            latitudes: latitudesData,
+            longitudes: longitudesData,
+          },
+      spatialDimensionNames: dimensionNames.slice(-2),
+      spatialShape: datavar.shape.slice(-2),
+    },
     memory: {
       ...scalarFrameMemory(
         batches,

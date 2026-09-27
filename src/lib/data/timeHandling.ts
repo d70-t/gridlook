@@ -88,6 +88,13 @@ function millisecondsPerUnit(interval: string): number | undefined {
   }
 }
 
+/** Physical duration of a numeric CF time unit; months/years are unsupported. */
+export function timeUnitSeconds(units: unknown) {
+  const match = typeof units === "string" ? units.match(unitsRegEx) : null;
+  const milliseconds = match ? millisecondsPerUnit(match[1]) : undefined;
+  return milliseconds === undefined ? undefined : milliseconds / 1000;
+}
+
 /**
  * Converts a bigint or number to a number, handling BigInt64Array values.
  */

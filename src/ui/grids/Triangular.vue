@@ -24,6 +24,7 @@ import { useIrregularStreamlines } from "./composables/useIrregularStreamlines.t
 import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
+import { PATHLINE_GRID } from "@/lib/data/pathlineField.ts";
 import {
   getTriangularMesh,
   loadTriangularMesh,
@@ -378,6 +379,17 @@ async function prepareFrame(
     return;
   }
   return {
+    pathlineGrid: {
+      grid: {
+        kind: PATHLINE_GRID.POINTS,
+        latitudes: result.hoverIndexData.latitudes,
+        longitudes: result.hoverIndexData.longitudes,
+      },
+      spatialDimensionNames: [
+        triangularMesh?.spatialDimension ?? dimensionNames.at(-1)!,
+      ],
+      spatialShape: [plotData.length],
+    },
     memory: scalarFrameMemory(
       batches,
       plotData,

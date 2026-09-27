@@ -41,6 +41,7 @@ import {
   projectXYGridToLonLat,
 } from "@/lib/data/coordinateVariables.ts";
 import { downsampleDataTexture } from "@/lib/data/dataTexture.ts";
+import { PATHLINE_GRID } from "@/lib/data/pathlineField.ts";
 import { loadVectorComponents } from "@/lib/data/streamlineData.ts";
 import {
   castDataVarToFloat32,
@@ -1065,6 +1066,19 @@ async function prepareFrame(
     return;
   }
   return {
+    pathlineGrid: isLatOnly.value
+      ? undefined
+      : {
+          grid: projectedGrid
+            ? { ...projectedGrid, kind: PATHLINE_GRID.PROJECTED }
+            : {
+                kind: PATHLINE_GRID.REGULAR,
+                x: longitudes.value,
+                y: latitudes.value,
+              },
+          spatialDimensionNames: selectedDimensionNames.value.slice(-2),
+          spatialShape: datavar.shape.slice(-2),
+        },
     memory: scalarFrameMemory(
       textureData,
       rawData,
