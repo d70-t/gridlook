@@ -115,3 +115,7 @@ if (colormap == 0) {
 } else if (colormap == 57) {
     gl_FragColor.rgb = tarn(normalized_value);
 }
+
+// Palettes return sRGB. Offscreen sRGB targets encode on write, whereas the
+// screen expects display-encoded values; let Three select the output transfer.
+gl_FragColor.rgb = linearToOutputTexel(sRGBTransferEOTF(vec4(clamp(gl_FragColor.rgb, 0.0, 1.0), 1.0))).rgb;

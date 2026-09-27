@@ -1,6 +1,6 @@
 import type { TPreparedScalarFrame } from "./scalarFrame.ts";
 
-import { decodeTime, isTimeUnits } from "@/lib/data/timeHandling.ts";
+import { formatTimeCoordinate, isTimeUnits } from "@/lib/data/timeHandling.ts";
 
 export const SCALAR_INTERPOLATION = {
   ORIGINAL: "original",
@@ -114,20 +114,12 @@ export function createScalarTimeline(
     }
     values.push(value);
   }
-  const calendar = String(time.attrs.calendar ?? "standard");
   return {
     values,
     unequalGaps,
     label(first: number, alpha: number) {
       const value = values[first] * (1 - alpha) + values[first + 1] * alpha;
-      if (["standard", "gregorian", "proleptic_gregorian"].includes(calendar)) {
-        const decoded = decodeTime(value, time.attrs);
-        if (decoded.isValid()) {
-          return decoded.format("DD MMM YYYY • HH:mm:ss.SSS");
-        }
-      }
-      // Preserve non-Gregorian calendars as CF coordinates; do not invent civil dates.
-      return `${Number(value.toPrecision(12))} ${units} (${calendar})`;
+      return formatTimeCoordinate(value, time.attrs);
     },
   };
 }

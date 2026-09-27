@@ -2,6 +2,7 @@
 import { computed, inject, ref } from "vue";
 
 import PopupDialog from "./PopupDialog.vue";
+import VideoExportControls from "./VideoExportControls.vue";
 
 import {
   SCALAR_BAKE_LIMITS,
@@ -47,15 +48,6 @@ function toggle() {
 function changed() {
   bake?.clear();
 }
-function useFullTimeRange() {
-  if (!bake?.time) {
-    return;
-  }
-  start.value = bake.time.minBound;
-  end.value = bake.time.maxBound;
-  configured.value = true;
-  changed();
-}
 function memory(bytes: number) {
   return `${(bytes / SCALAR_BAKE_LIMITS.GIB).toFixed(2)} GiB`;
 }
@@ -72,21 +64,21 @@ function duration(seconds: number) {
     <template #trigger>
       <button
         type="button"
-        class="button cell"
+        class="button w-100"
         :class="{ 'is-info': bake?.estimate }"
         :disabled="!bake"
         :aria-expanded="open"
         @click="toggle"
       >
         <span class="icon"><i class="fas fa-film" aria-hidden="true"></i></span>
-        <span>Bake animation</span>
+        <span>Animation</span>
       </button>
     </template>
-    <section v-if="bake" aria-label="Bake scalar animation">
-      <p class="has-text-weight-semibold mb-2">Bake scalar animation</p>
+    <section v-if="bake" aria-label="Animation">
+      <p class="has-text-weight-semibold mb-2">Animation</p>
       <p class="is-size-7 mb-3">
         Preload original timesteps for interactive playback and interpolate
-        between them. Video export follows in a later step.
+        between them, or export the animation as a video.
       </p>
       <p
         v-if="bake.unavailable"
@@ -128,14 +120,6 @@ function duration(seconds: number) {
           Other dimensions use their current selections.
         </p>
         <button
-          class="button is-small mr-2"
-          type="button"
-          :disabled="!bake.time"
-          @click="useFullTimeRange"
-        >
-          Full time range
-        </button>
-        <button
           class="button is-small"
           type="button"
           :disabled="!!bake.unavailable"
@@ -158,7 +142,7 @@ function duration(seconds: number) {
           aria-describedby="bake-memory-help"
         />
         <p id="bake-memory-help" class="help">
-          Planning reference only; does not limit baking.
+          Planning reference only; does not limit preparation.
         </p>
       </div>
       <div v-if="bake.estimate" class="content is-small mt-3 mb-2">
@@ -192,7 +176,7 @@ function duration(seconds: number) {
             </span>
             Peak RAM also includes preparation/display buffers and 25% headroom.
             Existing globe/browser memory is additional. Timing is approximate
-            and updated during baking.
+            and updated during preparation.
           </p>
         </details>
       </div>
@@ -216,7 +200,12 @@ function duration(seconds: number) {
           :max="bake.estimate?.count || 1"
         ></progress>
       </div>
-      <div v-if="previewing" class="mt-3">
+      <fieldset v-if="previewing" class="mt-3" :disabled="bake.exporting">
+        <p v-if="bake.bounds" class="help mb-3">
+          Time-range min/max: {{ bake.bounds.low.toPrecision(5) }} –
+          {{ bake.bounds.high.toPrecision(5) }}. Select Animation under
+          Appearance → Colormap to apply these bounds to display and export.
+        </p>
         <div class="field">
           <label class="label is-small" for="bake-interpolation"
             >Interpolation</label
@@ -289,8 +278,7 @@ function duration(seconds: number) {
         </div>
         <p v-if="bake.frameCount && bake.fps > 0" class="help mb-2">
           {{ bake.frameCount }} frames ·
-          {{ ((bake.frameCount - 1) / bake.fps).toFixed(2) }} s at
-          {{ bake.fps }} fps
+          {{ (bake.frameCount / bake.fps).toFixed(2) }} s at {{ bake.fps }} fps
         </p>
         <label class="label is-small" for="bake-seek"
           >Frame {{ bake.current + 1 }} / {{ bake.frameCount }}</label
@@ -335,7 +323,8 @@ function duration(seconds: number) {
           Rotate and zoom the globe as usual. Close this popup to see the full
           view.
         </p>
-      </div>
+      </fieldset>
+      <VideoExportControls v-if="previewing" />
       <div class="buttons mt-3 mb-0">
         <button
           v-if="planned"
@@ -343,13 +332,15 @@ function duration(seconds: number) {
           type="button"
           @click="bake.bake()"
         >
-          Bake {{ bake.estimate?.count }} keyframes
+          Prepare {{ bake.estimate?.count }} keyframes
         </button>
         <button
           v-if="bake.busy || bake.estimate"
           class="button is-small"
           type="button"
-          :disabled="bake.phase === SCALAR_BAKE_PHASE.CANCELLING"
+          :disabled="
+            bake.phase === SCALAR_BAKE_PHASE.CANCELLING || bake.exporting
+          "
           @click="bake.clear()"
         >
           {{ bake.busy ? "Cancel" : "Release animation" }}

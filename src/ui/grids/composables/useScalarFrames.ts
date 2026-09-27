@@ -253,7 +253,9 @@ export function useScalarFrames(options: TScalarFramesOptions) {
     }
     const bits = /^(?:u?int|float)(8|16|32|64)$/.exec(array.dtype)?.[1];
     if (!bits) {
-      throw new Error("Baking requires a numeric scalar variable.");
+      throw new Error(
+        "Preparing an animation requires a numeric scalar variable."
+      );
     }
     return {
       shape: [...array.shape],

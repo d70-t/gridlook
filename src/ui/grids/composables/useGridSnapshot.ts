@@ -1,20 +1,27 @@
-import { drawText as canvasTxtDrawText } from "canvas-txt";
+import { drawText as canvasTxtDrawText, splitText } from "canvas-txt";
 import type { Dayjs } from "dayjs";
 import * as THREE from "three";
 import type { Ref } from "vue";
 
+import { GLOBE_AUTO_ROTATE_SPEED } from "@/lib/camera/OrbitControlsAddOn.ts";
+import {
+  formatTimeCoordinate,
+  isTimeCoordinate,
+  isTimeUnits,
+} from "@/lib/data/timeHandling.ts";
 import type { TColorMap } from "@/lib/shaders/colormapShaders.ts";
 import { makeCompressedColormapLutMaterial } from "@/lib/shaders/gridShaders.ts";
 import {
   DEFAULT_SNAPSHOT_OPTIONS,
   SnapshotBackgrounds,
+  SnapshotOverlayPositions,
   type TSnapshotBackground,
   type TSnapshotOptions,
 } from "@/lib/types/GlobeTypes.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 import { useLog } from "@/ui/common/useLog.ts";
 
-type UseGridSnapshotOptions = {
+type TUseGridSnapshotOptions = {
   canvas: Ref<HTMLCanvasElement | undefined>;
   getRenderer: () => THREE.WebGLRenderer | undefined;
   getScene: () => THREE.Scene | undefined;
@@ -133,7 +140,7 @@ function getSnapshotContentRect(
 }
 
 /* eslint-disable-next-line max-lines-per-function */
-export function useGridSnapshot(deps: UseGridSnapshotOptions) {
+export function useGridSnapshot(deps: TUseGridSnapshotOptions) {
   const { canvas, getRenderer, getScene, getCamera, getBaseSurface, render } =
     deps;
   const { logError } = useLog();
@@ -169,12 +176,21 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
       cmScene.add(new THREE.Mesh(geometry, material));
       cmScene.add(cmCamera);
       const cmRenderer = new THREE.WebGLRenderer({ canvas: offCanvas });
-      cmRenderer.setSize(offCanvas.width, offCanvas.height, false);
-      cmRenderer.render(cmScene, cmCamera);
-      geometry.dispose();
-      material.dispose();
-      cmRenderer.dispose();
-      return offCanvas;
+      try {
+        cmRenderer.setSize(offCanvas.width, offCanvas.height, false);
+        cmRenderer.render(cmScene, cmCamera);
+        // Keep a 2D copy: WebGL's drawing buffer can be discarded between frames.
+        const gradient = document.createElement("canvas");
+        gradient.width = offCanvas.width;
+        gradient.height = offCanvas.height;
+        gradient.getContext("2d")!.drawImage(offCanvas, 0, 0);
+        return gradient;
+      } finally {
+        geometry.dispose();
+        material.dispose();
+        cmRenderer.dispose();
+        cmRenderer.forceContextLoss();
+      }
     } catch {
       return null;
     }
@@ -191,84 +207,83 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
     return parseFloat(v.toPrecision(4)).toString();
   }
 
-  /**
-   * Read pixels from a WebGL render target, flip Y (WebGL bottom-left →
-   * canvas top-left), write into ctx at (0,0), and dispose the target.
-   */
-  function blitRtToCtx(
-    ctx: CanvasRenderingContext2D,
-    rt: THREE.WebGLRenderTarget,
-    w: number,
-    h: number
-  ) {
-    const renderer = getRenderer()!;
-    const pixelData = new Uint8Array(4 * w * h);
-    renderer.readRenderTargetPixels(rt, 0, 0, w, h, pixelData);
-    rt.dispose();
-    const flipped = new Uint8ClampedArray(4 * w * h);
-    for (let row = 0; row < h; row++) {
-      const srcRow = h - 1 - row;
-      flipped.set(
-        pixelData.subarray(srcRow * w * 4, (srcRow + 1) * w * 4),
-        row * w * 4
-      );
-    }
-    const imgData = ctx.createImageData(w, h);
-    imgData.data.set(flipped);
-    ctx.putImageData(imgData, 0, 0);
-  }
-
-  function renderGlobeToCtx(
-    ctx: CanvasRenderingContext2D,
+  // Reuse the render target and readback storage for a whole video sequence.
+  // eslint-disable-next-line max-lines-per-function
+  function createGlobeRenderer(
     width: number,
     height: number,
     background: TSnapshotBackground
   ) {
-    const renderer = getRenderer();
-    const scene = getScene();
-    const camera = getCamera();
+    const renderer = getRenderer()!;
+    const scene = getScene()!;
+    const camera = getCamera()!.clone();
+    const position = camera.position.clone();
+    const orientation = camera.quaternion.clone();
+    const rotation = new THREE.Quaternion();
     const baseSurface = getBaseSurface();
-    if (!renderer || !scene || !camera) {
-      return;
-    }
-
-    const clearColor = new THREE.Color();
-    renderer.getClearColor(clearColor);
-    const clearAlpha = renderer.getClearAlpha();
-
-    // Grid shaders already output display colors; an sRGB target encodes them
-    // again, brightening the pixels copied directly into the snapshot canvas.
-    const rt = new THREE.WebGLRenderTarget(width, height);
-    const origVisible = baseSurface ? baseSurface.visible : true;
-    const mat = baseSurface?.material as THREE.MeshBasicMaterial | undefined;
-    const origColor = mat ? mat.color.getHex() : null;
-
-    if (background === SnapshotBackgrounds.TRANSPARENT && baseSurface) {
-      baseSurface.visible = false;
-    } else if (background === SnapshotBackgrounds.WHITE && mat) {
-      mat.color.set(0xffffff);
-    }
-
-    const clearHex =
-      background === SnapshotBackgrounds.WHITE ? 0xffffff : 0x000000;
-    const clearTargetAlpha =
-      background === SnapshotBackgrounds.TRANSPARENT ? 0 : 1;
-
-    renderer.setClearColor(clearHex, clearTargetAlpha);
-    renderer.setRenderTarget(rt);
-    renderer.render(scene, camera);
-    renderer.setRenderTarget(null);
-    renderer.setClearColor(clearColor, clearAlpha);
-
-    if (baseSurface) {
-      baseSurface.visible = origVisible;
-    }
-    if (mat && origColor !== null) {
-      mat.color.setHex(origColor);
-    }
-
-    blitRtToCtx(ctx, rt, width, height);
-    render(); // restore live canvas
+    // Grid shaders already output display colors; avoid encoding them twice.
+    const target = new THREE.WebGLRenderTarget(width, height);
+    const pixels = new Uint8Array(4 * width * height);
+    let image: ImageData | undefined;
+    let disposed = false;
+    return {
+      dispose() {
+        disposed = true;
+        target.dispose();
+        image = undefined;
+      },
+      render(ctx: CanvasRenderingContext2D, rotationSeconds = 0) {
+        if (disposed) {
+          throw new Error("The frame renderer has been released.");
+        }
+        // Evaluate from the initial pose, never from the previous encoded frame.
+        rotation.setFromAxisAngle(
+          camera.up,
+          (-rotationSeconds * GLOBE_AUTO_ROTATE_SPEED * 2 * Math.PI) / 60
+        );
+        camera.position.copy(position).applyQuaternion(rotation);
+        camera.quaternion.copy(orientation).premultiply(rotation);
+        const clearColor = renderer.getClearColor(new THREE.Color());
+        const clearAlpha = renderer.getClearAlpha();
+        const previousTarget = renderer.getRenderTarget();
+        const visible = baseSurface?.visible;
+        const material = baseSurface?.material as
+          THREE.MeshBasicMaterial | undefined;
+        const color = material?.color.getHex();
+        try {
+          if (background === SnapshotBackgrounds.TRANSPARENT && baseSurface) {
+            baseSurface.visible = false;
+          } else if (background === SnapshotBackgrounds.WHITE && material) {
+            material.color.set(0xffffff);
+          }
+          renderer.setClearColor(
+            background === SnapshotBackgrounds.WHITE ? 0xffffff : 0,
+            background === SnapshotBackgrounds.TRANSPARENT ? 0 : 1
+          );
+          renderer.setRenderTarget(target);
+          renderer.render(scene, camera);
+          renderer.readRenderTargetPixels(target, 0, 0, width, height, pixels);
+        } finally {
+          renderer.setRenderTarget(previousTarget);
+          renderer.setClearColor(clearColor, clearAlpha);
+          if (baseSurface && visible !== undefined) {
+            baseSurface.visible = visible;
+          }
+          if (material && color !== undefined) {
+            material.color.setHex(color);
+          }
+        }
+        image ??= ctx.createImageData(width, height);
+        for (let row = 0; row < height; row++) {
+          const source = (height - 1 - row) * width * 4;
+          image.data.set(
+            pixels.subarray(source, source + width * 4),
+            row * width * 4
+          );
+        }
+        ctx.putImageData(image, 0, 0);
+      },
+    };
   }
 
   function getSnapshotDimensions(
@@ -293,6 +308,7 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
   }
 
   /** Collect dimension value strings for the info overlay. */
+  // eslint-disable-next-line max-lines-per-function
   function buildSnapshotInfoLines(showDatasetInfo: boolean): {
     datasetTitle: string | null;
     lines: string[];
@@ -332,11 +348,25 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
         lines.push(`${range.name}: ${store.scalarAnimationTime.label}`);
         continue;
       }
+      if (
+        isTimeCoordinate(range.name, dimInfo.attrs) &&
+        isTimeUnits(dimInfo.attrs.units)
+      ) {
+        const index = store.dimSlidersDisplay[i] ?? range.startPos;
+        const coordinate = dimInfo.values?.[index];
+        const value = coordinate ?? dimInfo.current;
+        if (typeof value !== "object") {
+          lines.push(
+            `${range.name}: ${formatTimeCoordinate(value, dimInfo.attrs)}`
+          );
+          continue;
+        }
+      }
       const val = dimInfo.current;
       const isObj = val && typeof val === "object";
       const hasFormat = isObj && typeof (val as Dayjs).format === "function";
       const valStr = hasFormat
-        ? (val as Dayjs).format("YYYY-MM-DD HH:mm")
+        ? (val as Dayjs).format("DD MMM YYYY • HH:mm:ss")
         : String(val);
       const units =
         "units" in dimInfo && dimInfo.units ? ` ${dimInfo.units}` : "";
@@ -353,16 +383,9 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
     y: number,
     barHeight: number,
     labelFontSize: number,
-    textColor: string
+    textColor: string,
+    cmCanvas: HTMLCanvasElement | null
   ) {
-    const cmCanvas = renderColormapGradient(
-      store.colormap,
-      store.invertColormap ? 1 : 0,
-      store.invertColormap ? -1 : 1,
-      store.posterizeLevels,
-      width,
-      barHeight
-    );
     if (cmCanvas) {
       ctx.drawImage(cmCanvas, x, y, width, barHeight);
     }
@@ -392,10 +415,9 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
     }, "image/png");
   }
 
-  /** Draw overlays (colormap bar + info text) onto the composite canvas, then trigger download. */
+  /** Draw colormap and metadata overlays onto a composed frame. */
   /* eslint-disable-next-line max-lines-per-function */
-  function drawOverlaysAndDownload(
-    composite: HTMLCanvasElement,
+  function drawSnapshotOverlays(
     ctx: CanvasRenderingContext2D,
     imageHeight: number,
     overlayRect: TSnapshotRect,
@@ -407,7 +429,8 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
     cmLabelH: number,
     infoLineH: number,
     fontSize: number,
-    textColor: string
+    textColor: string,
+    gradient: HTMLCanvasElement | null
   ) {
     let currentY = imageHeight + margin;
     if (showColormap) {
@@ -418,7 +441,8 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
         currentY,
         cmBarH,
         Math.round(fontSize * 0.85),
-        textColor
+        textColor,
+        gradient
       );
       currentY += cmBarH + cmLabelH;
     }
@@ -445,7 +469,6 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
         currentY += infoLineH;
       }
     }
-    downloadSnapshot(composite);
   }
 
   function fillBackground(
@@ -463,8 +486,79 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
     }
   }
 
+  // Sidebar dimensions stay fixed while time labels change during video export.
+  // eslint-disable-next-line max-lines-per-function
+  function createSidebar(
+    options: TSnapshotOptions,
+    imageHeight: number,
+    viewHeight: number
+  ) {
+    const fontSize = Math.round(Math.max(13, viewHeight * 0.02));
+    const margin = fontSize;
+    const width = fontSize * 22;
+    const textWidth = width - 2 * margin;
+    const lineHeight = Math.round(fontSize * 1.5);
+    const barHeight = fontSize;
+    const measure = document.createElement("canvas").getContext("2d")!;
+    measure.font = `${fontSize}px sans-serif`;
+    const lines = () => {
+      const info = buildSnapshotInfoLines(options.showDatasetInfo);
+      const text = [info.datasetTitle, ...info.lines]
+        .filter(Boolean)
+        .join("\n\n");
+      return text
+        ? splitText({ ctx: measure, text, width: textWidth, justify: false })
+        : [];
+    };
+    const legendHeight = options.showColormap ? barHeight + 3 * lineHeight : 0;
+    // Reserve two extra lines for changing dates, without resizing encoded frames.
+    const height = Math.max(
+      imageHeight,
+      (lines().length + 2) * lineHeight + legendHeight + 2 * margin
+    );
+    const gradient = options.showColormap
+      ? renderColormapGradient(
+          store.colormap,
+          store.invertColormap ? 1 : 0,
+          store.invertColormap ? -1 : 1,
+          store.posterizeLevels,
+          textWidth,
+          barHeight
+        )
+      : null;
+    const textColor =
+      options.background === SnapshotBackgrounds.WHITE ? "#000000" : "#ffffff";
+    return {
+      width,
+      height,
+      draw(ctx: CanvasRenderingContext2D) {
+        ctx.fillStyle = textColor;
+        ctx.font = `${fontSize}px sans-serif`;
+        ctx.textBaseline = "top";
+        ctx.textAlign = "left";
+        lines().forEach((line, index) =>
+          ctx.fillText(line.trim(), margin, margin + index * lineHeight)
+        );
+        if (options.showColormap) {
+          drawColormapSection(
+            ctx,
+            margin,
+            textWidth,
+            height - legendHeight,
+            barHeight,
+            fontSize,
+            textColor,
+            gradient
+          );
+        }
+      },
+    };
+  }
+
   /* eslint-disable-next-line max-lines-per-function */
-  function makeSnapshot(options: TSnapshotOptions = DEFAULT_SNAPSHOT_OPTIONS) {
+  function createSnapshotRenderer(
+    options: TSnapshotOptions = DEFAULT_SNAPSHOT_OPTIONS
+  ) {
     const glCanvas = canvas.value;
     if (!glCanvas || !getRenderer() || !getScene() || !getCamera()) {
       return;
@@ -474,39 +568,53 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
       options.resolutionScale
     );
     const { background, showDatasetInfo, showColormap } = options;
-    const contentRect = getSnapshotContentRect(
-      getCamera()!,
-      getBaseSurface(),
-      w,
-      h
-    );
+    // Video keeps the user's viewport framing, including regional close-ups.
+    const contentRect =
+      options.overlayPosition === SnapshotOverlayPositions.LEFT
+        ? getFullSnapshotRect(w, h)
+        : getSnapshotContentRect(getCamera()!, getBaseSurface(), w, h);
     const noOverlays = !showColormap && !showDatasetInfo;
 
-    if (noOverlays) {
+    if (
+      noOverlays ||
+      options.overlayPosition === SnapshotOverlayPositions.LEFT
+    ) {
+      const sidebar = noOverlays
+        ? undefined
+        : createSidebar(options, contentRect.height, h);
       const composite = document.createElement("canvas");
-      composite.width = contentRect.width;
-      composite.height = contentRect.height;
+      composite.width = contentRect.width + (sidebar?.width ?? 0);
+      composite.height = sidebar?.height ?? contentRect.height;
       const ctx = composite.getContext("2d")!;
       const imageCanvas = document.createElement("canvas");
       imageCanvas.width = w;
       imageCanvas.height = h;
       const imageCtx = imageCanvas.getContext("2d")!;
+      const globeRenderer = createGlobeRenderer(w, h, background);
 
-      fillBackground(imageCtx, w, h, background);
-      renderGlobeToCtx(imageCtx, w, h, background);
-      ctx.drawImage(
-        imageCanvas,
-        contentRect.x,
-        contentRect.y,
-        contentRect.width,
-        contentRect.height,
-        0,
-        0,
-        contentRect.width,
-        contentRect.height
-      );
-      downloadSnapshot(composite);
-      return;
+      return {
+        width: composite.width,
+        height: composite.height,
+        dispose: globeRenderer.dispose,
+        render(rotationSeconds = 0) {
+          ctx.clearRect(0, 0, composite.width, composite.height);
+          fillBackground(ctx, composite.width, composite.height, background);
+          globeRenderer.render(imageCtx, rotationSeconds);
+          ctx.drawImage(
+            imageCanvas,
+            contentRect.x,
+            contentRect.y,
+            contentRect.width,
+            contentRect.height,
+            sidebar?.width ?? 0,
+            (composite.height - contentRect.height) / 2,
+            contentRect.width,
+            contentRect.height
+          );
+          sidebar?.draw(ctx);
+          return composite;
+        },
+      };
     }
 
     const fontSize = Math.round(Math.max(13, h * 0.022));
@@ -545,24 +653,59 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
     composite.height = h + extraHeight;
     const ctx = composite.getContext("2d")!;
 
-    fillBackground(ctx, w, h + extraHeight, background);
-    renderGlobeToCtx(ctx, w, h, background);
-    drawOverlaysAndDownload(
-      composite,
-      ctx,
-      h,
-      contentRect,
-      showColormap,
-      datasetTitle,
-      infoLines,
-      MARGIN,
-      CM_BAR_HEIGHT,
-      CM_LABEL_HEIGHT,
-      INFO_LINE_HEIGHT,
-      fontSize,
-      textColor
-    );
+    const gradient = showColormap
+      ? renderColormapGradient(
+          store.colormap,
+          store.invertColormap ? 1 : 0,
+          store.invertColormap ? -1 : 1,
+          store.posterizeLevels,
+          contentRect.width,
+          CM_BAR_HEIGHT
+        )
+      : null;
+    const globeRenderer = createGlobeRenderer(w, h, background);
+    // Fix the layout and camera for a sequence; only data and labels change.
+    return {
+      width: composite.width,
+      height: composite.height,
+      dispose: globeRenderer.dispose,
+      render(rotationSeconds = 0) {
+        ctx.clearRect(0, 0, composite.width, composite.height);
+        fillBackground(ctx, w, h + extraHeight, background);
+        globeRenderer.render(ctx, rotationSeconds);
+        const currentInfo = buildSnapshotInfoLines(showDatasetInfo);
+        drawSnapshotOverlays(
+          ctx,
+          h,
+          contentRect,
+          showColormap,
+          currentInfo.datasetTitle,
+          currentInfo.lines,
+          MARGIN,
+          CM_BAR_HEIGHT,
+          CM_LABEL_HEIGHT,
+          INFO_LINE_HEIGHT,
+          fontSize,
+          textColor,
+          gradient
+        );
+        return composite;
+      },
+    };
   }
 
-  return { makeSnapshot };
+  function makeSnapshot(options: TSnapshotOptions = DEFAULT_SNAPSHOT_OPTIONS) {
+    const frames = createSnapshotRenderer(options);
+    if (!frames) {
+      return;
+    }
+    try {
+      downloadSnapshot(frames.render());
+    } finally {
+      frames.dispose();
+      render();
+    }
+  }
+
+  return { makeSnapshot, createSnapshotRenderer };
 }

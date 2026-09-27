@@ -1,9 +1,45 @@
+import { readFile } from "node:fs/promises";
+import { gzipSync } from "node:zlib";
 import { fileURLToPath, URL } from "url";
 
 import vue from "@vitejs/plugin-vue";
 import { createLogger, defineConfig, type Plugin } from "vite";
 import glsl from "vite-plugin-glsl";
 import wasm from "vite-plugin-wasm";
+
+function ffmpegWasm(): Plugin {
+  const virtualId = "virtual:ffmpeg-wasm";
+  let building = false;
+  return {
+    name: "ffmpeg-wasm",
+    configResolved(config) {
+      building = config.command === "build";
+    },
+    resolveId(id) {
+      if (id === virtualId) {
+        return `\0${virtualId}`;
+      }
+    },
+    async load(id) {
+      if (id !== `\0${virtualId}`) {
+        return;
+      }
+      if (!building) {
+        return 'export { default } from "@ffmpeg/core/wasm?url";';
+      }
+      // The original 31 MiB WASM exceeds Cloudflare Pages' 25 MiB asset limit.
+      const bytes = await readFile(
+        fileURLToPath(import.meta.resolve("@ffmpeg/core/wasm"))
+      );
+      const ref = this.emitFile({
+        type: "asset",
+        name: "ffmpeg-core.wasm.gz",
+        source: gzipSync(bytes),
+      });
+      return `export default import.meta.ROLLUP_FILE_URL_${ref};`;
+    },
+  };
+}
 
 function netCDFWorkerWasm(): Plugin {
   return {
@@ -52,7 +88,7 @@ logger.warnOnce = (msg, options) => {
 // https://vitejs.dev/config/
 export default defineConfig({
   customLogger: logger,
-  plugins: [vue(), glsl(), wasm(), netCDFWorkerWasm()],
+  plugins: [vue(), glsl(), wasm(), netCDFWorkerWasm(), ffmpegWasm()],
   optimizeDeps: {
     exclude: ["@earthyscience/netcdf4-wasm"],
   },

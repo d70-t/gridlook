@@ -33,6 +33,7 @@ import {
   getVisibleVerticalSpan,
 } from "@/lib/camera/cameraSettings.ts";
 import {
+  GLOBE_AUTO_ROTATE_SPEED,
   handleKeyDown,
   useSurfaceZoom,
 } from "@/lib/camera/OrbitControlsAddOn.ts";
@@ -887,6 +888,7 @@ export function useGridScene(options: UseGridSceneOptions) {
     camera.lookAt(center);
 
     orbitControls = new OrbitControls(camera, renderer.domElement);
+    orbitControls.autoRotateSpeed = GLOBE_AUTO_ROTATE_SPEED;
     useSurfaceZoom(orbitControls, () => projectionHelper.value.isFlat);
     orbitControls.minDistance = GLOBE_MIN_CAMERA_DISTANCE;
     orbitControls.enablePan = false;
@@ -1490,7 +1492,7 @@ export function useGridScene(options: UseGridSceneOptions) {
     }
   );
 
-  const { makeSnapshot } = useGridSnapshot({
+  const { makeSnapshot, createSnapshotRenderer } = useGridSnapshot({
     canvas,
     getRenderer,
     getScene,
@@ -1508,6 +1510,7 @@ export function useGridScene(options: UseGridSceneOptions) {
     redraw,
     toggleRotate,
     makeSnapshot,
+    createSnapshotRenderer,
     applyCameraPreset,
     fitCameraToDataset,
     registerUpdateLOD,

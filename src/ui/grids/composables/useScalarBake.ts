@@ -44,6 +44,12 @@ export const SCALAR_BAKE_PHASE = {
 } as const;
 type TScalarBakePhase =
   (typeof SCALAR_BAKE_PHASE)[keyof typeof SCALAR_BAKE_PHASE];
+export type TPreparedAnimation = {
+  frameCount: number;
+  fps: number;
+  signal: AbortSignal;
+  seek: (index: number) => Promise<void>;
+};
 export type TScalarBakeHandle = ReturnType<typeof useScalarFrames>;
 
 // eslint-disable-next-line max-lines-per-function
@@ -56,8 +62,11 @@ export function useScalarBake(
   const message = ref("");
   const estimate = ref<TScalarBakeEstimate>();
   const completed = ref(0);
+  const bounds = ref<{ low: number; high: number }>();
   const current = ref(0);
   const playing = ref(false);
+  const exporting = ref(false);
+  let exportController: AbortController | undefined;
   const fps = ref<number>(SCALAR_BAKE_LIMITS.DEFAULT_FPS);
   const elapsedSeconds = ref(0);
   const remainingSeconds = ref(0);
@@ -93,6 +102,7 @@ export function useScalarBake(
   let playbackRevision = 0;
   let generation = 0;
   let seeking = false;
+  let pendingSeek: Promise<void> | undefined;
   let seekRevision = 0;
   let job:
     | {
@@ -136,10 +146,10 @@ export function useScalarBake(
       return "Select a scalar variable with at least two timesteps.";
     }
     if (store.live) {
-      return "Turn off Live mode before baking a fixed time range.";
+      return "Turn off Live mode before preparing a fixed time range.";
     }
     if (store.isStreamlineLayerEnabled() || store.isVolumeLayerEnabled()) {
-      return "Turn off streamlines and volumes to bake scalar animation. Static layers are included.";
+      return "Turn off streamlines and volumes to prepare scalar animation. Static layers are included.";
     }
     return "";
   });
@@ -176,6 +186,7 @@ export function useScalarBake(
     allocations.clear();
     retainedBytes = 0;
     completed.value = 0;
+    bounds.value = undefined;
     current.value = 0;
     elapsedSeconds.value = 0;
     remainingSeconds.value = 0;
@@ -185,6 +196,7 @@ export function useScalarBake(
   function clear(reason = "") {
     pause();
     generation++;
+    exportController?.abort();
     controller?.abort();
     release();
     message.value = reason;
@@ -227,6 +239,20 @@ export function useScalarBake(
       interpolationUnavailable.value =
         "The grid geometry changes between keyframes. Use original timesteps.";
     }
+    // Each renderer computes decoded finite bounds while preparing the field.
+    const { low, high } = frame.info.bounds;
+    if (
+      low !== undefined &&
+      high !== undefined &&
+      Number.isFinite(low) &&
+      Number.isFinite(high) &&
+      low <= high
+    ) {
+      bounds.value = {
+        low: bounds.value ? Math.min(bounds.value.low, low) : low,
+        high: bounds.value ? Math.max(bounds.value.high, high) : high,
+      };
+    }
     frames.push(frame);
     completed.value = frames.length;
   }
@@ -266,7 +292,7 @@ export function useScalarBake(
 
   // eslint-disable-next-line max-lines-per-function
   async function plan(config: TScalarBakeConfig) {
-    if (busy.value) {
+    if (busy.value || exporting.value) {
       return;
     }
     clear();
@@ -388,16 +414,21 @@ export function useScalarBake(
     }
   }
 
-  // eslint-disable-next-line max-lines-per-function
-  async function seek(index: number) {
+  function seek(index: number, forExport = false) {
     if (
       phase.value !== SCALAR_BAKE_PHASE.READY ||
+      (exporting.value && !forExport) ||
       !Number.isInteger(index) ||
       index < 0 ||
       index >= frameCount.value
     ) {
-      return;
+      return Promise.resolve();
     }
+    pendingSeek = displayFrame(index);
+    return pendingSeek;
+  }
+  // eslint-disable-next-line max-lines-per-function
+  async function displayFrame(index: number) {
     const token = generation;
     const revision = ++seekRevision;
     seeking = true;
@@ -494,6 +525,7 @@ export function useScalarBake(
     if (
       phase.value !== SCALAR_BAKE_PHASE.READY ||
       seeking ||
+      exporting.value ||
       frameCount.value < 2 ||
       (interpolationMode.value !== SCALAR_INTERPOLATION.ORIGINAL &&
         interpolationUnavailable.value)
@@ -520,6 +552,70 @@ export function useScalarBake(
     nextFrameAt = performance.now() + 1000 / fps.value;
     animationFrame = requestAnimationFrame(tick);
   }
+  // Own the frame sequence for the duration of an export, including cancellation.
+  // eslint-disable-next-line max-lines-per-function
+  async function withPreparedFrames<T>(
+    run: (session: TPreparedAnimation) => Promise<T>
+  ) {
+    if (
+      phase.value !== SCALAR_BAKE_PHASE.READY ||
+      exporting.value ||
+      !frameCount.value
+    ) {
+      throw new Error("Wait for a prepared animation before exporting.");
+    }
+    pause();
+    stopAnimation();
+    const token = generation;
+    let previous = current.value;
+    const mode = interpolationMode.value;
+    const steps = intermediateFrames.value;
+    const sessionController = new AbortController();
+    exportController = sessionController;
+    exporting.value = true;
+    const validate = () => {
+      sessionController.signal.throwIfAborted();
+      if (
+        !isCurrent(token) ||
+        mode !== interpolationMode.value ||
+        steps !== intermediateFrames.value
+      ) {
+        throw new Error("Animation settings changed during export.");
+      }
+    };
+    try {
+      await pendingSeek;
+      validate();
+      previous = current.value;
+      const result = await run({
+        frameCount: frameCount.value,
+        fps: fps.value,
+        signal: sessionController.signal,
+        seek: async (index) => {
+          validate();
+          await seek(index, true);
+          validate();
+          if (current.value !== index) {
+            throw new Error("The animation frame could not be displayed.");
+          }
+        },
+      });
+      validate();
+      return result;
+    } finally {
+      try {
+        if (isCurrent(token) && phase.value === SCALAR_BAKE_PHASE.READY) {
+          await seek(previous, true);
+        }
+      } finally {
+        exporting.value = false;
+        exportController = undefined;
+      }
+    }
+  }
+  function cancelExport() {
+    exportController?.abort();
+  }
   async function resetPlayback() {
     pause();
     await seek(0);
@@ -540,6 +636,7 @@ export function useScalarBake(
     message,
     estimate,
     completed,
+    bounds,
     current,
     playing,
     fps,
@@ -554,6 +651,9 @@ export function useScalarBake(
     interpolationUnavailable,
     unequalTimeGaps,
     frameCount,
+    exporting,
+    withPreparedFrames,
+    cancelExport,
     resetPlayback,
     plan,
     bake,

@@ -64,7 +64,10 @@ function createMockRenderer(fillPixels: TPixelFill): THREE.WebGLRenderer {
       width: number,
       height: number,
       pixels: Uint8Array
-    ) => fillPixels(pixels, { width, height }),
+    ) => {
+      expect(_target.texture.colorSpace).toBe(THREE.SRGBColorSpace);
+      fillPixels(pixels, { width, height });
+    },
   } as unknown as THREE.WebGLRenderer;
 }
 

@@ -52,6 +52,7 @@ defineEmits<{
 // Bounds management types
 const BOUND_MODES = {
   DATA: "data",
+  ANIMATION: "animation",
   USER: "user",
 } as const;
 
@@ -106,7 +107,14 @@ const dataBounds = computed(() => {
   return varinfo.value?.bounds ?? {};
 });
 
+const animationBounds = computed(() =>
+  scalarBake?.phase === SCALAR_BAKE_PHASE.READY ? scalarBake.bounds : undefined
+);
+
 const currentBounds = computed(() => {
+  if (pickedBoundsMode.value === BOUND_MODES.ANIMATION) {
+    return animationBounds.value ?? dataBounds.value;
+  }
   if (pickedBoundsMode.value === BOUND_MODES.DATA) {
     return store.scalarAnimationBounds ?? dataBounds.value;
   } else if (pickedBoundsMode.value === BOUND_MODES.USER) {
@@ -215,12 +223,22 @@ watch(
 );
 
 watch(currentBounds, (bounds) => {
+  if (
+    pickedBoundsMode.value === BOUND_MODES.ANIMATION &&
+    !animationBounds.value
+  ) {
+    pickedBoundsMode.value = BOUND_MODES.DATA;
+    store.scalarAnimationBounds = undefined;
+  }
   if (bounds) {
     store.updateBounds(bounds as TBounds);
   }
 });
 
 function onPickedBoundsModeChange(newMode: TBoundModes) {
+  if (newMode === BOUND_MODES.DATA) {
+    store.scalarAnimationBounds = undefined;
+  }
   if (newMode === BOUND_MODES.USER) {
     const lowEmpty =
       userBoundsLow.value === undefined ||
@@ -419,6 +437,7 @@ defineExpose({
           <BoundsControls
             :picked-bounds-mode="pickedBoundsMode"
             :data-bounds="dataBounds"
+            :animation-bounds="animationBounds"
             :bound-modes="BOUND_MODES"
             @update:picked-bounds-mode="
               onPickedBoundsModeChange($event as TBoundModes)

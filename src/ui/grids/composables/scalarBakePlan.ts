@@ -54,7 +54,7 @@ export function validateScalarBakeConfig(
   }
   if (end - start + 1 > SCALAR_BAKE_LIMITS.MAX_FRAMES) {
     throw new Error(
-      `Choose at most ${SCALAR_BAKE_LIMITS.MAX_FRAMES} keyframes per bake.`
+      `Choose at most ${SCALAR_BAKE_LIMITS.MAX_FRAMES} keyframes per animation.`
     );
   }
 }

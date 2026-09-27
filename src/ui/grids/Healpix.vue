@@ -108,6 +108,7 @@ const {
   getRenderer,
   redraw,
   makeSnapshot,
+  createSnapshotRenderer,
   toggleRotate,
   applyCameraPreset,
   fitCameraToDataset,
@@ -1031,6 +1032,7 @@ defineExpose({
   commitScalarFrame,
   getScalarFrameLayout,
   makeSnapshot,
+  createSnapshotRenderer,
   toggleRotate,
   applyCameraPreset,
 });

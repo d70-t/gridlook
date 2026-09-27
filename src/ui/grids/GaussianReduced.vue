@@ -61,13 +61,13 @@ const { colormap, varnameSelector, invertColormap } = storeToRefs(store);
 
 let meshes: THREE.Mesh[] = [];
 let magnitudeCoordinates:
-  | { latitudes: Float64Array; longitudes: Float64Array }
-  | undefined;
+  { latitudes: Float64Array; longitudes: Float64Array } | undefined;
 
 const {
   getScene,
   redraw,
   makeSnapshot,
+  createSnapshotRenderer,
   toggleRotate,
   applyCameraPreset,
   fitCameraToDataset,
@@ -431,6 +431,7 @@ defineExpose({
   commitScalarFrame,
   getScalarFrameLayout,
   makeSnapshot,
+  createSnapshotRenderer,
   toggleRotate,
   applyCameraPreset,
 });

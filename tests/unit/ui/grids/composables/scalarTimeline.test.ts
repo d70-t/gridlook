@@ -44,16 +44,16 @@ it.each([-1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER])(
 it("uses actual unequal timestamps for labels and detects unequal gaps", () => {
   const timeline = createScalarTimeline(frame([0, 2, 5]), 0, 0, 2);
   expect(timeline.unequalGaps).toBe(true);
-  expect(timeline.label(0, 0.5)).toBe("02 Jan 2000 • 00:00:00.000");
-  expect(timeline.label(1, 0.5)).toBe("04 Jan 2000 • 12:00:00.000");
-  expect(timeline.label(1, 1)).toBe("06 Jan 2000 • 00:00:00.000");
+  expect(timeline.label(0, 0.5)).toBe("02 Jan 2000 • 00:00:00");
+  expect(timeline.label(1, 0.5)).toBe("04 Jan 2000 • 12:00:00");
+  expect(timeline.label(1, 1)).toBe("06 Jan 2000 • 00:00:00");
   expect(createScalarTimeline(frame([0, 2, 4]), 0, 0, 2).unequalGaps).toBe(
     false
   );
 });
-it("preserves non-Gregorian time coordinates without claiming Gregorian dates", () => {
+it("formats model dates with their calendar", () => {
   const timeline = createScalarTimeline(frame([0, 2], {}, "360_day"), 0, 0, 1);
-  expect(timeline.label(0, 0.5)).toBe("1 days since 2000-01-01 (360_day)");
+  expect(timeline.label(0, 0.5)).toBe("02 Jan 2000 • 00:00:00 (360_day)");
 });
 it.each([
   [0, NaN],

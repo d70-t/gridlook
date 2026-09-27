@@ -73,6 +73,7 @@ const {
   getScene,
   getCamera,
   makeSnapshot,
+  createSnapshotRenderer,
   toggleRotate,
   applyCameraPreset,
   fitCameraToDataset,
@@ -460,6 +461,7 @@ onBeforeUnmount(() => {
 
 defineExpose({
   makeSnapshot,
+  createSnapshotRenderer,
   toggleRotate,
   applyCameraPreset,
   prepareScalarFrame,

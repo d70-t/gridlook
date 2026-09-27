@@ -24,6 +24,11 @@ export async function checkScalarInterpolation(
           .data) as Float32Array
     )
   );
+  // The full source range may include cells omitted from the drawn geometry.
+  expect(bake.bounds).toEqual({
+    low: store.varinfo!.bounds.low,
+    high: store.varinfo!.bounds.high! + 2 * offset,
+  });
   const geometry = objects.map((object) => object.geometry);
   const materials = objects.map((object) => object.material);
   const retained = bake.estimate!.retainedBytes;
@@ -41,36 +46,40 @@ export async function checkScalarInterpolation(
     await bake.resetPlayback();
     expect(bake.frameCount).toBe(9);
     const bounds = { ...store.selection };
-    for (const index of [0, 1, 2, 3, 4, 5, 6, 7, 8, 3, 0]) {
-      await bake.seek(index);
-      expect(bake.message).toBe("");
-      expect(store.selection).toEqual(bounds);
-      for (let i = 0; i < objects.length; i++) {
-        const object = objects[i];
-        const material = object.material as THREE.ShaderMaterial;
-        const first = (object.geometry.getAttribute("data_value")?.array ??
-          material.uniforms.data.value.image.data) as Float32Array;
-        const next = (object.geometry.getAttribute("data_value_next")?.array ??
-          material.uniforms.dataNext.value.image.data) as Float32Array;
-        expect(
-          Array.from(first, (value, j) =>
-            interpolateScalarValue(
-              value,
-              next[j],
-              material.uniforms.scalarMix.value
+    await bake.withPreparedFrames(async (session) => {
+      expect(session.frameCount).toBe(9);
+      for (const index of [0, 1, 2, 3, 4, 5, 6, 7, 8, 3, 0]) {
+        await session.seek(index);
+        expect(bake.message).toBe("");
+        expect(store.selection).toEqual(bounds);
+        for (let i = 0; i < objects.length; i++) {
+          const object = objects[i];
+          const material = object.material as THREE.ShaderMaterial;
+          const first = (object.geometry.getAttribute("data_value")?.array ??
+            material.uniforms.data.value.image.data) as Float32Array;
+          const next = (object.geometry.getAttribute("data_value_next")
+            ?.array ??
+            material.uniforms.dataNext.value.image.data) as Float32Array;
+          expect(
+            Array.from(first, (value, j) =>
+              interpolateScalarValue(
+                value,
+                next[j],
+                material.uniforms.scalarMix.value
+              )
             )
-          )
-        ).toEqual(base[i].map((value) => value + offset * expected[index]));
-        expect(object.geometry).toBe(geometry[i]);
-        expect(object.material).toBe(materials[i]);
+          ).toEqual(base[i].map((value) => value + offset * expected[index]));
+          expect(object.geometry).toBe(geometry[i]);
+          expect(object.material).toBe(materials[i]);
+        }
+        expect(store.dimSlidersDisplay[0]).toSatisfy(Number.isInteger);
+        if (index === 6) {
+          expect(store.scalarAnimationTime?.label).toBe(
+            "04 Jan 2000 • 12:00:00"
+          );
+        }
       }
-      expect(store.dimSlidersDisplay[0]).toSatisfy(Number.isInteger);
-      if (index === 6) {
-        expect(store.scalarAnimationTime?.label).toBe(
-          "04 Jan 2000 • 12:00:00.000"
-        );
-      }
-    }
+    });
   }
   bake.intermediateFrames = 20;
   await bake.resetPlayback();

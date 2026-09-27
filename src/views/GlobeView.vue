@@ -64,6 +64,10 @@ import {
   useScalarBake,
   type TScalarBakeHandle,
 } from "@/ui/grids/composables/useScalarBake.ts";
+import {
+  useScalarVideoExport,
+  SCALAR_VIDEO_EXPORT_KEY,
+} from "@/ui/grids/composables/useScalarVideoExport.ts";
 import GridCurvilinear from "@/ui/grids/Curvilinear.vue";
 import GridGaussianReduced from "@/ui/grids/GaussianReduced.vue";
 import GridHealpix from "@/ui/grids/Healpix.vue";
@@ -139,6 +143,9 @@ const {
 
 type TGlobeHandle = TScalarBakeHandle & {
   makeSnapshot: (options: TSnapshotOptions) => void;
+  createSnapshotRenderer: ReturnType<
+    typeof import("@/ui/grids/composables/useGridSnapshot.ts").useGridSnapshot
+  >["createSnapshotRenderer"];
   toggleRotate: () => void;
   applyCameraPreset: (state: TCameraState) => void;
 };
@@ -167,6 +174,14 @@ const scalarBake = useScalarBake(
   () => datasources.value
 );
 provide(SCALAR_BAKE_KEY, scalarBake);
+provide(
+  SCALAR_VIDEO_EXPORT_KEY,
+  useScalarVideoExport(
+    scalarBake,
+    () => globe.value,
+    () => props.src
+  )
+);
 const detectedGridType: Ref<T_GRID_TYPES | undefined> = ref(undefined);
 const infoPanelOpen = ref(false);
 
