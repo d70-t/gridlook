@@ -9,6 +9,7 @@ import {
 } from "@/ui/grids/composables/scalarInterpolation.ts";
 import { SCALAR_INTERPOLATION } from "@/ui/grids/composables/scalarTimeline.ts";
 import type { useScalarBake } from "@/ui/grids/composables/useScalarBake.ts";
+import type { useScalarFrames } from "@/ui/grids/composables/useScalarFrames.ts";
 
 // eslint-disable-next-line max-lines-per-function
 export async function checkScalarInterpolation(
@@ -95,5 +96,68 @@ export async function checkScalarInterpolation(
       (object.material as THREE.ShaderMaterial).uniforms.scalarMix.value
     ).toBe(0);
     expect(object.geometry.getAttribute("data_value_next")).toBeUndefined();
+  }
+}
+
+/** All adapters must render prepared magnitude using their normal GPU blend path. */
+// eslint-disable-next-line max-lines-per-function
+export async function checkMagnitudeFrames(
+  api: ReturnType<typeof useScalarFrames>,
+  store: ReturnType<typeof useGlobeControlStore>,
+  getObjects: () => TScalarObject[],
+  count: number
+) {
+  store.pathlineAnimationActive = true;
+  store.streamlineMagnitudeRequested =
+    store.streamlineMagnitudeDisplayed = true;
+  const geometryCache = new Map();
+  const prepare = (value: number, time: number) =>
+    api.prepareScalarFrame({
+      dimensionIndices: { time },
+      geometryCache,
+      magnitude: {
+        data: new Float32Array(count).fill(value),
+        min: value,
+        max: value,
+        units: "m s-1",
+        longName: "Wind speed",
+        standardName: "wind_speed",
+      },
+    });
+  const first = (await prepare(5, 0))!;
+  const next = (await prepare(10, 1))!;
+  expect(first.memory!.buffers).toContain(
+    first.interpolation!.values[0].buffer
+  );
+  expect(await api.commitScalarFrame(first)).toBe(true);
+  expect(store.varnameDisplay).toBe("wind_speed");
+  expect(store.varinfo?.attrs.units).toBe("m s-1");
+  expect(store.varinfo?.bounds).toEqual({ low: 5, high: 5 });
+  expect(
+    await api.commitScalarFrame(first, {
+      next,
+      alpha: 0.5,
+      timeIndex: 0,
+      label: "intermediate",
+    })
+  ).toBe(true);
+  expect(store.streamlineMagnitudeDisplayed).toBe(true);
+  expect(store.scalarAnimationTime?.label).toBe("intermediate");
+  for (const object of getObjects()) {
+    const material = object.material as THREE.ShaderMaterial;
+    const a =
+      object.geometry.getAttribute("data_value")?.array ??
+      material.uniforms.data.value.image.data;
+    const b =
+      object.geometry.getAttribute("data_value_next")?.array ??
+      material.uniforms.dataNext.value.image.data;
+    expect(material.uniforms.scalarMix.value).toBe(0.5);
+    for (let i = 0; i < a.length; i++) {
+      if (Number.isFinite(a[i])) {
+        expect(
+          interpolateScalarValue(a[i], b[i], material.uniforms.scalarMix.value)
+        ).toBe(7.5);
+      }
+    }
   }
 }

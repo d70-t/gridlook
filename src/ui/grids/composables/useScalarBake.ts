@@ -32,6 +32,7 @@ import {
   scalarPresentationFrame,
   type TScalarInterpolation,
 } from "./scalarTimeline.ts";
+import type { usePathlineLayer } from "./usePathlineLayer.ts";
 import type { useScalarFrames } from "./useScalarFrames.ts";
 
 import {
@@ -39,16 +40,30 @@ import {
   type TPathlineField,
 } from "@/lib/data/pathlineField.ts";
 import {
-  integratePathlines,
   planPathlineTrajectories,
   pathlinePositionAt,
-  pathlineSegments,
   type TPathlineTrajectories,
+  type TPathlineConfig,
 } from "@/lib/data/pathlineTrajectories.ts";
-import { isTimeCoordinate } from "@/lib/data/timeHandling.ts";
+import {
+  integratePathlinesInWorkers,
+  pathlineWorkerCount,
+  pathlineWorkerLimit,
+} from "@/lib/data/pathlineWorkers.ts";
+import { pathlineWorkerGrid } from "@/lib/data/pathlineWorkerTask.ts";
+import { isTimeCoordinate, timeUnitSeconds } from "@/lib/data/timeHandling.ts";
 import { resolveVectorVariablePair } from "@/lib/data/vectorField.ts";
+import type { TVectorMagnitudeData } from "@/lib/data/vectorMagnitude.ts";
+import {
+  PATHLINE_DISPLAY,
+  type TPathlineDisplay,
+} from "@/lib/layers/pathlinePreview.ts";
 import { ZARR_FORMAT, type TSources } from "@/lib/types/GlobeTypes.ts";
-import { useGlobeControlStore } from "@/store/store.ts";
+import {
+  BUILTIN_LAYER_IDS,
+  LAYER_OPACITY,
+  useGlobeControlStore,
+} from "@/store/store.ts";
 import { stopAnimation } from "@/ui/overlays/controls/useTimeAnimation.ts";
 
 export const SCALAR_BAKE_PHASE = {
@@ -68,7 +83,9 @@ export type TPreparedAnimation = {
   signal: AbortSignal;
   seek: (index: number) => Promise<void>;
 };
-export type TScalarBakeHandle = ReturnType<typeof useScalarFrames>;
+export type TScalarBakeHandle = ReturnType<typeof useScalarFrames> & {
+  pathlineDisplay?: ReturnType<typeof usePathlineLayer>;
+};
 
 // eslint-disable-next-line max-lines-per-function
 export function useScalarBake(
@@ -116,6 +133,32 @@ export function useScalarBake(
   const velocityFields: TPathlineField[] = [];
   let trajectories: TPathlineTrajectories | undefined;
   const trajectoryProgress = ref(0);
+  const hasPathlines = ref(false);
+  const fadeSeconds = ref(1);
+  const particleSize = ref(4);
+  const particleDisplayMode = ref<TPathlineDisplay>(PATHLINE_DISPLAY.PREVIEW);
+  const particleOpacity = computed({
+    get: () =>
+      store.layerStack.find(
+        (layer) => layer.id === BUILTIN_LAYER_IDS.STREAMLINES
+      )?.opacity ?? LAYER_OPACITY.MAX,
+    set: (opacity: number) =>
+      store.updateLayerOpacity(BUILTIN_LAYER_IDS.STREAMLINES, opacity),
+  });
+  let displayedSeconds = 0;
+  const pathlinePlaybackError = computed(() => {
+    if (!hasPathlines.value) {
+      return "";
+    }
+    if (!Number.isFinite(fadeSeconds.value) || fadeSeconds.value <= 0) {
+      return "Enter a positive fade duration.";
+    }
+    if (!Number.isFinite(particleSize.value) || particleSize.value <= 0) {
+      return "Enter a positive particle size.";
+    }
+    return "";
+  });
+  const pathlinesEnabled = computed(() => store.isStreamlineLayerEnabled());
   const geometry: TScalarGeometryCache = new Map();
   const allocations = new Set<ArrayBufferLike>();
   let retainedBytes = 0;
@@ -171,13 +214,17 @@ export function useScalarBake(
     if (store.live) {
       return "Turn off Live mode before preparing a fixed time range.";
     }
-    if (store.isStreamlineLayerEnabled() || store.isVolumeLayerEnabled()) {
-      return "Animation currently supports scalar fields and static layers. Turn off streamlines and volumes to continue.";
+    if (store.isVolumeLayerEnabled()) {
+      return "Turn off volumes to prepare animation. Scalar fields, pathlines and static layers are supported.";
+    }
+    if (pathlinesEnabled.value && !getHandle()?.pathlineDisplay) {
+      return "This renderer does not support prepared pathlines.";
     }
     return "";
   });
   const selectionKey = computed(() =>
     JSON.stringify({
+      inputRevision: store.animationInputRevision,
       variable: store.varnameSelector,
       dimensions: store.varinfo?.dimRanges.map(
         (range) => range && [range.name, range.minBound, range.maxBound]
@@ -186,10 +233,20 @@ export function useScalarBake(
         (_, index) => index !== time.value?.index
       ),
       projection: store.projectionMode,
-      layers: store.layerStack,
+      // Particle opacity is display-only; geometry, visibility and order still
+      // belong to the captured preparation settings.
+      layers: store.layerStack.map((layer) =>
+        layer.id === BUILTIN_LAYER_IDS.STREAMLINES
+          ? { ...layer, opacity: undefined }
+          : layer
+      ),
       live: store.live,
       velocitySelection: includeVelocity.value
-        ? [store.streamlineSelection, store.streamlineLevelIndex]
+        ? [
+            store.streamlineSelection,
+            store.streamlineLevelIndex,
+            store.streamlineMagnitudeRequested,
+          ]
         : undefined,
     })
   );
@@ -203,6 +260,14 @@ export function useScalarBake(
     }
   }
   function release() {
+    job?.handle.pathlineDisplay?.clear();
+    if (store.pathlineAnimationActive) {
+      store.streamlineMagnitudeDisplayed =
+        store.streamlineMagnitudeRequested &&
+        store.streamlineMagnitudeDerivable;
+      store.pathlineAnimationActive = false;
+    }
+    hasPathlines.value = false;
     frames.length = 0;
     velocity = undefined;
     velocityFields.length = 0;
@@ -286,7 +351,11 @@ export function useScalarBake(
     frames.push(frame);
     completed.value = frames.length;
   }
-  async function prepare(index: number, token: number) {
+  async function prepare(
+    index: number,
+    token: number,
+    magnitude?: TVectorMagnitudeData
+  ) {
     const active = job!;
     const frame = await active.handle.prepareScalarFrame({
       dimensionIndices: { ...active.selection, [active.timeName]: index },
@@ -294,6 +363,7 @@ export function useScalarBake(
       isCurrent: () => isCurrent(token),
       geometryCache: geometry,
       chunkConcurrency: active.chunkConcurrency,
+      magnitude,
     });
     if (!isCurrent(token)) {
       return;
@@ -303,28 +373,17 @@ export function useScalarBake(
         "The source changed or a timestep could not be prepared."
       );
     }
-    if (velocity) {
-      await attachVelocity(frame, index, token);
-      if (!isCurrent(token)) {
-        return;
-      }
-    }
     return frame;
   }
-  async function attachVelocity(
+  function attachVelocity(
     frame: TPreparedScalarFrame,
-    index: number,
-    token: number
+    prepared: Awaited<ReturnType<TPathlinePreparation["prepare"]>>
   ) {
     const active = velocity!;
     if (!samePathlineGrid(active.context, frame.pathlineGrid)) {
       throw new Error(
         "The grid changes between velocity keyframes; prepare a fixed grid."
       );
-    }
-    const prepared = await active.prepare(index);
-    if (!isCurrent(token)) {
-      return;
     }
     const first = velocityFields.length === 0;
     const memory = frame.memory!;
@@ -375,6 +434,7 @@ export function useScalarBake(
       surface: active.surface,
     };
   }
+  // eslint-disable-next-line max-lines-per-function
   async function estimateTrajectories(token: number) {
     const config = job!.config.pathlines;
     if (!config) {
@@ -383,35 +443,74 @@ export function useScalarBake(
     const inputs = trajectoryInputs();
     const planned = planPathlineTrajectories(inputs.sourceTimes, config);
     estimate.value!.trajectoryBytes = planned.bytes;
-    estimate.value!.retainedBytes += planned.bytes;
+    const display = job!.handle.pathlineDisplay?.estimate(
+      inputs.sourceTimes,
+      config
+    );
+    estimate.value!.pathlineDisplayBytes = display?.cpuBytes ?? 0;
+    estimate.value!.pathlinePreviewBytes = display?.preview?.bytes ?? 0;
+    if (!display?.preview) {
+      particleDisplayMode.value = PATHLINE_DISPLAY.TRAJECTORY;
+    }
+    estimate.value!.retainedBytes += planned.bytes + (display?.cpuBytes ?? 0);
+    estimate.value!.gpuBytes += display?.gpuBytes ?? 0;
+    const workers = pathlineWorkerCount(config);
+    // Each worker clones all source fields and rebuilds the same native index.
+    // During merging, the final arrays coexist with transferred worker results.
+    let geometryBytes = velocity!.sharedMemory.extraBytes;
+    for (const buffer of new Set(velocity!.sharedMemory.buffers)) {
+      geometryBytes += buffer.byteLength;
+    }
+    const values = velocityFields[0].values;
+    const fieldBytes = values.u.buffer.byteLength + values.v.buffer.byteLength;
+    const workerBytes =
+      workers * (geometryBytes + fieldBytes * inputs.sourceTimes.length);
+    estimate.value!.pathlineWorkerBytes = workerBytes;
+    estimate.value!.workingBytes +=
+      (display?.workingBytes ?? 0) +
+      workerBytes +
+      (workers > 1 ? planned.bytes : 0);
     estimate.value!.peakBytes =
       (estimate.value!.retainedBytes + estimate.value!.workingBytes) * 1.25;
-    const sampleCount = Math.min(config.particleCount, 8);
+    const sampleCount = Math.min(config.particleCount, 256);
     const duration = Math.min(
-      config.sampleSeconds,
+      config.sampleSeconds * 4,
       inputs.sourceTimes[1] - inputs.sourceTimes[0]
     );
     const started = performance.now();
-    const first = velocityFields[0];
-    // Calibration uses the available first field, not a forecast of later winds.
-    await integratePathlines(
+    let computeMs = 0;
+    // Use the same worker solver as preparation. Scale only measured integration
+    // time, excluding imports, index construction, warmup and main-thread yields.
+    const first = velocityFields[0].values;
+    await integratePathlinesInWorkers(
       {
-        ...inputs,
-        sourceTimes: [0, duration],
-        sample: (lat, lon) => first.sample(lat, lon),
+        grid: pathlineWorkerGrid(velocity!.context.grid),
+        times: [0, duration],
+        fields: [first, first],
       },
-      { ...config, particleCount: sampleCount },
-      { signal: controller!.signal, isCurrent: () => isCurrent(token) }
+      { ...config, particleCount: sampleCount, workerCount: 1 },
+      {
+        signal: controller!.signal,
+        isCurrent: () => isCurrent(token),
+        warmup: true,
+        onTiming: (ms) => {
+          computeMs = ms;
+        },
+      }
     );
     if (!isCurrent(token)) {
       return;
     }
     const ms =
-      ((((performance.now() - started) * config.particleCount) / sampleCount) *
+      (((Math.max(1, computeMs) * config.particleCount) / sampleCount) *
         planned.duration) /
       duration;
-    estimate.value!.secondsLow += ms / 2000;
-    estimate.value!.secondsHigh += ms / 500;
+    // Approximate parallel efficiency; progress replaces this calibration during
+    // integration. Index construction/startup and memory bandwidth still cost time.
+    const speedup = 1 + (workers - 1) * 0.7;
+    const setupMs = Math.max(0, performance.now() - started - computeMs);
+    estimate.value!.secondsLow += ms / speedup / 2000 + setupMs / 1000;
+    estimate.value!.secondsHigh += ms / speedup / 500 + setupMs / 500;
   }
   async function prepareTrajectories(token: number) {
     const config = job!.config.pathlines;
@@ -420,23 +519,95 @@ export function useScalarBake(
     }
     const started = performance.now();
     retainedBytes += estimate.value!.trajectoryBytes!;
-    estimate.value!.retainedBytes = retainedBytes;
-    const prepared = await integratePathlines(trajectoryInputs(), config, {
-      signal: controller!.signal,
-      isCurrent: () => isCurrent(token),
-      onProgress: (done, total) => {
-        if (isCurrent(token)) {
-          trajectoryProgress.value = done / total;
-          if (done) {
-            remainingSeconds.value =
-              ((performance.now() - started) / 1000 / done) * (total - done);
-          }
-        }
+    estimate.value!.retainedBytes = Math.max(
+      estimate.value!.retainedBytes,
+      retainedBytes
+    );
+    const prepared = await integratePathlinesInWorkers(
+      {
+        grid: pathlineWorkerGrid(velocity!.context.grid),
+        times: velocity!.times,
+        fields: velocityFields.map((field) => field.values),
       },
-    });
+      config,
+      {
+        signal: controller!.signal,
+        isCurrent: () => isCurrent(token),
+        onProgress: (done, total) => {
+          if (isCurrent(token)) {
+            trajectoryProgress.value = done / total;
+            if (done) {
+              remainingSeconds.value =
+                ((performance.now() - started) / 1000 / done) * (total - done);
+            }
+          }
+        },
+      }
+    );
     if (isCurrent(token)) {
       trajectories = prepared;
+      await job!.handle.pathlineDisplay?.install(
+        prepared,
+        config,
+        () => isCurrent(token),
+        velocity!.times
+      );
+      if (!isCurrent(token)) {
+        return;
+      }
+      retainedBytes += estimate.value!.pathlineDisplayBytes ?? 0;
+      estimate.value!.retainedBytes = Math.max(
+        estimate.value!.retainedBytes,
+        retainedBytes
+      );
     }
+  }
+  function refreshPathlines() {
+    if (pathlinePlaybackError.value) {
+      pause();
+      return;
+    }
+    if (
+      phase.value === SCALAR_BAKE_PHASE.READY &&
+      isCurrent(generation) &&
+      trajectories
+    ) {
+      job!.handle.pathlineDisplay?.seek(
+        displayedSeconds,
+        fadeSeconds.value,
+        particleSize.value,
+        exporting.value
+          ? PATHLINE_DISPLAY.TRAJECTORY
+          : particleDisplayMode.value
+      );
+    }
+  }
+  function defaultPathlineConfig(start: number, end: number): TPathlineConfig {
+    const coordinate = store.varinfo?.dimInfo[time.value?.index ?? -1];
+    let gap = Infinity;
+    if (coordinate && "values" in coordinate) {
+      const unit = timeUnitSeconds(coordinate.attrs?.units);
+      if (unit) {
+        for (let i = start; i < end && i + 1 < coordinate.values.length; i++) {
+          const dt =
+            (Number(coordinate.values[i + 1]) - Number(coordinate.values[i])) *
+            unit;
+          if (dt > 0 && Number.isFinite(dt)) {
+            gap = Math.min(gap, dt);
+          }
+        }
+      }
+    }
+    const sampleSeconds = Number.isFinite(gap) ? gap / 10 : 3600;
+    return {
+      particleCount: 4096,
+      workerCount: Math.min(4, Math.max(1, pathlineWorkerLimit() - 1)),
+      randomSeed: 42,
+      sampleSeconds,
+      maxStepSeconds: Math.min(sampleSeconds, 3600),
+      maxStepMetres: 10000,
+      errorToleranceMetres: 50,
+    };
   }
   function pathlinePosition(particle: number, seconds: number) {
     return phase.value === SCALAR_BAKE_PHASE.READY &&
@@ -444,17 +615,6 @@ export function useScalarBake(
       isCurrent(generation)
       ? pathlinePositionAt(trajectories, particle, seconds)
       : undefined;
-  }
-  function pathlineTrail(
-    particle: number,
-    seconds: number,
-    trailSeconds: number
-  ) {
-    return phase.value === SCALAR_BAKE_PHASE.READY &&
-      trajectories &&
-      isCurrent(generation)
-      ? [...pathlineSegments(trajectories, particle, seconds, trailSeconds)]
-      : [];
   }
   function finishCancelled() {
     if (phase.value === SCALAR_BAKE_PHASE.CANCELLING) {
@@ -479,13 +639,20 @@ export function useScalarBake(
     clear();
     config = {
       ...config,
-      pathlines: config.pathlines && { ...config.pathlines },
+      pathlines: config.pathlines
+        ? { ...config.pathlines }
+        : pathlinesEnabled.value
+          ? defaultPathlineConfig(config.start, config.end)
+          : undefined,
     };
     includeVelocity.value = !!(config.prepareVelocity || config.pathlines);
     const token = generation;
     try {
       if (unavailable.value) {
         throw new Error(unavailable.value);
+      }
+      if (config.pathlines) {
+        pathlineWorkerCount(config.pathlines);
       }
       if (store.loading) {
         throw new Error("Wait for the current timestep to finish loading.");
@@ -507,6 +674,11 @@ export function useScalarBake(
         timeName: range.name,
         selection,
       };
+      hasPathlines.value = !!config.pathlines;
+      if (config.pathlines) {
+        fadeSeconds.value = config.pathlines.sampleSeconds * 4;
+        store.pathlineAnimationActive = true;
+      }
       controller = new AbortController();
       phase.value = SCALAR_BAKE_PHASE.ESTIMATING;
       const layout = await job.handle.getScalarFrameLayout();
@@ -525,22 +697,19 @@ export function useScalarBake(
         job.source?.zarr_format !== ZARR_FORMAT.NETCDF
       );
       job.chunkConcurrency = source.chunkConcurrency;
-      const frame = await prepare(config.start, token);
+      let frame = await prepare(config.start, token);
       if (!frame) {
         finishCancelled();
         return;
       }
-      estimate.value = estimateScalarBake(
-        frame,
-        geometry,
-        source,
-        config.end - config.start + 1
-      );
+      let prepared:
+        Awaited<ReturnType<TPathlinePreparation["prepare"]>> | undefined;
       if (includeVelocity.value) {
         const pair = resolveVectorVariablePair(
           Object.keys(job.source?.levels[0]?.datasources ?? {}),
           store.varnameSelector,
-          store.streamlineSelection
+          store.streamlineSelection,
+          pathlinesEnabled.value ? store.streamlinePair : undefined
         );
         if (!pair || !job.source) {
           throw new Error(
@@ -562,12 +731,31 @@ export function useScalarBake(
           finishCancelled();
           return;
         }
-        const scalarBuffers = new Set(frame.memory!.buffers);
-        const prepared = await attachVelocity(frame, config.start, token);
-        if (!prepared) {
+        prepared = await velocity.prepare(
+          config.start,
+          !!config.pathlines && store.streamlineMagnitudeRequested
+        );
+        if (!isCurrent(token)) {
           finishCancelled();
           return;
         }
+        if (prepared.magnitude) {
+          frame = await prepare(config.start, token, prepared.magnitude);
+          if (!frame) {
+            finishCancelled();
+            return;
+          }
+        }
+      }
+      estimate.value = estimateScalarBake(
+        frame,
+        geometry,
+        source,
+        config.end - config.start + 1
+      );
+      if (prepared && velocity) {
+        const scalarBuffers = new Set(frame.memory!.buffers);
+        attachVelocity(frame, prepared);
         extendPathlineEstimate(
           estimate.value,
           velocity,
@@ -602,6 +790,7 @@ export function useScalarBake(
     }
   }
 
+  // eslint-disable-next-line max-lines-per-function
   async function bake() {
     if (phase.value !== SCALAR_BAKE_PHASE.PLANNED || !job || !estimate.value) {
       return;
@@ -616,17 +805,31 @@ export function useScalarBake(
         index <= active.config.end;
         index++
       ) {
-        const frame = await prepare(index, token);
+        const prepared = await velocity?.prepare(
+          index,
+          !!active.config.pathlines && store.streamlineMagnitudeRequested
+        );
+        if (!isCurrent(token)) {
+          finishCancelled();
+          return;
+        }
+        const frame = await prepare(index, token, prepared?.magnitude);
         if (!frame) {
           finishCancelled();
           return;
+        }
+        if (prepared) {
+          attachVelocity(frame, prepared);
         }
         retain(frame);
         elapsedSeconds.value = (performance.now() - start) / 1000;
         remainingSeconds.value =
           (elapsedSeconds.value / (frames.length - 1)) *
           (estimate.value!.count - frames.length);
-        estimate.value!.retainedBytes = retainedBytes;
+        estimate.value!.retainedBytes = Math.max(
+          estimate.value!.retainedBytes,
+          retainedBytes
+        );
         // Yield for progress/cancellation even when every source read is cached.
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
         if (!isCurrent(token)) {
@@ -652,6 +855,10 @@ export function useScalarBake(
   }
 
   function seek(index: number, forExport = false) {
+    if (pathlinePlaybackError.value) {
+      pause();
+      return Promise.resolve();
+    }
     if (
       phase.value !== SCALAR_BAKE_PHASE.READY ||
       (exporting.value && !forExport) ||
@@ -681,6 +888,10 @@ export function useScalarBake(
           frames.length,
           intermediateFrames.value
         );
+        if (velocity) {
+          displayedSeconds =
+            velocity.times[first] * (1 - alpha) + velocity.times[next] * alpha;
+        }
         store.scalarAnimationBounds ??= { ...store.selection };
         committed =
           isCurrent(token) &&
@@ -692,6 +903,9 @@ export function useScalarBake(
             label: timeline.label(first, alpha),
           }));
       } else {
+        if (velocity) {
+          displayedSeconds = velocity.times[index];
+        }
         store.scalarAnimationBounds = undefined;
         committed =
           isCurrent(token) &&
@@ -708,6 +922,7 @@ export function useScalarBake(
       }
       if (isCurrent(token)) {
         current.value = index;
+        refreshPathlines();
         commitMs.value = performance.now() - start;
       }
     } catch (error) {
@@ -759,6 +974,9 @@ export function useScalarBake(
     animationFrame = requestAnimationFrame(tick);
   }
   async function play() {
+    if (pathlinePlaybackError.value) {
+      return;
+    }
     if (
       phase.value !== SCALAR_BAKE_PHASE.READY ||
       seeking ||
@@ -794,6 +1012,9 @@ export function useScalarBake(
   async function withPreparedFrames<T>(
     run: (session: TPreparedAnimation) => Promise<T>
   ) {
+    if (pathlinePlaybackError.value) {
+      throw new Error(pathlinePlaybackError.value);
+    }
     if (
       phase.value !== SCALAR_BAKE_PHASE.READY ||
       exporting.value ||
@@ -807,6 +1028,9 @@ export function useScalarBake(
     let previous = current.value;
     const mode = interpolationMode.value;
     const steps = intermediateFrames.value;
+    const fade = fadeSeconds.value;
+    const size = particleSize.value;
+    const opacity = particleOpacity.value;
     const sessionController = new AbortController();
     exportController = sessionController;
     exporting.value = true;
@@ -815,7 +1039,10 @@ export function useScalarBake(
       if (
         !isCurrent(token) ||
         mode !== interpolationMode.value ||
-        steps !== intermediateFrames.value
+        steps !== intermediateFrames.value ||
+        fade !== fadeSeconds.value ||
+        size !== particleSize.value ||
+        opacity !== particleOpacity.value
       ) {
         throw new Error("Animation settings changed during export.");
       }
@@ -847,6 +1074,7 @@ export function useScalarBake(
       } finally {
         exporting.value = false;
         exportController = undefined;
+        refreshPathlines();
       }
     }
   }
@@ -893,8 +1121,16 @@ export function useScalarBake(
     cancelExport,
     sampleVelocity,
     pathlinePosition,
-    pathlineTrail,
     trajectoryProgress,
+    pathlinesEnabled,
+    hasPathlines,
+    fadeSeconds,
+    particleSize,
+    particleDisplayMode,
+    particleOpacity,
+    pathlinePlaybackError,
+    defaultPathlineConfig,
+    refreshPathlines,
     resetPlayback,
     plan,
     bake,

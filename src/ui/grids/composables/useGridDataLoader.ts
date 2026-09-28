@@ -139,6 +139,9 @@ function registerGridDataLoaderWatches(
         store.isInitializingVariable = false;
         return;
       }
+      // A manual dimension change leaves prepared playback; frame commits above
+      // use isInitializingVariable and must not invalidate their own sequence.
+      store.animationInputRevision++;
       await getData();
       options.updateColormap();
     },
@@ -162,7 +165,7 @@ function registerGridDataLoaderWatches(
   watch(
     () => store.streamlineScalarRevision,
     async () => {
-      if (state.updatingData.value) {
+      if (state.updatingData.value || store.pathlineAnimationActive) {
         return;
       }
       try {
@@ -183,8 +186,22 @@ function registerGridDataLoaderWatches(
     }
   );
   watch(
-    () => store.isStreamlineLayerEnabled(),
-    async (enabled) => {
+    [
+      () => store.isStreamlineLayerEnabled(),
+      () => store.pathlineAnimationActive,
+    ],
+    async ([enabled, prepared], [, wasPrepared]) => {
+      if (prepared) {
+        options.suspendStreamlines?.();
+        return;
+      }
+      if (wasPrepared) {
+        // Prepared frames may contain derived magnitude. Restore the selected
+        // scalar cache and ordinary flow together when leaving animation.
+        await getData();
+        options.updateColormap();
+        return;
+      }
       if (!enabled) {
         store.setStreamlineMagnitudeDisplayed(false);
         options.suspendStreamlines?.();

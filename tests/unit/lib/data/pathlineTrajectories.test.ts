@@ -4,6 +4,7 @@ import {
   pathlineGeographic,
   pathlineUnitVector,
   stepPathline,
+  createPathlineStepper,
   PATHLINE_WGS84,
   type TPathlineVelocity,
   type TPathlineVector,
@@ -11,7 +12,6 @@ import {
 import {
   integratePathlines,
   pathlinePositionAt,
-  pathlineSegments,
   planPathlineTrajectories,
   type TPathlineConfig,
   type TPathlineInputs,
@@ -24,8 +24,6 @@ const config: TPathlineConfig = {
   maxStepSeconds: 2,
   maxStepMetres: 100,
   errorToleranceMetres: 1,
-  lifetimeSeconds: 100,
-  respawn: false,
 };
 const constant =
   (u: number, v = 0): TPathlineVelocity =>
@@ -120,15 +118,14 @@ it("clips integration at source knots and reproduces time-dependent analytic adv
   const end = pathlineGeographic(pathlinePositionAt(data, 0, 10)!);
   expect(end.longitude).toBeCloseTo(longitudeFor(25.5), 9);
   expect(end.latitude).toBe(0);
+  const start = pathlineGeographic(pathlinePositionAt(data, 1, 0)!);
+  expect(start.longitude).toBeCloseTo(longitudeFor(-25.5), 9);
 });
 
-it("stores only numerical samples; physical seeking and trails are repeatable in any order", async () => {
+it("stores only numerical samples; physical seeking are repeatable in any order", async () => {
   const data = await integratePathlines(inputs, config);
   const bytes =
-    data.positions.byteLength +
-    data.times.byteLength +
-    data.generations.byteLength +
-    data.counts.byteLength;
+    data.positions.byteLength + data.times.byteLength + data.counts.byteLength;
   expect(bytes).toBe(
     planPathlineTrajectories(inputs.sourceTimes, config).bytes
   );
@@ -137,14 +134,8 @@ it("stores only numerical samples; physical seeking and trails are repeatable in
       pathlineGeographic(pathlinePositionAt(data, 0, t)!).longitude
     ).toBeCloseTo(longitudeFor(10 * t), 7);
   }
-  const segments = [...pathlineSegments(data, 0, 35, 12)];
-  expect(segments.map(({ fromTime, toTime }) => [fromTime, toTime])).toEqual([
-    [23, 30],
-    [30, 35],
-  ]);
-  expect([...pathlineSegments(data, 0, 0, 12)]).toEqual([]);
   expect(pathlinePositionAt(data, 0, 61)).toBeUndefined();
-  expect([...pathlineSegments(data, 0, 0, 100)]).toEqual([]); // Loop restart has no previous-cycle history.
+  expect(pathlinePositionAt(data, 0, -1)).toBeUndefined();
 });
 
 it("wraps geographic longitude while keeping Cartesian traces continuous", async () => {
@@ -154,10 +145,10 @@ it("wraps geographic longitude while keeping Cartesian traces continuous", async
   );
   const end = pathlineGeographic(pathlinePositionAt(data, 0, 60)!);
   expect(end.longitude).toBeCloseTo(-180.001 + longitudeFor(600), 5);
-  for (const segment of pathlineSegments(data, 0, 60, 60)) {
-    expect(Math.hypot(...segment.from)).toBeCloseTo(1);
-    expect(segment.from[0]).toBeLessThan(-0.99);
-    expect(segment.to[0]).toBeLessThan(-0.99);
+  for (const t of [0, 15, 30, 60]) {
+    const point = pathlinePositionAt(data, 0, t)!;
+    expect(Math.hypot(...point)).toBeCloseTo(1);
+    expect(point[0]).toBeLessThan(-0.99);
   }
 });
 
@@ -185,11 +176,6 @@ it("stops at unavailable data and records the last valid position, without extra
   expect(pathlinePositionAt(data, 0, 26)).toBeUndefined();
   const last = data.counts[0] - 1;
   expect(data.times[last]).toBeCloseTo(25, 3);
-  expect([...pathlineSegments(data, 0, 30, 10)].at(-1)!.toTime).toBeCloseTo(
-    25,
-    3
-  );
-  expect([...pathlineSegments(data, 0, 50, 10)]).toEqual([]);
 });
 
 it("bounds displacement so a resolved missing band is not skipped", async () => {
@@ -205,40 +191,109 @@ it("bounds displacement so a resolved missing band is not skipped", async () => 
   expect(data.times[data.counts[0] - 1]).toBeCloseTo(1, 3);
 });
 
-it("reseeds deterministically with explicit lifetime gaps and separate trail generations", async () => {
+it("spreads random anchors evenly across keyframes and integrates each in both directions", async () => {
+  const anchors: number[] = [];
+  const settings = { ...config, particleCount: 8, sampleSeconds: 13 };
   const seeded = {
     ...inputs,
+    sourceTimes: [0, 7, 60],
     seedPosition: (u: number, v: number) => ({
       latitude: v * 10,
       longitude: u * 10,
     }),
+    sample: vi.fn(constant(10)),
   };
-  const settings = { ...config, lifetimeSeconds: 12, respawn: true };
-  const a = await integratePathlines(seeded, settings);
+  const a = await integratePathlines(seeded, settings, {
+    onProgress: (done) => {
+      if (done) {
+        anchors.push(seeded.sample.mock.calls.at(-1)![2]);
+      }
+    },
+  });
   const b = await integratePathlines(seeded, settings);
   const c = await integratePathlines(seeded, { ...settings, randomSeed: 43 });
   expect(a.positions).toEqual(b.positions);
   expect(a.times).toEqual(b.times);
-  expect(a.generations).toEqual(b.generations);
   expect(a.positions).not.toEqual(c.positions);
-  expect(pathlinePositionAt(a, 0, 15)).toBeUndefined();
-  expect(pathlinePositionAt(a, 0, 20)).toBeDefined();
-  expect(pathlinePositionAt(a, 0, 0)).not.toEqual(pathlinePositionAt(a, 1, 0));
+  for (let particle = 0; particle < settings.particleCount; particle++) {
+    const first = particle * a.capacity,
+      count = a.counts[particle];
+    const times = Array.from(a.times.subarray(first, first + count));
+    expect(count).toBeLessThanOrEqual(a.capacity);
+    expect(times[0]).toBe(0);
+    expect(times.at(-1)).toBe(60);
+    expect(times).toContain(seeded.sourceTimes[particle % 3]);
+    expect(times.every((t, i) => i === 0 || t > times[i - 1])).toBe(true);
+    const start = pathlineGeographic(pathlinePositionAt(a, particle, 0)!);
+    const end = pathlineGeographic(pathlinePositionAt(a, particle, 60)!);
+    const lat = (start.latitude * Math.PI) / 180;
+    const e2 = PATHLINE_WGS84.flattening * (2 - PATHLINE_WGS84.flattening);
+    expect(end.longitude - start.longitude).toBeCloseTo(
+      (longitudeFor(600) * Math.sqrt(1 - e2 * Math.sin(lat) ** 2)) /
+        Math.cos(lat),
+      5
+    );
+  }
+  // Backward-only end anchors finish at the selection start; all other
+  // anchors finish their forward branch at the selection end.
+  expect(anchors).toEqual([60, 60, 0, 60, 60, 0, 60, 60]);
+});
+
+it("splits backward steps at source knots and stops at missing data in either direction", async () => {
+  const sample = vi.fn<TPathlineVelocity>((_lat, _lon, t) =>
+    t >= 5 && t <= 45
+      ? { u: Math.min(t, 30), v: 0, speed: Math.min(t, 30) }
+      : undefined
+  );
+  const data = await integratePathlines(
+    { ...inputs, sample },
+    { ...config, particleCount: 3, sampleSeconds: 60, maxStepSeconds: 10 }
+  );
+  // Only the middle keyframe can seed a particle. Its anchor remains at (0, 0).
+  expect(Array.from(data.counts)).toEqual([0, 3, 0]);
+  expect(pathlineGeographic(pathlinePositionAt(data, 1, 30)!).longitude).toBe(
+    0
+  );
+  const first = data.capacity,
+    last = first + data.counts[1] - 1;
+  expect(data.times[first]).toBeCloseTo(5, 3);
+  expect(data.times[last]).toBeCloseTo(45, 3);
   expect(
-    [...pathlineSegments(a, 0, 25, 25)].map(
-      ({ fromTime, toTime, generation }) => [fromTime, toTime, generation]
-    )
-  ).toEqual([
-    [0, 10, 1],
-    [10, 12, 1],
-    [20, 25, 3],
-  ]);
+    pathlineGeographic(
+      Array.from(
+        data.positions.subarray(first * 3, first * 3 + 3)
+      ) as TPathlineVector
+    ).longitude
+  ).toBeCloseTo(longitudeFor(-437.5), 7);
+  expect(
+    pathlineGeographic(
+      Array.from(
+        data.positions.subarray(last * 3, last * 3 + 3)
+      ) as TPathlineVector
+    ).longitude
+  ).toBeCloseTo(longitudeFor(450), 7);
+  expect(pathlinePositionAt(data, 1, 4)).toBeUndefined();
+  expect(pathlinePositionAt(data, 1, 46)).toBeUndefined();
+});
+
+it("evaluates negative RK3(2) stages in actual decreasing dataset time", () => {
+  const sample = vi.fn<TPathlineVelocity>((_lat, _lon, t) => ({
+    u: 2 * t,
+    v: 0,
+    speed: 2 * t,
+  }));
+  const step = stepPathline([1, 0, 0], 10, -10, sample)!;
+  expect(sample.mock.calls.map((call) => call[2])).toEqual([10, 5, 2.5, 0]);
+  expect(pathlineGeographic(step.point).longitude).toBeCloseTo(
+    longitudeFor(-100),
+    10
+  );
 });
 
 it("bounds unsuccessful seeding and responds to cancellation during integration", async () => {
   const empty = await integratePathlines(
     { ...inputs, sample: () => undefined },
-    { ...config, respawn: true }
+    config
   );
   expect([...empty.counts]).toEqual([0, 0]);
   const controller = new AbortController();
@@ -280,3 +335,54 @@ it("rejects incompatible times and unrepresentable trajectory arrays", () => {
   ).toThrow();
   expect(pathlineUnitVector({ latitude: 0, longitude: 0 })).toEqual([1, 0, 0]);
 });
+
+it("reuses RK start/endpoint derivatives without changing accepted or retried steps", () => {
+  const sample = vi.fn(accelerating);
+  const step = createPathlineStepper(sample);
+  const point: TPathlineVector = [1, 0, 0];
+  const first = step(point, 0, 1)!;
+  expect(first).toEqual(stepPathline(point, 0, 1, accelerating));
+  expect(sample).toHaveBeenCalledTimes(4);
+  const retry = step(point, 0, 0.5)!;
+  expect(retry).toEqual(stepPathline(point, 0, 0.5, accelerating));
+  expect(sample).toHaveBeenCalledTimes(7);
+  const next = step(retry.point, 0.5, 0.5)!;
+  expect(next).toEqual(stepPathline(retry.point, 0.5, 0.5, accelerating));
+  expect(sample).toHaveBeenCalledTimes(10);
+});
+
+it.each([2, 7])(
+  "preserves global seeds and anchor times across partitions (%i particles)",
+  async (particleCount) => {
+    const settings = { ...config, particleCount };
+    const source = {
+      ...inputs,
+      seedPosition: (u: number, v: number) => ({
+        latitude: u * 40 - 20,
+        longitude: v * 100,
+      }),
+    };
+    const all = await integratePathlines(source, settings);
+    const split = Math.floor(particleCount / 2);
+    for (const [start, end] of [
+      [0, split],
+      [split, particleCount],
+    ]) {
+      const part = await integratePathlines(source, settings, {
+        particleStart: start,
+        particleEnd: end,
+        yieldToUI: false,
+      });
+      expect(part.counts).toEqual(all.counts.slice(start, end));
+      expect(part.times).toEqual(
+        all.times.slice(start * all.capacity, end * all.capacity)
+      );
+      expect(part.positions).toEqual(
+        all.positions.slice(start * all.capacity * 3, end * all.capacity * 3)
+      );
+    }
+    await expect(
+      integratePathlines(source, settings, { particleStart: -1 })
+    ).rejects.toThrow(/range/);
+  }
+);

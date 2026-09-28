@@ -124,6 +124,9 @@ export function useIrregularStreamlines(options: TOptions) {
   // eslint-disable-next-line max-lines-per-function
   async function refresh(reuseCached = false) {
     const revision = ++requestRevision;
+    if (store.pathlineAnimationActive) {
+      return;
+    }
     const datasources = options.getDatasources();
     const context = currentContext;
     const pair = resolveVectorVariablePair(

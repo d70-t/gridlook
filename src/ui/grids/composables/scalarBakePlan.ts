@@ -33,7 +33,10 @@ export type TScalarBakeEstimate = {
   workingBytes: number;
   sourceWorkingBytes: number;
   vectorBytes?: number;
+  pathlineWorkerBytes?: number;
   trajectoryBytes?: number;
+  pathlineDisplayBytes?: number;
+  pathlinePreviewBytes?: number;
   chunkConcurrency?: number;
   uniqueChunks: number;
   decodedBytes: number;

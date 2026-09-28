@@ -2,7 +2,10 @@ import * as THREE from "three";
 import { expect, it, vi } from "vitest";
 import { effectScope, ref } from "vue";
 
-import { checkScalarInterpolation } from "./scalarInterpolationAssertions.ts";
+import {
+  checkScalarInterpolation,
+  checkMagnitudeFrames,
+} from "./scalarInterpolationAssertions.ts";
 
 import {
   createPathlineGrid,
@@ -419,6 +422,18 @@ it.each(cases)(
       await checkPreparation(api, store);
       const bake = scope.run(() => useScalarBake(() => api))!;
       await checkBake(bake, store);
+      const fieldReads = () =>
+        h.getData.mock.calls.filter(
+          ([request]) => request.variable === store.varnameSelector
+        ).length;
+      const reads = fieldReads();
+      await checkMagnitudeFrames(
+        api,
+        store,
+        () => h.scene!.children as THREE.Mesh[],
+        h.shape.slice(1).reduce((a, b) => a * b, 1)
+      );
+      expect(fieldReads()).toBe(reads);
     } finally {
       scope.stop();
     }

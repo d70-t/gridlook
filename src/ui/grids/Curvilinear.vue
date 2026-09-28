@@ -10,6 +10,7 @@ import {
 } from "./composables/gridHoverUtils.ts";
 import {
   fetchScalarFrameData,
+  decodeScalarFrameData,
   getScalarFrameDimensions,
   type TPreparedScalarFrame,
   type TScalarFrameRequest,
@@ -36,10 +37,7 @@ import {
   isProjectedYName,
 } from "@/lib/data/coordinateVariables.ts";
 import { PATHLINE_GRID } from "@/lib/data/pathlineField.ts";
-import {
-  castDataVarToFloat32,
-  decodeVariableDataAndGetBounds,
-} from "@/lib/data/variableDecoding.ts";
+import { castDataVarToFloat32 } from "@/lib/data/variableDecoding.ts";
 import type { TVectorMagnitudeData } from "@/lib/data/vectorMagnitude.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
@@ -77,6 +75,7 @@ let magnitudeContext:
   | undefined;
 
 const {
+  pathlineDisplay,
   getScene,
   getRenderer,
   redraw,
@@ -399,9 +398,10 @@ async function prepareFrame(
   if (!isCurrent()) {
     return;
   }
-  const { min, max, missingValue, fillValue } = decodeVariableDataAndGetBounds(
+  const { min, max, missingValue, fillValue } = decodeScalarFrameData(
     datavar,
-    rawData
+    rawData,
+    request
   );
   const { hoverIndexData, latitudesData, longitudesData, render, batches } =
     await buildGridInWorker(
@@ -512,6 +512,7 @@ onBeforeUnmount(() => {
 });
 
 defineExpose({
+  pathlineDisplay,
   makeSnapshot,
   createSnapshotRenderer,
   toggleRotate,

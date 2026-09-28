@@ -105,6 +105,7 @@ const { logError } = useLog();
 const { varnameSelector, colormap, invertColormap } = storeToRefs(store);
 
 const {
+  pathlineDisplay,
   getScene,
   getRenderer,
   redraw,
@@ -526,6 +527,9 @@ async function updateStreamlines(
   reuseCached = false
 ) {
   const requestRevision = ++streamlineRequestRevision;
+  if (store.pathlineAnimationActive) {
+    return;
+  }
   const variableNames = Object.keys(
     props.datasources?.levels[0]?.datasources ?? {}
   );
@@ -806,8 +810,10 @@ async function processHealpixChunks(
         semi_minor_axis: grid.semiMajorAxis * (1 - grid.flattening),
       },
     },
-    attributes: datavar.attrs,
-    ...getHealpixMissingAndFillValues(datavar),
+    attributes: request.magnitude ? {} : datavar.attrs,
+    ...(request.magnitude
+      ? { missingValue: NaN, fillValue: NaN }
+      : getHealpixMissingAndFillValues(datavar)),
     projectionType: helper.type,
     projectionCenter: { lat: helper.center.lat, lon: helper.center.lon },
   };
@@ -1034,6 +1040,7 @@ onBeforeUnmount(() => {
 });
 
 defineExpose({
+  pathlineDisplay,
   prepareScalarFrame,
   commitScalarFrame,
   getScalarFrameLayout,

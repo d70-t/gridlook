@@ -15,6 +15,7 @@ import type {
 } from "./composables/gridHoverUtils.ts";
 import {
   fetchScalarFrameData,
+  decodeScalarFrameData,
   getScalarFrameDimensions,
   type TPreparedScalarFrame,
   type TScalarFrameRequest,
@@ -43,10 +44,7 @@ import {
 import { downsampleDataTexture } from "@/lib/data/dataTexture.ts";
 import { PATHLINE_GRID } from "@/lib/data/pathlineField.ts";
 import { loadVectorComponents } from "@/lib/data/streamlineData.ts";
-import {
-  castDataVarToFloat32,
-  decodeVariableDataAndGetBounds,
-} from "@/lib/data/variableDecoding.ts";
+import { castDataVarToFloat32 } from "@/lib/data/variableDecoding.ts";
 import {
   IrregularVectorField,
   RegularVectorField,
@@ -93,6 +91,7 @@ const { logError } = useLog();
 const { colormap, varnameSelector, invertColormap } = storeToRefs(store);
 
 const {
+  pathlineDisplay,
   getScene,
   getRenderer,
   redraw,
@@ -890,6 +889,9 @@ async function updateStreamlines(
   reuseCached = false
 ) {
   const requestRevision = ++streamlineRequestRevision;
+  if (store.pathlineAnimationActive) {
+    return;
+  }
   const pair = selectedVectorPair();
   if (!pair || isLatOnly.value || !props.datasources) {
     cachedMagnitude = undefined;
@@ -1016,9 +1018,10 @@ async function prepareFrame(
   if (!isCurrent()) {
     return;
   }
-  const { min, max, missingValue, fillValue } = decodeVariableDataAndGetBounds(
+  const { min, max, missingValue, fillValue } = decodeScalarFrameData(
     datavar,
-    rawData
+    rawData,
+    request
   );
 
   const hoverIndex = buildHoverSamples(rawData);
@@ -1133,6 +1136,7 @@ onBeforeUnmount(() => {
 });
 
 defineExpose({
+  pathlineDisplay,
   prepareScalarFrame,
   commitScalarFrame,
   getScalarFrameLayout,

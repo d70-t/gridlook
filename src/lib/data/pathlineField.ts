@@ -1,5 +1,5 @@
 import { around, distance } from "geokdbush";
-import type { Grid } from "healpix-geo";
+import { Ellipsoid, nested, ring, zuniq, type Grid } from "healpix-geo";
 import KDBush from "kdbush";
 import proj4 from "proj4";
 
@@ -31,7 +31,13 @@ export type TPathlineGridContext = {
   spatialDimensionNames: string[];
   spatialShape: number[];
 };
+export type TPathlineValues = {
+  u: Float32Array;
+  v: Float32Array;
+  gridRelative: boolean;
+};
 export type TPathlineField = {
+  values: TPathlineValues;
   /** Eastward/northward velocity in metres per second. No visual speed scaling. */
   sample: (latitude: number, longitude: number) => TVectorSample | undefined;
 };
@@ -243,12 +249,20 @@ export function createPathlineGrid(grid: TPathlineGrid) {
     }
     // Map entries are browser-owned allocations; reserve 64 bytes per entry.
     extraBytes = (grid.cells?.length ?? 0) * 72;
-    const coords = new Float64Array(2);
-    buffers = [coords.buffer];
+    const ellipsoid = Ellipsoid.from(
+      grid.grid.flattening === 0
+        ? { radius: grid.grid.semiMajorAxis }
+        : {
+            // eslint-disable-next-line camelcase -- healpix-geo input keys
+            semi_major_axis: grid.grid.semiMajorAxis,
+            // eslint-disable-next-line camelcase -- healpix-geo input keys
+            inverse_flattening: 1 / grid.grid.flattening,
+          }
+    );
+    const pixelAt = { nested, ring, zuniq }[grid.grid.scheme].lonLatToHealpix;
+    const level = grid.grid.level;
     weights = (lat, lon) => {
-      coords[0] = lon;
-      coords[1] = lat;
-      const pixel = Number(grid.grid.lonLatToHealpix(coords)[0]);
+      const pixel = Number(pixelAt(lon, lat, level, ellipsoid));
       const i = cells ? cells.get(pixel) : pixel;
       return i !== undefined && i >= 0 && i < length
         ? { indices: [i], weights: [1] }
@@ -266,6 +280,36 @@ export function createPathlineGrid(grid: TPathlineGrid) {
       }
       return regularWeights(grid.x, grid.y, x, y, geographicX);
     };
+  }
+  // Adjacent time fields sample identical coordinates. Keep only the latest
+  // geometry lookup (including misses), independently of field values/masks.
+  let lastLat = NaN,
+    lastLon = NaN;
+  let cachedWeights: TWeights | undefined;
+  let cachedBasis: number[][] | undefined;
+  function lookupAt(lat: number, lon: number) {
+    if (lat !== lastLat || lon !== lastLon) {
+      lastLat = lat;
+      lastLon = lon;
+      cachedWeights = weights(lat, lon);
+      cachedBasis = undefined;
+    }
+    return cachedWeights;
+  }
+  function basis(lat: number, lon: number) {
+    const [x, y] = projection!.inverse([lon, lat]);
+    const direction = (dx: number, dy: number) => {
+      const a = projection!.forward([x - dx, y - dy]);
+      const b = projection!.forward([x + dx, y + dy]);
+      const e = wrap(b[0] - a[0]) * Math.cos(lat * RAD),
+        n =
+          ((b[1] - a[1]) * (1 - WGS84_ECCENTRICITY_SQUARED)) /
+          (1 - WGS84_ECCENTRICITY_SQUARED * Math.sin(lat * RAD) ** 2);
+      const norm = Math.hypot(e, n);
+      return [e / norm, n / norm];
+    };
+    // Central differences work for projected metres and rotated degrees.
+    return [direction(1e-3, 0), direction(0, 1e-3)];
   }
   return {
     length,
@@ -313,6 +357,7 @@ export function createPathlineGrid(grid: TPathlineGrid) {
         );
       }
       return {
+        values: { u, v, gridRelative },
         sample(lat, lon) {
           if (
             !Number.isFinite(lat) ||
@@ -321,7 +366,7 @@ export function createPathlineGrid(grid: TPathlineGrid) {
           ) {
             return;
           }
-          const lookup = weights(lat, lon);
+          const lookup = lookupAt(lat, lon);
           if (!lookup) {
             return;
           }
@@ -340,20 +385,7 @@ export function createPathlineGrid(grid: TPathlineGrid) {
             north += v[i] * weight;
           }
           if (gridRelative) {
-            const [x, y] = projection!.inverse([lon, lat]);
-            const direction = (dx: number, dy: number) => {
-              const a = projection!.forward([x - dx, y - dy]);
-              const b = projection!.forward([x + dx, y + dy]);
-              const e = wrap(b[0] - a[0]) * Math.cos(lat * RAD),
-                n =
-                  ((b[1] - a[1]) * (1 - WGS84_ECCENTRICITY_SQUARED)) /
-                  (1 - WGS84_ECCENTRICITY_SQUARED * Math.sin(lat * RAD) ** 2);
-              const norm = Math.hypot(e, n);
-              return [e / norm, n / norm];
-            };
-            // Central differences work for projected metres and rotated degrees.
-            const ex = direction(1e-3, 0),
-              ey = direction(0, 1e-3);
+            const [ex, ey] = (cachedBasis ??= basis(lat, lon));
             [east, north] = [
               east * ex[0] + north * ey[0],
               east * ex[1] + north * ey[1],

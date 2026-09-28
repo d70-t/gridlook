@@ -10,6 +10,7 @@ import {
 } from "./composables/gridHoverUtils.ts";
 import {
   fetchScalarFrameData,
+  decodeScalarFrameData,
   getScalarFrameDimensions,
   type TPreparedScalarFrame,
   type TScalarFrameRequest,
@@ -30,10 +31,7 @@ import {
   loadTriangularMesh,
   type TTriangularMesh,
 } from "@/lib/data/triangularMesh.ts";
-import {
-  castDataVarToFloat32,
-  decodeVariableDataAndGetBounds,
-} from "@/lib/data/variableDecoding.ts";
+import { castDataVarToFloat32 } from "@/lib/data/variableDecoding.ts";
 import type { TVectorMagnitudeData } from "@/lib/data/vectorMagnitude.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
@@ -70,6 +68,7 @@ let meshes: THREE.Mesh[] = [];
 let triangularMesh: TTriangularMesh | null = null;
 
 const {
+  pathlineDisplay,
   getScene,
   redraw,
   makeSnapshot,
@@ -342,9 +341,10 @@ async function prepareFrame(
   if (!isCurrent()) {
     return;
   }
-  const { min, max, missingValue, fillValue } = decodeVariableDataAndGetBounds(
+  const { min, max, missingValue, fillValue } = decodeScalarFrameData(
     datavar,
-    plotData
+    plotData,
+    request
   );
   const batches: TGridDataValueBatch[] = [];
   const result = await buildTriangularData(
@@ -433,6 +433,7 @@ onBeforeUnmount(() => {
 });
 
 defineExpose({
+  pathlineDisplay,
   makeSnapshot,
   createSnapshotRenderer,
   toggleRotate,

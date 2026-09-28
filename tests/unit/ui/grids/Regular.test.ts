@@ -3,7 +3,10 @@ import * as THREE from "three";
 import { expect, it, vi } from "vitest";
 import { effectScope, watch } from "vue";
 
-import { checkScalarInterpolation } from "./scalarInterpolationAssertions.ts";
+import {
+  checkScalarInterpolation,
+  checkMagnitudeFrames,
+} from "./scalarInterpolationAssertions.ts";
 
 import {
   createPathlineGrid,
@@ -210,6 +213,14 @@ it.each([
       await expectPreparedFrames(api, store, mesh);
       const bake = scope.run(() => useScalarBake(() => api))!;
       await expectBakedFrames(bake, store, mesh);
+      const reads = vi.mocked(getGridVariableData).mock.calls.length;
+      await checkMagnitudeFrames(
+        api,
+        store,
+        () => [mesh],
+        latitudeOnly ? 2 : 4
+      );
+      expect(getGridVariableData).toHaveBeenCalledTimes(reads);
     } finally {
       scope.stop();
     }

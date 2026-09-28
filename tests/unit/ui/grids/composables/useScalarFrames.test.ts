@@ -5,6 +5,7 @@ import type * as zarr from "zarrita";
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
 import {
   getScalarFrameDimensions,
+  decodeScalarFrameData,
   type TScalarFrameRequest,
   type TPreparedScalarFrame,
 } from "@/ui/grids/composables/scalarFrame.ts";
@@ -326,4 +327,30 @@ it("updates dependent layer context only at source boundaries during interpolati
   } finally {
     h.scope.stop();
   }
+});
+
+it("does not apply source packing or missing values to prepared magnitude", () => {
+  const data = new Float32Array([0, 5, NaN, 10]);
+  const result = decodeScalarFrameData(
+    {
+      attrs: { ["scale_factor"]: 2, ["add_offset"]: 100, ["_FillValue"]: 0 },
+    } as never,
+    data,
+    {
+      magnitude: {
+        data,
+        min: 0,
+        max: 10,
+        units: "m s-1",
+        longName: "Wind speed",
+      },
+    } as TScalarFrameRequest
+  );
+  expect(result).toEqual({
+    min: 0,
+    max: 10,
+    missingValue: NaN,
+    fillValue: NaN,
+  });
+  expect([...data]).toEqual([0, 5, NaN, 10]);
 });

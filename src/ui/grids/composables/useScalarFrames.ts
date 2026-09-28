@@ -17,6 +17,7 @@ import {
 } from "./scalarInterpolation.ts";
 import { createGridHistogramSummary } from "./useGridHistogram.ts";
 import type { useScalarFieldCache } from "./useScalarFieldCache.ts";
+import { createVectorMagnitudeVarInfo } from "./vectorMagnitudeScalar.ts";
 
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
@@ -78,6 +79,7 @@ export function useScalarFrames(options: TScalarFramesOptions) {
       presetMinBounds: { ...parameters.paramDimMinBounds },
       presetMaxBounds: { ...parameters.paramDimMaxBounds },
       signal,
+      magnitude: input.magnitude,
       geometryCache: input.geometryCache,
       chunkConcurrency: input.chunkConcurrency,
       timing: { fetchMs: 0 },
@@ -120,6 +122,14 @@ export function useScalarFrames(options: TScalarFramesOptions) {
     if (!frame || !request.isCurrent()) {
       return;
     }
+    if (request.magnitude) {
+      frame.name = request.magnitude.standardName ?? "vector_magnitude";
+      frame.info = createVectorMagnitudeVarInfo(
+        frame.info,
+        request.magnitude,
+        store.streamlinePair
+      )!;
+    }
     const histogram = createGridHistogramSummary(
       frame.data,
       frame.info.bounds.low ?? NaN,
@@ -131,7 +141,13 @@ export function useScalarFrames(options: TScalarFramesOptions) {
       const histogramMemory = scalarFrameMemory(undefined, histogram);
       frame.memory = {
         ...frame.memory,
-        buffers: [...frame.memory.buffers, ...histogramMemory.buffers],
+        buffers: [
+          ...new Set([
+            ...frame.memory.buffers,
+            ...histogramMemory.buffers,
+            ...(request.magnitude ? [request.magnitude.data.buffer] : []),
+          ]),
+        ],
         extraBytes: frame.memory.extraBytes + histogramMemory.extraBytes,
       };
     }
@@ -224,7 +240,7 @@ export function useScalarFrames(options: TScalarFramesOptions) {
     if (!isCurrent()) {
       return false;
     }
-    if (!store.streamlineMagnitudeDisplayed) {
+    if (store.pathlineAnimationActive || !store.streamlineMagnitudeDisplayed) {
       await options.scalarCache.restoreScalar();
     }
     if (!isCurrent()) {

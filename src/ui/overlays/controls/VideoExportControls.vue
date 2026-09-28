@@ -27,6 +27,7 @@ const valid = computed(
   () =>
     animation &&
     animation.frameCount > 0 &&
+    !animation.pathlinePlaybackError &&
     Number.isFinite(animation.fps) &&
     animation.fps >= 1 &&
     animation.fps <= 60

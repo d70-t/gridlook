@@ -1,6 +1,6 @@
-import { Grid } from "healpix-geo";
+import { Grid, nested } from "healpix-geo";
 import proj4 from "proj4";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 
 import {
   createPathlineGrid,
@@ -186,4 +186,28 @@ it("rotates winds and wraps longitude on a rotated-pole grid", () => {
       )
       .sample(seamLat, seamLon)?.u
   ).toBeCloseTo(3);
+});
+
+it("shares a HEALPix geometry lookup across time fields, including masks", () => {
+  using hp = new Grid({
+    level: 2,
+    scheme: "nested",
+    ellipsoid: { radius: 6370997 },
+  });
+  const spy = vi.spyOn(nested, "lonLatToHealpix");
+  const grid = createPathlineGrid({ kind: PATHLINE_GRID.HEALPIX, grid: hp });
+  const fields = [1, 3, NaN].map((u) =>
+    grid.field(
+      new Float32Array(grid.length).fill(u),
+      new Float32Array(grid.length),
+      false
+    )
+  );
+  expect(samplePathlineTime([0, 1, 2], fields, 20, 10, 0.5)?.u).toBe(2);
+  expect(spy).toHaveBeenCalledTimes(1);
+  expect(samplePathlineTime([0, 1, 2], fields, 20, 10, 1.5)).toBeUndefined();
+  expect(spy).toHaveBeenCalledTimes(1);
+  expect(samplePathlineTime([0, 1, 2], fields, 21, 10, 0.5)?.u).toBe(2);
+  expect(spy).toHaveBeenCalledTimes(2);
+  spy.mockRestore();
 });

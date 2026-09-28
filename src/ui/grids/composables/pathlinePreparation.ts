@@ -24,6 +24,10 @@ import {
   decodeVariableDataAndGetBounds,
 } from "@/lib/data/variableDecoding.ts";
 import type { TVectorVariablePair } from "@/lib/data/vectorField.ts";
+import {
+  createVectorMagnitudeData,
+  resolveVectorMagnitude,
+} from "@/lib/data/vectorMagnitude.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { getGridVariableData } from "@/lib/grids/gridDataWorkerClient.ts";
 import { ZARR_FORMAT, type TSources } from "@/lib/types/GlobeTypes.ts";
@@ -40,7 +44,7 @@ type TOptions = {
   isCurrent: () => boolean;
 };
 
-function assertCurrent(options: TOptions) {
+function assertCurrent(options: Pick<TOptions, "isCurrent">) {
   if (!options.isCurrent()) {
     throw new DOMException("Velocity preparation cancelled", "AbortError");
   }
@@ -328,6 +332,9 @@ export async function planPathlinePreparation(options: TOptions) {
   });
   assertCurrent(options);
   const geometryMs = performance.now() - start;
+  // Retained velocity readers must not keep the initial scalar field alive when
+  // preparation replaces it with a magnitude background.
+  const current = { isCurrent: options.isCurrent };
   return {
     times,
     seedPosition: grid.seedPosition,
@@ -350,7 +357,7 @@ export async function planPathlinePreparation(options: TOptions) {
       decodedBytes: costs[0].decodedBytes + costs[1].decodedBytes,
       workingBytes: costs[0].workingBytes + costs[1].workingBytes,
     },
-    async prepare(index: number) {
+    async prepare(index: number, magnitude = false) {
       if (
         !Number.isSafeInteger(index) ||
         index < config.start ||
@@ -362,7 +369,7 @@ export async function planPathlinePreparation(options: TOptions) {
       const data: Float32Array[] = [];
       let fetchMs = 0;
       for (const [i, variable] of [pair.u, pair.v].entries()) {
-        assertCurrent(options);
+        assertCurrent(current);
         const indices = [...selection];
         indices[timeDimension] = index;
         const before = performance.now();
@@ -375,7 +382,7 @@ export async function planPathlinePreparation(options: TOptions) {
           chunkConcurrency: costs[i].chunkConcurrency,
         });
         fetchMs += performance.now() - before;
-        assertCurrent(options);
+        assertCurrent(current);
         const values = castDataVarToFloat32(raw);
         decodeVariableDataAndGetBounds(arrays[i], values);
         const scale = i === 0 ? components.uScale : components.vScale;
@@ -385,9 +392,19 @@ export async function planPathlinePreparation(options: TOptions) {
         }
         data.push(values);
       }
-      assertCurrent(options);
+      assertCurrent(current);
       return {
         field: grid.field(data[0], data[1], components.gridRelative),
+        magnitude: magnitude
+          ? createVectorMagnitudeData(
+              data[0],
+              data[1],
+              resolveVectorMagnitude(
+                { ...u.attrs, units: "m s-1" },
+                { ...v.attrs, units: "m s-1" }
+              )!
+            )
+          : undefined,
         memory: scalarFrameMemory(undefined, ...data),
         timing: { fetchMs, totalMs: performance.now() - started },
       };

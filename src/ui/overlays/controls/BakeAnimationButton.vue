@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { computed, inject, ref } from "vue";
 
+import PathlineAnimationSettings from "./PathlineAnimationSettings.vue";
 import PopupDialog from "./PopupDialog.vue";
 import VideoExportControls from "./VideoExportControls.vue";
 
+import { PATHLINE_DISPLAY } from "@/lib/layers/pathlinePreview.ts";
+import { LAYER_OPACITY } from "@/store/store.ts";
 import {
   SCALAR_BAKE_LIMITS,
   scalarBakeMemoryUsage,
@@ -20,6 +23,7 @@ const start = ref(0);
 const end = ref(1);
 const budgetGiB = ref<number>(SCALAR_BAKE_LIMITS.DEFAULT_MEMORY_GIB);
 const configured = ref(false);
+const pathlineSettings = ref(bake?.defaultPathlineConfig(0, 1));
 const previewing = computed(() => bake?.phase === SCALAR_BAKE_PHASE.READY);
 const planned = computed(() => bake?.phase === SCALAR_BAKE_PHASE.PLANNED);
 const memoryUsage = computed(() =>
@@ -41,6 +45,12 @@ function toggle() {
         ? bake.time.selectedIndex
         : Math.max(bake.time.minBound, bake.time.maxBound - 9);
     end.value = Math.min(start.value + 9, bake.time.maxBound);
+    if (!configured.value) {
+      pathlineSettings.value = bake.defaultPathlineConfig(
+        start.value,
+        end.value
+      );
+    }
     configured.value = true;
   }
   open.value = !open.value;
@@ -119,11 +129,22 @@ function duration(seconds: number) {
           Available indices: {{ bake.time.minBound }}–{{ bake.time.maxBound }}.
           Other dimensions use their current selections.
         </p>
+        <PathlineAnimationSettings
+          v-if="bake.pathlinesEnabled && pathlineSettings"
+          v-model="pathlineSettings"
+          @change="changed"
+        />
         <button
           class="button is-small"
           type="button"
           :disabled="!!bake.unavailable"
-          @click="bake.plan({ start, end })"
+          @click="
+            bake.plan({
+              start,
+              end,
+              pathlines: bake.pathlinesEnabled ? pathlineSettings : undefined,
+            })
+          "
         >
           Estimate · loads one timestep
         </button>
@@ -163,17 +184,30 @@ function duration(seconds: number) {
         <p class="mb-1">
           Active GPU data: up to {{ memory(bake.estimate.gpuBytes) }} additional
         </p>
+        <p v-if="bake.hasPathlines" class="mb-1">
+          Velocity data: {{ memory(bake.estimate.vectorBytes ?? 0) }} ·
+          Trajectories: {{ memory(bake.estimate.trajectoryBytes ?? 0) }} ·
+          Pathline display buffers:
+          {{ memory(bake.estimate.pathlineDisplayBytes ?? 0) }} · Temporary
+          worker data:
+          {{ memory(bake.estimate.pathlineWorkerBytes ?? 0) }}
+        </p>
         <details>
           <summary>Estimate details</summary>
           <p>
-            {{ bake.estimate.uniqueChunks }} distinct scalar chunks, up to
+            {{ bake.estimate.uniqueChunks }} distinct source chunks, up to
             {{ memory(bake.estimate.decodedBytes) }} decoded. Compressed
             download size and cache hits are unknown. Source decode/cache
             allowance: {{ memory(bake.estimate.sourceWorkingBytes) }}.
             <span v-if="bake.estimate.chunkConcurrency !== undefined">
-              At most {{ bake.estimate.chunkConcurrency }} scalar chunks decoded
+              At most {{ bake.estimate.chunkConcurrency }} source chunks decoded
               concurrently.
             </span>
+            <span v-if="bake.estimate.pathlinePreviewBytes"
+              >Display buffers include
+              {{ memory(bake.estimate.pathlinePreviewBytes) }} for fast preview.
+              GPU totals allow for both preview modes and export.</span
+            >
             Peak RAM also includes preparation/display buffers and 25% headroom.
             Existing globe/browser memory is additional. Timing is approximate
             and updated during preparation.
@@ -190,14 +224,30 @@ function duration(seconds: number) {
         <p v-else-if="bake.phase === SCALAR_BAKE_PHASE.CANCELLING">
           Cancelling after the current operation finishes…
         </p>
+        <p
+          v-else-if="
+            bake.hasPathlines && bake.completed === bake.estimate?.count
+          "
+        >
+          Preparing pathlines · {{ Math.floor(bake.trajectoryProgress * 100) }}%
+          · about {{ duration(bake.remainingSeconds) }} remaining
+        </p>
         <p v-else>
           {{ bake.completed }} / {{ bake.estimate?.count }} prepared · about
           {{ duration(bake.remainingSeconds) }} remaining
         </p>
         <progress
           class="progress is-info is-small mt-2"
-          :value="bake.completed || undefined"
-          :max="bake.estimate?.count || 1"
+          :value="
+            bake.hasPathlines && bake.completed === bake.estimate?.count
+              ? bake.trajectoryProgress
+              : bake.completed || undefined
+          "
+          :max="
+            bake.hasPathlines && bake.completed === bake.estimate?.count
+              ? 1
+              : bake.estimate?.count || 1
+          "
         ></progress>
       </div>
       <fieldset v-if="previewing" class="mt-3" :disabled="bake.exporting">
@@ -206,6 +256,87 @@ function duration(seconds: number) {
           {{ bake.bounds.high.toPrecision(5) }}. Select Animation under
           Appearance → Colormap to apply these bounds to display and export.
         </p>
+        <div v-if="bake.hasPathlines" class="field">
+          <label class="label is-small" for="pathline-display"
+            >Particle preview</label
+          >
+          <div class="select is-small mb-2">
+            <select
+              id="pathline-display"
+              v-model="bake.particleDisplayMode"
+              @change="bake.refreshPathlines()"
+            >
+              <option
+                :value="PATHLINE_DISPLAY.PREVIEW"
+                :disabled="!bake.estimate?.pathlinePreviewBytes"
+              >
+                Fast preview
+              </option>
+              <option :value="PATHLINE_DISPLAY.TRAJECTORY">
+                Full trajectory
+              </option>
+            </select>
+          </div>
+          <p class="help mb-3">
+            Fast preview blends particle positions linearly between dataset
+            keyframes. It may shortcut curved motion. Switch to compare without
+            preparing again. Video export always uses the full trajectories.
+          </p>
+          <p v-if="!bake.estimate?.pathlinePreviewBytes" class="help mb-3">
+            Fast preview exceeds this device's texture dimensions. Full
+            trajectories remain available.
+          </p>
+          <label class="label is-small" for="pathline-size">
+            Particle size (px): {{ bake.particleSize }}
+          </label>
+          <input
+            id="pathline-size"
+            v-model.number="bake.particleSize"
+            class="w-100 mb-2"
+            type="range"
+            min="1"
+            max="20"
+            step="0.5"
+            @input="bake.refreshPathlines()"
+          />
+          <label class="label is-small" for="pathline-opacity">
+            Particle opacity: {{ (bake.particleOpacity * 100).toFixed(0) }}%
+          </label>
+          <input
+            id="pathline-opacity"
+            v-model.number="bake.particleOpacity"
+            class="w-100 mb-2"
+            type="range"
+            :min="LAYER_OPACITY.MIN"
+            :max="LAYER_OPACITY.MAX"
+            :step="LAYER_OPACITY.STEP"
+            @input="bake.refreshPathlines()"
+          />
+          <p class="help mb-3">
+            Size and opacity update playback and export immediately without
+            preparing again. Opacity is shared with the Streamlines layer.
+          </p>
+          <label class="label is-small" for="pathline-fade"
+            >Fade duration (dataset seconds)</label
+          >
+          <input
+            id="pathline-fade"
+            v-model.number="bake.fadeSeconds"
+            class="input is-small"
+            type="number"
+            min="0.001"
+            step="any"
+            @input="bake.refreshPathlines()"
+          />
+          <p class="help">
+            Fades particles at trajectory endpoints, including the selected time
+            range boundaries. Changes display and export without preparing
+            trajectories again.
+          </p>
+          <p v-if="bake.pathlinePlaybackError" class="help is-danger">
+            {{ bake.pathlinePlaybackError }}
+          </p>
+        </div>
         <div class="field">
           <label class="label is-small" for="bake-interpolation"
             >Interpolation</label
@@ -254,8 +385,8 @@ function duration(seconds: number) {
             @input="bake.resetPlayback()"
           />
           <p class="help">
-            Only original keyframes are stored. Missing cells stay missing
-            between endpoints; source-time gaps are bridged.
+            Scalar interpolation stores only original keyframes. Missing cells
+            stay missing between endpoints; source-time gaps are bridged.
           </p>
           <p
             v-if="bake.interpolationMode === SCALAR_INTERPOLATION.SMOOTHSTEP"
@@ -289,7 +420,7 @@ function duration(seconds: number) {
           type="range"
           :min="0"
           :max="Math.max(0, bake.frameCount - 1)"
-          :disabled="!bake.frameCount"
+          :disabled="!bake.frameCount || !!bake.pathlinePlaybackError"
           :value="bake.current"
           @input="
             bake.pause();
@@ -300,7 +431,7 @@ function duration(seconds: number) {
           <button
             class="button is-small is-info mr-2"
             type="button"
-            :disabled="!bake.frameCount"
+            :disabled="!bake.frameCount || !!bake.pathlinePlaybackError"
             @click="bake.playing ? bake.pause() : bake.play()"
           >
             {{ bake.playing ? "Pause" : "Play" }}

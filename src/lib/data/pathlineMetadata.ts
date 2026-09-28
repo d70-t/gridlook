@@ -21,34 +21,54 @@ function velocityScale(units: unknown) {
   return scale[match[1]];
 }
 
-/** Require metadata that distinguishes earth-relative from grid-relative flow. */
+function velocityGridRelative(u: zarr.Attributes, v: zarr.Attributes) {
+  let gridRelative: boolean | undefined;
+  for (const [index, attrs] of [u, v].entries()) {
+    const name = String(attrs.standard_name ?? "");
+    const geographic = /^(eastward|northward)_/.exec(name);
+    const grid =
+      /^(?:grid_(eastward|northward)_|([xy])_wind$|sea_water_([xy])_velocity$)/.exec(
+        name
+      );
+    const direction = (geographic ?? grid)?.slice(1).find(Boolean);
+    if (
+      direction &&
+      (index === 0 ? ["northward", "y"] : ["eastward", "x"]).includes(direction)
+    ) {
+      throw new Error(
+        "Select eastward/x velocity as u and northward/y velocity as v."
+      );
+    }
+    for (const flag of [
+      geographic ? false : grid ? true : undefined,
+      attrs.uvRelativeToGrid,
+      attrs.GRIB_uvRelativeToGrid,
+    ]) {
+      if (flag === undefined || flag === null) {
+        continue;
+      }
+      const value = Number(flag);
+      if (
+        (value !== 0 && value !== 1) ||
+        (gridRelative !== undefined && gridRelative !== Boolean(value))
+      ) {
+        throw new Error(
+          "Velocity components declare inconsistent geographic/grid-relative orientations."
+        );
+      }
+      gridRelative = Boolean(value);
+    }
+  }
+  // ponytail: assume selected u/v are east/north without orientation metadata.
+  // Unannotated grid-relative flow needs explicit metadata or a future override.
+  return gridRelative ?? false;
+}
+
+/** Convert physical units and honor explicit orientation; otherwise assume east/north. */
 export function pathlineComponents(u: zarr.Attributes, v: zarr.Attributes) {
   const uScale = velocityScale(u.units),
     vScale = velocityScale(v.units);
-  const un = String(u.standard_name ?? ""),
-    vn = String(v.standard_name ?? "");
-  const eastNorth =
-    /^(?:eastward_wind|eastward_sea_water_velocity(?:_at_sea_floor|_due_to_tides)?|eastward_sea_ice_velocity)$/.test(
-      un
-    ) && vn === un.replace("eastward", "northward");
-  const gridRelative =
-    (un === "grid_eastward_wind" && vn === "grid_northward_wind") ||
-    (un === "x_wind" && vn === "y_wind") ||
-    (un === "sea_water_x_velocity" && vn === "sea_water_y_velocity");
-  const flags = [
-    u.uvRelativeToGrid ?? u.GRIB_uvRelativeToGrid,
-    v.uvRelativeToGrid ?? v.GRIB_uvRelativeToGrid,
-  ];
-  if (
-    (!eastNorth && !gridRelative) ||
-    flags.some(
-      (flag) => flag !== undefined && Number(flag) !== Number(gridRelative)
-    )
-  ) {
-    throw new Error(
-      "Velocity orientation is missing or inconsistent. Select matching east/north or grid-relative velocity components with CF standard names."
-    );
-  }
+  const gridRelative = velocityGridRelative(u, v);
   if (u.grid_mapping !== v.grid_mapping || u.coordinates !== v.coordinates) {
     throw new Error(
       "Velocity components declare different grid coordinates or projections."

@@ -1,7 +1,8 @@
 import {
   normalizePathlineVector,
   pathlineUnitVector,
-  stepPathline,
+  createPathlineStepper,
+  type stepPathline,
   PATHLINE_WGS84,
   type TPathlinePosition,
   type TPathlineVector,
@@ -11,19 +12,17 @@ import {
 
 export type TPathlineConfig = {
   particleCount: number;
+  workerCount?: number;
   randomSeed: number;
   sampleSeconds: number;
   maxStepSeconds: number;
   maxStepMetres: number;
   /** Absolute local integration error; separate from output sampling accuracy. */
   errorToleranceMetres: number;
-  lifetimeSeconds: number;
-  respawn: boolean;
 };
 export type TPathlineTrajectories = {
   positions: Float32Array;
   times: Float64Array;
-  generations: Uint32Array;
   counts: Uint32Array;
   capacity: number;
   start: number;
@@ -35,7 +34,12 @@ export type TPathlineInputs = {
   seedPosition: (u: number, v: number) => TPathlinePosition;
   surface?: TPathlineSurface;
 };
-type TOptions = {
+export type TPathlineIntegrationOptions = {
+  /** Half-open range of global IDs; seeds and anchor times use the total count. */
+  particleStart?: number;
+  particleEnd?: number;
+  /** Dedicated workers are cancelled by termination and need no UI timer yields. */
+  yieldToUI?: boolean;
   signal?: AbortSignal;
   isCurrent?: () => boolean;
   onProgress?: (completed: number, total: number) => void;
@@ -69,34 +73,30 @@ export function planPathlineTrajectories(
     !Number.isSafeInteger(config.randomSeed) ||
     config.randomSeed < 0 ||
     config.randomSeed > 0xffffffff ||
-    typeof config.respawn !== "boolean" ||
     [
       config.sampleSeconds,
       config.maxStepSeconds,
       config.maxStepMetres,
       config.errorToleranceMetres,
-      config.lifetimeSeconds,
     ].some((value) => !Number.isFinite(value) || value <= 0)
   ) {
     throw new Error(
-      "Choose valid particle count, seed, sampling, integration and lifetime settings."
+      "Choose valid particle count, seed, sampling and integration settings."
     );
   }
   const duration = times.at(-1)! - times[0];
   const intervals = Math.ceil(duration / config.sampleSeconds);
-  // One birth plus one endpoint per output interval; dead intervals use no records.
-  const capacity = intervals * 2 + 1;
+  // Each direction rounds up its sample count: one anchor plus at most
+  // ceil(duration/sampleSeconds) + 1 endpoints, including partial boundary steps.
+  const capacity = intervals + 2;
   const records = capacity * config.particleCount;
   if (
     !Number.isSafeInteger(records * 3) ||
     records * 3 > PATHLINE_LIMITS.MAX_ARRAY_LENGTH ||
-    times[0] +
-      Math.min(
-        config.maxStepSeconds,
-        config.sampleSeconds,
-        config.lifetimeSeconds
-      ) ===
-      times[0]
+    times.some(
+      (time) =>
+        time + Math.min(config.maxStepSeconds, config.sampleSeconds) === time
+    )
   ) {
     throw new Error(
       "Pathline sampling is too fine for this time range. Use fewer particles or longer sampling intervals."
@@ -106,17 +106,13 @@ export function planPathlineTrajectories(
     capacity,
     intervals,
     records,
-    bytes: records * 24 + config.particleCount * 4,
+    bytes: records * 20 + config.particleCount * 4,
     duration,
   };
 }
 
-function seedRandom(seed: number, particle: number, birth: number) {
-  let state =
-    (seed +
-      Math.imul(particle + 1, 0x9e3779b9) +
-      Math.imul(birth + 1, 0x85ebca6b)) >>>
-    0;
+function seedRandom(seed: number, particle: number) {
+  let state = (seed + Math.imul(particle + 1, 0x9e3779b9)) >>> 0;
   return () => {
     state = (state + 0x6d2b79f5) >>> 0;
     let value = Math.imul(state ^ (state >>> 15), 1 | state);
@@ -129,10 +125,9 @@ function findSeed(
   inputs: TPathlineInputs,
   config: TPathlineConfig,
   particle: number,
-  birth: number,
   time: number
 ) {
-  const random = seedRandom(config.randomSeed, particle, birth);
+  const random = seedRandom(config.randomSeed, particle);
   for (let attempt = 0; attempt < PATHLINE_LIMITS.SEED_ATTEMPTS; attempt++) {
     const point = inputs.seedPosition(random(), random());
     if (
@@ -177,11 +172,24 @@ function stepScale(
 export async function integratePathlines(
   inputs: TPathlineInputs,
   config: TPathlineConfig,
-  options: TOptions = {}
+  options: TPathlineIntegrationOptions = {}
 ): Promise<TPathlineTrajectories> {
   config = { ...config };
   const sourceTimes = [...inputs.sourceTimes];
   const plan = planPathlineTrajectories(sourceTimes, config);
+  const firstParticle = options.particleStart ?? 0;
+  const endParticle = options.particleEnd ?? config.particleCount;
+  if (
+    !Number.isSafeInteger(firstParticle) ||
+    !Number.isSafeInteger(endParticle) ||
+    firstParticle < 0 ||
+    endParticle > config.particleCount ||
+    endParticle <= firstParticle
+  ) {
+    throw new Error("Invalid pathline particle range.");
+  }
+  const count = endParticle - firstParticle;
+  const records = plan.capacity * count;
   const surface = inputs.surface ?? PATHLINE_WGS84;
   if (
     !Number.isFinite(surface.semiMajorAxis) ||
@@ -192,6 +200,7 @@ export async function integratePathlines(
   ) {
     throw new Error("Invalid pathline reference ellipsoid.");
   }
+  const stepPathline = createPathlineStepper(inputs.sample, surface);
   let deadline = performance.now() + PATHLINE_LIMITS.YIELD_MS;
   function assertCurrent() {
     if (options.signal?.aborted || options.isCurrent?.() === false) {
@@ -199,6 +208,9 @@ export async function integratePathlines(
     }
   }
   function checkpoint() {
+    if (options.yieldToUI === false) {
+      return;
+    }
     assertCurrent();
     if (performance.now() >= deadline) {
       return new Promise<void>((resolve) =>
@@ -211,133 +223,147 @@ export async function integratePathlines(
   }
   assertCurrent();
   const result: TPathlineTrajectories = {
-    positions: new Float32Array(plan.records * 3),
-    times: new Float64Array(plan.records),
-    generations: new Uint32Array(plan.records),
-    counts: new Uint32Array(config.particleCount),
+    positions: new Float32Array(records * 3),
+    times: new Float64Array(records),
+    counts: new Uint32Array(count),
     capacity: plan.capacity,
     start: sourceTimes[0],
     end: sourceTimes.at(-1)!,
   };
-  function write(
-    particle: number,
-    time: number,
-    point: TPathlineVector,
-    generation: number
-  ) {
+  function write(particle: number, time: number, point: TPathlineVector) {
     const count = result.counts[particle];
-    const previous = particle * result.capacity + count - 1;
-    if (
-      count &&
-      result.times[previous] === time &&
-      result.generations[previous] === generation
-    ) {
+    const index = particle * result.capacity + count;
+    if (count && result.times[index - 1] === time) {
       return;
     }
-    const index = particle * result.capacity + count;
     result.positions.set(point, index * 3);
     result.times[index] = time;
-    result.generations[index] = generation;
     result.counts[particle]++;
   }
-  options.onProgress?.(0, config.particleCount);
-  for (let particle = 0; particle < config.particleCount; particle++) {
-    let point: TPathlineVector | undefined;
-    let birth = result.start,
-      time = result.start,
-      generation = 0,
-      key = 1,
-      nextStep = config.maxStepSeconds;
-    for (let interval = 0; interval < plan.intervals; interval++) {
-      const pause = checkpoint();
-      if (pause) {
-        await pause;
-        assertCurrent();
-      }
-      const from = result.start + interval * config.sampleSeconds;
-      const target = Math.min(
-        result.end,
-        result.start + (interval + 1) * config.sampleSeconds
-      );
-      if (!point) {
-        if (interval && !config.respawn) {
-          break;
-        }
-        point = findSeed(inputs, config, particle, interval, from);
-        if (!point) {
-          continue;
-        }
-        birth = time = from;
-        nextStep = config.maxStepSeconds;
-        generation = interval + 1;
-        write(particle, time, point, generation);
-      }
-      const until = Math.min(target, birth + config.lifetimeSeconds);
-      let stopped = false;
-      while (time < until) {
-        const pause = checkpoint();
-        if (pause) {
-          await pause;
-          assertCurrent();
-        }
-        while (key < sourceTimes.length - 1 && sourceTimes[key] <= time) {
-          key++;
-        }
-        let dt = Math.min(
-          nextStep,
-          config.maxStepSeconds,
-          until - time,
-          sourceTimes[key] - time
-        );
-        const minimum =
-          Math.min(config.maxStepSeconds, until - time) *
-          PATHLINE_LIMITS.MIN_STEP_RATIO;
-        let step = stepPathline(point, time, dt, inputs.sample, surface);
-        while (
-          !step ||
-          step.maxSpeed * dt > config.maxStepMetres ||
-          step.errorMetres > config.errorToleranceMetres
-        ) {
-          const pause = checkpoint();
-          if (pause) {
-            await pause;
-            assertCurrent();
-          }
-          dt *= step
-            ? Math.max(
-                PATHLINE_LIMITS.MIN_STEP_SCALE,
-                stepScale(step, dt, config)
-              )
-            : 0.5;
-          if (dt < minimum || time + dt === time) {
-            if (step) {
+  options.onProgress?.(0, count);
+  for (let particle = 0; particle < count; particle++) {
+    // Distribute the total count evenly among source keyframes. With fewer
+    // particles than keyframes, spread the anchors across the selected range.
+    const globalParticle = firstParticle + particle;
+    const anchorIndex =
+      config.particleCount >= sourceTimes.length
+        ? globalParticle % sourceTimes.length
+        : Math.floor(
+            (globalParticle * (sourceTimes.length - 1)) /
+              Math.max(1, config.particleCount - 1)
+          );
+    const anchor = sourceTimes[anchorIndex];
+    const seed = findSeed(inputs, config, globalParticle, anchor);
+    const pause = checkpoint();
+    if (pause) {
+      await pause;
+      assertCurrent();
+    }
+    if (seed) {
+      write(particle, anchor, seed);
+      for (const direction of [-1, 1] as const) {
+        let point = seed,
+          time = anchor,
+          key = anchorIndex;
+        let nextStep = config.maxStepSeconds;
+        const end = direction < 0 ? result.start : result.end;
+        for (let interval = 1; direction * (end - time) > 0; interval++) {
+          const target = anchor + direction * interval * config.sampleSeconds;
+          const until =
+            direction < 0 ? Math.max(end, target) : Math.min(end, target);
+          let stopped = false;
+          while (direction * (until - time) > 0) {
+            const pause = checkpoint();
+            if (pause) {
+              await pause;
+              assertCurrent();
+            }
+            while (direction * (sourceTimes[key] - time) <= 0) {
+              key += direction;
+            }
+            let dt = Math.min(
+              nextStep,
+              config.maxStepSeconds,
+              Math.abs(until - time),
+              Math.abs(sourceTimes[key] - time)
+            );
+            const minimum =
+              Math.min(config.maxStepSeconds, Math.abs(until - time)) *
+              PATHLINE_LIMITS.MIN_STEP_RATIO;
+            let step = stepPathline(point, time, direction * dt);
+            while (
+              !step ||
+              step.maxSpeed * dt > config.maxStepMetres ||
+              step.errorMetres > config.errorToleranceMetres
+            ) {
+              const pause = checkpoint();
+              if (pause) {
+                await pause;
+                assertCurrent();
+              }
+              dt *= step
+                ? Math.max(
+                    PATHLINE_LIMITS.MIN_STEP_SCALE,
+                    stepScale(step, dt, config)
+                  )
+                : 0.5;
+              if (dt < minimum || time + direction * dt === time) {
+                if (step) {
+                  throw new Error(
+                    "Integration cannot meet the error or displacement limit. Increase the tolerance or decrease the maximum timestep."
+                  );
+                }
+                stopped = true;
+                break;
+              }
+              step = stepPathline(point, time, direction * dt);
+            }
+            if (stopped) {
+              break;
+            }
+            if (time + direction * dt === time) {
               throw new Error(
-                "Integration cannot meet the error or displacement limit. Increase the tolerance or decrease the maximum timestep."
+                "Pathline integration timestep is below time precision."
               );
             }
-            stopped = true;
+            nextStep = dt * stepScale(step!, dt, config);
+            point = step!.point;
+            time += direction * dt;
+          }
+          write(particle, time, point);
+          if (stopped) {
             break;
           }
-          step = stepPathline(point, time, dt, inputs.sample, surface);
         }
-        if (stopped) {
-          break;
+        if (direction < 0) {
+          // Reverse the backward branch in place, then append the forward branch.
+          const first = particle * result.capacity;
+          const last = first + result.counts[particle] - 1;
+          for (let a = first, b = last; a < b; a++, b--) {
+            if ((a - first) % 2048 === 0) {
+              const pause = checkpoint();
+              if (pause) {
+                await pause;
+                assertCurrent();
+              }
+            }
+            [result.times[a], result.times[b]] = [
+              result.times[b],
+              result.times[a],
+            ];
+            for (let axis = 0; axis < 3; axis++) {
+              const x = a * 3 + axis,
+                y = b * 3 + axis;
+              [result.positions[x], result.positions[y]] = [
+                result.positions[y],
+                result.positions[x],
+              ];
+            }
+          }
         }
-        if (time + dt === time) {
-          throw new Error(
-            "Pathline integration timestep is below time precision."
-          );
-        }
-        nextStep = dt * stepScale(step!, dt, config);
-        point = step!.point;
-        time += dt;
-      }
-      write(particle, time, point, generation);
-      if (stopped || time >= birth + config.lifetimeSeconds) {
-        point = undefined;
       }
     }
-    options.onProgress?.(particle + 1, config.particleCount);
+    options.onProgress?.(particle + 1, count);
   }
   assertCurrent();
   return result;
@@ -399,7 +425,7 @@ function interpolatePosition(
   );
 }
 
-/** Seeking uses stored records; respawns and the end/start of a loop never connect. */
+/** Seeking uses the same stored trajectory in either playback direction. */
 export function pathlinePositionAt(
   data: TPathlineTrajectories,
   particle: number,
@@ -413,47 +439,7 @@ export function pathlinePositionAt(
     return normalizePathlineVector(positionAt(data, index));
   }
   const end = particle * data.capacity + data.counts[particle];
-  if (
-    index + 1 < end &&
-    data.generations[index] === data.generations[index + 1]
-  ) {
+  if (index + 1 < end) {
     return interpolatePosition(data, index, seconds);
-  }
-}
-
-/** Trail age is dataset time. Ended trails fade out naturally; births have no history. */
-export function* pathlineSegments(
-  data: TPathlineTrajectories,
-  particle: number,
-  seconds: number,
-  trailSeconds: number
-) {
-  const last = recordAt(data, particle, seconds);
-  if (
-    last === undefined ||
-    !Number.isFinite(trailSeconds) ||
-    trailSeconds <= 0
-  ) {
-    return;
-  }
-  const start = Math.max(data.start, seconds - trailSeconds);
-  const first = recordAt(data, particle, start) ?? particle * data.capacity;
-  const end = particle * data.capacity + data.counts[particle] - 1;
-  for (let i = first; i <= last && i < end; i++) {
-    if (data.generations[i] !== data.generations[i + 1]) {
-      continue;
-    }
-    const fromTime = Math.max(start, data.times[i]),
-      toTime = Math.min(seconds, data.times[i + 1]);
-    if (toTime <= fromTime) {
-      continue;
-    }
-    yield {
-      from: interpolatePosition(data, i, fromTime),
-      to: interpolatePosition(data, i, toTime),
-      fromTime,
-      toTime,
-      generation: data.generations[i],
-    };
   }
 }

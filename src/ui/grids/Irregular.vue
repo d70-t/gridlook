@@ -10,6 +10,7 @@ import {
 } from "./composables/gridHoverUtils.ts";
 import {
   fetchScalarFrameData,
+  decodeScalarFrameData,
   getScalarFrameDimensions,
   type TPreparedScalarFrame,
   type TScalarFrameRequest,
@@ -31,10 +32,7 @@ import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 import { getLatLonData } from "@/lib/data/coordinateVariables.ts";
 import { reconcileCoordinates } from "@/lib/data/irregularGridHelpers.ts";
 import { PATHLINE_GRID } from "@/lib/data/pathlineField.ts";
-import {
-  castDataVarToFloat32,
-  decodeVariableDataAndGetBounds,
-} from "@/lib/data/variableDecoding.ts";
+import { castDataVarToFloat32 } from "@/lib/data/variableDecoding.ts";
 import type { TVectorMagnitudeData } from "@/lib/data/vectorMagnitude.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { terminateGridDataWorker } from "@/lib/grids/gridDataWorkerClient.ts";
@@ -71,6 +69,7 @@ let magnitudeCoordinates:
   | undefined;
 
 const {
+  pathlineDisplay,
   getScene,
   getCamera,
   makeSnapshot,
@@ -346,9 +345,10 @@ async function prepareFrame(
   if (!isCurrent()) {
     return;
   }
-  const { min, max, fillValue, missingValue } = decodeVariableDataAndGetBounds(
+  const { min, max, fillValue, missingValue } = decodeScalarFrameData(
     datavar,
-    rawData
+    rawData,
+    request
   );
   const helper = projectionHelper.value;
   const batches: TGridPointBatch[] = [];
@@ -468,6 +468,7 @@ onBeforeUnmount(() => {
 });
 
 defineExpose({
+  pathlineDisplay,
   makeSnapshot,
   createSnapshotRenderer,
   toggleRotate,

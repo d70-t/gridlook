@@ -335,3 +335,51 @@ it("switches cached scalar backgrounds without reloading data or streamlines", a
     scope.stop();
   }
 });
+
+it("suspends ordinary streamline work during prepared playback and restores it when cleared", async () => {
+  const store = useGlobeControlStore();
+  store.setStreamlineLayerEnabled(true);
+  const scope = effectScope();
+  const refreshStreamlines = vi.fn(),
+    suspendStreamlines = vi.fn();
+  const sources = {} as TSources;
+  const render = vi.fn();
+  const prepareFrame = vi.fn(async (_array, request: TScalarFrameRequest) => ({
+    ...frame(request, render),
+    updateLayers: async () => {
+      refreshStreamlines();
+    },
+  }));
+  scope.run(() =>
+    useGridDataLoader({
+      scalarCache: scalarCache(),
+      getDatasources: () => sources,
+      getDataVar: vi.fn().mockResolvedValue({}),
+      prepareFrame,
+      clearHoverLookup: vi.fn(),
+      updateLandSeaMask: vi.fn(),
+      updateColormap: vi.fn(),
+      refreshStreamlines,
+      suspendStreamlines,
+    })
+  );
+  try {
+    store.pathlineAnimationActive = true;
+    await nextTick();
+    expect(suspendStreamlines).toHaveBeenCalledOnce();
+    expect(refreshStreamlines).not.toHaveBeenCalled();
+    store.pathlineAnimationActive = false;
+    await vi.waitFor(() => expect(render).toHaveBeenCalledOnce());
+    expect(prepareFrame).toHaveBeenCalledOnce();
+    expect(refreshStreamlines).toHaveBeenCalledOnce();
+    store.dimSlidersValues = [1];
+    expect(store.animationInputRevision).toBe(1);
+    store.updateVarInfo(
+      { attrs: {}, bounds: {}, dimRanges: [], dimInfo: [] },
+      [2]
+    );
+    expect(store.animationInputRevision).toBe(1);
+  } finally {
+    scope.stop();
+  }
+});

@@ -113,6 +113,20 @@ function setup() {
 }
 const config = { start: 0, end: 2 };
 
+it("defaults to ten samples per shortest selected CF time interval and 50 m local error", () => {
+  const h = setup();
+  try {
+    const defaults = h.bake.defaultPathlineConfig(0, 3);
+    expect(defaults.sampleSeconds).toBe((2 * 86400) / 10);
+    expect(defaults.errorToleranceMetres).toBe(50);
+    expect(h.bake.defaultPathlineConfig(1, 3).sampleSeconds).toBe(
+      (3 * 86400) / 10
+    );
+  } finally {
+    h.scope.stop();
+  }
+});
+
 it("reuses calibration, bakes sequentially, seeks without fetches, and releases/restarts", async () => {
   const h = setup();
   try {
@@ -160,7 +174,7 @@ it("cancels pending calibration and releases late geometry", async () => {
   }
 });
 
-it.each(["variable", "level", "source", "dataset", "volume"])(
+it.each(["variable", "level", "source", "dataset", "volume", "manual time"])(
   "invalidates prepared frames when %s changes",
   async (change) => {
     const h = setup();
@@ -180,6 +194,9 @@ it.each(["variable", "level", "source", "dataset", "volume"])(
       }
       if (change === "volume") {
         h.store.setVolumeLayerEnabled(true);
+      }
+      if (change === "manual time") {
+        h.store.animationInputRevision++;
       }
       expect(h.bake.estimate).toBeUndefined();
       expect(h.bake.bounds).toBeUndefined();

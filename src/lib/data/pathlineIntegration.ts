@@ -38,20 +38,24 @@ export function normalizePathlineVector(
   return [point[0] / length, point[1] / length, point[2] / length];
 }
 
-/** Bogacki–Shampine RK3(2) on geographic unit vectors, with a local error in metres. */
+/** Bogacki–Shampine RK3(2), reusing the endpoint derivative and retry's start. */
 // eslint-disable-next-line max-lines-per-function
-export function stepPathline(
-  point: TPathlineVector,
-  seconds: number,
-  stepSeconds: number,
+export function createPathlineStepper(
   sample: TPathlineVelocity,
   surface: TPathlineSurface = PATHLINE_WGS84
 ) {
-  let maxSpeed = 0;
+  type TDerivative = {
+    point: TPathlineVector;
+    time: number;
+    value: TPathlineVector;
+    speed: number;
+  };
+  let first: TDerivative | undefined;
+  let last: TDerivative | undefined;
   function derivative(
     position: TPathlineVector,
     time: number
-  ): TPathlineVector | undefined {
+  ): TDerivative | undefined {
     const { latitude, longitude } = pathlineGeographic(position);
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
       return;
@@ -68,7 +72,7 @@ export function stepPathline(
     if (!Number.isFinite(speed)) {
       return;
     }
-    maxSpeed = Math.max(maxSpeed, speed);
+
     const lat = latitude * RAD,
       lon = longitude * RAD;
     const e2 = surface.flattening * (2 - surface.flattening);
@@ -77,49 +81,90 @@ export function stepPathline(
     const northRadius = (eastRadius * (1 - e2)) / factor;
     const u = velocity.u / eastRadius,
       v = velocity.v / northRadius;
-    return [
+    const value: TPathlineVector = [
       -u * Math.sin(lon) - v * Math.sin(lat) * Math.cos(lon),
       u * Math.cos(lon) - v * Math.sin(lat) * Math.sin(lon),
       v * Math.cos(lat),
     ];
+    return { point: position, time, value, speed };
   }
-  const offset = (d: TPathlineVector, dt: number): TPathlineVector => [
-    point[0] + d[0] * dt,
-    point[1] + d[1] * dt,
-    point[2] + d[2] * dt,
-  ];
-  const a = derivative(point, seconds);
-  if (!a) {
-    return;
-  }
-  const b = derivative(offset(a, stepSeconds / 2), seconds + stepSeconds / 2);
-  if (!b) {
-    return;
-  }
-  const c = derivative(
-    offset(b, (3 * stepSeconds) / 4),
-    seconds + (3 * stepSeconds) / 4
-  );
-  if (!c) {
-    return;
-  }
-  const result = normalizePathlineVector(
-    point.map(
+  // Point identity is safe: accepted points are immutable. A retry keeps its
+  // start; an accepted step reuses its normalized endpoint (FSAL).
+  // eslint-disable-next-line max-lines-per-function
+  return function step(
+    point: TPathlineVector,
+    seconds: number,
+    stepSeconds: number
+  ) {
+    const offset = (d: TPathlineVector, dt: number): TPathlineVector => [
+      point[0] + d[0] * dt,
+      point[1] + d[1] * dt,
+      point[2] + d[2] * dt,
+    ];
+    first =
+      first?.point === point && first.time === seconds
+        ? first
+        : last?.point === point && last.time === seconds
+          ? last
+          : derivative(point, seconds);
+    if (!first) {
+      return;
+    }
+    const a = first.value;
+    const stageB = derivative(
+      offset(a, stepSeconds / 2),
+      seconds + stepSeconds / 2
+    );
+    const b = stageB?.value;
+    if (!b) {
+      return;
+    }
+    const stageC = derivative(
+      offset(b, (3 * stepSeconds) / 4),
+      seconds + (3 * stepSeconds) / 4
+    );
+    const c = stageC?.value;
+    if (!c) {
+      return;
+    }
+    const result = normalizePathlineVector(
+      point.map(
+        (value, i) =>
+          value + stepSeconds * ((2 * a[i]) / 9 + b[i] / 3 + (4 * c[i]) / 9)
+      ) as TPathlineVector
+    );
+    // The fourth stage validates the accepted endpoint and completes the embedded pair.
+    last = derivative(result, seconds + stepSeconds);
+    const d = last?.value;
+    if (!d) {
+      return;
+    }
+    const error = a.map(
       (value, i) =>
-        value + stepSeconds * ((2 * a[i]) / 9 + b[i] / 3 + (4 * c[i]) / 9)
-    ) as TPathlineVector
-  );
-  // The fourth stage validates the accepted endpoint and completes the embedded pair.
-  const d = derivative(result, seconds + stepSeconds);
-  if (!d) {
-    return;
-  }
-  const error = a.map(
-    (value, i) =>
-      stepSeconds * ((5 * value) / 72 - b[i] / 12 - c[i] / 9 + d[i] / 8)
-  ) as TPathlineVector;
-  // Upper bound on ellipsoid curvature radii; includes radial error before projection.
-  const errorMetres =
-    (Math.hypot(...error) * surface.semiMajorAxis) / (1 - surface.flattening);
-  return { point: result, maxSpeed, errorMetres };
+        stepSeconds * ((5 * value) / 72 - b[i] / 12 - c[i] / 9 + d[i] / 8)
+    ) as TPathlineVector;
+    // Upper bound on ellipsoid curvature radii; includes radial error before projection.
+    const errorMetres =
+      (Math.hypot(...error) * surface.semiMajorAxis) / (1 - surface.flattening);
+    return {
+      point: result,
+      maxSpeed: Math.max(
+        first.speed,
+        stageB!.speed,
+        stageC!.speed,
+        last!.speed
+      ),
+      errorMetres,
+    };
+  };
+}
+
+export function stepPathline(
+  point: TPathlineVector,
+  seconds: number,
+  stepSeconds: number,
+  sample: TPathlineVelocity,
+  surface: TPathlineSurface = PATHLINE_WGS84
+) {
+  return createPathlineStepper(sample, surface)(point, seconds, stepSeconds);
 }
