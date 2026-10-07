@@ -17,6 +17,7 @@ import {
   type TProjectionCenter,
   type TProjectionType,
 } from "@/lib/projection/projectionUtils.ts";
+import type { TViewFootprint } from "@/lib/projection/viewFootprint.ts";
 import type { TColorMap } from "@/lib/shaders/colormapShaders.ts";
 import type { TVarInfo, TBounds } from "@/lib/types/GlobeTypes.ts";
 import type { TCatalog } from "@/utils/catalog.ts";
@@ -231,8 +232,20 @@ export const useGlobeControlStore = defineStore("globeControl", {
       hoverEnabled: false,
       hoveredGridPoint: undefined as THoveredGridPoint | undefined,
       distanceScale: null as TDistanceScale | null,
+      // ground metres one screen pixel covers below the camera, as rendered
+      metersPerPixel: undefined as number | undefined,
+      // lat/lon box of what the camera sees, refreshed while it moves
+      viewFootprint: null as TViewFootprint | null,
+      // the mounted grid loads only the part of a large level that is in
+      // view, except the levels it found it has to load whole
+      viewLoading: false,
+      wholeLevels: [] as number[],
       catalogUrl: undefined as string | undefined,
       catalogData: undefined as TCatalog | undefined,
+      // multi-resolution datasets: the level every consumer reads, and
+      // whether the camera picks it (a manual pick turns that off)
+      selectedLevel: 0 as number,
+      levelAuto: true,
       // ── Live datasets ──────────────────────────────────────────────
       // A live dataset exposes only the currently-available timestep and is
       // followed automatically by polling the store's timestep endpoints.
@@ -301,6 +314,17 @@ export const useGlobeControlStore = defineStore("globeControl", {
       this.startLoading();
       this.varnameSelector = varname;
       this.signifyVariableChange();
+    },
+    selectLevel(index: number, manual = true) {
+      if (manual) {
+        this.levelAuto = false;
+      }
+      if (this.selectedLevel !== index) {
+        this.selectedLevel = index;
+      }
+    },
+    setLevelAuto(auto: boolean) {
+      this.levelAuto = auto;
     },
     isNewDataset(): boolean {
       return this.newDatasetSignifier % 2 === 0;
@@ -473,6 +497,16 @@ export const useGlobeControlStore = defineStore("globeControl", {
           this.setStreamlineMagnitudeDisplayed(false);
         }
       }
+    },
+    // Whether a large level is loaded as the part in view rather than whole.
+    // Streamlines and volumes read the whole level.
+    loadsLevelByView(level: number) {
+      return (
+        this.viewLoading &&
+        !this.wholeLevels.includes(level) &&
+        !this.isStreamlineLayerEnabled() &&
+        !this.isVolumeLayerEnabled()
+      );
     },
     isVolumeLayerEnabled() {
       return Boolean(

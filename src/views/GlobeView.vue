@@ -15,6 +15,7 @@ import {
   GRID_TYPES,
   type T_GRID_TYPES,
 } from "@/lib/data/gridTypeDetector.ts";
+import { currentLevel } from "@/lib/data/levels.ts";
 import {
   fetchCurrentTimestep,
   liveStoreBaseUrl,
@@ -39,6 +40,7 @@ import {
   LAYER_OPACITY,
   useGlobeControlStore,
 } from "@/store/store.ts";
+import { useLevelSelection } from "@/store/useLevelSelection.ts";
 import { useLiveTimestep } from "@/store/useLiveTimestep.ts";
 import {
   usePresenterSync,
@@ -146,9 +148,15 @@ const sourceValid = ref(false);
 const datasources: Ref<TSources | undefined> = ref(undefined);
 const detectedGridType: Ref<T_GRID_TYPES | undefined> = ref(undefined);
 const infoPanelOpen = ref(false);
+const canvasWrapper: Ref<HTMLDivElement | undefined> = ref(undefined);
 
 // Auto-follow the newest timestep of a live dataset (see useLiveTimestep).
 useLiveTimestep(datasources);
+// Pick the level of a multi-resolution dataset from the camera (see useLevelSelection).
+const { pickLevel } = useLevelSelection(datasources, () => ({
+  width: canvasWrapper.value?.clientWidth || window.innerWidth,
+  height: canvasWrapper.value?.clientHeight || window.innerHeight,
+}));
 
 const distractionFreeFromUrl = paramDistractionFree.value === "true";
 
@@ -175,9 +183,10 @@ const modelInfo = computed(() => {
   } else {
     return {
       title: datasources.value.name,
-      vars: datasources.value.levels[0].datasources,
+      vars: currentLevel(datasources.value).datasources,
       defaultVar: datasources.value.default_var,
       colormaps: Object.keys(availableColormaps) as TColorMap[],
+      levels: datasources.value.levels,
     } as TModelInfo;
   }
 });
@@ -245,6 +254,23 @@ watch(
   }
 );
 
+// A level switch swaps the datasource the grid reads. The grid stays mounted
+// and reloads the level in place (see useGridDataLoader), so the camera keeps
+// moving and the previous level stays on screen until the next one is ready.
+// Only a level on another grid type remounts.
+watch(
+  () => store.selectedLevel,
+  async (level) => {
+    if (datasources.value) {
+      datasources.value.selectedLevel = level;
+    }
+    if (!isInitialized.value) {
+      return;
+    }
+    await setGridType();
+  }
+);
+
 function prepareDefaults(src: string, index: TSources) {
   if (src === props.src) {
     datasources.value = index;
@@ -260,10 +286,11 @@ function prepareDefaults(src: string, index: TSources) {
 
   if (
     datasources.value &&
-    varnameSelector.value in datasources.value.levels[0].datasources
+    varnameSelector.value in currentLevel(datasources.value).datasources
   ) {
-    const variableDefaults =
-      datasources.value.levels[0].datasources[varnameSelector.value];
+    const variableDefaults = currentLevel(datasources.value).datasources[
+      varnameSelector.value
+    ];
     if (variableDefaults.default_colormap) {
       colormap.value = variableDefaults.default_colormap.name;
       if (Object.hasOwn(variableDefaults.default_colormap, "inverted")) {
@@ -349,6 +376,7 @@ async function loadCurrentSource(resetStore = true) {
   if (updateId !== sourceUpdateId) {
     return;
   }
+  pickLevel();
   initStreamlinesFromParams();
   initVolumeFromParams();
   await initControlsFromSource();
@@ -593,7 +621,7 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
         </div>
       </div>
     </section>
-    <div v-else class="grid-canvas-wrapper">
+    <div v-else ref="canvasWrapper" class="grid-canvas-wrapper">
       <currentGlobeComponent
         v-if="detectedGridType !== undefined"
         ref="globe"

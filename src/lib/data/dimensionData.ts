@@ -1,5 +1,6 @@
 import * as zarr from "zarrita";
 
+import { currentLevel } from "./levels.ts";
 import { decodeTime } from "./timeHandling.ts";
 import { ZarrDataManager } from "./ZarrDataManager.ts";
 
@@ -47,7 +48,7 @@ async function getTimeInfo(
     return {};
   }
   try {
-    const myDatasource = datasources.levels[0].time;
+    const myDatasource = currentLevel(datasources).time;
     const timevalues = (
       await ZarrDataManager.getVariableData(
         myDatasource,
@@ -142,7 +143,7 @@ export async function fetchDimensionDetails(
         );
       }
       return getDimensionInfo(
-        datasources.levels[0].datasources[currentVariable],
+        currentLevel(datasources).datasources[currentVariable],
         dim!,
         dimSlidersValues[i] as number,
         currentVariable

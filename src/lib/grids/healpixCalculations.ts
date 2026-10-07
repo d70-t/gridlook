@@ -56,39 +56,40 @@ export function buildHealpixGeometry(
   grid: Grid,
   ipix: bigint,
   steps: number,
-  helper: ProjectionHelper
+  helper: ProjectionHelper,
+  rect: THealpixDataRect = { u: 0, v: 0, width: 1, height: 1 }
 ) {
   const vertexCount = steps * steps;
   const positionValues = new Float32Array(vertexCount * 3);
   const uv = new Float32Array(vertexCount * 2);
   const latLonValues = new Float32Array(vertexCount * 2);
-  let vertexIndex = 0;
+  const wholeFace = rect.width === 1 && rect.height === 1;
+  // A face showing only part of itself is tessellated over that part, so a
+  // deep level's cells sit where they belong and not on a face-wide mesh.
+  const coords = wholeFace ? grid.vertices(ipix, steps) : undefined;
 
-  const coords = grid.vertices(BigInt(ipix), steps);
-  for (let index = 0; index < Math.floor(coords.length / 2); ++index) {
-    const indexLon = 2 * index;
-    const indexLat = 2 * index + 1;
-    const lat = coords[indexLat];
-    const lon = coords[indexLon];
-
-    const u = Math.floor(index / steps) / (steps - 1);
-    const v = (index % steps) / (steps - 1);
-
-    const positionOffset = vertexIndex * 3;
+  for (let index = 0; index < vertexCount; ++index) {
+    const u = rect.u + (rect.width * Math.floor(index / steps)) / (steps - 1);
+    const v = rect.v + (rect.height * (index % steps)) / (steps - 1);
+    let lon: number;
+    let lat: number;
+    if (coords) {
+      lon = coords[2 * index];
+      lat = coords[2 * index + 1];
+    } else {
+      using point = grid.vertex(ipix, Math.min(u, 1), Math.min(v, 1));
+      ({ lon, lat } = point);
+    }
     helper.projectLatLonToArrays(
       lat,
       lon,
       positionValues,
-      positionOffset,
+      index * 3,
       latLonValues,
-      vertexIndex * 2
+      index * 2
     );
-
-    const uvIndex = vertexIndex * 2;
-    uv[uvIndex] = u;
-    uv[uvIndex + 1] = v;
-
-    vertexIndex++;
+    uv[index * 2] = u;
+    uv[index * 2 + 1] = v;
   }
 
   const indices = generateHealpixIndices(positionValues, steps);

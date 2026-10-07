@@ -14,6 +14,12 @@ type TLoaderState = {
   requestRevision: number;
   pendingUpdate: Ref<boolean>;
   updatingData: Ref<boolean>;
+  // The level or the view window changed: the grid has to be prepared again
+  // and its data has not been displayed yet.
+  regrid: boolean;
+  // The view left the window that is still loading; reload once it is shown.
+  windowStale: boolean;
+  afterLoad?: () => void;
 };
 
 type TGridDataLoaderOptions = {
@@ -24,12 +30,18 @@ type TGridDataLoaderOptions = {
   ) => Promise<TDataVar | undefined>;
   fetchAndRenderData: (
     datavar: TDataVar,
-    isCurrent: () => boolean
+    isCurrent: () => boolean,
+    // Keep the frame on screen until the complete replacement is ready.
+    stageDisplay: boolean
   ) => Promise<void>;
   clearHoverLookup: () => void;
   updateLandSeaMask: () => void | Promise<void>;
   updateColormap: () => void;
   prepareDatasource?: () => void | Promise<void>;
+  // Grids that load only the view of a large level: whether the level just
+  // prepared can be, and whether the loaded window no longer covers the view.
+  canLoadByView?: () => boolean;
+  viewWindowStale?: () => boolean;
   resetDataVars?: () => void;
   refreshStreamlines?: (reuseCached?: boolean) => void | Promise<void>;
   suspendStreamlines?: () => void;
@@ -75,6 +87,16 @@ function createGetData(
           revision === state.requestRevision &&
           datasources === options.getDatasources();
         try {
+          if (state.regrid) {
+            // The grid stays mounted across a level or window swap: read
+            // the new grid while the previous one stays on screen.
+            options.clearHoverLookup();
+            await options.prepareDatasource?.();
+            if (!isCurrent()) {
+              continue;
+            }
+            noteViewLoading(options, store);
+          }
           const requestVarname = store.varnameSelector;
           const datavar = await options.getDataVar(requestVarname, datasources);
           if (state.disposed || datasources !== options.getDatasources()) {
@@ -86,7 +108,10 @@ function createGetData(
             continue;
           }
           if (datavar !== undefined && isCurrent()) {
-            await options.fetchAndRenderData(datavar, isCurrent);
+            await options.fetchAndRenderData(datavar, isCurrent, state.regrid);
+            if (isCurrent()) {
+              state.regrid = false;
+            }
           }
         } catch (error) {
           // A live source may roll over while an older timestep is loading.
@@ -103,12 +128,34 @@ function createGetData(
         // The renderer commits the displayed name and indices with its frame.
         store.stopLoading(false);
       }
+      if (!state.disposed) {
+        state.afterLoad?.();
+      }
     }
   };
 }
 
+/**
+ * Tell level selection what the prepared level allows. One level that has to
+ * be loaded whole is remembered rather than turning the capability off: a
+ * flag that followed the level on screen would send the pick back and forth
+ * between a level that lifts the cap and one that restores it.
+ */
+function noteViewLoading(
+  options: TGridDataLoaderOptions,
+  store: TGlobeControlStore
+) {
+  const level = options.getDatasources()?.selectedLevel ?? 0;
+  if (options.canLoadByView?.()) {
+    store.viewLoading = true;
+  } else if (!store.wholeLevels.includes(level)) {
+    store.wholeLevels.push(level);
+  }
+}
+
 function createDatasourceUpdate(
   options: TGridDataLoaderOptions,
+  store: TGlobeControlStore,
   getData: () => Promise<void>
 ) {
   return async function datasourceUpdate() {
@@ -120,6 +167,9 @@ function createDatasourceUpdate(
     }
 
     await options.prepareDatasource?.();
+    store.viewLoading = false;
+    store.wholeLevels = [];
+    noteViewLoading(options, store);
     await getData();
     await options.updateLandSeaMask();
     options.updateColormap();
@@ -146,6 +196,34 @@ function registerGridDataLoaderWatches(
       await getData();
       options.updateColormap();
     }
+  );
+  async function regrid() {
+    state.regrid = true;
+    await getData();
+    options.updateColormap();
+  }
+  watch(() => options.getDatasources()?.selectedLevel, regrid);
+  async function reloadWindow() {
+    if (!options.viewWindowStale?.()) {
+      return;
+    }
+    if (state.updatingData.value && state.regrid) {
+      // Let the window in flight land first: superseded on every move, none
+      // would be shown until the camera rests.
+      state.windowStale = true;
+      return;
+    }
+    await regrid();
+  }
+  state.afterLoad = () => {
+    if (state.windowStale) {
+      state.windowStale = false;
+      void reloadWindow();
+    }
+  };
+  watch(
+    [() => store.viewFootprint, () => store.isVolumeLayerEnabled()],
+    reloadWindow
   );
   watch(
     () => store.streamlineSelectionRevision,
@@ -190,6 +268,14 @@ function registerGridDataLoaderWatches(
       if (!enabled) {
         store.setStreamlineMagnitudeDisplayed(false);
         options.suspendStreamlines?.();
+      }
+      if (options.viewWindowStale?.()) {
+        // Streamlines read the whole level; without them a large level goes
+        // back to its view window.
+        await regrid();
+        return;
+      }
+      if (!enabled) {
         if (state.updatingData.value) {
           return;
         }
@@ -221,9 +307,11 @@ export function useGridDataLoader(options: TGridDataLoaderOptions) {
     requestRevision: 0,
     pendingUpdate: ref(false),
     updatingData: ref(false),
+    regrid: false,
+    windowStale: false,
   };
   const getData = createGetData(options, store, state, logError);
-  const datasourceUpdate = createDatasourceUpdate(options, getData);
+  const datasourceUpdate = createDatasourceUpdate(options, store, getData);
 
   registerGridDataLoaderWatches(options, store, state, getData, logError);
 

@@ -11,6 +11,7 @@ import ColormapControls from "./controls/ColormapControls.vue";
 import DataInput from "./controls/DataInput.vue";
 import DimensionControl from "./controls/DimensionControl.vue";
 import LayerPanel from "./controls/LayerPanel.vue";
+import LevelSelector from "./controls/LevelSelector.vue";
 import PopupDialog from "./controls/PopupDialog.vue";
 import ProjectionControls from "./controls/ProjectionControls.vue";
 import VariableSelector from "./controls/VariableSelector.vue";
@@ -397,6 +398,10 @@ defineExpose({
             v-if="modelInfo"
             v-model="varnameSelector"
             :model-info="modelInfo"
+          />
+          <LevelSelector
+            v-if="modelInfo?.levels && modelInfo.levels.length > 1"
+            :levels="modelInfo.levels"
           />
           <DimensionControl />
         </CollapsibleCard>

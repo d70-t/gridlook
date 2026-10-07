@@ -181,7 +181,7 @@ function getOptionLabel(varname: string): string {
           </option>
         </select>
       </div>
-      <div :key="model" class="has-text-right">
+      <div :key="`${model}@${store.selectedLevel}`" class="has-text-right">
         <span v-word-break>
           {{ currentVarLabel }}
         </span>

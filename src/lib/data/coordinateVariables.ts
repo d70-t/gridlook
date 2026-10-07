@@ -1,6 +1,7 @@
 import proj4 from "proj4";
 import * as zarr from "zarrita";
 
+import { currentLevel } from "./levels.ts";
 import {
   castDataVarToFloat32,
   decodeVariableChunkInPlace,
@@ -209,7 +210,7 @@ export async function loadGridAxes(
   variable: string,
   dimensions: string[]
 ) {
-  const level = datasources.levels[0];
+  const level = currentLevel(datasources);
   const [y, x] = await Promise.all(
     dimensions.slice(-2).map(async (name) => {
       const path = ZarrDataManager.resolveVariablePath(variable, name);
@@ -443,7 +444,7 @@ function findLatLonNames(
   // Latitude:  rlat > lat > latitude  > anything else
   if (!latitudeName || !longitudeName) {
     ({ latitudeName, longitudeName } = refineLatLonFromSources(
-      datasources.levels[0].datasources,
+      currentLevel(datasources).datasources,
       variable,
       latitudeName,
       longitudeName
@@ -462,7 +463,7 @@ async function fetchLatLonVariables(
   longitudeName: string,
   variable: string
 ) {
-  const gridsource = datasources.levels[0].grid;
+  const gridsource = currentLevel(datasources).grid;
 
   const [latitudesVar, longitudesVar] = await Promise.all([
     ZarrDataManager.getVariableInfo(

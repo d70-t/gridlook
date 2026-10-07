@@ -16,7 +16,7 @@ vi.stubGlobal("localStorage", {
 });
 
 const { createPinia, setActivePinia } = await import("pinia");
-const { effectScope, nextTick } = await import("vue");
+const { effectScope, nextTick, reactive } = await import("vue");
 const { useGlobeControlStore } = await import("@/store/store.ts");
 const { useGridDataLoader } =
   await import("@/ui/grids/composables/useGridDataLoader.ts");
@@ -93,6 +93,224 @@ it("reports a fetch failure when no newer update is queued", async () => {
     "Could not fetch data"
   );
   expect(useGlobeControlStore().loading).toBe(false);
+  scope.stop();
+});
+
+it("reloads a swapped level in place and stages its display", async () => {
+  const sources = reactive({ selectedLevel: 0 }) as TSources;
+  const prepareDatasource = vi.fn();
+  const fetchAndRenderData = vi.fn().mockResolvedValue(undefined);
+  const scope = effectScope();
+  const loader = scope.run(() =>
+    useGridDataLoader({
+      getDatasources: () => sources,
+      getDataVar: vi.fn().mockResolvedValue({}),
+      fetchAndRenderData,
+      clearHoverLookup: vi.fn(),
+      prepareDatasource,
+      updateLandSeaMask: vi.fn(),
+      updateColormap: vi.fn(),
+    })
+  )!;
+
+  sources.selectedLevel = 1;
+  await vi.waitFor(() => expect(fetchAndRenderData).toHaveBeenCalledTimes(1));
+  expect(prepareDatasource).toHaveBeenCalledTimes(1);
+  expect(fetchAndRenderData.mock.calls[0][2]).toBe(true);
+
+  // Once the level is on screen, a timestep change replaces it directly.
+  await loader.getData();
+  expect(prepareDatasource).toHaveBeenCalledTimes(1);
+  expect(fetchAndRenderData.mock.calls[1][2]).toBe(false);
+  scope.stop();
+});
+
+it("reloads the view window once it no longer covers the view", async () => {
+  const sources = {} as TSources;
+  const store = useGlobeControlStore();
+  const prepareDatasource = vi.fn();
+  const fetchAndRenderData = vi.fn().mockResolvedValue(undefined);
+  const viewWindowStale = vi.fn().mockReturnValue(false);
+  const scope = effectScope();
+  const loader = scope.run(() =>
+    useGridDataLoader({
+      getDatasources: () => sources,
+      getDataVar: vi.fn().mockResolvedValue({}),
+      fetchAndRenderData,
+      clearHoverLookup: vi.fn(),
+      prepareDatasource,
+      canLoadByView: () => true,
+      viewWindowStale,
+      updateLandSeaMask: vi.fn(),
+      updateColormap: vi.fn(),
+    })
+  )!;
+  await loader.datasourceUpdate();
+  expect(store.viewLoading).toBe(true);
+  expect(prepareDatasource).toHaveBeenCalledTimes(1);
+
+  const centre = { centreLat: 0, centreLon: 0 };
+  // a move inside the loaded window fetches nothing
+  store.viewFootprint = {
+    latMin: 0,
+    latMax: 1,
+    lonStart: 0,
+    lonSpan: 1,
+    ...centre,
+  };
+  await nextTick();
+  expect(fetchAndRenderData).toHaveBeenCalledTimes(1);
+
+  viewWindowStale.mockReturnValue(true);
+  store.viewFootprint = {
+    latMin: 5,
+    latMax: 6,
+    lonStart: 0,
+    lonSpan: 1,
+    ...centre,
+  };
+  await vi.waitFor(() => expect(fetchAndRenderData).toHaveBeenCalledTimes(2));
+  expect(prepareDatasource).toHaveBeenCalledTimes(2);
+  expect(fetchAndRenderData.mock.calls[1][2]).toBe(true);
+  scope.stop();
+});
+
+it("lets a window in flight land before reloading for a newer view", async () => {
+  const sources = {} as TSources;
+  const store = useGlobeControlStore();
+  const firstWindow = deferred();
+  const fetchAndRenderData = vi
+    .fn()
+    .mockResolvedValueOnce(undefined)
+    .mockImplementationOnce(() => firstWindow.promise)
+    .mockResolvedValue(undefined);
+  const scope = effectScope();
+  const loader = scope.run(() =>
+    useGridDataLoader({
+      getDatasources: () => sources,
+      getDataVar: vi.fn().mockResolvedValue({}),
+      fetchAndRenderData,
+      clearHoverLookup: vi.fn(),
+      prepareDatasource: vi.fn(),
+      viewWindowStale: () => true,
+      updateLandSeaMask: vi.fn(),
+      updateColormap: vi.fn(),
+    })
+  )!;
+  await loader.datasourceUpdate();
+  const view = { latMin: 0, latMax: 1, lonSpan: 1, centreLat: 0, centreLon: 0 };
+
+  store.viewFootprint = { ...view, lonStart: 10 };
+  await vi.waitFor(() => expect(fetchAndRenderData).toHaveBeenCalledTimes(2));
+  // the camera keeps moving while that window loads: it is not superseded
+  store.viewFootprint = { ...view, lonStart: 20 };
+  store.viewFootprint = { ...view, lonStart: 30 };
+  await nextTick();
+  expect(fetchAndRenderData).toHaveBeenCalledTimes(2);
+
+  // once it is on screen, the window for the newest view follows
+  firstWindow.resolve();
+  await vi.waitFor(() => expect(fetchAndRenderData).toHaveBeenCalledTimes(3));
+  scope.stop();
+});
+
+it("prepares again for a level that supersedes one still loading", async () => {
+  const sources = reactive({ selectedLevel: 0 }) as TSources;
+  const firstLevel = deferred();
+  const prepareDatasource = vi.fn();
+  const fetchAndRenderData = vi
+    .fn()
+    .mockImplementationOnce(() => firstLevel.promise)
+    .mockResolvedValue(undefined);
+  const scope = effectScope();
+  const loader = scope.run(() =>
+    useGridDataLoader({
+      getDatasources: () => sources,
+      getDataVar: vi.fn().mockResolvedValue({}),
+      fetchAndRenderData,
+      clearHoverLookup: vi.fn(),
+      prepareDatasource,
+      updateLandSeaMask: vi.fn(),
+      updateColormap: vi.fn(),
+    })
+  )!;
+
+  sources.selectedLevel = 1;
+  await vi.waitFor(() => expect(fetchAndRenderData).toHaveBeenCalledTimes(1));
+  sources.selectedLevel = 2;
+  await nextTick();
+  firstLevel.resolve();
+  await vi.waitFor(() => expect(fetchAndRenderData).toHaveBeenCalledTimes(2));
+  expect(prepareDatasource).toHaveBeenCalledTimes(2);
+  // the superseded load did not count as showing the level: still staged
+  expect(fetchAndRenderData.mock.calls[1][2]).toBe(true);
+  await loader.getData();
+  expect(fetchAndRenderData.mock.calls[2][2]).toBe(false);
+  scope.stop();
+});
+
+it("reloads a view window as a whole level when streamlines are switched on", async () => {
+  const sources = {} as TSources;
+  const store = useGlobeControlStore();
+  // the grid holds a window until it is prepared again with streamlines on
+  let windowed = true;
+  const prepareDatasource = vi.fn(() => {
+    windowed = !store.isStreamlineLayerEnabled();
+  });
+  const fetchAndRenderData = vi.fn().mockResolvedValue(undefined);
+  const refreshStreamlines = vi.fn();
+  const scope = effectScope();
+  const loader = scope.run(() =>
+    useGridDataLoader({
+      getDatasources: () => sources,
+      getDataVar: vi.fn().mockResolvedValue({}),
+      fetchAndRenderData,
+      clearHoverLookup: vi.fn(),
+      prepareDatasource,
+      viewWindowStale: () => windowed && store.isStreamlineLayerEnabled(),
+      refreshStreamlines,
+      updateLandSeaMask: vi.fn(),
+      updateColormap: vi.fn(),
+    })
+  )!;
+  await loader.datasourceUpdate();
+
+  store.setStreamlineLayerEnabled(true);
+  await vi.waitFor(() => expect(prepareDatasource).toHaveBeenCalledTimes(2));
+  await vi.waitFor(() => expect(store.loading).toBe(false));
+  // the level was fetched again staged, not refreshed from the window's data
+  expect(fetchAndRenderData.mock.calls[1][2]).toBe(true);
+  expect(refreshStreamlines).not.toHaveBeenCalled();
+  scope.stop();
+});
+
+it("remembers a level that has to be loaded whole", async () => {
+  const sources = reactive({ selectedLevel: 0 }) as TSources;
+  const store = useGlobeControlStore();
+  const fetchAndRenderData = vi.fn().mockResolvedValue(undefined);
+  const scope = effectScope();
+  const loader = scope.run(() =>
+    useGridDataLoader({
+      getDatasources: () => sources,
+      getDataVar: vi.fn().mockResolvedValue({}),
+      fetchAndRenderData,
+      clearHoverLookup: vi.fn(),
+      prepareDatasource: vi.fn(),
+      // level 1 cannot be loaded by view, the others can
+      canLoadByView: () => sources.selectedLevel !== 1,
+      updateLandSeaMask: vi.fn(),
+      updateColormap: vi.fn(),
+    })
+  )!;
+  await loader.datasourceUpdate();
+  expect(store.loadsLevelByView(1)).toBe(true);
+
+  sources.selectedLevel = 1;
+  await vi.waitFor(() => expect(fetchAndRenderData).toHaveBeenCalledTimes(2));
+  // the capability stays; only that level is held to the whole-level cap
+  expect(store.viewLoading).toBe(true);
+  expect(store.loadsLevelByView(0)).toBe(true);
+  expect(store.loadsLevelByView(1)).toBe(false);
   scope.stop();
 });
 

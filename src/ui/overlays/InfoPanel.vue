@@ -24,6 +24,7 @@ import type {
 
 import { getLatLonData } from "@/lib/data/coordinateVariables.ts";
 import { GRID_TYPES, type T_GRID_TYPES } from "@/lib/data/gridTypeDetector.ts";
+import { currentLevel } from "@/lib/data/levels.ts";
 import { decodeTime } from "@/lib/data/timeHandling.ts";
 import { getMissingValue, getFillValue } from "@/lib/data/variableDecoding.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
@@ -171,7 +172,7 @@ async function getTimeDimensionInfo(varname: string) {
   const timeDimName = arrayDims[timeDimIndex];
 
   try {
-    const varSource = props.datasources.levels[0].time;
+    const varSource = currentLevel(props.datasources).time;
     const info = await fetchTimeData(varSource, timeDimName, varname);
     if (varname === sourceVariable.value) {
       timeInfo.value = info;
@@ -363,7 +364,7 @@ async function fetchInfo() {
   groupAttrsChain.value = [];
 
   try {
-    const varSource = props.datasources.levels[0].datasources[varname];
+    const varSource = currentLevel(props.datasources).datasources[varname];
     const groupChain = await loadGroupAttrsChain(varSource, varname);
     if (varname !== sourceVariable.value) {
       return;

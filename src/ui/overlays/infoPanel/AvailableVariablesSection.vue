@@ -5,6 +5,7 @@ import { computed, ref, watch } from "vue";
 import type { TVariableMetadata } from "./types";
 import VariableTableSection from "./VariableTableSection.vue";
 
+import { currentLevel } from "@/lib/data/levels.ts";
 import type { TDataSource, TSources } from "@/lib/types/GlobeTypes.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 
@@ -41,7 +42,7 @@ function getDefaultAttributesVariableName(datasources?: TSources) {
     return null;
   }
 
-  const source = datasources.levels[0].datasources[variableName];
+  const source = currentLevel(datasources).datasources[variableName];
   if (!source || source.hidden) {
     return null;
   }
@@ -78,7 +79,7 @@ async function loadAllVariableMetadata(datasources?: TSources) {
     return;
   }
 
-  const entries = Object.entries(datasources.levels[0].datasources);
+  const entries = Object.entries(currentLevel(datasources).datasources);
   metadataByName.value = Object.fromEntries(
     entries.map(([name, source]) => [name, loadVariableMetadata(name, source)])
   );
@@ -88,7 +89,7 @@ const datasourceEntries = computed(() => {
   if (!props.datasources) {
     return [];
   }
-  return Object.entries(props.datasources.levels[0].datasources);
+  return Object.entries(currentLevel(props.datasources).datasources);
 });
 
 const allVariables = computed(() =>
@@ -114,9 +115,9 @@ const isTimeFromAnotherFile = computed(() => {
   if (!props.datasources) {
     return true;
   }
-  const time = props.datasources.levels[0].time;
-  const currentVariable =
-    props.datasources.levels[0].datasources[props.varname ?? ""] ?? null;
+  const level = currentLevel(props.datasources);
+  const time = level.time;
+  const currentVariable = level.datasources[props.varname ?? ""] ?? null;
   if (!time || !currentVariable) {
     // We only show the warning if there is a time variable and a selected
     // variable, otherwise it can be confusing
@@ -132,9 +133,9 @@ const isGridFromAnotherFile = computed(() => {
   if (!props.datasources) {
     return true;
   }
-  const grid = props.datasources.levels[0].grid;
-  const currentVariable =
-    props.datasources.levels[0].datasources[props.varname ?? ""] ?? null;
+  const level = currentLevel(props.datasources);
+  const grid = level.grid;
+  const currentVariable = level.datasources[props.varname ?? ""] ?? null;
   if (!grid || !currentVariable) {
     // We only show the warning if there is a grid and a selected
     // variable, otherwise it can be confusing

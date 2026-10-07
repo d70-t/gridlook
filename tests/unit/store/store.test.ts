@@ -186,3 +186,20 @@ it("sets volume layer visibility and selection", () => {
   store.setVolumeLayerEnabled(false);
   expect(store.isVolumeLayerEnabled()).toBe(false);
 });
+
+it("turns automatic level selection off on a manual pick", () => {
+  const store = useGlobeControlStore();
+
+  expect(store.selectedLevel).toBe(0);
+  expect(store.levelAuto).toBe(true);
+  store.selectLevel(2, false);
+  expect(store.selectedLevel).toBe(2);
+  expect(store.levelAuto).toBe(true);
+
+  store.selectLevel(1);
+  expect(store.selectedLevel).toBe(1);
+  expect(store.levelAuto).toBe(false);
+
+  store.setLevelAuto(true);
+  expect(store.levelAuto).toBe(true);
+});

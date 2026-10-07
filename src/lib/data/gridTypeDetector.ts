@@ -9,6 +9,7 @@ import {
   isProjectedYName,
   isWebMercatorCRS,
 } from "./coordinateVariables.ts";
+import { currentLevel } from "./levels.ts";
 import { getTriangularMesh } from "./triangularMesh.ts";
 import { ZarrDataManager } from "./ZarrDataManager.ts";
 
@@ -53,7 +54,7 @@ async function checkTriangularGrid(
   variable: string
 ): Promise<T_GRID_TYPES | null> {
   try {
-    const gridsource = datasources!.levels[0].grid;
+    const gridsource = currentLevel(datasources!).grid;
     const resolvedPath = ZarrDataManager.resolveVariablePath(
       variable,
       "vertex_of_cell"

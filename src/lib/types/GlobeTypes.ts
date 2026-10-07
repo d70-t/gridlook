@@ -75,18 +75,29 @@ export type TModelInfo = {
   defaultVar: string;
   title: string;
   colormaps: TColorMap[];
+  levels?: TSourceLevel[];
+};
+
+export type TSourceLevel = {
+  name?: string;
+  grid: TDatasetSource;
+  time: TDatasetSource;
+  datasources: Record<string, TDataSource>;
+  // ground size of one cell in metres, when known (drives level selection)
+  resolution?: number;
+  // cells one horizontal slice of the level holds (the values one timestep
+  // of a variable fetches), when known; caps automatic selection
+  cellCount?: number;
 };
 
 export type TSources = {
   name?: string;
   zarr_format: TZarrFormat;
   default_var?: string;
-  levels: {
-    name?: string;
-    grid: TDatasetSource;
-    time: TDatasetSource;
-    datasources: Record<string, TDataSource>;
-  }[];
+  // finest first when discovered from `multiscales`; as listed otherwise
+  levels: TSourceLevel[];
+  // index into `levels` read by every consumer (see currentLevel); 0 if unset
+  selectedLevel?: number;
 };
 
 export const SnapshotBackgrounds = {

@@ -312,9 +312,10 @@ function fetchGaussianReducedVariableData(
 // eslint-disable-next-line max-lines-per-function
 async function fetchAndRenderData(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
-  isCurrent: () => boolean
+  isCurrent: () => boolean,
+  stageDisplay: boolean
 ) {
-  const deferDisplay = store.isStreamlineLayerEnabled();
+  const deferDisplay = store.isStreamlineLayerEnabled() || stageDisplay;
   const { dimensionRanges, indices, dimensionNames } =
     await buildDimensionConfig(datavar);
 

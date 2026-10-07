@@ -2,6 +2,7 @@ import {
   useDebounceFn,
   useEventListener,
   useResizeObserver,
+  useThrottleFn,
 } from "@vueuse/core";
 import * as d3 from "d3-geo";
 import * as THREE from "three";
@@ -28,6 +29,7 @@ import { useGridSnapshot } from "./useGridSnapshot.ts";
 
 import {
   CAMERA_VERTICAL_FOV_DEGREES,
+  getGlobeFitCameraDistance,
   getCameraDistanceForVerticalSpan,
   getGlobeMovementScale,
   getVisibleVerticalSpan,
@@ -37,7 +39,10 @@ import {
   useSurfaceZoom,
 } from "@/lib/camera/OrbitControlsAddOn.ts";
 import { getRegionalCameraPosition } from "@/lib/camera/regionalCamera.ts";
-import { getDistanceScale } from "@/lib/projection/distanceScale.ts";
+import {
+  getDistanceScale,
+  metersPerPixelAt,
+} from "@/lib/projection/distanceScale.ts";
 import {
   isAzimuthalProjectionType,
   MERCATOR_LAT_LIMIT,
@@ -45,6 +50,7 @@ import {
   ProjectionHelper,
   type TProjectionCenter,
 } from "@/lib/projection/projectionUtils.ts";
+import { viewFootprint } from "@/lib/projection/viewFootprint.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 import { isDisplayMode, isPresenterActive } from "@/store/usePresenterSync.ts";
@@ -130,6 +136,7 @@ export function useGridScene(options: UseGridSceneOptions) {
   let idleFrameCount = 0;
   const IDLE_FRAMES_BEFORE_STOP = 30; // ~500 ms at 60 fps – outlasts any realistic damping
   const WHEEL_END_DELAY_MS = 120;
+  const VIEW_FOOTPRINT_INTERVAL_MS = 200;
   const debouncedEndWheelInteraction = useDebounceFn(() => {
     wheelActive = false;
     animationLoop();
@@ -137,9 +144,11 @@ export function useGridScene(options: UseGridSceneOptions) {
   const FLAT_CROP_RENDER_ORDER = 5;
   const FLAT_BOUNDARY_STEP_DEGREES = 0.25;
   const TOUCH_PICK_TAP_MAX_DISTANCE_PX = 10;
-  // Keep ~6.4 km clearance for the tessellated globe; closer views
-  // need finer surface geometry (or analytic sphere rendering).
-  const GLOBE_MIN_CAMERA_DISTANCE = 1.001;
+  // Keep ~1.3 km clearance: close enough for automatic level selection to
+  // reach cells of a few metres. Float32 positions resolve about half a
+  // metre on the globe, so cell edges get ragged this close; closer views
+  // need camera-relative positions (or analytic sphere rendering).
+  const GLOBE_MIN_CAMERA_DISTANCE = 1.0002;
   let targetOffset = 0;
   let isInMotion = false;
   let updatingProjectionCenterFromCamera = false;
@@ -226,8 +235,49 @@ export function useGridScene(options: UseGridSceneOptions) {
     }
     getRenderer()?.render(getScene()!, getCamera()!);
     refreshDistanceScale();
+    refreshViewFootprint();
     return controlsUpdated;
   }
+
+  // What the camera sees and at what scale: level selection and grids that
+  // load only the view follow this; a few times a second is enough.
+  const refreshViewFootprint = useThrottleFn(
+    () => {
+      if (!camera || !canvas.value) {
+        return;
+      }
+      const rect = canvas.value.getBoundingClientRect();
+      const next = viewFootprint(camera, projectionHelper.value, rect);
+      if (JSON.stringify(next) !== JSON.stringify(store.viewFootprint)) {
+        store.viewFootprint = next;
+      }
+      // The scale is taken at the point of the surface below the camera, as
+      // the coarser of the two screen directions: a level sized by the finer
+      // one would be far too fine where a flat map is stretched one way.
+      const below = projectionHelper.value.isFlat
+        ? new THREE.Vector3(camera.position.x, camera.position.y, 0)
+        : camera.position.clone().normalize();
+      below.project(camera);
+      let scale: number | null = null;
+      for (const vertical of [false, true]) {
+        const along = metersPerPixelAt(
+          camera,
+          projectionHelper.value,
+          rect,
+          rect.left + ((below.x + 1) * rect.width) / 2,
+          rect.top + ((1 - below.y) * rect.height) / 2,
+          EARTH_RADIUS_METERS,
+          vertical
+        );
+        scale = along !== null && along > (scale ?? 0) ? along : scale;
+      }
+      if (scale !== null) {
+        store.metersPerPixel = scale;
+      }
+    },
+    VIEW_FOOTPRINT_INTERVAL_MS,
+    true
+  );
 
   function refreshDistanceScale() {
     store.distanceScale =
@@ -641,12 +691,7 @@ export function useGridScene(options: UseGridSceneOptions) {
   ) {
     // Compute the tightest distance at which the globe (radius 1) still fits
     // fully within the viewport on both axes, with a small 5 % margin.
-    const vHalfFov = THREE.MathUtils.degToRad(
-      (cam.fov ?? CAMERA_VERTICAL_FOV_DEGREES) / 2
-    );
-    const hHalfFov = Math.atan(Math.tan(vHalfFov) * cam.aspect);
-    const minHalfFov = Math.min(vHalfFov, hHalfFov);
-    const targetDistance = 1.05 / Math.sin(minHalfFov);
+    const targetDistance = getGlobeFitCameraDistance(cam.aspect, cam.fov);
 
     cam.up.set(0, 0, 1);
     cam.near = 0.1;

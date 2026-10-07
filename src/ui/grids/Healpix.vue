@@ -18,6 +18,13 @@ import { useStreamlineLayer } from "./composables/useStreamlineLayer.ts";
 import { useVolume } from "./composables/useVolume.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
+import {
+  coarsestLevel,
+  currentLevel,
+  DEFAULT_MAX_LEVEL_CELLS,
+  DEFAULT_MAX_VIEW_CELLS,
+  STREAMLINES_NEED_WHOLE_LEVEL,
+} from "@/lib/data/levels.ts";
 import { loadVectorComponents } from "@/lib/data/streamlineData.ts";
 import {
   castDataVarToFloat32,
@@ -47,10 +54,16 @@ import {
   type THealpixDataRect,
 } from "@/lib/grids/healpixCalculations.ts";
 import {
+  healpixBlockLevel,
+  healpixBlockRanges,
+  healpixViewBlocks,
+} from "@/lib/grids/healpixWindow.ts";
+import {
   buildHealpixFace,
   terminateHealpixWorker,
 } from "@/lib/grids/healpixWorkerClient.ts";
 import type { THealpixBatch } from "@/lib/grids/healpixWorkerProtocol.ts";
+import { createSortedCells } from "@/lib/grids/sortedCells.ts";
 import {
   createTriangleWrapProjectionGeometry,
   createWrappedProjectionMesh,
@@ -147,16 +160,51 @@ let cachedStreamlineKey: string | undefined;
 
 let disposed = false;
 
+// A view window reaches this fraction of the view's size past every edge.
+const VIEW_WINDOW_MARGIN = 0.5;
+// The level as stored: how many cells, and whether it can be loaded by view
+// (nested, and either dense or with an ascending `cell` coordinate).
+let levelCellCount = 0;
+let levelWindowable = false;
+let sortedCells: ReturnType<typeof createSortedCells> | undefined;
+// The coordinate reader of a sparse level, kept while the level stays the
+// same so that its chunks are read once.
+let cellsReader:
+  { key: string; cells: ReturnType<typeof createSortedCells> } | undefined;
+// The blocks loaded of a level too large to load whole; undefined when the
+// whole level is loaded.
+let loadedBlocks: number[] | undefined;
+
 let mainMeshes: Array<THREE.Mesh | undefined> = new Array(HEALPIX_NUMCHUNKS);
 
-onColormapChange(() => updateColormap(mainMeshes));
+// The coarsest level of a multi-resolution dataset at the selected slice. A
+// finer level takes its colour range from it and is drawn over it, so the
+// range holds still and nothing is empty where the finer level has no cells.
+type TBackdropFrame = {
+  key: string;
+  min: number;
+  max: number;
+  histogramSummaries: THistogramSummary[];
+  batches: THealpixBatch[];
+};
+let backdropFrame: TBackdropFrame | undefined;
+let backdropKey: string | undefined;
+const backdropMeshes: Array<THREE.Mesh | undefined> = new Array(
+  HEALPIX_NUMCHUNKS
+);
+
+function drawnMeshes() {
+  return [...backdropMeshes, ...mainMeshes];
+}
+
+onColormapChange(() => updateColormap(drawnMeshes()));
 
 onProjectionChange(updateMeshProjectionUniforms);
 onMotionStateChange(updateMeshProjectionUniforms);
 
 const scalarCache = useScalarFieldCache({
   updateHistogram,
-  updateColormap: () => updateColormap(mainMeshes),
+  updateColormap: () => updateColormap(drawnMeshes()),
   redraw,
 });
 
@@ -184,7 +232,7 @@ const volume = useVolume({
  * This is the fast path - no geometry rebuild needed.
  */
 function updateMeshProjectionUniforms() {
-  updateProjectionMeshes(mainMeshes, {
+  updateProjectionMeshes(drawnMeshes(), {
     redraw,
     projectionHelper: projectionHelper.value,
     isSceneInMotion: isSceneInMotion.value,
@@ -197,8 +245,11 @@ const { datasourceUpdate } = useGridDataLoader({
   fetchAndRenderData,
   scalarCache,
   clearHoverLookup,
+  prepareDatasource: prepareLevel,
+  canLoadByView: () => levelWindowable,
+  viewWindowStale,
   updateLandSeaMask,
-  updateColormap: () => updateColormap(mainMeshes),
+  updateColormap: () => updateColormap(drawnMeshes()),
   refreshStreamlines: async (reuseCached) => {
     if (lastStreamlineContext) {
       await updateStreamlines(lastStreamlineContext, reuseCached);
@@ -240,10 +291,12 @@ function coerceEllipsoid(value: unknown): healpixGeo.EllipsoidInput | null {
     : (value as healpixGeo.EllipsoidInput);
 }
 
-async function gridFromEasygemsConvention(): Promise<healpixGeo.Grid | null> {
+async function gridFromEasygemsConvention(
+  sources: TSources
+): Promise<healpixGeo.Grid | null> {
   try {
     const crs = await ZarrDataManager.getCRSInfo(
-      props.datasources!,
+      sources,
       varnameSelector.value
     );
     const nside = coerceInteger(crs.attrs["healpix_nside"]);
@@ -261,9 +314,11 @@ async function gridFromEasygemsConvention(): Promise<healpixGeo.Grid | null> {
   return null;
 }
 
-async function gridFromDggsConvention(): Promise<healpixGeo.Grid | null> {
+async function gridFromDggsConvention(
+  sources: TSources
+): Promise<healpixGeo.Grid | null> {
   const metadata = await ZarrDataManager.getDggsMetadata(
-    props.datasources!,
+    sources,
     varnameSelector.value
   );
   if (metadata !== null) {
@@ -304,20 +359,22 @@ function inferGridFromCellCount(
   return null;
 }
 
-async function getHealpixGridParameters(): Promise<healpixGeo.Grid> {
-  const fromEasygems = await gridFromEasygemsConvention();
+async function getHealpixGridParameters(
+  sources = props.datasources!
+): Promise<healpixGeo.Grid> {
+  const fromEasygems = await gridFromEasygemsConvention(sources);
   if (fromEasygems !== null) {
     return fromEasygems;
   }
 
-  const fromDggsConvention = await gridFromDggsConvention();
+  const fromDggsConvention = await gridFromDggsConvention(sources);
   if (fromDggsConvention !== null) {
     return fromDggsConvention;
   }
 
   // last resort: assume nested / spherical and infer level from a global grid's cell count (12 * 4^level)
   const datavar = await ZarrDataManager.getVariableInfo(
-    ZarrDataManager.getDatasetSource(props.datasources!, varnameSelector.value),
+    ZarrDataManager.getDatasetSource(sources, varnameSelector.value),
     varnameSelector.value
   );
   const fromShape = await inferGridFromCellCount(datavar);
@@ -340,10 +397,10 @@ function unpackGrid(): healpixGeo.Grid {
   return grid as healpixGeo.Grid;
 }
 
-async function getCells() {
+async function getCellCoordinateName(sources = props.datasources!) {
   let cellCoord = "cell";
   const dggsMetadata = await ZarrDataManager.getDggsMetadata(
-    props.datasources!,
+    sources,
     varnameSelector.value
   );
   if (dggsMetadata !== null) {
@@ -354,11 +411,17 @@ async function getCells() {
   } else {
     // no dggs metadata found, continue with the default cell coordinate
   }
+  return cellCoord as string;
+}
+
+async function getCells(sources = props.datasources!) {
+  const cellCoord = await getCellCoordinateName(sources);
 
   try {
     const rawCells = await fetchHealpixVariableData(
       [],
-      ZarrDataManager.resolveVariablePath(varnameSelector.value, cellCoord)
+      ZarrDataManager.resolveVariablePath(varnameSelector.value, cellCoord),
+      sources
     );
 
     return Array.from(rawCells, (cell) => Number(cell));
@@ -367,17 +430,176 @@ async function getCells() {
   }
 }
 
+/**
+ * Whether the selected level is loaded by view: a large level other than the
+ * coarsest, which is the backdrop of the others and is always loaded whole.
+ * Streamlines and volumes read the whole level, up to the whole-level cap.
+ */
+function loadsByView() {
+  const sources = props.datasources!;
+  const wholeLevelLayers =
+    store.isStreamlineLayerEnabled() || store.isVolumeLayerEnabled();
+  return (
+    levelWindowable &&
+    (sources.selectedLevel ?? 0) !== coarsestLevel(sources.levels) &&
+    levelCellCount >
+      (wholeLevelLayers ? DEFAULT_MAX_LEVEL_CELLS : DEFAULT_MAX_VIEW_CELLS)
+  );
+}
+
+function viewBlocks(margin: number) {
+  const grid = unpackGrid();
+  return store.viewFootprint
+    ? healpixViewBlocks(
+        grid,
+        store.viewFootprint,
+        margin,
+        Math.floor(
+          DEFAULT_MAX_VIEW_CELLS /
+            4 ** (grid.level - healpixBlockLevel(grid.level))
+        )
+      )
+    : [];
+}
+
+function viewWindowStale() {
+  if (!loadsByView()) {
+    return loadedBlocks !== undefined;
+  }
+  if (loadedBlocks === undefined) {
+    return true;
+  }
+  const loaded = new Set(loadedBlocks);
+  return viewBlocks(0).some((block) => !loaded.has(block));
+}
+
+/**
+ * Read what the stored level allows: its grid, its size, and whether it can
+ * be loaded by view (nested, in a pyramid with a coarsest level to draw
+ * beneath, and either dense or with an ascending `cell` coordinate). Then
+ * switch to it and to the blocks in view in one step.
+ */
+async function prepareLevel() {
+  const sources = props.datasources!;
+  const variable = varnameSelector.value;
+  const grid = await getHealpixGridParameters();
+  const datavar = await ZarrDataManager.getVariableInfoByDatasetSources(
+    sources,
+    variable
+  );
+  const cellCount = datavar.shape[datavar.shape.length - 1];
+  let windowable = false;
+  let cells: ReturnType<typeof createSortedCells> | undefined;
+  if (coarsestLevel(sources.levels) !== undefined && grid.scheme === "nested") {
+    const cellPath = ZarrDataManager.resolveVariablePath(
+      variable,
+      await getCellCoordinateName()
+    );
+    const coordinate = await ZarrDataManager.getVariableInfoByDatasetSources(
+      sources,
+      cellPath
+    ).catch(() => undefined);
+    if (coordinate) {
+      const key = `${sources.selectedLevel ?? 0}:${cellPath}`;
+      if (cellsReader?.key !== key) {
+        // the reader keeps reading this level, whatever is selected later
+        const level = { ...sources };
+        cellsReader = {
+          key,
+          cells: createSortedCells(
+            coordinate.shape[0],
+            coordinate.chunks[0],
+            async (start, end) =>
+              (await fetchHealpixVariableData(
+                [zarr.slice(start, end)],
+                cellPath,
+                level
+              )) as ArrayLike<number | bigint>
+          ),
+        };
+      }
+      windowable = await cellsReader.cells.isAscending();
+      cells = windowable ? cellsReader.cells : undefined;
+    } else {
+      windowable = cellCount === 12 * grid.nside ** 2;
+    }
+  }
+  // Nothing below waits: a view change in between never sees half of two
+  // levels.
+  healpixGrid.value = grid;
+  levelCellCount = cellCount;
+  levelWindowable = windowable;
+  sortedCells = cells;
+  loadedBlocks = loadsByView() ? viewBlocks(VIEW_WINDOW_MARGIN) : undefined;
+}
+
+/** The stored cells with ids in a nested range, and their values. */
+async function fetchCellRange(
+  range: { start: number; end: number },
+  indices: (number | zarr.Slice | null)[]
+) {
+  // Dense levels store cell `n` at index `n`; sparse ones are searched.
+  const start = sortedCells
+    ? await sortedCells.lowerBound(range.start)
+    : range.start;
+  const end = sortedCells ? await sortedCells.lowerBound(range.end) : range.end;
+  if (start === end) {
+    return { data: new Float32Array(), cells: [] as number[] };
+  }
+  const selection = indices.slice();
+  selection[selection.length - 1] = zarr.slice(start, end);
+  const cells = sortedCells
+    ? await sortedCells.slice(start, end)
+    : Array.from({ length: end - start }, (_, index) => start + index);
+  if (cells[0] < range.start || cells[cells.length - 1] >= range.end) {
+    throw new Error("The cell coordinate is not in ascending order.");
+  }
+  return {
+    data: castDataVarToFloat32(await fetchHealpixVariableData(selection)),
+    cells,
+  };
+}
+
+/** The cells of one face that the loaded blocks hold, and their values. */
+async function fetchFaceBlocks(
+  faceIndex: number,
+  grid: healpixGeo.Grid,
+  indices: (number | zarr.Slice | null)[]
+) {
+  const blockLevel = healpixBlockLevel(grid.level);
+  const ranges = healpixBlockRanges(
+    loadedBlocks!.filter(
+      (block) => Math.floor(block / 4 ** blockLevel) === faceIndex
+    ),
+    4 ** (grid.level - blockLevel)
+  );
+  const parts = await Promise.all(
+    ranges.map((range) => fetchCellRange(range, indices))
+  );
+  let length = 0;
+  for (const part of parts) {
+    length += part.data.length;
+  }
+  const data = new Float32Array(length);
+  const cells: number[] = [];
+  for (const part of parts) {
+    data.set(part.data, cells.length);
+    for (const cell of part.cells) {
+      cells.push(cell);
+    }
+  }
+  return { data, cells };
+}
+
 function fetchHealpixVariableData(
   selection: (number | zarr.Slice | null)[],
-  variable = varnameSelector.value
+  variable = varnameSelector.value,
+  sources = props.datasources!
 ) {
   return getGridVariableData({
-    source: ZarrDataManager.getDatasetSource(
-      props.datasources!,
-      varnameSelector.value
-    ),
+    source: ZarrDataManager.getDatasetSource(sources, varnameSelector.value),
     variable,
-    format: props.datasources!.zarr_format,
+    format: sources.zarr_format,
     selection,
   });
 }
@@ -449,7 +671,7 @@ async function showMagnitude(scalar: TVectorMagnitudeData) {
         ),
       });
     }
-    return () => textures.forEach(updateHealpixTexture);
+    return () => textures.forEach((texture) => updateHealpixTexture(texture));
   });
 }
 
@@ -535,7 +757,7 @@ async function updateStreamlines(
 ) {
   const requestRevision = ++streamlineRequestRevision;
   const variableNames = Object.keys(
-    props.datasources?.levels[0]?.datasources ?? {}
+    (props.datasources && currentLevel(props.datasources)?.datasources) ?? {}
   );
   const pair = resolveVectorVariablePair(
     variableNames,
@@ -584,6 +806,14 @@ async function updateStreamlines(
       store.setStreamlineMagnitudeInfo(undefined);
       streamlines.setAvailablePair(pair);
     }
+    return;
+  }
+  if (loadedBlocks) {
+    // only a level picked by hand that is over the whole-level cap gets here
+    cachedMagnitude = undefined;
+    cachedStreamlineKey = undefined;
+    store.setStreamlineMagnitudeInfo(undefined);
+    streamlines.clear(STREAMLINES_NEED_WHOLE_LEVEL);
     return;
   }
   streamlines.startLoading();
@@ -671,8 +901,8 @@ async function getDimensionValues(
   return dimValues;
 }
 
-function disposeHealpixMesh(batchIndex: number) {
-  const mesh = mainMeshes[batchIndex];
+function disposeHealpixMesh(batchIndex: number, target = mainMeshes) {
+  const mesh = target[batchIndex];
   if (!mesh) {
     return;
   }
@@ -685,12 +915,13 @@ function disposeHealpixMesh(batchIndex: number) {
     mat.dispose();
   }
   getScene()?.remove(mesh);
-  mainMeshes[batchIndex] = undefined;
+  target[batchIndex] = undefined;
 }
 
 function createHealpixMesh(
   batchIndex: number,
-  geometry: THREE.InstancedBufferGeometry
+  geometry: THREE.InstancedBufferGeometry,
+  target = mainMeshes
 ) {
   const { addOffset, scaleFactor } = getColormapScaleOffset(
     store.selection?.low as number,
@@ -710,27 +941,31 @@ function createHealpixMesh(
     projectionHelper.value.type
   );
   mesh.frustumCulled = false;
-  mainMeshes[batchIndex] = mesh;
+  if (target === backdropMeshes) {
+    // after the layers stacked below the grid (-1 and down), before the grid
+    mesh.renderOrder = -0.5;
+  }
+  target[batchIndex] = mesh;
   getScene()?.add(mesh);
   return mesh;
 }
 
-function updateHealpixBatch(batch: THealpixBatch) {
+function updateHealpixBatch(batch: THealpixBatch, target = mainMeshes) {
   if (batch.width === 0 || batch.height === 0) {
     // No cells of a regional/sparse dataset fall in this face.
-    disposeHealpixMesh(batch.batchIndex);
+    disposeHealpixMesh(batch.batchIndex, target);
     return;
   }
   const geometry = createGeometry(batch);
-  let mesh = mainMeshes[batch.batchIndex];
+  let mesh = target[batch.batchIndex];
   if (mesh) {
     mesh.geometry.dispose();
     setupProjectionGeometryWrap(geometry);
     mesh.geometry = geometry;
   } else {
-    mesh = createHealpixMesh(batch.batchIndex, geometry);
+    mesh = createHealpixMesh(batch.batchIndex, geometry, target);
   }
-  updateHealpixTexture(batch);
+  updateHealpixTexture(batch, target);
   updateMeshProjectionUniforms();
 }
 
@@ -739,8 +974,8 @@ type THealpixTexture = Pick<
   "batchIndex" | "dataValues" | "width" | "height" | "dataRect"
 >;
 
-function updateHealpixTexture(batch: THealpixTexture) {
-  const mesh = mainMeshes[batch.batchIndex];
+function updateHealpixTexture(batch: THealpixTexture, target = mainMeshes) {
+  const mesh = target[batch.batchIndex];
   if (!mesh) {
     return;
   }
@@ -775,7 +1010,10 @@ async function processHealpixChunks(
   grid: healpixGeo.Grid,
   indices: (number | zarr.Slice | null)[],
   deferDisplay: boolean,
-  isCurrent: () => boolean
+  isCurrent: () => boolean,
+  // the backdrop reads another level, whole
+  sources = props.datasources!,
+  byView = loadedBlocks !== undefined
 ) {
   let dataMin = Number.POSITIVE_INFINITY;
   let dataMax = Number.NEGATIVE_INFINITY;
@@ -810,19 +1048,21 @@ async function processHealpixChunks(
     const range = getHealpixFaceRange(faceIndex, grid.nside, cells);
     const selection = indices.slice();
     selection[selection.length - 1] = zarr.slice(range.start, range.end);
-    const data =
-      range.start === range.end
-        ? new Float32Array()
-        : castDataVarToFloat32(await fetchHealpixVariableData(selection));
+    const face = byView
+      ? await fetchFaceBlocks(faceIndex, grid, indices)
+      : {
+          data:
+            range.start === range.end
+              ? new Float32Array()
+              : castDataVarToFloat32(
+                  await fetchHealpixVariableData(selection, undefined, sources)
+                ),
+          cells: range.cells,
+        };
     if (disposed || !isCurrent()) {
       return;
     }
-    const batch = await buildHealpixFace({
-      ...options,
-      faceIndex,
-      data,
-      cells: range.cells,
-    });
+    const batch = await buildHealpixFace({ ...options, faceIndex, ...face });
     const summary = batch.histogramSummary;
     histogramSummaries.push(summary);
     dataMin = dataMin > summary.min ? summary.min : dataMin;
@@ -844,6 +1084,76 @@ async function processHealpixChunks(
     }
   }
   return { dataMin, dataMax, histogramSummaries, textures, batches };
+}
+
+/** Load the coarsest level at the selected slice, unless it is on screen. */
+async function loadBackdrop(
+  indices: (number | zarr.Slice | null)[],
+  isCurrent: () => boolean
+) {
+  const sources = props.datasources!;
+  const level = coarsestLevel(sources.levels);
+  if (level === undefined || level === (sources.selectedLevel ?? 0)) {
+    return undefined;
+  }
+  const key = JSON.stringify([level, varnameSelector.value, indices]);
+  if (backdropFrame?.key === key) {
+    return backdropFrame;
+  }
+  const coarse = { ...sources, selectedLevel: level };
+  const datavar = await getDataVar(varnameSelector.value, coarse);
+  if (!datavar) {
+    return undefined;
+  }
+  const result = await processHealpixChunks(
+    datavar,
+    await getCells(coarse),
+    await getHealpixGridParameters(coarse),
+    indices,
+    true,
+    isCurrent,
+    coarse,
+    false
+  );
+  if (!result) {
+    return undefined;
+  }
+  backdropFrame = {
+    key,
+    min: result.dataMin,
+    max: result.dataMax,
+    histogramSummaries: result.histogramSummaries,
+    batches: result.batches,
+  };
+  return backdropFrame;
+}
+
+/** Draw the coarsest level under a level that leaves part of the view empty. */
+function showBackdrop(frame: TBackdropFrame | undefined) {
+  const dense = levelCellCount === 12 * unpackGrid().nside ** 2;
+  const wanted = frame && (loadedBlocks || !dense) ? frame : undefined;
+  if (backdropKey === wanted?.key) {
+    return;
+  }
+  backdropKey = wanted?.key;
+  for (let face = 0; face < HEALPIX_NUMCHUNKS; face++) {
+    disposeHealpixMesh(face, backdropMeshes);
+  }
+  wanted?.batches.forEach((batch) => updateHealpixBatch(batch, backdropMeshes));
+}
+
+/**
+ * A level is drawn after its backdrop and over it whatever the depth says:
+ * up close the two surfaces are nearer than float32 positions can order.
+ */
+function drawOverBackdrop() {
+  for (const mesh of mainMeshes) {
+    if (mesh) {
+      (mesh.material as THREE.ShaderMaterial).depthFunc = backdropKey
+        ? THREE.AlwaysDepth
+        : THREE.LessEqualDepth;
+    }
+  }
 }
 
 function healpixHoverLookup(
@@ -899,14 +1209,20 @@ function healpixHoverLookup(
 // eslint-disable-next-line max-lines-per-function
 async function fetchAndRenderData(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
-  isCurrent: () => boolean
+  isCurrent: () => boolean,
+  stageDisplay: boolean
 ) {
-  const deferDisplay = store.isStreamlineLayerEnabled();
+  const deferDisplay = store.isStreamlineLayerEnabled() || stageDisplay;
   const grid = unpackGrid();
 
-  const cellCoord = await getCells();
+  // A level loaded by view never reads its whole `cell` coordinate.
+  const cellCoord = loadedBlocks ? undefined : await getCells();
   fitCameraToCells(grid, cellCoord);
   const { dimensionRanges, indices } = await prepareDimensionData(datavar);
+  // One after the other: the face worker runs a single build at a time.
+  const backdropData = await loadBackdrop(indices, isCurrent).catch(
+    () => undefined
+  );
   const result = await processHealpixChunks(
     datavar,
     cellCoord,
@@ -921,25 +1237,31 @@ async function fetchAndRenderData(
   const { dataMin, dataMax, histogramSummaries, textures, batches } = result;
 
   lastStreamlineContext = { indices, grid, cellCoord };
-  volume.setContext({
-    dimensionNames: selectedDimensionNames.value,
-    indices,
-    grid: {
-      kind: VOLUME_GRID_TYPES.HEALPIX,
-      nside: grid.nside,
-      cellCoordinates: cellCoord ? Float64Array.from(cellCoord) : undefined,
-      options: {
-        scheme: grid.scheme,
-        level: grid.level,
-        ellipsoid: {
-          // eslint-disable-next-line camelcase
-          semi_major_axis: grid.semiMajorAxis,
-          // eslint-disable-next-line camelcase
-          semi_minor_axis: grid.semiMajorAxis * (1 - grid.flattening),
-        },
-      },
-    },
-  });
+  volume.setContext(
+    loadedBlocks
+      ? undefined
+      : {
+          dimensionNames: selectedDimensionNames.value,
+          indices,
+          grid: {
+            kind: VOLUME_GRID_TYPES.HEALPIX,
+            nside: grid.nside,
+            cellCoordinates: cellCoord
+              ? Float64Array.from(cellCoord)
+              : undefined,
+            options: {
+              scheme: grid.scheme,
+              level: grid.level,
+              ellipsoid: {
+                // eslint-disable-next-line camelcase
+                semi_major_axis: grid.semiMajorAxis,
+                // eslint-disable-next-line camelcase
+                semi_minor_axis: grid.semiMajorAxis * (1 - grid.flattening),
+              },
+            },
+          },
+        }
+  );
 
   if (!isCurrent()) {
     return;
@@ -949,18 +1271,23 @@ async function fetchAndRenderData(
   const scalarInfo = {
     attrs: datavar.attrs,
     dimInfo,
-    bounds: { low: dataMin, high: dataMax },
+    bounds: {
+      low: backdropData?.min ?? dataMin,
+      high: backdropData?.max ?? dataMax,
+    },
     dimRanges: dimensionRanges,
   };
   let geometryPending = deferDisplay;
   const renderScalar = () => {
+    showBackdrop(backdropData);
     if (geometryPending) {
-      batches.forEach(updateHealpixBatch);
+      batches.forEach((batch) => updateHealpixBatch(batch));
       batches.length = 0;
       geometryPending = false;
     } else {
-      textures.forEach(updateHealpixTexture);
+      textures.forEach((texture) => updateHealpixTexture(texture));
     }
+    drawOverBackdrop();
     setHoverLookup(healpixHoverLookup);
   };
   if (!isCurrent()) {
@@ -970,7 +1297,7 @@ async function fetchAndRenderData(
     render: renderScalar,
     info: scalarInfo,
     indices: indices as number[],
-    data: histogramSummaries,
+    data: backdropData?.histogramSummaries ?? histogramSummaries,
     isCurrent,
   });
   await updateStreamlines(lastStreamlineContext);
@@ -980,11 +1307,6 @@ async function fetchAndRenderData(
 }
 
 onBeforeMount(async () => {
-  const grid = await getHealpixGridParameters();
-  if (disposed) {
-    return;
-  }
-  healpixGrid.value = grid;
   await datasourceUpdate();
   gridPrepared.value = true;
 });
@@ -996,6 +1318,7 @@ onBeforeUnmount(() => {
   terminateGridDataWorker();
   for (let ipix = 0; ipix < HEALPIX_NUMCHUNKS; ++ipix) {
     disposeHealpixMesh(ipix);
+    disposeHealpixMesh(ipix, backdropMeshes);
   }
 });
 

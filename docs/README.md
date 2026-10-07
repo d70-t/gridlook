@@ -25,6 +25,8 @@ model (ESM) output on native grids.
 - [Catalogs](catalogs.md) — catalog schema, hosting, and shareable catalog URLs.
 - [Live-dataset server contract](live-datasets.md#server-contract) — endpoints
   required by live mode.
+- [Multi-resolution datasets](levels.md) — how `multiscales` levels are
+  discovered and picked from the camera.
 - [CORS and data hosting](../README.md#cors--hosting-notes) — browser access
   requirements and a header check.
 
