@@ -120,10 +120,6 @@ function collectGridObjects(scene: THREE.Scene) {
   return gridObjects;
 }
 
-function normalizeLongitude360(lon: number) {
-  return ((lon % 360) + 360) % 360;
-}
-
 function normalizeLongitude180(lon: number) {
   const normalized = ((lon + 180) % 360) + (lon + 180 < 0 ? 360 : 0);
   return normalized - 180;
@@ -135,44 +131,24 @@ function getLongitudeBounds(
   if (longitudes.length === 0) {
     throw new Error("No longitudes available for GeoTIFF export.");
   }
-  const normalizedLongitudes = [
-    ...new Set(longitudes.map(normalizeLongitude360)),
-  ].sort((a, b) => a - b);
-
-  if (normalizedLongitudes.length === 1) {
-    const lon = normalizeLongitude180(normalizedLongitudes[0]);
-    return { west: lon - 0.5, east: lon + 0.5 };
+  let west = Number.POSITIVE_INFINITY;
+  let east = Number.NEGATIVE_INFINITY;
+  for (const longitude of longitudes) {
+    const lon = normalizeLongitude180(longitude);
+    west = Math.min(west, lon);
+    east = Math.max(east, lon);
   }
-
-  let largestGap = Number.NEGATIVE_INFINITY;
-  let largestGapIndex = 0;
-  for (let index = 0; index < normalizedLongitudes.length; index++) {
-    const lon = normalizedLongitudes[index];
-    const next =
-      index === normalizedLongitudes.length - 1
-        ? normalizedLongitudes[0] + 360
-        : normalizedLongitudes[index + 1];
-    const gap = next - lon;
-    if (gap > largestGap) {
-      largestGap = gap;
-      largestGapIndex = index;
-    }
+  if (west === east) {
+    return { west: west - 0.5, east: east + 0.5 };
   }
-  const coveredSpan = 360 - largestGap;
-  if (coveredSpan >= MIN_GLOBAL_LONGITUDE_COVERAGE_DEGREES) {
+  if (east - west >= MIN_GLOBAL_LONGITUDE_COVERAGE_DEGREES) {
     return {
       west: GLOBAL_TEXTURE_BOUNDS.west,
       east: GLOBAL_TEXTURE_BOUNDS.east,
     };
   }
 
-  const west =
-    normalizedLongitudes[(largestGapIndex + 1) % normalizedLongitudes.length];
-  const east = normalizedLongitudes[largestGapIndex];
-  return {
-    west: normalizeLongitude180(west),
-    east: normalizeLongitude180(east),
-  };
+  return { west, east };
 }
 
 function getGeoBoundsFromLatLonValues(values: readonly number[]): TGeoBounds {
@@ -194,6 +170,11 @@ function getGeoBoundsFromLatLonValues(values: readonly number[]): TGeoBounds {
       "No latitude/longitude geometry available for GeoTIFF export."
     );
   }
+  // Grid builders (e.g. Gaussian-reduced cells) nudge boundary-row vertices
+  // slightly past the poles to avoid seam z-fighting, so clamp back to the
+  // valid geographic range.
+  south = Math.max(-90, south);
+  north = Math.min(90, north);
   if (south === north) {
     south -= 0.5;
     north += 0.5;
@@ -202,8 +183,30 @@ function getGeoBoundsFromLatLonValues(values: readonly number[]): TGeoBounds {
   return { west, south, east, north };
 }
 
+function hasAntimeridianTriangles(geometry: THREE.BufferGeometry) {
+  const latLon = geometry.getAttribute("latLon");
+  const indices = geometry.getIndex();
+  const count = indices?.count ?? latLon.count;
+  for (let index = 0; index + 2 < count; index += 3) {
+    const lon0 = normalizeLongitude180(
+      latLon.getY(indices?.getX(index) ?? index)
+    );
+    const lon1 = normalizeLongitude180(
+      latLon.getY(indices?.getX(index + 1) ?? index + 1)
+    );
+    const lon2 = normalizeLongitude180(
+      latLon.getY(indices?.getX(index + 2) ?? index + 2)
+    );
+    if (Math.max(lon0, lon1, lon2) - Math.min(lon0, lon1, lon2) > 180) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function getGeoBounds(objects: TGridObject[]): TGeoBounds {
   const values: number[] = [];
+  let crossesAntimeridian = false;
   for (const object of objects) {
     const latLon = object.geometry.getAttribute("latLon");
     if (!latLon) {
@@ -212,8 +215,17 @@ function getGeoBounds(objects: TGridObject[]): TGeoBounds {
     for (let index = 0; index < latLon.count; index++) {
       values.push(latLon.getX(index), latLon.getY(index));
     }
+    crossesAntimeridian ||=
+      object instanceof THREE.Mesh && hasAntimeridianTriangles(object.geometry);
   }
-  return getGeoBoundsFromLatLonValues(values);
+  const bounds = getGeoBoundsFromLatLonValues(values);
+  // The shader clips at ±180°. Crossing triangles reach both edges, even
+  // when coarse vertex spacing leaves a gap larger than one degree.
+  if (crossesAntimeridian) {
+    bounds.west = GLOBAL_TEXTURE_BOUNDS.west;
+    bounds.east = GLOBAL_TEXTURE_BOUNDS.east;
+  }
+  return bounds;
 }
 
 function getTextureImageSize(texture: THREE.Texture): TExportSize | undefined {

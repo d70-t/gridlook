@@ -40,7 +40,9 @@ export function computeBinTooltip(
 
   let range: string;
   let beyond: string | undefined;
-  if (numBins === 1) {
+  if (rangeLow === rangeHigh) {
+    range = `x = ${formatValue(rangeLow)}`;
+  } else if (numBins === 1) {
     // Single bin: all values are clamped into this bin.
     range = "all values";
     beyond = "includes all values";

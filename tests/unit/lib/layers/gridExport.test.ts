@@ -94,6 +94,19 @@ function createPointGridScene(latLonValues: number[]) {
   return scene;
 }
 
+function createTriangleGridScene(latLonValues: number[], indexed = false) {
+  const scene = createPointGridScene(latLonValues);
+  const points = scene.children[0] as THREE.Points;
+  if (indexed) {
+    points.geometry.setIndex(
+      Array.from({ length: latLonValues.length / 2 }, (_, index) => index)
+    );
+  }
+  scene.remove(points);
+  scene.add(new THREE.Mesh(points.geometry, points.material));
+  return scene;
+}
+
 function createRegularTextureScene(
   size: { width: number; height: number },
   bounds: { west: number; south: number; east: number; north: number }
@@ -176,3 +189,69 @@ it("treats near-global geometry coverage as global GeoTIFF bounds", async () => 
   expect(image.getBoundingBox()).toEqual([-180, -90, 180, 90]);
   expect(blob.size).toBeLessThan(image.getWidth() * image.getHeight() * 4);
 });
+
+it("exports coarse global triangles across the full shader longitude domain", async () => {
+  const values: number[] = [];
+  // The largest vertex gap ends at 109°, but triangles cover that gap too.
+  const longitudes = Array.from(
+    { length: 180 },
+    (_, index) => index * 2 - 179
+  ).filter((lon) => lon !== 107);
+  for (let index = 0; index < longitudes.length; index++) {
+    const west = longitudes[index];
+    const east = longitudes[(index + 1) % longitudes.length];
+    values.push(-90, west, 90, west, -90, east);
+    values.push(-90, east, 90, west, 90, east);
+  }
+  const renderer = createMockRenderer((target, size) =>
+    writeTopDownPixelsToReadBuffer(target, size, createSolidPixels(size))
+  );
+  renderer.render = (_scene, camera) => {
+    const exportCamera = camera as THREE.OrthographicCamera;
+    expect(exportCamera.left).toBeCloseTo(-Math.PI);
+    expect(exportCamera.right).toBeCloseTo(Math.PI);
+  };
+
+  const blob = await exportGridAsGeoTiffTexture(
+    renderer,
+    createTriangleGridScene(values)
+  );
+  const image = await (
+    await fromArrayBuffer(await blob.arrayBuffer())
+  ).getImage();
+  expect(image.getBoundingBox()).toEqual([-180, -90, 180, 90]);
+});
+
+it.each([false, true])(
+  "keeps regional triangle bounds with indexed=%s",
+  async (indexed) => {
+    const renderer = createMockRenderer((target, size) =>
+      writeTopDownPixelsToReadBuffer(target, size, createSolidPixels(size))
+    );
+    const blob = await exportGridAsGeoTiffTexture(
+      renderer,
+      createTriangleGridScene([10, 20, 30, 20, 10, 40], indexed)
+    );
+    const image = await (
+      await fromArrayBuffer(await blob.arrayBuffer())
+    ).getImage();
+    expect(image.getBoundingBox()).toEqual([20, 10, 40, 30]);
+  }
+);
+
+it.each([false, true])(
+  "includes both sides of antimeridian triangles with indexed=%s",
+  async (indexed) => {
+    const renderer = createMockRenderer((target, size) =>
+      writeTopDownPixelsToReadBuffer(target, size, createSolidPixels(size))
+    );
+    const blob = await exportGridAsGeoTiffTexture(
+      renderer,
+      createTriangleGridScene([10, 179, 30, 179, 10, 181], indexed)
+    );
+    const image = await (
+      await fromArrayBuffer(await blob.arrayBuffer())
+    ).getImage();
+    expect(image.getBoundingBox()).toEqual([-180, 10, 180, 30]);
+  }
+);

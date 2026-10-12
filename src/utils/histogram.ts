@@ -38,7 +38,10 @@ export function buildHistogramSummary(
     if (!isFinite(value) || value === missingValue || value === fillValue) {
       continue;
     }
-    let binIndex = range === 0 ? 0 : Math.floor((value - min) / binSize);
+    let binIndex =
+      range === 0
+        ? Math.floor(numBins / 2)
+        : Math.floor((value - min) / binSize);
     if (binIndex < 0) {
       binIndex = 0;
     }
@@ -88,7 +91,8 @@ function addDegenerateSummaryToBins(
   totalSourceCount: number
 ) {
   if (targetMax <= targetMin) {
-    targetBins[0] += totalSourceCount;
+    // Equal bounds use the midpoint color on the globe.
+    targetBins[Math.floor(targetBins.length / 2)] += totalSourceCount;
     return true;
   }
 

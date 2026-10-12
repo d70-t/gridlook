@@ -72,7 +72,7 @@ it("builds histograms without copying values and preserves invalid-value handlin
   expect([...buildHistogramSummary(values, 0, 2, 2, -999, -888).bins]).toEqual([
     2, 3,
   ]);
-  expect([...buildHistogramSummary([5, NaN, 5], 5, 5, 2).bins]).toEqual([2, 0]);
+  expect([...buildHistogramSummary([5, NaN, 5], 5, 5, 2).bins]).toEqual([0, 2]);
   expect([...buildHistogramSummary([NaN], NaN, NaN, 2).bins]).toEqual([0, 0]);
   expect(values[0]).toBeNaN();
   expect(values[2]).toBe(-999);
