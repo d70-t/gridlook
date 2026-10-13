@@ -47,6 +47,12 @@ const VIEW_SAMPLE_STEPS = 16;
 // Each upload is a 256 KB texSubImage2D; this bounds the work per frame.
 const UPLOADS_PER_FRAME = 8;
 
+// Tile downloads in flight at once. The rest wait in priority order, so
+// tiles that leave the view before their turn never reach the server.
+const MAX_DOWNLOADS = 6;
+// A tile that failed (e.g. rate-limited) is not requested again for this long.
+const RETRY_DELAY_MS = 30_000;
+
 // Compressed tiles are small, so caching blobs and decoding on reuse keeps
 // memory low when tiles come back after leaving the atlas.
 const tileCache = new QuickLRU<string, Blob>({ maxSize: 1024 });
@@ -242,6 +248,9 @@ export class BasemapLayer {
   // Tiles the page table points to; never evicted.
   private shownKeys = new Set<string>();
   private readonly downloads = new Map<string, AbortController>();
+  private queue: TTileRequest[] = [];
+  // Tile key -> time of its last failed download.
+  private readonly failedAt = new Map<string, number>();
   private readonly uploads = new Map<string, ImageBitmap>();
   private readonly uploadSource = new THREE.Texture();
   private uploadFrame = 0;
@@ -461,16 +470,28 @@ export class BasemapLayer {
     const provider = this.provider;
     if (!window || !provider || this.baseUrl !== provider.url) {
       // setProvider requests the tiles once its base is in.
+      this.queue = [];
       return;
     }
-    for (const tile of getTileRequests(window)) {
-      if (
+    const now = Date.now();
+    this.queue = getTileRequests(window).filter(
+      (tile) =>
         !this.slots.has(tile.key) &&
         !this.downloads.has(tile.key) &&
-        !this.uploads.has(tile.key)
-      ) {
-        void this.loadTile(provider.url, tile);
-      }
+        !this.uploads.has(tile.key) &&
+        !(now - (this.failedAt.get(tile.key) ?? -Infinity) < RETRY_DELAY_MS)
+    );
+    this.startDownloads();
+  }
+
+  private startDownloads() {
+    const provider = this.provider;
+    while (
+      provider &&
+      this.downloads.size < MAX_DOWNLOADS &&
+      this.queue.length > 0
+    ) {
+      void this.loadTile(provider.url, this.queue.shift()!);
     }
   }
 
@@ -493,17 +514,22 @@ export class BasemapLayer {
         image.close();
         return;
       }
+      this.failedAt.delete(key);
       this.uploads.set(key, image);
       this.onChange();
     } catch (error) {
-      if (!request.signal.aborted && !this.reportedTileError) {
-        this.reportedTileError = true;
-        this.onError(error);
+      if (!request.signal.aborted) {
+        this.failedAt.set(key, Date.now());
+        if (!this.reportedTileError) {
+          this.reportedTileError = true;
+          this.onError(error);
+        }
       }
     } finally {
       if (this.downloads.get(key) === request) {
         this.downloads.delete(key);
       }
+      this.startDownloads();
     }
   }
 
@@ -549,6 +575,8 @@ export class BasemapLayer {
 
   /** Forgets every tile; the atlas memory is reused for the next source. */
   private clearTiles() {
+    this.queue = [];
+    this.failedAt.clear();
     for (const request of this.downloads.values()) {
       request.abort();
     }

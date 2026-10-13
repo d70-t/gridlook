@@ -80,24 +80,25 @@ describe("chooseTileWindow", () => {
     ).toBe(undefined);
   });
 
-  it("switches to the finer zoom before tiles get noticeably stretched", () => {
-    // 5° samples 1120 px apart ask for zoom 8.3; round() alone would pick 8.
-    expect(
-      chooseTileWindow(makeGrid(0, 170, 5, 3, 5), 1120, 1000, MAX_ZOOM)?.zoom
-    ).toBe(9);
+  it("stays one level coarser than pixel-matching tiles on average", () => {
+    const grid = makeGrid(0, 170, 5, 3, 5);
+    // 5° samples 1120 px apart match tile pixels at zoom 8.30, 1000 px apart
+    // at 8.14; the switch to zoom 8 happens at 8.25.
+    expect(chooseTileWindow(grid, 1120, 1000, MAX_ZOOM)?.zoom).toBe(8);
+    expect(chooseTileWindow(grid, 1000, 1000, MAX_ZOOM)?.zoom).toBe(7);
   });
 
   it("wraps windows across the antimeridian and shrinks them to the cap", () => {
-    // 5° samples 1000 px apart ask for zoom 8: 18 x 11 tiles.
+    // 5° samples 2000 px apart ask for zoom 8: 18 x 11 tiles.
     const grid = makeGrid(0, 170, 5, 3, 5);
-    expect(chooseTileWindow(grid, 1000, maxWindowTiles, MAX_ZOOM)).toEqual({
+    expect(chooseTileWindow(grid, 2000, maxWindowTiles, MAX_ZOOM)).toEqual({
       zoom: 8,
       x: 247,
       y: 119,
       width: 18,
       height: 11,
     });
-    const window = chooseTileWindow(grid, 1000, 100, MAX_ZOOM);
+    const window = chooseTileWindow(grid, 2000, 100, MAX_ZOOM);
     expect(window).toEqual({ zoom: 7, x: 123, y: 59, width: 10, height: 7 });
     const columns = getWindowTiles(window!).map((tile) => tile.x);
     expect(new Set(columns)).toEqual(
@@ -131,7 +132,7 @@ describe("chooseTileWindow limits", () => {
     const grid: (TGeoPoint | null)[][] = makeGrid(0, 170, 5, 3, 5);
     grid[0][0] = null;
     grid[2] = grid[2].map(() => null);
-    expect(chooseTileWindow(grid, 1000, maxWindowTiles, MAX_ZOOM)?.zoom).toBe(
+    expect(chooseTileWindow(grid, 2000, maxWindowTiles, MAX_ZOOM)?.zoom).toBe(
       8
     );
     expect(

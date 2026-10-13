@@ -22,10 +22,11 @@ const PARENT_LEVEL_STEP = 2;
 // allows, else 4096 x 4096 px.
 const ATLAS_TILES = { COLUMNS: 32, ROWS: 16 } as const;
 
-// Switch to the finer zoom once tiles would be stretched by more than
-// 2^0.25 = 1.19x, trading some minification for sharpness. 0 would switch
-// halfway (in log scale) like a plain round().
-const ZOOM_SHARPNESS_BIAS = 0.25;
+// Zoom levels added to the one whose tile pixels match device pixels. Tiles
+// are designed for 256 CSS pixels, so matching device pixels shrinks labels
+// on HiDPI screens and needs 4x the tiles. -0.75 shows tile pixels at 1.19x
+// to 2.38x device pixels, one level coarser on average.
+const ZOOM_BIAS = -0.75;
 
 export const WEB_MERCATOR_LAT_LIMIT = 85.0511287798066;
 
@@ -185,9 +186,7 @@ export function chooseTileWindow(
     return undefined;
   }
   let zoom = Math.min(
-    Math.round(
-      Math.log2(1 / (mercatorPerPixel * TILE_SIZE)) + ZOOM_SHARPNESS_BIAS
-    ),
+    Math.round(Math.log2(1 / (mercatorPerPixel * TILE_SIZE)) + ZOOM_BIAS),
     maxZoom
   );
 
