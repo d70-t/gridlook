@@ -1,309 +1,588 @@
-import {
-  LODRaycast,
-  MapView,
-  MapProvider,
-  MapSphereNode,
-  UnitsUtils,
-  type LODControl,
-  type MapNode,
-} from "geo-three";
+// Raster XYZ basemap, sampled per fragment so it follows every projection.
+// A low-zoom texture covers the world; sharper tiles are uploaded one by one
+// into fixed slots of an atlas texture, and a small page table tells the
+// shader which slot holds each tile of the current view.
+
+import axios from "axios";
+import QuickLRU from "quick-lru";
 import * as THREE from "three";
 
+import {
+  BasemapZoom,
+  buildPageTable,
+  formatTileUrl,
+  getAtlasLayout,
+  getTileRequests,
+  getWindowReference,
+  getWindowTiles,
+  isSameTileWindow,
+  latToMercatorY,
+  lonToMercatorX,
+  mercatorYToLat,
+  TILE_SIZE,
+  type TGeoPoint,
+  type TTileRequest,
+  type TTileWindow,
+} from "./basemapTiles.ts";
+import { createFlatQuadGeometry } from "./equirectLayer.ts";
+import basemapFragmentShader from "./glsl/basemap.frag.glsl";
+import basemapGlobeVertexShader from "./glsl/basemapGlobe.vert.glsl";
+import flatInverseVertexShader from "./glsl/flatInverse.vert.glsl";
+
+import { getProjectionTypeFromMode } from "@/lib/projection/projectionShaders.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
-import { type TBasemapEntry } from "@/utils/basemap.ts";
+import type { TBasemapEntry } from "@/utils/basemap.ts";
 
-// geo-three derives tile edges from the WGS84 Mercator extent but divides by
-// the mean radius, shifting tiles ~4 km poleward. Make the two consistent.
-UnitsUtils.EARTH_RADIUS = UnitsUtils.EARTH_RADIUS_A;
+const BASE_WINDOW: TTileWindow = {
+  zoom: BasemapZoom.BASE,
+  x: 0,
+  y: 0,
+  width: 2 ** BasemapZoom.BASE,
+  height: 2 ** BasemapZoom.BASE,
+};
 
-function format(template: string, values: Record<string, number>): string {
-  return template.replace(/\{(\w+)\}/g, (_match, key: string) => {
-    if (!(key in values)) {
-      throw new Error(`Unknown template parameter: "${key}"`);
-    }
+// Screen samples along the longer canvas side when choosing tiles.
+const VIEW_SAMPLE_STEPS = 16;
 
-    return String(values[key]);
+// Each upload is a 256 KB texSubImage2D; this bounds the work per frame.
+const UPLOADS_PER_FRAME = 8;
+
+// Compressed tiles are small, so caching blobs and decoding on reuse keeps
+// memory low when tiles come back after leaving the atlas.
+const tileCache = new QuickLRU<string, Blob>({ maxSize: 1024 });
+
+const EMPTY_TEXTURE = new THREE.DataTexture(new Uint8Array(4), 1, 1);
+EMPTY_TEXTURE.needsUpdate = true;
+
+const UNIT_SPHERE = new THREE.Sphere(new THREE.Vector3(), 1);
+const cameraPosition = new THREE.Vector3();
+const referencePoint = new THREE.Vector3();
+const FLAT_PLANE = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+
+async function fetchTile(url: string, signal: AbortSignal) {
+  const cached = tileCache.get(url);
+  if (cached) {
+    return cached;
+  }
+  const response = await axios.get<Blob>(url, {
+    responseType: "blob",
+    signal,
   });
-}
-
-// geo-three works in metres with y up; gridlook's globe has radius 1 and z up.
-const GLOBE_TRANSFORM = new THREE.Matrix4()
-  .makeRotationX(Math.PI / 2)
-  .multiply(
-    new THREE.Matrix4().makeScale(
-      1 / UnitsUtils.EARTH_RADIUS_A,
-      1 / UnitsUtils.EARTH_RADIUS_A,
-      1 / UnitsUtils.EARTH_RADIUS_A
-    )
-  );
-
-// ponytail: OSM's limit; move into the catalog once a provider needs more.
-const MAX_TILE_ZOOM = 19;
-
-const MERCATOR_LAT_LIMIT = Math.atan(Math.sinh(Math.PI));
-
-// Clamped so the polar caps reuse the outermost texture row.
-function mercatorY(latitude: number) {
-  const clamped = THREE.MathUtils.clamp(
-    latitude,
-    -MERCATOR_LAT_LIMIT,
-    MERCATOR_LAT_LIMIT
-  );
-  return Math.log(Math.tan(Math.PI / 4 + clamped / 2));
+  tileCache.set(url, response.data);
+  return response.data;
 }
 
 /**
- * geo-three's sphere nodes ignore their parent's transform, so the globe
- * transform is baked into every node's world matrix instead.
+ * Draws a window's tiles into a new canvas; tiles that fail stay transparent.
+ * Returns undefined when aborted and throws only if every tile failed.
  */
-class GlobeSphereNode extends MapSphereNode {
-  /**
-   * The stock shader derives Web-Mercator coordinates per fragment with
-   * float32 trig on metre-sized values, which stripes at high zoom. Compute
-   * them per vertex in double precision instead and use a plain material.
-   */
-  constructor(
-    parentNode?: MapNode,
-    mapView?: MapView,
-    location?: number,
-    level?: number,
-    x?: number,
-    y?: number
-  ) {
-    super(parentNode, mapView, location, level, x, y);
-    const range = 2 ** this.level;
-    // Same edges as MapSphereNode.createGeometry; outer rows reach the poles.
-    const top =
-      this.y > 0
-        ? UnitsUtils.webMercatorToLatitude(this.level, this.y)
-        : Math.PI / 2;
-    const bottom =
-      this.y < range - 1
-        ? UnitsUtils.webMercatorToLatitude(this.level, this.y + 1)
-        : -Math.PI / 2;
-    const mercatorTop = mercatorY(top);
-    const mercatorBottom = mercatorY(bottom);
-    const uv = this.geometry.getAttribute("uv");
-    for (let index = 0; index < uv.count; index++) {
-      const latitude = bottom + uv.getY(index) * (top - bottom);
-      uv.setY(
-        index,
-        (mercatorY(latitude) - mercatorBottom) / (mercatorTop - mercatorBottom)
+async function drawTiles(
+  template: string,
+  window: TTileWindow,
+  signal: AbortSignal
+) {
+  const canvas = document.createElement("canvas");
+  canvas.width = window.width * TILE_SIZE;
+  canvas.height = window.height * TILE_SIZE;
+  const ctx = canvas.getContext("2d")!;
+  const results = await Promise.allSettled(
+    getWindowTiles(window).map(async (tile) => {
+      const url = formatTileUrl(template, tile.z, tile.x, tile.y);
+      const image = await createImageBitmap(await fetchTile(url, signal));
+      ctx.drawImage(
+        image,
+        tile.column * TILE_SIZE,
+        tile.row * TILE_SIZE,
+        TILE_SIZE,
+        TILE_SIZE
       );
-    }
-    (this.material as THREE.Material).dispose();
-    this.material = new THREE.MeshBasicMaterial();
+      image.close();
+    })
+  );
+  if (signal.aborted) {
+    return undefined;
   }
-
-  updateMatrixWorld(force = false) {
-    if (this.matrixWorldNeedsUpdate || force) {
-      this.matrixWorld.multiplyMatrices(GLOBE_TRANSFORM, this.matrix);
-      this.matrixWorldNeedsUpdate = false;
-    }
+  const failure = results.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected"
+  );
+  if (failure && results.every((result) => result.status === "rejected")) {
+    throw failure.reason;
   }
-
-  // The stock version re-downloads image.src and misses our redraw.
-  async applyTexture(image: HTMLImageElement) {
-    const texture = new THREE.Texture(image);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.needsUpdate = true;
-    const material = this.material as THREE.MeshBasicMaterial;
-    material.map = texture;
-    material.needsUpdate = true;
-  }
+  return canvas;
 }
 
-const GLOBE_MODE = 100;
-MapView.mapModes.set(GLOBE_MODE, GlobeSphereNode);
+function createBaseTexture(canvas: HTMLCanvasElement): THREE.Texture {
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.generateMipmaps = false;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  return texture;
+}
+
+/** Allocates GPU storage only; tiles are uploaded into it region by region. */
+function createAtlasTexture(
+  renderer: THREE.WebGLRenderer,
+  columns: number,
+  rows: number
+) {
+  const atlas = new THREE.DataTexture(
+    null,
+    columns * TILE_SIZE,
+    rows * TILE_SIZE
+  );
+  atlas.source.dataReady = false;
+  atlas.colorSpace = THREE.SRGBColorSpace;
+  atlas.generateMipmaps = false;
+  atlas.minFilter = THREE.LinearFilter;
+  atlas.magFilter = THREE.LinearFilter;
+  atlas.needsUpdate = true;
+  renderer.initTexture(atlas);
+  return atlas;
+}
+
+function createPageTableTexture(data: Uint8Array, window: TTileWindow) {
+  const texture = new THREE.DataTexture(data, window.width, window.height);
+  texture.minFilter = THREE.NearestFilter;
+  texture.magFilter = THREE.NearestFilter;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function invertFlat(point: THREE.Vector3, projectionHelper: ProjectionHelper) {
+  const inverted = projectionHelper
+    .getD3Projection()
+    ?.invert?.([point.x, -point.y]);
+  if (!inverted || !inverted.every(Number.isFinite)) {
+    return null;
+  }
+  const [lon, lat] = inverted;
+  // Inverses return points for positions outside the map; reject those.
+  const [x, y] = projectionHelper.project(lat, lon);
+  if (Math.abs(x - point.x) > 1e-3 || Math.abs(y - point.y) > 1e-3) {
+    return null;
+  }
+  return { lat, lon };
+}
 
 /**
- * Subdivides tiles by their size on screen. The stock LODRaycast compares
- * node scale to distance, which is meaningless for sphere nodes.
+ * Geographic points on a square grid of screen positions (null where the
+ * screen shows no Earth), for `chooseTileWindow`.
  */
-class ScreenSizeLOD implements LODControl {
-  private readonly raycaster = new THREE.Raycaster();
-  private readonly pointer = new THREE.Vector2();
-  private readonly size = new THREE.Vector3();
-
-  updateLOD(
-    view: MapView,
-    camera: THREE.Camera,
-    renderer: THREE.WebGLRenderer
-  ) {
-    if (!(camera instanceof THREE.PerspectiveCamera)) {
-      return;
-    }
-    const pixelsPerUnit =
-      renderer.domElement.height /
-      (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)));
-    for (let ray = 0; ray < 8; ray++) {
-      this.pointer.set(Math.random() * 2 - 1, Math.random() * 2 - 1);
-      this.raycaster.setFromCamera(this.pointer, camera);
-      const hit = this.raycaster.intersectObjects(view.children, true)[0];
-      if (!hit) {
-        continue;
-      }
-      const node = hit.object as MapNode;
-      node.geometry.boundingBox!.getSize(this.size);
-      const tilePixels =
-        ((this.size.length() / UnitsUtils.EARTH_RADIUS) * pixelsPerUnit) /
-        hit.distance;
-      if (tilePixels > 512) {
-        node.subdivide();
-      } else if (tilePixels < 128 && node.parentNode) {
-        node.parentNode.simplify();
+export function sampleViewGeoPoints(
+  camera: THREE.Camera,
+  projectionHelper: ProjectionHelper,
+  width: number,
+  height: number
+) {
+  const pixelStep = Math.max(width, height) / VIEW_SAMPLE_STEPS;
+  const raycaster = new THREE.Raycaster();
+  const pointer = new THREE.Vector2();
+  const hit = new THREE.Vector3();
+  const grid: (TGeoPoint | null)[][] = [];
+  for (let row = 0; row <= Math.ceil(height / pixelStep); row++) {
+    const line: (TGeoPoint | null)[] = [];
+    for (let column = 0; column <= Math.ceil(width / pixelStep); column++) {
+      pointer.set(
+        ((column * pixelStep) / width) * 2 - 1,
+        1 - ((row * pixelStep) / height) * 2
+      );
+      raycaster.setFromCamera(pointer, camera);
+      if (projectionHelper.isFlat) {
+        const point = raycaster.ray.intersectPlane(FLAT_PLANE, hit);
+        line.push(point && invertFlat(point, projectionHelper));
+      } else {
+        const point = raycaster.ray.intersectSphere(UNIT_SPHERE, hit);
+        line.push(
+          point && ProjectionHelper.cartesianToLatLon(point.x, point.y, point.z)
+        );
       }
     }
+    grid.push(line);
   }
-}
-
-class TileMapProvider extends MapProvider {
-  readonly address;
-  readonly name;
-  readonly onTileLoad?: () => void;
-
-  constructor(address: string, name: string, onTileLoad?: () => void) {
-    super();
-
-    this.address = address;
-    this.name = name;
-    this.onTileLoad = onTileLoad;
-    this.maxZoom = MAX_TILE_ZOOM;
-  }
-
-  fetchTile(zoom: number, x: number, y: number): Promise<HTMLImageElement> {
-    return new Promise<HTMLImageElement>((resolve, reject) => {
-      const url = format(this.address, { z: zoom, y, x });
-
-      const image = document.createElement("img");
-      // geo-three applies the tile in later microtasks; render after those.
-      image.onload = () => {
-        resolve(image);
-        setTimeout(() => this.onTileLoad?.());
-      };
-
-      image.onerror = () => {
-        reject();
-        setTimeout(() => this.onTileLoad?.());
-      };
-
-      image.crossOrigin = "Anonymous";
-      image.src = url;
-    });
-  }
-}
-
-function createBasemapProvider(
-  basemaps: TBasemapEntry[],
-  basemapId: string,
-  onTileLoad?: () => void
-): MapProvider {
-  const entry = basemaps.find((entry) => entry.id === basemapId);
-  if (entry === undefined) {
-    throw new Error(`unknown basemap: ${basemapId}`);
-  }
-
-  return new TileMapProvider(entry.url, entry.name, onTileLoad);
+  return { grid, pixelStep };
 }
 
 export class BasemapLayer {
-  private basemap: MapView;
+  // Shared by every mesh this layer creates, so updates reach all of them.
+  private readonly uniforms = {
+    baseTexture: { value: EMPTY_TEXTURE as THREE.Texture },
+    atlasTexture: { value: EMPTY_TEXTURE as THREE.Texture },
+    atlasSlots: { value: new THREE.Vector2(1, 1) },
+    pageTable: { value: EMPTY_TEXTURE as THREE.Texture },
+    detailWindow: { value: new THREE.Vector4() },
+    detailTiles: { value: 0 },
+    referenceMercator: { value: new THREE.Vector2() },
+    referenceTile: { value: new THREE.Vector2() },
+    referenceTrig: { value: new THREE.Vector4() },
+    referencePsi: { value: 0 },
+    cameraOffset: { value: new THREE.Vector3() },
+    cameraHeightTerm: { value: 0 },
+  };
+  private readonly onChange: () => void;
+  private readonly onError: (error: unknown) => void;
+  private provider: TBasemapEntry | undefined;
+  // Source of the current base texture, once it is complete.
+  private baseUrl: string | undefined;
+  // Aborts the base download when the source changes.
+  private baseRequest = new AbortController();
+  // Bumped on every source change so late tiles of the old one are dropped.
+  private generation = 0;
+  private reportedTileError = false;
+  private window: TTileWindow | undefined;
 
-  readonly basemaps: TBasemapEntry[];
-  private basemapId: string;
-  private readonly onTileLoad: () => void;
-  private opacity = 1;
-  private renderOrder = 0;
+  private atlas: THREE.DataTexture | undefined;
+  private pageTable: THREE.DataTexture | undefined;
+  private atlasColumns = 1;
+  private freeSlots: number[] = [];
+  // Tile key -> atlas slot, least recently shown first.
+  private readonly slots = new Map<string, number>();
+  // Tiles the page table points to; never evicted.
+  private shownKeys = new Set<string>();
+  private readonly downloads = new Map<string, AbortController>();
+  private readonly uploads = new Map<string, ImageBitmap>();
+  private readonly uploadSource = new THREE.Texture();
+  private uploadFrame = 0;
 
-  constructor(
-    basemaps: TBasemapEntry[],
-    basemapId: string,
-    onTileLoad?: () => void
-  ) {
-    this.basemaps = basemaps;
-    this.basemapId = basemapId;
-    // Tiles are created lazily by the LOD, so style them as they arrive.
-    this.onTileLoad = () => {
-      this.applyMaterials();
-      onTileLoad?.();
-    };
+  constructor(onChange: () => void, onError: (error: unknown) => void) {
+    this.onChange = onChange;
+    this.onError = onError;
+  }
 
-    const provider = createBasemapProvider(
-      basemaps,
-      basemapId,
-      this.onTileLoad
+  /** Builds a mesh for the projection; the caller disposes it. */
+  createMesh(projectionHelper: ProjectionHelper): THREE.Mesh {
+    const isFlat = projectionHelper.isFlat;
+    const material = new THREE.ShaderMaterial({
+      uniforms: {
+        ...this.uniforms,
+        opacity: { value: 1.0 },
+        projectionType: {
+          value: getProjectionTypeFromMode(projectionHelper.type),
+        },
+        centerLon: { value: projectionHelper.center.lon },
+        centerLat: { value: projectionHelper.center.lat },
+      },
+      defines: isFlat ? { FLAT: "" } : {},
+      vertexShader: isFlat ? flatInverseVertexShader : basemapGlobeVertexShader,
+      fragmentShader: basemapFragmentShader,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      depthTest: false,
+    });
+    // The globe is a full-screen quad that ray-casts the sphere per pixel.
+    const mesh = new THREE.Mesh(
+      isFlat ? createFlatQuadGeometry() : new THREE.PlaneGeometry(2, 2),
+      material
     );
-
-    this.basemap = new MapView(GLOBE_MODE, provider);
-    this.basemap.lod = new ScreenSizeLOD();
-  }
-
-  getBasemap() {
-    return this.basemap;
-  }
-
-  setProjection(projection: ProjectionHelper) {
-    let root: number;
-    if (projection.isFlat) {
-      root = MapView.PLANAR;
-      this.basemap.lod = new LODRaycast();
-    } else {
-      root = GLOBE_MODE;
-      this.basemap.lod = new ScreenSizeLOD();
-    }
-
-    this.basemap.setRoot(root);
+    mesh.name = "basemap";
+    mesh.frustumCulled = false;
+    return mesh;
   }
 
   /**
-   * Like the other radius-1 layers, tiles skip the depth buffer and are
-   * stacked via renderOrder only; otherwise they z-fight with the grid.
-   * renderOrder is not inherited, so it has to be set on every tile.
+   * Switches the tile source. The old base stays visible until the new one is
+   * complete, and sharper tiles only load on top of a base of the same
+   * source, so two sources never mix.
    */
-  private applyMaterials() {
-    this.basemap.traverse((object) => {
-      if (object === this.basemap || !(object instanceof THREE.Mesh)) {
-        return;
-      }
-      object.renderOrder = this.renderOrder;
-      const material = object.material as THREE.Material;
-      if (material.depthTest || material.opacity !== this.opacity) {
-        material.depthTest = false;
-        material.depthWrite = false;
-        material.transparent = this.opacity < 1;
-        material.opacity = this.opacity;
-        material.needsUpdate = true;
-      }
-    });
-  }
-
-  setOpacity(opacity: number) {
-    this.opacity = opacity;
-    this.applyMaterials();
-  }
-
-  setProvider(id: string) {
-    if (id === this.basemapId) {
+  async setProvider(provider: TBasemapEntry | undefined) {
+    if (provider?.url === this.provider?.url) {
       return;
     }
-    this.basemapId = id;
+    this.provider = provider;
+    this.baseUrl = undefined;
+    this.baseRequest.abort();
+    this.baseRequest = new AbortController();
+    this.generation++;
+    this.reportedTileError = false;
+    this.clearTiles();
+    this.updatePageTable();
+    if (!provider) {
+      this.setBase(EMPTY_TEXTURE);
+      this.onChange();
+      return;
+    }
+    let canvas: HTMLCanvasElement | undefined;
+    try {
+      canvas = await drawTiles(
+        provider.url,
+        BASE_WINDOW,
+        this.baseRequest.signal
+      );
+    } catch (error) {
+      this.onError(error);
+      return;
+    }
+    if (!canvas) {
+      return;
+    }
+    this.baseUrl = provider.url;
+    this.setBase(createBaseTexture(canvas));
+    this.onChange();
+    this.requestTiles();
+  }
 
-    this.basemap.setProvider(
-      createBasemapProvider(this.basemaps, id, this.onTileLoad)
+  /** Shows the tiles of `window` as they arrive; undefined shows the base. */
+  setWindow(window: TTileWindow | undefined) {
+    if (isSameTileWindow(window, this.window)) {
+      return;
+    }
+    this.window = window;
+    const wanted = new Set(
+      window ? getTileRequests(window).map((request) => request.key) : []
     );
+    for (const [key, request] of this.downloads) {
+      if (!wanted.has(key)) {
+        request.abort();
+        this.downloads.delete(key);
+      }
+    }
+    this.requestTiles();
+    this.updatePageTable();
+    this.onChange();
   }
 
-  setRenderOrder(renderOrder: number) {
-    this.basemap.renderOrder = renderOrder;
-    this.renderOrder = renderOrder;
-    this.applyMaterials();
+  /** Call right before the basemap is rendered with `camera`. */
+  update(renderer: THREE.WebGLRenderer, camera: THREE.Camera) {
+    this.updateReference(camera);
+    if (this.uploads.size > 0) {
+      this.uploadTiles(renderer);
+    }
   }
 
-  toggleVisibility() {
-    this.basemap.visible = !this.basemap.visible;
+  /**
+   * Moves the shader's reference point to the window centre (or below the
+   * camera without a window) and passes the camera relative to it. Doubles
+   * here keep the shader's small offsets precise at any zoom.
+   */
+  private updateReference(camera: THREE.Camera) {
+    const uniforms = this.uniforms;
+    cameraPosition.setFromMatrixPosition(camera.matrixWorld);
+    let mercatorX: number;
+    let mercatorY: number;
+    if (this.window) {
+      const reference = getWindowReference(this.window);
+      mercatorX = reference.mercatorX;
+      mercatorY = reference.mercatorY;
+      uniforms.referenceTile.value.set(reference.tileX, reference.tileY);
+    } else {
+      const { lat, lon } = ProjectionHelper.cartesianToLatLon(
+        cameraPosition.x,
+        cameraPosition.y,
+        cameraPosition.z
+      );
+      mercatorX = lonToMercatorX(lon);
+      mercatorY = latToMercatorY(lat);
+      uniforms.referenceTile.value.set(0, 0);
+    }
+    const lon = (mercatorX * 2 - 1) * Math.PI;
+    const lat = THREE.MathUtils.degToRad(mercatorYToLat(mercatorY));
+    const sinLat = Math.sin(lat);
+    const cosLat = Math.cos(lat);
+    uniforms.referenceMercator.value.set(mercatorX, mercatorY);
+    uniforms.referenceTrig.value.set(
+      sinLat,
+      cosLat,
+      Math.sin(lon),
+      Math.cos(lon)
+    );
+    uniforms.referencePsi.value = Math.atanh(sinLat);
+    referencePoint.set(cosLat * Math.cos(lon), cosLat * Math.sin(lon), sinLat);
+    const offset = uniforms.cameraOffset.value
+      .copy(cameraPosition)
+      .sub(referencePoint);
+    uniforms.cameraHeightTerm.value =
+      2 * referencePoint.dot(offset) + offset.lengthSq();
+  }
+
+  private uploadTiles(renderer: THREE.WebGLRenderer) {
+    const atlas = this.getAtlas(renderer);
+    let count = 0;
+    for (const [key, image] of this.uploads) {
+      if (count++ === UPLOADS_PER_FRAME) {
+        break;
+      }
+      this.uploads.delete(key);
+      const slot = this.takeSlot();
+      if (slot !== undefined) {
+        this.uploadSource.image = image;
+        renderer.copyTextureToTexture(
+          this.uploadSource,
+          atlas,
+          null,
+          new THREE.Vector2(
+            (slot % this.atlasColumns) * TILE_SIZE,
+            Math.floor(slot / this.atlasColumns) * TILE_SIZE
+          )
+        );
+        this.slots.set(key, slot);
+      }
+      image.close();
+    }
+    this.updatePageTable();
+    if (this.uploads.size > 0) {
+      cancelAnimationFrame(this.uploadFrame);
+      this.uploadFrame = requestAnimationFrame(() => this.onChange());
+    }
+  }
+
+  private getAtlas(renderer: THREE.WebGLRenderer) {
+    if (!this.atlas) {
+      const { columns, rows } = getAtlasLayout(
+        renderer.capabilities.maxTextureSize
+      );
+      this.atlas = createAtlasTexture(renderer, columns, rows);
+      this.atlasColumns = columns;
+      this.freeSlots = Array.from({ length: columns * rows }, (_, i) => i);
+      this.uniforms.atlasTexture.value = this.atlas;
+      this.uniforms.atlasSlots.value.set(columns, rows);
+    }
+    return this.atlas;
+  }
+
+  /** A free slot, else the least recently shown tile's slot. */
+  private takeSlot() {
+    const free = this.freeSlots.pop();
+    if (free !== undefined) {
+      return free;
+    }
+    for (const [key, slot] of this.slots) {
+      if (!this.shownKeys.has(key)) {
+        this.slots.delete(key);
+        return slot;
+      }
+    }
+    return undefined;
+  }
+
+  private requestTiles() {
+    const window = this.window;
+    const provider = this.provider;
+    if (!window || !provider || this.baseUrl !== provider.url) {
+      // setProvider requests the tiles once its base is in.
+      return;
+    }
+    for (const tile of getTileRequests(window)) {
+      if (
+        !this.slots.has(tile.key) &&
+        !this.downloads.has(tile.key) &&
+        !this.uploads.has(tile.key)
+      ) {
+        void this.loadTile(provider.url, tile);
+      }
+    }
+  }
+
+  private async loadTile(template: string, tile: TTileRequest) {
+    const key = tile.key;
+    const request = new AbortController();
+    this.downloads.set(key, request);
+    const generation = this.generation;
+    try {
+      const url = formatTileUrl(template, tile.z, tile.x, tile.y);
+      const blob = await fetchTile(url, request.signal);
+      // Decodes off the main thread; tiles of any size fit the slot.
+      const image = await createImageBitmap(blob, {
+        resizeWidth: TILE_SIZE,
+        resizeHeight: TILE_SIZE,
+        premultiplyAlpha: "none",
+        colorSpaceConversion: "none",
+      });
+      if (request.signal.aborted || generation !== this.generation) {
+        image.close();
+        return;
+      }
+      this.uploads.set(key, image);
+      this.onChange();
+    } catch (error) {
+      if (!request.signal.aborted && !this.reportedTileError) {
+        this.reportedTileError = true;
+        this.onError(error);
+      }
+    } finally {
+      if (this.downloads.get(key) === request) {
+        this.downloads.delete(key);
+      }
+    }
+  }
+
+  private updatePageTable() {
+    const window = this.window;
+    if (!window || !this.atlas) {
+      this.uniforms.detailTiles.value = 0;
+      this.shownKeys = new Set();
+      return;
+    }
+    const { data, used } = buildPageTable(
+      window,
+      (key) => this.slots.get(key),
+      this.atlasColumns
+    );
+    // Re-insert shown tiles so the map stays in least-recently-shown order.
+    for (const key of used) {
+      const slot = this.slots.get(key)!;
+      this.slots.delete(key);
+      this.slots.set(key, slot);
+    }
+    this.shownKeys = used;
+
+    if (
+      this.pageTable?.image.width === window.width &&
+      this.pageTable.image.height === window.height
+    ) {
+      this.pageTable.image.data = data;
+      this.pageTable.needsUpdate = true;
+    } else {
+      this.pageTable?.dispose();
+      this.pageTable = createPageTableTexture(data, window);
+      this.uniforms.pageTable.value = this.pageTable;
+    }
+    this.uniforms.detailWindow.value.set(
+      window.x,
+      window.y,
+      window.width,
+      window.height
+    );
+    this.uniforms.detailTiles.value = 2 ** window.zoom;
+  }
+
+  /** Forgets every tile; the atlas memory is reused for the next source. */
+  private clearTiles() {
+    for (const request of this.downloads.values()) {
+      request.abort();
+    }
+    this.downloads.clear();
+    for (const image of this.uploads.values()) {
+      image.close();
+    }
+    this.uploads.clear();
+    for (const slot of this.slots.values()) {
+      this.freeSlots.push(slot);
+    }
+    this.slots.clear();
+  }
+
+  private setBase(texture: THREE.Texture) {
+    const previous = this.uniforms.baseTexture.value;
+    if (previous !== EMPTY_TEXTURE && previous !== texture) {
+      previous.dispose();
+    }
+    this.uniforms.baseTexture.value = texture;
   }
 
   dispose() {
-    this.basemap.dispose();
+    this.baseRequest.abort();
+    this.generation++;
+    cancelAnimationFrame(this.uploadFrame);
+    this.clearTiles();
+    this.window = undefined;
+    this.updatePageTable();
+    this.setBase(EMPTY_TEXTURE);
+    this.pageTable?.dispose();
+    this.pageTable = undefined;
+    this.uniforms.pageTable.value = EMPTY_TEXTURE;
+    this.atlas?.dispose();
+    this.atlas = undefined;
   }
 }

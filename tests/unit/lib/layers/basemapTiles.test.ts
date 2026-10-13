@@ -1,0 +1,184 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  BasemapZoom,
+  buildPageTable,
+  chooseTileWindow,
+  formatTileUrl,
+  getAtlasLayout,
+  getTileRequests,
+  getWindowReference,
+  getWindowTiles,
+  latToMercatorY,
+  lonToMercatorX,
+  WEB_MERCATOR_LAT_LIMIT,
+  type TGeoPoint,
+} from "@/lib/layers/basemapTiles.ts";
+
+function makeGrid(
+  south: number,
+  west: number,
+  step: number,
+  rows: number,
+  columns: number
+): TGeoPoint[][] {
+  return Array.from({ length: rows }, (_, row) =>
+    Array.from({ length: columns }, (_, column) => ({
+      lat: south + row * step,
+      lon: ((west + column * step + 540) % 360) - 180,
+    }))
+  );
+}
+
+describe("Web-Mercator coordinates", () => {
+  it("maps the antimeridian, equator and Mercator limit to tile edges", () => {
+    expect(lonToMercatorX(-180)).toBe(0);
+    expect(lonToMercatorX(180)).toBe(0);
+    expect(lonToMercatorX(0)).toBe(0.5);
+    expect(latToMercatorY(0)).toBeCloseTo(0.5, 12);
+    expect(latToMercatorY(WEB_MERCATOR_LAT_LIMIT)).toBeCloseTo(0, 12);
+    expect(latToMercatorY(-90)).toBeCloseTo(1, 12);
+  });
+});
+
+describe("formatTileUrl", () => {
+  it("fills placeholders in any order and rejects unknown ones", () => {
+    expect(formatTileUrl("https://t/{z}/{y}/{x}.png", 3, 5, 2)).toBe(
+      "https://t/3/2/5.png"
+    );
+    expect(() => formatTileUrl("https://{s}.t/{z}", 1, 0, 0)).toThrow(/"s"/);
+  });
+});
+
+describe("getAtlasLayout", () => {
+  it("fits the atlas to the GPU and keeps a quarter free for parents", () => {
+    expect(getAtlasLayout(16384)).toEqual({
+      columns: 32,
+      rows: 16,
+      maxWindowTiles: 384,
+    });
+    expect(getAtlasLayout(4096)).toEqual({
+      columns: 16,
+      rows: 16,
+      maxWindowTiles: 192,
+    });
+  });
+});
+
+const { maxWindowTiles } = getAtlasLayout(8192);
+const MAX_ZOOM = BasemapZoom.MAX;
+
+describe("chooseTileWindow", () => {
+  it("leaves zoomed-out views to the base texture", () => {
+    expect(
+      chooseTileWindow(
+        makeGrid(-40, -60, 30, 4, 5),
+        100,
+        maxWindowTiles,
+        MAX_ZOOM
+      )
+    ).toBe(undefined);
+  });
+
+  it("switches to the finer zoom before tiles get noticeably stretched", () => {
+    // 5° samples 1120 px apart ask for zoom 8.3; round() alone would pick 8.
+    expect(
+      chooseTileWindow(makeGrid(0, 170, 5, 3, 5), 1120, 1000, MAX_ZOOM)?.zoom
+    ).toBe(9);
+  });
+
+  it("wraps windows across the antimeridian and shrinks them to the cap", () => {
+    // 5° samples 1000 px apart ask for zoom 8: 18 x 11 tiles.
+    const grid = makeGrid(0, 170, 5, 3, 5);
+    expect(chooseTileWindow(grid, 1000, maxWindowTiles, MAX_ZOOM)).toEqual({
+      zoom: 8,
+      x: 247,
+      y: 119,
+      width: 18,
+      height: 11,
+    });
+    const window = chooseTileWindow(grid, 1000, 100, MAX_ZOOM);
+    expect(window).toEqual({ zoom: 7, x: 123, y: 59, width: 10, height: 7 });
+    const columns = getWindowTiles(window!).map((tile) => tile.x);
+    expect(new Set(columns)).toEqual(
+      new Set([123, 124, 125, 126, 127, 0, 1, 2, 3, 4])
+    );
+  });
+});
+
+describe("chooseTileWindow limits", () => {
+  it("caps the zoom and the window size", () => {
+    const fine = makeGrid(0, 0, 1e-5, 3, 3);
+    expect(chooseTileWindow(fine, 100, maxWindowTiles, MAX_ZOOM)?.zoom).toBe(
+      BasemapZoom.MAX
+    );
+    expect(
+      chooseTileWindow(fine, 100, maxWindowTiles, BasemapZoom.MAX_FLAT)?.zoom
+    ).toBe(BasemapZoom.MAX_FLAT);
+
+    // Asks for zoom 7 over 340° of longitude; zoom 5 already needs 416 tiles.
+    const wide = chooseTileWindow(
+      makeGrid(-60, -170, 0.5, 240, 680),
+      50,
+      maxWindowTiles,
+      MAX_ZOOM
+    );
+    expect(wide?.zoom).toBe(4);
+    expect(wide!.width * wide!.height).toBeLessThanOrEqual(maxWindowTiles);
+  });
+
+  it("ignores screen samples that miss the Earth", () => {
+    const grid: (TGeoPoint | null)[][] = makeGrid(0, 170, 5, 3, 5);
+    grid[0][0] = null;
+    grid[2] = grid[2].map(() => null);
+    expect(chooseTileWindow(grid, 1000, maxWindowTiles, MAX_ZOOM)?.zoom).toBe(
+      8
+    );
+    expect(
+      chooseTileWindow([[null, null]], 1000, maxWindowTiles, MAX_ZOOM)
+    ).toBe(undefined);
+  });
+});
+
+describe("buildPageTable", () => {
+  it("points each tile at itself, else at its nearest loaded parent", () => {
+    // Columns 14, 15 and (wrapped) 0 of zoom 4.
+    const window = { zoom: 4, x: 14, y: 5, width: 3, height: 1 };
+    const slots = new Map([
+      ["4/15/5", 33],
+      ["3/0/2", 2],
+      // Below the base zoom, so never used.
+      ["2/3/1", 7],
+    ]);
+    const { data, used } = buildPageTable(window, (key) => slots.get(key), 32);
+    expect([...data]).toEqual([
+      ...[0, 0, 0, 0],
+      ...[1, 1, 0, 255],
+      ...[2, 0, 1, 255],
+    ]);
+    expect(used).toEqual(new Set(["4/15/5", "3/0/2"]));
+  });
+});
+
+describe("getTileRequests", () => {
+  it("loads each parent level once, coarsest first, then centre tiles", () => {
+    // Columns 62, 63 and (wrapped) 0, 1 of zoom 6; parents two levels up.
+    const window = { zoom: 6, x: 62, y: 20, width: 4, height: 1 };
+    expect(getTileRequests(window).map((request) => request.key)).toEqual([
+      "4/15/5",
+      "4/0/5",
+      "6/63/20",
+      "6/0/20",
+      "6/62/20",
+      "6/1/20",
+    ]);
+  });
+});
+
+describe("getWindowReference", () => {
+  it("wraps the window centre around the antimeridian", () => {
+    expect(
+      getWindowReference({ zoom: 3, x: 7, y: 2, width: 2, height: 2 })
+    ).toEqual({ mercatorX: 0, mercatorY: 3 / 8, tileX: 1, tileY: 1 });
+  });
+});

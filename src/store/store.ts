@@ -215,8 +215,6 @@ export const useGlobeControlStore = defineStore("globeControl", {
       landSeaMaskChoice: LAND_SEA_MASK_MODES.OFF as TLandSeaMaskMode,
       // when true, use the textured versions; when false, use the simple versions
       landSeaMaskUseTexture: false,
-      showBasemap: false,
-      basemapAvailable: false,
       basemaps: undefined as TBasemapEntry[] | undefined,
       selectedBasemap: "osm" as string,
       varnameSelector: "-", // the varname currently selected in the dropdown
@@ -352,9 +350,6 @@ export const useGlobeControlStore = defineStore("globeControl", {
     toggleCoastLines() {
       this.showCoastLines = !this.showCoastLines;
     },
-    toggleBasemap() {
-      this.showBasemap = !this.showBasemap;
-    },
     toggleGraticules() {
       this.showGraticules = !this.showGraticules;
     },
@@ -447,7 +442,12 @@ export const useGlobeControlStore = defineStore("globeControl", {
       ) {
         return;
       }
-      this.layerStack.unshift(createBuiltinLayer(kind));
+      // An opaque basemap on top would hide everything else.
+      if (kind === LAYER_KINDS.BASEMAP) {
+        this.layerStack.push(createBuiltinLayer(kind));
+      } else {
+        this.layerStack.unshift(createBuiltinLayer(kind));
+      }
     },
     updateTextureLayer(
       id: string,

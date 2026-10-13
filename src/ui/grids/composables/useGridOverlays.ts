@@ -1,7 +1,14 @@
+import { useDebounceFn } from "@vueuse/core";
 import { storeToRefs } from "pinia";
 import * as THREE from "three";
-import { watch, type ComputedRef, type Ref } from "vue";
+import { onScopeDispose, watch, type ComputedRef, type Ref } from "vue";
 
+import { BasemapLayer, sampleViewGeoPoints } from "@/lib/layers/basemap.ts";
+import {
+  BasemapZoom,
+  chooseTileWindow,
+  getAtlasLayout,
+} from "@/lib/layers/basemapTiles.ts";
 import {
   applyLayerStackPosition,
   createEquirectLayerMesh,
@@ -33,6 +40,7 @@ import {
   type TGraticuleSpacing,
   type TLayerEntry,
 } from "@/store/store";
+import { useLog } from "@/ui/common/useLog.ts";
 
 type UseGridOverlaysOptions = {
   projectionHelper: ComputedRef<ProjectionHelper>;
@@ -41,6 +49,8 @@ type UseGridOverlaysOptions = {
   landSeaMaskChoice: Ref<TLandSeaMaskMode | undefined>;
   landSeaMaskUseTexture: Ref<boolean>;
   getScene: () => THREE.Scene | undefined;
+  getCamera: () => THREE.Camera | undefined;
+  getRenderer: () => THREE.WebGLRenderer | undefined;
   redraw: () => void;
 };
 
@@ -69,6 +79,11 @@ const GRATICULE_GEOJSON_PATHS: Record<TGraticuleSpacing, string> = {
   [GRATICULE_SPACINGS.THIRTY_DEGREES]: "static/ne_50m_graticules_30.geojson",
 };
 
+// Basemap tiles follow the view while it moves, at most every MAX_WAIT ms,
+// and once more DELAY ms after the last frame.
+const BASEMAP_WINDOW_DELAY_MS = 50;
+const BASEMAP_WINDOW_MAX_WAIT_MS = 100;
+
 export function getLayerRenderOrder(
   stack: readonly TLayerEntry[],
   layerId: string
@@ -94,8 +109,11 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
     landSeaMaskChoice,
     landSeaMaskUseTexture,
     getScene,
+    getCamera,
+    getRenderer,
     redraw,
   } = options;
+  const { logError } = useLog();
 
   let coast: THREE.LineSegments | undefined = undefined;
   let graticules: THREE.LineSegments | undefined = undefined;
@@ -110,6 +128,8 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
   let textureLayersUpdating = false;
   let textureLayersDirty = false;
   let textureLayersPendingForceRebuild = false;
+  let basemap: BasemapLayer | undefined = undefined;
+  let basemapMesh: THREE.Mesh | undefined = undefined;
 
   watch(
     () => showCoastLines.value,
@@ -378,6 +398,9 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
     if (entry.kind === LAYER_KINDS.TEXTURE) {
       return textureLayerMeshes.get(entry.id);
     }
+    if (entry.kind === LAYER_KINDS.BASEMAP) {
+      return basemapMesh;
+    }
     return undefined;
   }
 
@@ -504,8 +527,99 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
     for (const mesh of textureLayerMeshes.values()) {
       updateEquirectLayerProjection(mesh, projectionHelper.value);
     }
+    updateEquirectLayerProjection(basemapMesh, projectionHelper.value);
     redraw();
   }
+
+  function removeBasemapMesh() {
+    if (!basemapMesh) {
+      return;
+    }
+    getScene()?.remove(basemapMesh);
+    basemapMesh.geometry.dispose();
+    (basemapMesh.material as THREE.ShaderMaterial).dispose();
+    basemapMesh = undefined;
+  }
+
+  /**
+   * Sync the basemap with the layer stack and the selected provider.
+   * Pass `forceRebuild` when the projection mode changed.
+   */
+  function updateBasemap(forceRebuild = false) {
+    const scene = getScene();
+    const entry = store.layerStack.find(
+      (layer) => layer.kind === LAYER_KINDS.BASEMAP
+    );
+    if (!scene || !entry) {
+      removeBasemapMesh();
+      basemap?.dispose();
+      basemap = undefined;
+      redraw();
+      return;
+    }
+    basemap ??= new BasemapLayer(redraw, (error) =>
+      logError(error, "Couldn't load the basemap tiles")
+    );
+    if (forceRebuild) {
+      removeBasemapMesh();
+    }
+    if (!basemapMesh) {
+      basemapMesh = basemap.createMesh(projectionHelper.value);
+      // Every frame that shows the basemap may need other tiles.
+      basemapMesh.onBeforeRender = (renderer, _scene, camera) => {
+        basemap?.update(renderer, camera);
+        void debouncedUpdateBasemapWindow();
+      };
+      scene.add(basemapMesh);
+    }
+    basemapMesh.visible = entry.visible;
+    applyLayerOrders();
+    void basemap.setProvider(
+      store.basemaps?.find((item) => item.id === store.selectedBasemap)
+    );
+    redraw();
+  }
+
+  /** Load the basemap tiles matching the current view. */
+  function updateBasemapWindow() {
+    const camera = getCamera();
+    const renderer = getRenderer();
+    if (!basemap || !basemapMesh?.visible || !camera || !renderer) {
+      return;
+    }
+    // Device pixels: the canvas size is the drawing buffer, not CSS pixels.
+    const { grid, pixelStep } = sampleViewGeoPoints(
+      camera,
+      projectionHelper.value,
+      renderer.domElement.width,
+      renderer.domElement.height
+    );
+    const { maxWindowTiles } = getAtlasLayout(
+      renderer.capabilities.maxTextureSize
+    );
+    const maxZoom = projectionHelper.value.isFlat
+      ? BasemapZoom.MAX_FLAT
+      : BasemapZoom.MAX;
+    basemap.setWindow(
+      chooseTileWindow(grid, pixelStep, maxWindowTiles, maxZoom)
+    );
+  }
+
+  const debouncedUpdateBasemapWindow = useDebounceFn(
+    updateBasemapWindow,
+    BASEMAP_WINDOW_DELAY_MS,
+    { maxWait: BASEMAP_WINDOW_MAX_WAIT_MS }
+  );
+
+  watch([() => store.selectedBasemap, () => store.basemaps], () =>
+    updateBasemap()
+  );
+
+  onScopeDispose(() => {
+    removeBasemapMesh();
+    basemap?.dispose();
+    basemap = undefined;
+  });
 
   async function updateOverlayProjectionUniforms(forceRebuild = false) {
     if (forceRebuild) {
@@ -524,5 +638,6 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
     updateTextureLayers,
     updateLayerProjectionUniforms,
     updateOverlayProjectionUniforms,
+    updateBasemap,
   };
 }

@@ -11,7 +11,6 @@ import {
   useGridHoverLookup,
   type TGridHoverLookupResult,
 } from "./composables/gridHoverUtils.ts";
-import { useBasemapLayer } from "./composables/useBasemapLayer.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
@@ -178,15 +177,6 @@ const volume = useVolume({
   isSceneInMotion,
   onProjectionChange,
   onMotionStateChange,
-});
-
-const basemap = useBasemapLayer({
-  getScene,
-  getRenderer,
-  redraw,
-  projectionHelper,
-  onProjectionChange,
-  basemaps: store.basemaps,
 });
 
 /**
@@ -987,8 +977,6 @@ async function fetchAndRenderData(
   if (isCurrent() && !store.streamlineMagnitudeDisplayed) {
     await scalarCache.restoreScalar();
   }
-
-  basemap.createLayer(store.selectedBasemap);
 }
 
 onBeforeMount(async () => {
@@ -997,7 +985,6 @@ onBeforeMount(async () => {
     return;
   }
   healpixGrid.value = grid;
-
   await datasourceUpdate();
   gridPrepared.value = true;
 });

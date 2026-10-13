@@ -58,6 +58,7 @@ import GridIrregularDelaunay from "@/ui/grids/IrregularDelaunay.vue";
 import GridRegular from "@/ui/grids/Regular.vue";
 import GridTriangular from "@/ui/grids/Triangular.vue";
 import AboutView from "@/ui/overlays/AboutModal.vue";
+import BasemapAttribution from "@/ui/overlays/BasemapAttribution.vue";
 import {
   isAnimationPlaying,
   stopAnimation,
@@ -297,6 +298,9 @@ function resetForSourceChange(resetStore: boolean) {
         "projectionCenter",
         "catalogData",
         "catalogUrl",
+        "basemaps",
+        "basemapCatalogUrl",
+        "selectedBasemap",
         "controlPanelVisible",
         "layerStack",
       ]);
@@ -304,6 +308,9 @@ function resetForSourceChange(resetStore: boolean) {
       store.resetExcept([
         "catalogData",
         "catalogUrl",
+        "basemaps",
+        "basemapCatalogUrl",
+        "selectedBasemap",
         "controlPanelVisible",
         "layerStack",
       ]);
@@ -349,23 +356,19 @@ function initVolumeFromParams() {
   );
 }
 
+// Absent parameters keep the current state: the basemap does not depend on
+// the dataset, and switching datasets rewrites the URL without them.
 function initBasemapFromParams() {
-  const selectedBasemap =
-    paramBasemapProvider.value === undefined ||
-    paramBasemapProvider.value === ""
-      ? "osm"
-      : String(paramBasemapProvider.value);
-  const opacity =
-    paramBasemapOpacity.value === undefined || paramBasemapOpacity.value === ""
-      ? LAYER_OPACITY.MAX
-      : Number(paramBasemapOpacity.value);
-
-  store.setBasemapLayerEnabled(paramBasemap.value === "true");
-  store.selectedBasemap = selectedBasemap;
-  store.updateLayerOpacity(
-    BUILTIN_LAYER_IDS.BASEMAP,
-    Number.isFinite(opacity) ? opacity : LAYER_OPACITY.MAX
-  );
+  if (paramBasemap.value === "true") {
+    store.setBasemapLayerEnabled(true);
+  }
+  if (paramBasemapProvider.value) {
+    store.selectedBasemap = String(paramBasemapProvider.value);
+  }
+  const opacity = Number(paramBasemapOpacity.value);
+  if (paramBasemapOpacity.value && Number.isFinite(opacity)) {
+    store.updateLayerOpacity(BUILTIN_LAYER_IDS.BASEMAP, opacity);
+  }
 }
 
 async function loadCurrentSource(resetStore = true) {
@@ -643,6 +646,7 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
       />
       <HoverReadout v-if="detectedGridType !== undefined" />
       <DistanceScale v-if="detectedGridType !== undefined" />
+      <BasemapAttribution v-if="detectedGridType !== undefined" />
     </div>
     <div
       v-if="!isDisplayMode"
