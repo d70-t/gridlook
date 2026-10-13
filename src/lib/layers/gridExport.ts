@@ -492,6 +492,10 @@ function cloneGridObject(object: TGridObject): TGridObject {
   const material = cloneGridMaterial(object.material as THREE.ShaderMaterial);
   configureExportGeometry(geometry);
   configureProjectionUniforms(material);
+  // The exported image layer has its own opacity setting.
+  if (material.uniforms.opacity) {
+    material.uniforms.opacity.value = 1;
+  }
 
   const clone =
     object instanceof THREE.Points

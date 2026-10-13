@@ -1,5 +1,5 @@
 import { storeToRefs } from "pinia";
-import type * as THREE from "three";
+import * as THREE from "three";
 import { computed, ref, watch } from "vue";
 
 import { useGridCameraState } from "./useGridCameraState.ts";
@@ -18,7 +18,11 @@ import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import { availableColormaps } from "@/lib/shaders/colormapShaders.ts";
 import { getColormapScaleOffset } from "@/lib/shaders/gridShaders.ts";
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
-import { BUILTIN_LAYER_IDS, useGlobeControlStore } from "@/store/store.ts";
+import {
+  BUILTIN_LAYER_IDS,
+  LAYER_OPACITY,
+  useGlobeControlStore,
+} from "@/store/store.ts";
 import { useLog } from "@/ui/common/useLog.ts";
 
 type TVoidFunction = () => void;
@@ -223,9 +227,11 @@ export function useSharedGridLogic() {
       high,
       invertColormap.value
     );
-    const gridVisible =
-      store.layerStack.find((layer) => layer.id === BUILTIN_LAYER_IDS.GRID)
-        ?.visible ?? true;
+    const gridLayer = store.layerStack.find(
+      (layer) => layer.id === BUILTIN_LAYER_IDS.GRID
+    );
+    const gridVisible = gridLayer?.visible ?? true;
+    const gridOpacity = gridLayer?.opacity ?? LAYER_OPACITY.MAX;
 
     for (const myMesh of meshes) {
       if (!myMesh) {
@@ -237,6 +243,12 @@ export function useSharedGridLogic() {
         continue;
       }
       myMesh.visible = gridVisible;
+      if (material.uniforms.opacity) {
+        material.uniforms.opacity.value = gridOpacity;
+        // Points always blend their soft edges; meshes only when see-through.
+        material.transparent =
+          myMesh instanceof THREE.Points || gridOpacity < LAYER_OPACITY.MAX;
+      }
       material.uniforms.colormap.value = availableColormaps[colormap.value];
       material.uniforms.addOffset.value = addOffset;
       material.uniforms.scaleFactor.value = scaleFactor;

@@ -437,7 +437,7 @@ const LAYER_PROPERTIES: Record<TLayerKind, TLayerProperties> = {
     buttons: [LAYER_BUTTONS.REMOVE],
   },
   [LAYER_KINDS.GRID]: {
-    buttons: [],
+    buttons: [LAYER_BUTTONS.OPACITY],
   },
   [LAYER_KINDS.MASK]: {
     buttons: [LAYER_BUTTONS.OPACITY, LAYER_BUTTONS.REMOVE],
