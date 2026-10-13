@@ -12,6 +12,8 @@ import {
   buildPageTable,
   formatTileUrl,
   getAtlasLayout,
+  EXPANSION_VIEW_RADIUS,
+  getFlatMercatorExpansion,
   getTileRequests,
   getWindowReference,
   getWindowTiles,
@@ -24,10 +26,8 @@ import {
   type TTileRequest,
   type TTileWindow,
 } from "./basemapTiles.ts";
-import { createFlatQuadGeometry } from "./equirectLayer.ts";
 import basemapFragmentShader from "./glsl/basemap.frag.glsl";
-import basemapGlobeVertexShader from "./glsl/basemapGlobe.vert.glsl";
-import flatInverseVertexShader from "./glsl/flatInverse.vert.glsl";
+import basemapScreenVertexShader from "./glsl/basemapScreen.vert.glsl";
 
 import { getProjectionTypeFromMode } from "@/lib/projection/projectionShaders.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
@@ -50,8 +50,21 @@ const UPLOADS_PER_FRAME = 8;
 // Tile downloads in flight at once. The rest wait in priority order, so
 // tiles that leave the view before their turn never reach the server.
 const MAX_DOWNLOADS = 6;
-// A tile that failed (e.g. rate-limited) is not requested again for this long.
-const RETRY_DELAY_MS = 30_000;
+// A failed tile (e.g. rate-limited) is retried after this delay, doubling
+// with each further failure up to the maximum.
+const RETRY_DELAY = { FIRST_MS: 30_000, MAX_MS: 600_000 } as const;
+
+type TTileFailure = { at: number; count: number };
+
+function getRetryTime(failure: TTileFailure) {
+  return (
+    failure.at +
+    Math.min(
+      RETRY_DELAY.FIRST_MS * 2 ** (failure.count - 1),
+      RETRY_DELAY.MAX_MS
+    )
+  );
+}
 
 // Compressed tiles are small, so caching blobs and decoding on reuse keeps
 // memory low when tiles come back after leaving the atlas.
@@ -62,6 +75,9 @@ EMPTY_TEXTURE.needsUpdate = true;
 
 const UNIT_SPHERE = new THREE.Sphere(new THREE.Vector3(), 1);
 const cameraPosition = new THREE.Vector3();
+const cornerRaycaster = new THREE.Raycaster();
+const corner = new THREE.Vector2();
+const cornerHit = new THREE.Vector3();
 const referencePoint = new THREE.Vector3();
 const FLAT_PLANE = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
 
@@ -173,6 +189,26 @@ function invertFlat(point: THREE.Vector3, projectionHelper: ProjectionHelper) {
   return { lat, lon };
 }
 
+/** Largest distance from (x, y) to a screen corner on the flat map plane. */
+function getFlatViewRadius(camera: THREE.Camera, x: number, y: number) {
+  let radius = 0;
+  for (const [cornerX, cornerY] of [
+    [-1, -1],
+    [1, -1],
+    [-1, 1],
+    [1, 1],
+  ]) {
+    corner.set(cornerX, cornerY);
+    cornerRaycaster.setFromCamera(corner, camera);
+    const hit = cornerRaycaster.ray.intersectPlane(FLAT_PLANE, cornerHit);
+    if (!hit) {
+      return Infinity;
+    }
+    radius = Math.max(radius, Math.hypot(hit.x - x, hit.y - y));
+  }
+  return radius;
+}
+
 /**
  * Geographic points on a square grid of screen positions (null where the
  * screen shows no Earth), for `chooseTileWindow`.
@@ -226,6 +262,11 @@ export class BasemapLayer {
     referencePsi: { value: 0 },
     cameraOffset: { value: new THREE.Vector3() },
     cameraHeightTerm: { value: 0 },
+    referenceProjected: { value: new THREE.Vector2() },
+    expansionJacobian: { value: new THREE.Vector4() },
+    expansionCurvatureX: { value: new THREE.Vector3() },
+    expansionCurvatureY: { value: new THREE.Vector3() },
+    useExpansion: { value: false },
   };
   private readonly onChange: () => void;
   private readonly onError: (error: unknown) => void;
@@ -249,8 +290,9 @@ export class BasemapLayer {
   private shownKeys = new Set<string>();
   private readonly downloads = new Map<string, AbortController>();
   private queue: TTileRequest[] = [];
-  // Tile key -> time of its last failed download.
-  private readonly failedAt = new Map<string, number>();
+  private readonly failures = new Map<string, TTileFailure>();
+  private retryTimer: ReturnType<typeof setTimeout> | undefined;
+  private retryTime = Infinity;
   private readonly uploads = new Map<string, ImageBitmap>();
   private readonly uploadSource = new THREE.Texture();
   private uploadFrame = 0;
@@ -274,17 +316,14 @@ export class BasemapLayer {
         centerLat: { value: projectionHelper.center.lat },
       },
       defines: isFlat ? { FLAT: "" } : {},
-      vertexShader: isFlat ? flatInverseVertexShader : basemapGlobeVertexShader,
+      vertexShader: basemapScreenVertexShader,
       fragmentShader: basemapFragmentShader,
       side: THREE.DoubleSide,
       depthWrite: false,
       depthTest: false,
     });
-    // The globe is a full-screen quad that ray-casts the sphere per pixel.
-    const mesh = new THREE.Mesh(
-      isFlat ? createFlatQuadGeometry() : new THREE.PlaneGeometry(2, 2),
-      material
-    );
+    // A full-screen quad that ray-casts the sphere or map plane per pixel.
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
     mesh.name = "basemap";
     mesh.frustumCulled = false;
     return mesh;
@@ -353,8 +392,12 @@ export class BasemapLayer {
   }
 
   /** Call right before the basemap is rendered with `camera`. */
-  update(renderer: THREE.WebGLRenderer, camera: THREE.Camera) {
-    this.updateReference(camera);
+  update(
+    renderer: THREE.WebGLRenderer,
+    camera: THREE.Camera,
+    projectionHelper: ProjectionHelper
+  ) {
+    this.updateReference(camera, projectionHelper);
     if (this.uploads.size > 0) {
       this.uploadTiles(renderer);
     }
@@ -365,31 +408,46 @@ export class BasemapLayer {
    * camera without a window) and passes the camera relative to it. Doubles
    * here keep the shader's small offsets precise at any zoom.
    */
-  private updateReference(camera: THREE.Camera) {
-    const uniforms = this.uniforms;
+  private updateReference(
+    camera: THREE.Camera,
+    projectionHelper: ProjectionHelper
+  ) {
     cameraPosition.setFromMatrixPosition(camera.matrixWorld);
-    let mercatorX: number;
-    let mercatorY: number;
+    let mercatorX = 0.5;
+    let mercatorY = 0.5;
     if (this.window) {
       const reference = getWindowReference(this.window);
       mercatorX = reference.mercatorX;
       mercatorY = reference.mercatorY;
-      uniforms.referenceTile.value.set(reference.tileX, reference.tileY);
+      this.uniforms.referenceTile.value.set(reference.tileX, reference.tileY);
     } else {
-      const { lat, lon } = ProjectionHelper.cartesianToLatLon(
-        cameraPosition.x,
-        cameraPosition.y,
-        cameraPosition.z
-      );
-      mercatorX = lonToMercatorX(lon);
-      mercatorY = latToMercatorY(lat);
-      uniforms.referenceTile.value.set(0, 0);
+      const below = projectionHelper.isFlat
+        ? invertFlat(cameraPosition, projectionHelper)
+        : ProjectionHelper.cartesianToLatLon(
+            cameraPosition.x,
+            cameraPosition.y,
+            cameraPosition.z
+          );
+      if (below) {
+        mercatorX = lonToMercatorX(below.lon);
+        mercatorY = latToMercatorY(below.lat);
+      }
+      this.uniforms.referenceTile.value.set(0, 0);
     }
+    this.uniforms.referenceMercator.value.set(mercatorX, mercatorY);
+    if (projectionHelper.isFlat) {
+      this.updateFlatReference(camera, projectionHelper, mercatorX, mercatorY);
+    } else {
+      this.updateGlobeReference(mercatorX, mercatorY);
+    }
+  }
+
+  private updateGlobeReference(mercatorX: number, mercatorY: number) {
+    const uniforms = this.uniforms;
     const lon = (mercatorX * 2 - 1) * Math.PI;
     const lat = THREE.MathUtils.degToRad(mercatorYToLat(mercatorY));
     const sinLat = Math.sin(lat);
     const cosLat = Math.cos(lat);
-    uniforms.referenceMercator.value.set(mercatorX, mercatorY);
     uniforms.referenceTrig.value.set(
       sinLat,
       cosLat,
@@ -403,6 +461,41 @@ export class BasemapLayer {
       .sub(referencePoint);
     uniforms.cameraHeightTerm.value =
       2 * referencePoint.dot(offset) + offset.lengthSq();
+  }
+
+  private updateFlatReference(
+    camera: THREE.Camera,
+    projectionHelper: ProjectionHelper,
+    mercatorX: number,
+    mercatorY: number
+  ) {
+    const uniforms = this.uniforms;
+    const expansion = getFlatMercatorExpansion(
+      (lat, lon) => projectionHelper.project(lat, lon),
+      mercatorX,
+      mercatorY
+    );
+    if (expansion) {
+      uniforms.expansionJacobian.value.fromArray(expansion.jacobian);
+      uniforms.expansionCurvatureX.value.fromArray(expansion.curvatureX);
+      uniforms.expansionCurvatureY.value.fromArray(expansion.curvatureY);
+    }
+    // Without an expansion, any consistent point works for the ray offsets.
+    const [x, y] =
+      expansion?.projected ??
+      projectionHelper.project(
+        mercatorYToLat(mercatorY),
+        mercatorX * 360 - 180
+      );
+    uniforms.useExpansion.value =
+      expansion !== undefined &&
+      getFlatViewRadius(camera, x, y) <= EXPANSION_VIEW_RADIUS;
+    uniforms.referenceProjected.value.set(x, y);
+    uniforms.cameraOffset.value.set(
+      cameraPosition.x - x,
+      cameraPosition.y - y,
+      cameraPosition.z
+    );
   }
 
   private uploadTiles(renderer: THREE.WebGLRenderer) {
@@ -474,14 +567,35 @@ export class BasemapLayer {
       return;
     }
     const now = Date.now();
-    this.queue = getTileRequests(window).filter(
-      (tile) =>
-        !this.slots.has(tile.key) &&
-        !this.downloads.has(tile.key) &&
-        !this.uploads.has(tile.key) &&
-        !(now - (this.failedAt.get(tile.key) ?? -Infinity) < RETRY_DELAY_MS)
-    );
+    this.queue = getTileRequests(window).filter((tile) => {
+      if (
+        this.slots.has(tile.key) ||
+        this.downloads.has(tile.key) ||
+        this.uploads.has(tile.key)
+      ) {
+        return false;
+      }
+      const failure = this.failures.get(tile.key);
+      if (failure && getRetryTime(failure) > now) {
+        this.scheduleRetry(getRetryTime(failure));
+        return false;
+      }
+      return true;
+    });
     this.startDownloads();
+  }
+
+  /** Requests the view's tiles again at `time`, unless already due sooner. */
+  private scheduleRetry(time: number) {
+    if (time >= this.retryTime) {
+      return;
+    }
+    clearTimeout(this.retryTimer);
+    this.retryTime = time;
+    this.retryTimer = setTimeout(() => {
+      this.retryTime = Infinity;
+      this.requestTiles();
+    }, time - Date.now());
   }
 
   private startDownloads() {
@@ -514,12 +628,17 @@ export class BasemapLayer {
         image.close();
         return;
       }
-      this.failedAt.delete(key);
+      this.failures.delete(key);
       this.uploads.set(key, image);
       this.onChange();
     } catch (error) {
       if (!request.signal.aborted) {
-        this.failedAt.set(key, Date.now());
+        const failure = {
+          at: Date.now(),
+          count: (this.failures.get(key)?.count ?? 0) + 1,
+        };
+        this.failures.set(key, failure);
+        this.scheduleRetry(getRetryTime(failure));
         if (!this.reportedTileError) {
           this.reportedTileError = true;
           this.onError(error);
@@ -576,7 +695,9 @@ export class BasemapLayer {
   /** Forgets every tile; the atlas memory is reused for the next source. */
   private clearTiles() {
     this.queue = [];
-    this.failedAt.clear();
+    this.failures.clear();
+    clearTimeout(this.retryTimer);
+    this.retryTime = Infinity;
     for (const request of this.downloads.values()) {
       request.abort();
     }

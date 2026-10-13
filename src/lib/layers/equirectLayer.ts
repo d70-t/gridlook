@@ -398,7 +398,7 @@ export async function createImageLayerTexture(
  * Quad covering the flat projection's coordinate space; the fragment shader
  * clips to the actual projection boundary via inverse projection.
  */
-export function createFlatQuadGeometry(): THREE.BufferGeometry {
+function createFlatQuadGeometry(): THREE.BufferGeometry {
   const extent = 4.0;
   const vertices = new Float32Array(
     [

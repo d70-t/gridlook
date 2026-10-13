@@ -4,11 +4,7 @@ import * as THREE from "three";
 import { onScopeDispose, watch, type ComputedRef, type Ref } from "vue";
 
 import { BasemapLayer, sampleViewGeoPoints } from "@/lib/layers/basemap.ts";
-import {
-  BasemapZoom,
-  chooseTileWindow,
-  getAtlasLayout,
-} from "@/lib/layers/basemapTiles.ts";
+import { chooseTileWindow, getAtlasLayout } from "@/lib/layers/basemapTiles.ts";
 import {
   applyLayerStackPosition,
   createEquirectLayerMesh,
@@ -567,7 +563,7 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
       basemapMesh = basemap.createMesh(projectionHelper.value);
       // Every frame that shows the basemap may need other tiles.
       basemapMesh.onBeforeRender = (renderer, _scene, camera) => {
-        basemap?.update(renderer, camera);
+        basemap?.update(renderer, camera, projectionHelper.value);
         void debouncedUpdateBasemapWindow();
       };
       scene.add(basemapMesh);
@@ -587,22 +583,16 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
     if (!basemap || !basemapMesh?.visible || !camera || !renderer) {
       return;
     }
-    // Device pixels: the canvas size is the drawing buffer, not CSS pixels.
     const { grid, pixelStep } = sampleViewGeoPoints(
       camera,
       projectionHelper.value,
-      renderer.domElement.width,
-      renderer.domElement.height
+      renderer.domElement.clientWidth,
+      renderer.domElement.clientHeight
     );
     const { maxWindowTiles } = getAtlasLayout(
       renderer.capabilities.maxTextureSize
     );
-    const maxZoom = projectionHelper.value.isFlat
-      ? BasemapZoom.MAX_FLAT
-      : BasemapZoom.MAX;
-    basemap.setWindow(
-      chooseTileWindow(grid, pixelStep, maxWindowTiles, maxZoom)
-    );
+    basemap.setWindow(chooseTileWindow(grid, pixelStep, maxWindowTiles));
   }
 
   const debouncedUpdateBasemapWindow = useDebounceFn(

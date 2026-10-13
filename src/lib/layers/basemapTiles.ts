@@ -8,11 +8,19 @@ export const BasemapZoom = {
   BASE: 2,
   // ponytail: OSM's limit; move into the catalog once a provider needs more.
   MAX: 19,
-  // ponytail: flat projections resolve absolute Mercator per fragment in
-  // float32, which only holds about a pixel at zoom 16. Higher zooms need
-  // offsets from a CPU-side reference, as the globe does.
-  MAX_FLAT: 16,
 } as const;
+
+// Step for the finite differences in getFlatMercatorExpansion, in Mercator
+// units (about 40 m).
+const EXPANSION_STEP = 1e-6;
+// Larger derivatives of map position by Mercator position only occur when
+// the differences straddle the projection's cut.
+const MAX_EXPANSION_DERIVATIVE = 1e3;
+// Flat views whose corners all lie within this distance of the reference
+// point (map units, about 19 km) use the expansion everywhere; it stays
+// within about 0.1 px there, even at high latitudes. Wider views use the
+// shader's inverse projection everywhere: mixing both shows a seam.
+export const EXPANSION_VIEW_RADIUS = 0.003;
 
 // Parents every this many levels up load before a window's own tiles, so
 // the view fills quickly and then sharpens.
@@ -21,12 +29,6 @@ const PARENT_LEVEL_STEP = 2;
 // Atlas side in tiles: 8192 x 4096 px (512 tiles, 128 MB) where the GPU
 // allows, else 4096 x 4096 px.
 const ATLAS_TILES = { COLUMNS: 32, ROWS: 16 } as const;
-
-// Zoom levels added to the one whose tile pixels match device pixels. Tiles
-// are designed for 256 CSS pixels, so matching device pixels shrinks labels
-// on HiDPI screens and needs 4x the tiles. -0.75 shows tile pixels at 1.19x
-// to 2.38x device pixels, one level coarser on average.
-const ZOOM_BIAS = -0.75;
 
 export const WEB_MERCATOR_LAT_LIMIT = 85.0511287798066;
 
@@ -172,22 +174,24 @@ export function getAtlasLayout(maxTextureSize: number) {
 
 /**
  * Picks the tiles for the current view from a grid of geographic points
- * sampled `pixelStep` device pixels apart (null where the screen shows no
+ * sampled `pixelStep` CSS pixels apart (null where the screen shows no
  * Earth). Returns undefined when the base texture is detailed enough.
+ *
+ * Like web maps, the zoom shows tile pixels at 0.71x to 1.41x CSS pixels:
+ * tiles are designed for that size, so labels stay readable on any screen.
  */
 export function chooseTileWindow(
   grid: (TGeoPoint | null)[][],
   pixelStep: number,
-  maxTiles: number,
-  maxZoom: number
+  maxTiles: number
 ): TTileWindow | undefined {
   const mercatorPerPixel = getMercatorPerPixel(grid, pixelStep);
   if (!Number.isFinite(mercatorPerPixel)) {
     return undefined;
   }
   let zoom = Math.min(
-    Math.round(Math.log2(1 / (mercatorPerPixel * TILE_SIZE)) + ZOOM_BIAS),
-    maxZoom
+    Math.round(Math.log2(1 / (mercatorPerPixel * TILE_SIZE))),
+    BasemapZoom.MAX
   );
 
   const xs: number[] = [];
@@ -340,4 +344,67 @@ export function isSameTileWindow(a?: TTileWindow, b?: TTileWindow) {
     a?.width === b?.width &&
     a?.height === b?.height
   );
+}
+
+/**
+ * Second-order expansion of the inverse of a flat projection around a
+ * reference point, for the shader: a map-plane offset `d` from the
+ * reference becomes the Mercator offset `u - [uᵀQx u, uᵀQy u]` with
+ * `u = jacobian · d`. Computed in double precision from the forward
+ * projection, so the shader needs no trigonometry near the view. Undefined
+ * where the projection is cut or degenerate at the reference.
+ *
+ * `project` maps latitude/longitude (degrees) to map-plane coordinates.
+ */
+export function getFlatMercatorExpansion(
+  project: (lat: number, lon: number) => readonly number[],
+  mercatorX: number,
+  mercatorY: number
+) {
+  const h = EXPANSION_STEP;
+  const at = (dx: number, dy: number) =>
+    project(mercatorYToLat(mercatorY + dy), (mercatorX + dx) * 360 - 180);
+  const center = at(0, 0);
+  const east = at(h, 0);
+  const west = at(-h, 0);
+  const south = at(0, h);
+  const north = at(0, -h);
+  const corners = [at(h, h), at(h, -h), at(-h, h), at(-h, -h)];
+
+  // Derivatives of map coordinate k by Mercator x and y.
+  const dx = [0, 1].map((k) => (east[k] - west[k]) / (2 * h));
+  const dy = [0, 1].map((k) => (south[k] - north[k]) / (2 * h));
+  const det = dx[0] * dy[1] - dy[0] * dx[1];
+  if (
+    ![...dx, ...dy, det].every(Number.isFinite) ||
+    det === 0 ||
+    [...dx, ...dy].some((d) => Math.abs(d) > MAX_EXPANSION_DERIVATIVE)
+  ) {
+    return undefined;
+  }
+  // Inverse Jacobian, row-major.
+  const jacobian = [dy[1] / det, -dy[0] / det, -dx[1] / det, dx[0] / det];
+
+  // Hessian of map coordinate k as (xx, xy, yy).
+  const hessians = [0, 1].map((k) => [
+    (east[k] - 2 * center[k] + west[k]) / h ** 2,
+    (corners[0][k] - corners[1][k] - corners[2][k] + corners[3][k]) /
+      (4 * h ** 2),
+    (south[k] - 2 * center[k] + north[k]) / h ** 2,
+  ]);
+  // Q_i = 1/2 * sum_k jacobian[i][k] * hessian_k
+  const curvature = [0, 1].map((i) =>
+    [0, 1, 2].map(
+      (term) =>
+        0.5 *
+        (jacobian[i * 2] * hessians[0][term] +
+          jacobian[i * 2 + 1] * hessians[1][term])
+    )
+  );
+  return {
+    projected: [center[0], center[1]],
+    jacobian,
+    curvatureX: curvature[0],
+    curvatureY: curvature[1],
+  };
 }

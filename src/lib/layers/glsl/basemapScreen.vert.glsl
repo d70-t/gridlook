@@ -1,5 +1,5 @@
 // Full-screen quad: the fragment shader intersects each pixel's camera ray
-// with the exact unit sphere instead of drawing a tessellated one.
+// with the exact unit sphere or map plane instead of drawing a mesh.
 varying vec3 vRayDirection;
 
 void main() {

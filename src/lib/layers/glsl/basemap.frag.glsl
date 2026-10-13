@@ -25,21 +25,31 @@ uniform vec2 referenceMercator;
 uniform vec2 referenceTile;
 uniform float opacity;
 
+// Camera position minus the reference point, computed on the CPU in double
+// precision.
+uniform vec3 cameraOffset;
+varying vec3 vRayDirection;
+
 #ifdef FLAT
 uniform int projectionType;
 uniform float centerLon;
 uniform float centerLat;
-varying vec2 vProjectedCoord;
+// The reference point on the map plane.
+uniform vec2 referenceProjected;
+// With useExpansion, map offsets d become Mercator offsets
+// u - (uᵀQx u, uᵀQy u) with u = J d: J row-major, Q as (xx, xy, yy).
+// Without it (zoomed-out views) the inverse projection is used directly.
+uniform bool useExpansion;
+uniform vec4 expansionJacobian;
+uniform vec3 expansionCurvatureX;
+uniform vec3 expansionCurvatureY;
 #else
 // sin/cos of the reference latitude and longitude.
 uniform vec4 referenceTrig;
 // atanh(sin(reference latitude)), the Mercator y before scaling.
 uniform float referencePsi;
-// Camera position minus the reference point, and |camera|^2 - 1, both
-// computed on the CPU in double precision.
-uniform vec3 cameraOffset;
+// |camera|^2 - 1, computed on the CPU in double precision.
 uniform float cameraHeightTerm;
-varying vec3 vRayDirection;
 #endif
 
 // GPU atanh/atan lose relative precision for the tiny offsets of close views.
@@ -62,8 +72,22 @@ float offsetAtan(float y, float x) {
 
 #ifdef FLAT
 vec2 getMercatorOffset() {
-  vec3 result = inverseProjectLatLon(vProjectedCoord.x, vProjectedCoord.y, projectionType);
+  // Intersection with the map plane z = 0, relative to the reference point.
+  if (vRayDirection.z >= 0.0) discard;
+  float t = -cameraOffset.z / vRayDirection.z;
+  vec2 mapOffset = cameraOffset.xy + t * vRayDirection.xy;
+  vec2 projected = referenceProjected + mapOffset;
+
+  vec3 result = inverseProjectLatLon(projected.x, projected.y, projectionType);
   if (result.z < 0.0) discard;
+  if (useExpansion) {
+    vec2 u = vec2(
+      dot(expansionJacobian.xy, mapOffset),
+      dot(expansionJacobian.zw, mapOffset)
+    );
+    vec3 uu = vec3(u.x * u.x, 2.0 * u.x * u.y, u.y * u.y);
+    return u - vec2(dot(expansionCurvatureX, uu), dot(expansionCurvatureY, uu));
+  }
   vec2 geo = unrotateCoords(result.x, result.y, centerLon, centerLat);
   // Beyond the Mercator limit the outermost tile row is stretched to the pole.
   float latRad = radians(clamp(geo.x, -WEB_MERCATOR_LAT_LIMIT, WEB_MERCATOR_LAT_LIMIT));
