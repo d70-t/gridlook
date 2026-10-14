@@ -8,6 +8,12 @@
       "attribution": "© OpenStreetMap contributors"
     },
     {
+      "id": "opentopo",
+      "name": "OpenTopoMap",
+      "url": "https://tile.opentopomap.org/{z}/{x}/{y}.png",
+      "attribution": "Map data: © OpenStreetMap contributors | DEM: SRTM, Sonny | Map style: © OpenTopoMap (CC-BY-SA)"
+    },
+    {
       "id": "esri-world-imagery",
       "name": "ESRI WorldImagery",
       "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",

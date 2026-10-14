@@ -288,6 +288,18 @@ export const useGlobeControlStore = defineStore("globeControl", {
       volumeAvailable: false,
     };
   },
+  getters: {
+    // Tile providers require their attribution to be visible on the map.
+    basemapAttribution(state): string | undefined {
+      const visible = state.layerStack.some(
+        (layer) => layer.kind === LAYER_KINDS.BASEMAP && layer.visible
+      );
+      return visible
+        ? state.basemaps?.find((entry) => entry.id === state.selectedBasemap)
+            ?.attribution
+        : undefined;
+    },
+  },
   actions: {
     signifyDatasetChange() {
       if (this.newDatasetSignifier % 2 === 0) {

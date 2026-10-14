@@ -40,5 +40,6 @@ void main() {
   vec4 texColor = texture2D(maskTexture, vec2(u, v));
   if (texColor.a < 0.01) discard;
   gl_FragColor = vec4(texColor.rgb, texColor.a * opacity);
-  #include <colorspace_fragment>
+  // Encode explicitly; see the color space note in AGENTS.md.
+  gl_FragColor = sRGBTransferOETF(gl_FragColor);
 }

@@ -163,5 +163,6 @@ void main() {
   }
   if (color.a < 0.01) discard;
   gl_FragColor = vec4(color.rgb, color.a * opacity);
-  #include <colorspace_fragment>
+  // Encode explicitly; see the color space note in AGENTS.md.
+  gl_FragColor = sRGBTransferOETF(gl_FragColor);
 }

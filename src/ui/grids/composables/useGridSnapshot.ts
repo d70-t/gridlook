@@ -236,8 +236,8 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
     renderer.getClearColor(clearColor);
     const clearAlpha = renderer.getClearAlpha();
 
-    // Grid shaders already output display colors; an sRGB target encodes them
-    // again, brightening the pixels copied directly into the snapshot canvas.
+    // All shaders output display (sRGB) colors themselves; an sRGB target would
+    // encode them again and brighten the snapshot. See AGENTS.md.
     const rt = new THREE.WebGLRenderTarget(width, height);
     const origVisible = baseSurface ? baseSurface.visible : true;
     const mat = baseSurface?.material as THREE.MeshBasicMaterial | undefined;
@@ -374,6 +374,42 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
     }
   }
 
+  /** Draw the basemap attribution into the bottom-right corner of rect, like the live overlay. */
+  function drawBasemapAttribution(
+    ctx: CanvasRenderingContext2D,
+    rect: TSnapshotRect,
+    fontSize: number
+  ) {
+    const attribution = store.basemapAttribution;
+    if (!attribution) {
+      return;
+    }
+    ctx.font = `${fontSize}px sans-serif`;
+    const padding = Math.round(fontSize * 0.3);
+    const measuredWidth = ctx.measureText(attribution).width;
+    // Shrink the text when it would be wider than the image.
+    const maxWidth = rect.width - 2 * padding;
+    if (measuredWidth > maxWidth) {
+      fontSize = Math.max(1, Math.floor((fontSize * maxWidth) / measuredWidth));
+      ctx.font = `${fontSize}px sans-serif`;
+    }
+    const textWidth = ctx.measureText(attribution).width;
+    const boxHeight = fontSize + 2 * padding;
+    const right = rect.x + rect.width;
+    const bottom = rect.y + rect.height;
+    ctx.fillStyle = "rgba(255, 255, 255, 0.7)";
+    ctx.fillRect(
+      right - textWidth - 2 * padding,
+      bottom - boxHeight,
+      textWidth + 2 * padding,
+      boxHeight
+    );
+    ctx.fillStyle = "#333333";
+    ctx.textAlign = "right";
+    ctx.textBaseline = "bottom";
+    ctx.fillText(attribution, right - padding, bottom - padding);
+  }
+
   function downloadSnapshot(composite: HTMLCanvasElement) {
     composite.toBlob((blob) => {
       if (!blob) {
@@ -477,6 +513,7 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
       h
     );
     const noOverlays = !showColormap && !showDatasetInfo;
+    const attributionFontSize = Math.round(Math.max(10, h * 0.016));
 
     if (noOverlays) {
       const composite = document.createElement("canvas");
@@ -500,6 +537,11 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
         0,
         contentRect.width,
         contentRect.height
+      );
+      drawBasemapAttribution(
+        ctx,
+        getFullSnapshotRect(contentRect.width, contentRect.height),
+        attributionFontSize
       );
       downloadSnapshot(composite);
       return;
@@ -543,6 +585,7 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
 
     fillBackground(ctx, w, h + extraHeight, background);
     renderGlobeToCtx(ctx, w, h, background);
+    drawBasemapAttribution(ctx, contentRect, attributionFontSize);
     drawOverlaysAndDownload(
       composite,
       ctx,

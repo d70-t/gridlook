@@ -103,3 +103,12 @@ export type TDirection = (typeof Direction)[keyof typeof Direction];
 ```
 
 Apply the same principle for numbers
+
+### Color spaces in shaders
+
+Every shader must write display (sRGB) colors to `gl_FragColor` itself, because the live canvas and the snapshot render target must produce identical pixels.
+
+- Colormap/grid shaders already output sRGB values: don't encode them again.
+- Shaders sampling an `SRGBColorSpace` texture (basemap, land/sea mask, image layers) end with `gl_FragColor = sRGBTransferOETF(gl_FragColor);`.
+- Never use `#include <colorspace_fragment>`: it only encodes for the canvas and is a no-op for render targets, so snapshots come out too dark/oversaturated.
+- Keep the snapshot render target in `useGridSnapshot.ts` linear (no `colorSpace: SRGBColorSpace`), otherwise everything gets encoded twice and the snapshot is too bright.
