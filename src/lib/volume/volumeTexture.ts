@@ -39,11 +39,11 @@ export type TVolumeTextureBuildRequest = {
 };
 
 export type TVolumeTextureData = Uint8Array | Uint16Array;
-export const VOLUME_VERTICAL_MAPPING = {
+const VOLUME_VERTICAL_MAPPING = {
   HEIGHT: "height",
   LEVEL: "level",
 } as const;
-export type TVolumePhysicalMapping = {
+type TVolumePhysicalMapping = {
   scales: number[];
   vertical: (typeof VOLUME_VERTICAL_MAPPING)[keyof typeof VOLUME_VERTICAL_MAPPING];
   range: { min: number; max: number };

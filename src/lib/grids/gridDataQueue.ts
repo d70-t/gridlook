@@ -2,7 +2,7 @@ import type { GetOptions } from "zarrita";
 
 type TChunkQueue = ReturnType<NonNullable<GetOptions["createQueue"]>>;
 
-export const SCALAR_CHUNK_LIMITS = {
+const SCALAR_CHUNK_LIMITS = {
   TARGET_BYTES: 64 * 1024 * 1024,
   MAX_CONCURRENCY: 4,
 } as const;
