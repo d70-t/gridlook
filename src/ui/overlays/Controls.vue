@@ -222,18 +222,23 @@ watch(
   }
 );
 
-watch(currentBounds, (bounds) => {
-  if (
-    pickedBoundsMode.value === BOUND_MODES.ANIMATION &&
-    !animationBounds.value
-  ) {
-    pickedBoundsMode.value = BOUND_MODES.DATA;
-    store.scalarAnimationBounds = undefined;
+watch(
+  [currentBounds, animationBounds],
+  ([bounds, range], [, previousRange]) => {
+    if (range && !previousRange) {
+      pickedBoundsMode.value = BOUND_MODES.ANIMATION;
+      store.updateBounds(range);
+      return;
+    }
+    if (pickedBoundsMode.value === BOUND_MODES.ANIMATION && !range) {
+      pickedBoundsMode.value = BOUND_MODES.DATA;
+      store.scalarAnimationBounds = undefined;
+    }
+    if (bounds) {
+      store.updateBounds(bounds as TBounds);
+    }
   }
-  if (bounds) {
-    store.updateBounds(bounds as TBounds);
-  }
-});
+);
 
 function onPickedBoundsModeChange(newMode: TBoundModes) {
   if (newMode === BOUND_MODES.DATA) {

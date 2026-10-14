@@ -57,9 +57,8 @@ onScopeDispose(() => animation?.cancelExport());
 </script>
 
 <template>
-  <div class="mt-4">
+  <div class="mt-2">
     <template v-if="video && animation">
-      <p class="has-text-weight-semibold mb-2">Video export</p>
       <fieldset :disabled="animation.exporting">
         <label class="label is-small" for="animation-video-format"
           >Format</label
@@ -106,14 +105,11 @@ onScopeDispose(() => animation?.cancelExport());
           </p>
         </div>
         <p class="help mb-2">
-          Exports all prepared frames with the selected interpolation, FPS and
-          color bounds, at the selected resolution. Uses your current zoom and
-          viewport framing, with labels and the colormap beside it on the left.
-          Your view is restored after export.
+          Uses the selected interpolation, FPS, color bounds and current view.
+          Labels and the colormap appear on the left.
         </p>
         <p class="help mb-2">
-          Frames are encoded in small batches. The compressed video stays in
-          memory until download; lossless exports can be large.
+          The video stays in memory until download. Lossless files can be large.
         </p>
         <button
           type="button"

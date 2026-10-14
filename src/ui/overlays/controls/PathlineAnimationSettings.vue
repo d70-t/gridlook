@@ -36,13 +36,9 @@ const fields = [
 
 <template>
   <div class="mt-3 mb-3">
-    <p class="label is-small">Horizontal pathlines</p>
+    <p class="label is-small">Particles</p>
     <p class="help mb-2">
-      Uses the components and level selected in Streamlines, over the selected
-      scalar field or vector magnitude. Particles follow dataset time. Random
-      positions are seeded evenly across keyframes and integrated backward and
-      forward through valid data. Components without orientation metadata are
-      treated as east/north velocities.
+      Uses the velocity components and level selected in Streamlines.
     </p>
     <label class="label is-small" for="pathline-particles"
       >Particles (total)</label
@@ -56,25 +52,25 @@ const fields = [
       step="1"
       @input="emit('change')"
     />
-    <label class="label is-small mt-2" for="pathline-workers"
-      >Integration workers</label
-    >
-    <input
-      id="pathline-workers"
-      v-model.number="settings.workerCount"
-      class="input is-small"
-      type="number"
-      min="1"
-      :max="workerLimit"
-      step="1"
-      @input="emit('change')"
-    />
-    <p class="help">
-      Up to {{ workerLimit }} logical processors reported. More workers can
-      shorten integration but need more RAM for velocity data.
-    </p>
     <details class="mt-2">
-      <summary class="is-size-7">Pathline integration settings</summary>
+      <summary class="is-size-7">Integration settings</summary>
+      <label class="label is-small mt-2" for="pathline-workers"
+        >Integration workers</label
+      >
+      <input
+        id="pathline-workers"
+        v-model.number="settings.workerCount"
+        class="input is-small"
+        type="number"
+        min="1"
+        :max="workerLimit"
+        step="1"
+        @input="emit('change')"
+      />
+      <p class="help">
+        Up to {{ workerLimit }} logical processors reported. More workers can
+        shorten integration but need more RAM for velocity data.
+      </p>
       <div v-for="field in fields" :key="field.key" class="field mt-2 mb-2">
         <label class="label is-small" :for="`pathline-${field.key}`">{{
           field.label
@@ -90,6 +86,11 @@ const fields = [
           @input="emit('change')"
         />
       </div>
+      <p class="help">
+        Seeds are distributed across keyframes and integrated backward and
+        forward. Components without orientation metadata are treated as
+        east/north velocities.
+      </p>
       <p class="help">
         Defaults favor quick visual exploration: 50 m local error tolerance and
         10 samples per shortest keyframe interval. Adaptive RK3(2). Lower the

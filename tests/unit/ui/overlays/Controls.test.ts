@@ -96,7 +96,7 @@ it("uses magnitude bounds and restores the scalar's custom bounds", async () => 
   }
 });
 
-it("applies completed animation bounds only on selection and preserves custom bounds", async () => {
+it("selects completed animation bounds automatically and preserves later manual choices", async () => {
   const bake = reactive({
     phase: SCALAR_BAKE_PHASE.PLANNED as string,
     bounds: { low: -10, high: 900 },
@@ -105,10 +105,8 @@ it("applies completed animation bounds only on selection and preserves custom bo
   const { store, scope, controls } = setupControls();
   try {
     await nextTick();
-    bake.phase = SCALAR_BAKE_PHASE.READY;
-    await nextTick();
     expect(store.selection).toEqual({ low: 0, high: 600 });
-    controls.onPickedBoundsModeChange("animation");
+    bake.phase = SCALAR_BAKE_PHASE.READY;
     await nextTick();
     expect(store.selection).toEqual(bake.bounds);
     store.varinfo!.bounds = { low: 200, high: 400 };
@@ -118,16 +116,22 @@ it("applies completed animation bounds only on selection and preserves custom bo
     controls.onPickedBoundsModeChange("user");
     await nextTick();
     expect(store.selection).toEqual({ low: 0, high: 600 });
+    store.varinfo!.bounds = { low: 210, high: 390 };
+    await nextTick();
+    expect(store.selection).toEqual({ low: 0, high: 600 });
     controls.onPickedBoundsModeChange("data");
     await nextTick();
-    expect(store.selection).toEqual({ low: 200, high: 400 });
+    expect(store.selection).toEqual({ low: 210, high: 390 });
+    store.varinfo!.bounds = { low: 220, high: 380 };
+    await nextTick();
+    expect(store.selection).toEqual({ low: 220, high: 380 });
     expect(store.scalarAnimationBounds).toBeUndefined();
   } finally {
     scope.stop();
   }
 });
 
-it("returns to current data bounds when the bake is cleared and does not apply the next bake automatically", async () => {
+it("returns to data bounds on release and selects Animation again for the next prepared range", async () => {
   const bake = reactive({
     phase: SCALAR_BAKE_PHASE.READY as string,
     bounds: { low: -10, high: 900 },
@@ -146,7 +150,31 @@ it("returns to current data bounds when the bake is cleared and does not apply t
     bake.bounds = { low: -50, high: 1000 };
     bake.phase = SCALAR_BAKE_PHASE.READY;
     await nextTick();
-    expect(store.selection).toEqual({ low: 100, high: 500 });
+    expect(store.selection).toEqual({ low: -50, high: 1000 });
+  } finally {
+    scope.stop();
+  }
+});
+
+it("keeps custom bounds when preparation has no finite range or fails", async () => {
+  const bake = reactive({
+    phase: SCALAR_BAKE_PHASE.BAKING as string,
+    bounds: undefined as { low: number; high: number } | undefined,
+  });
+  vi.mocked(inject).mockReturnValue(bake);
+  const { store, scope } = setupControls();
+  try {
+    await nextTick();
+    bake.phase = SCALAR_BAKE_PHASE.READY;
+    await nextTick();
+    expect(store.selection).toEqual({ low: 0, high: 600 });
+    bake.phase = SCALAR_BAKE_PHASE.BAKING;
+    bake.bounds = { low: -10, high: 900 };
+    await nextTick();
+    expect(store.selection).toEqual({ low: 0, high: 600 });
+    bake.phase = SCALAR_BAKE_PHASE.ERROR;
+    await nextTick();
+    expect(store.selection).toEqual({ low: 0, high: 600 });
   } finally {
     scope.stop();
   }

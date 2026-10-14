@@ -86,9 +86,8 @@ function duration(seconds: number) {
     </template>
     <section v-if="bake" aria-label="Animation">
       <p class="has-text-weight-semibold mb-2">Animation</p>
-      <p class="is-size-7 mb-3">
-        Preload original timesteps for interactive playback and interpolate
-        between them, or export the animation as a video.
+      <p v-if="!previewing" class="is-size-7 mb-3">
+        Prepare enabled layers for playback or video export.
       </p>
       <p
         v-if="bake.unavailable"
@@ -96,127 +95,160 @@ function duration(seconds: number) {
       >
         {{ bake.unavailable }}
       </p>
-      <fieldset :disabled="bake.busy || previewing">
-        <div class="columns is-mobile mb-0">
-          <div class="column pb-1">
-            <label class="label is-small" for="bake-start">Start index</label>
-            <input
-              id="bake-start"
-              v-model.number="start"
-              class="input is-small"
-              type="number"
-              :min="bake.time?.minBound"
-              :max="bake.time?.maxBound"
-              step="1"
-              @input="changed"
-            />
-          </div>
-          <div class="column pb-1">
-            <label class="label is-small" for="bake-end">End index</label>
-            <input
-              id="bake-end"
-              v-model.number="end"
-              class="input is-small"
-              type="number"
-              :min="bake.time?.minBound"
-              :max="bake.time?.maxBound"
-              step="1"
-              @input="changed"
-            />
-          </div>
-        </div>
-        <p v-if="bake.time" class="help mb-2">
-          Available indices: {{ bake.time.minBound }}–{{ bake.time.maxBound }}.
-          Other dimensions use their current selections.
-        </p>
-        <PathlineAnimationSettings
-          v-if="bake.pathlinesEnabled && pathlineSettings"
-          v-model="pathlineSettings"
-          @change="changed"
-        />
-        <button
-          class="button is-small"
-          type="button"
-          :disabled="!!bake.unavailable"
-          @click="
-            bake.plan({
-              start,
-              end,
-              pathlines: bake.pathlinesEnabled ? pathlineSettings : undefined,
-            })
-          "
-        >
-          Estimate · loads one timestep
-        </button>
-      </fieldset>
-      <div class="field mt-3 mb-2">
-        <label class="label is-small" for="bake-memory"
-          >Memory budget (GiB)</label
-        >
-        <input
-          id="bake-memory"
-          v-model.number="budgetGiB"
-          class="input is-small"
-          type="number"
-          min="0.5"
-          step="0.5"
-          aria-describedby="bake-memory-help"
-        />
-        <p id="bake-memory-help" class="help">
-          Planning reference only; does not limit preparation.
-        </p>
-      </div>
-      <div v-if="bake.estimate" class="content is-small mt-3 mb-2">
-        <p class="mb-1">
-          <strong>{{ bake.estimate.count }} keyframes</strong> · approximately
-          {{ duration(bake.estimate.secondsLow) }}–{{
-            duration(bake.estimate.secondsHigh)
+      <details :open="!previewing" class="mb-3">
+        <summary class="has-text-weight-semibold mb-2">
+          {{
+            previewing
+              ? `${bake.estimate?.count} keyframes prepared`
+              : "Preparation"
           }}
-          to prepare
-        </p>
-        <p class="mb-1">
-          Retained data: {{ memory(bake.estimate.retainedBytes) }} · estimated
-          peak RAM: {{ memory(bake.estimate.peakBytes) }}
-          <span v-if="memoryUsage !== undefined">
-            ({{ memoryUsage.toFixed(0) }}% of budget)
-          </span>
-        </p>
-        <p class="mb-1">
-          Active GPU data: up to {{ memory(bake.estimate.gpuBytes) }} additional
-        </p>
-        <p v-if="bake.hasPathlines" class="mb-1">
-          Velocity data: {{ memory(bake.estimate.vectorBytes ?? 0) }} ·
-          Trajectories: {{ memory(bake.estimate.trajectoryBytes ?? 0) }} ·
-          Pathline display buffers:
-          {{ memory(bake.estimate.pathlineDisplayBytes ?? 0) }} · Temporary
-          worker data:
-          {{ memory(bake.estimate.pathlineWorkerBytes ?? 0) }}
-        </p>
-        <details>
-          <summary>Estimate details</summary>
-          <p>
-            {{ bake.estimate.uniqueChunks }} distinct source chunks, up to
-            {{ memory(bake.estimate.decodedBytes) }} decoded. Compressed
-            download size and cache hits are unknown. Source decode/cache
-            allowance: {{ memory(bake.estimate.sourceWorkingBytes) }}.
-            <span v-if="bake.estimate.chunkConcurrency !== undefined">
-              At most {{ bake.estimate.chunkConcurrency }} source chunks decoded
-              concurrently.
-            </span>
-            <span v-if="bake.estimate.pathlinePreviewBytes"
-              >Display buffers include
-              {{ memory(bake.estimate.pathlinePreviewBytes) }} for fast preview.
-              GPU totals allow for both preview modes and export.</span
-            >
-            Peak RAM also includes preparation/display buffers and 25% headroom.
-            Existing globe/browser memory is additional. Timing is approximate
-            and updated during preparation.
+        </summary>
+        <fieldset :disabled="bake.busy || previewing">
+          <div class="columns is-mobile mb-0">
+            <div class="column pb-1">
+              <label class="label is-small" for="bake-start">Start index</label>
+              <input
+                id="bake-start"
+                v-model.number="start"
+                class="input is-small"
+                type="number"
+                :min="bake.time?.minBound"
+                :max="bake.time?.maxBound"
+                step="1"
+                @input="changed"
+              />
+            </div>
+            <div class="column pb-1">
+              <label class="label is-small" for="bake-end">End index</label>
+              <input
+                id="bake-end"
+                v-model.number="end"
+                class="input is-small"
+                type="number"
+                :min="bake.time?.minBound"
+                :max="bake.time?.maxBound"
+                step="1"
+                @input="changed"
+              />
+            </div>
+          </div>
+          <p v-if="bake.time" class="help mb-2">
+            Available indices: {{ bake.time.minBound }}–{{
+              bake.time.maxBound
+            }}. Other dimensions use their current selections.
           </p>
-        </details>
-      </div>
+          <PathlineAnimationSettings
+            v-if="bake.pathlinesEnabled && pathlineSettings"
+            v-model="pathlineSettings"
+            @change="changed"
+          />
+          <button
+            class="button is-small"
+            type="button"
+            :disabled="!!bake.unavailable"
+            @click="
+              bake.plan({
+                start,
+                end,
+                pathlines: bake.pathlinesEnabled ? pathlineSettings : undefined,
+              })
+            "
+          >
+            Estimate preparation
+          </button>
+          <p v-if="!previewing" class="help">
+            Loads one timestep to estimate time and memory.
+          </p>
+        </fieldset>
+        <div v-if="bake.estimate" class="content is-small mt-3 mb-2">
+          <p class="mb-1">
+            <strong>{{ bake.estimate.count }} keyframes</strong> · approximately
+            {{ duration(bake.estimate.secondsLow) }}–{{
+              duration(bake.estimate.secondsHigh)
+            }}
+            to prepare
+          </p>
+          <p class="mb-1">
+            Estimated peak RAM: {{ memory(bake.estimate.peakBytes) }}
+          </p>
+          <details class="mt-2">
+            <summary>Memory and estimate details</summary>
+            <div class="field mt-3 mb-2">
+              <label class="label is-small" for="bake-memory"
+                >Memory reference (GiB)</label
+              >
+              <input
+                id="bake-memory"
+                v-model.number="budgetGiB"
+                class="input is-small"
+                type="number"
+                min="0.5"
+                step="0.5"
+                aria-describedby="bake-memory-help"
+              />
+              <p id="bake-memory-help" class="help">
+                Planning reference only; does not limit preparation.
+              </p>
+            </div>
+            <p class="mb-1">
+              Retained data: {{ memory(bake.estimate.retainedBytes) }}
+              <span v-if="memoryUsage !== undefined">
+                · peak RAM is {{ memoryUsage.toFixed(0) }}% of the reference
+              </span>
+            </p>
+            <p class="mb-1">
+              Active GPU data: up to
+              {{ memory(bake.estimate.gpuBytes) }} additional
+            </p>
+            <p v-if="bake.hasPathlines" class="mb-1">
+              Velocity data: {{ memory(bake.estimate.vectorBytes ?? 0) }} ·
+              Trajectories: {{ memory(bake.estimate.trajectoryBytes ?? 0) }} ·
+              Display buffers:
+              {{ memory(bake.estimate.pathlineDisplayBytes ?? 0) }} · Worker
+              data: {{ memory(bake.estimate.pathlineWorkerBytes ?? 0) }}
+            </p>
+            <p v-if="bake.hasVolumes" class="mb-1">
+              Volume keyframes: {{ memory(bake.estimate.volumeBytes ?? 0) }} ·
+              Preparation buffers:
+              {{ memory(bake.estimate.volumeWorkingBytes ?? 0) }}
+            </p>
+            <p>
+              Up to {{ bake.estimate.uniqueChunks }} source chunks,
+              {{ memory(bake.estimate.decodedBytes) }} decoded.
+              <span v-if="bake.hasVolumes"
+                >Overlapping layer reads may be counted more than once.</span
+              >
+              Compressed download size and cache hits are unknown. Source
+              decode/cache allowance:
+              {{ memory(bake.estimate.sourceWorkingBytes) }}.
+              <span v-if="bake.estimate.chunkConcurrency !== undefined">
+                At most {{ bake.estimate.chunkConcurrency }} source chunks
+                decoded concurrently.
+              </span>
+              <span v-if="bake.estimate.pathlinePreviewBytes"
+                >Display buffers include
+                {{ memory(bake.estimate.pathlinePreviewBytes) }} for fast
+                preview. GPU totals allow for both preview modes and
+                export.</span
+              >
+              Peak RAM also includes preparation/display buffers and 25%
+              headroom. Existing globe/browser memory is additional. Timing is
+              approximate and updated during preparation.
+            </p>
+          </details>
+        </div>
+      </details>
       <p v-if="bake.message" class="help is-danger" role="alert">
         {{ bake.message }}
       </p>
+      <button
+        v-if="planned"
+        class="button is-small is-info"
+        type="button"
+        @click="bake.bake()"
+      >
+        Prepare {{ bake.estimate?.count }} keyframes
+      </button>
       <div v-if="bake.busy" role="status" aria-live="polite" class="mt-3">
         <p v-if="bake.phase === SCALAR_BAKE_PHASE.ESTIMATING">
           Preparing the sample timestep…
@@ -251,12 +283,133 @@ function duration(seconds: number) {
         ></progress>
       </div>
       <fieldset v-if="previewing" class="mt-3" :disabled="bake.exporting">
-        <p v-if="bake.bounds" class="help mb-3">
-          Time-range min/max: {{ bake.bounds.low.toPrecision(5) }} –
-          {{ bake.bounds.high.toPrecision(5) }}. Select Animation under
-          Appearance → Colormap to apply these bounds to display and export.
+        <div class="columns is-mobile mb-0">
+          <div class="column pb-1">
+            <label class="label is-small" for="bake-interpolation"
+              >Interpolation</label
+            >
+            <div class="select is-small">
+              <select
+                id="bake-interpolation"
+                v-model="bake.interpolationMode"
+                @change="bake.resetPlayback()"
+              >
+                <option :value="SCALAR_INTERPOLATION.ORIGINAL">
+                  Original timesteps
+                </option>
+                <option
+                  :value="SCALAR_INTERPOLATION.LINEAR"
+                  :disabled="!!bake.interpolationUnavailable"
+                >
+                  Linear
+                </option>
+                <option
+                  :value="SCALAR_INTERPOLATION.SMOOTHSTEP"
+                  :disabled="!!bake.interpolationUnavailable"
+                >
+                  Smoothstep (cubic)
+                </option>
+              </select>
+            </div>
+          </div>
+          <div
+            v-if="bake.interpolationMode !== SCALAR_INTERPOLATION.ORIGINAL"
+            class="column pb-1"
+          >
+            <label class="label is-small" for="bake-intermediate"
+              >Intermediate frames</label
+            >
+            <input
+              id="bake-intermediate"
+              v-model.number="bake.intermediateFrames"
+              class="input is-small"
+              type="number"
+              min="0"
+              step="1"
+              aria-label="Intermediate frames per interval"
+              @input="bake.resetPlayback()"
+            />
+          </div>
+        </div>
+        <p v-if="bake.interpolationUnavailable" class="help">
+          {{ bake.interpolationUnavailable }}
         </p>
-        <div v-if="bake.hasPathlines" class="field">
+        <div v-if="bake.interpolationMode !== SCALAR_INTERPOLATION.ORIGINAL">
+          <p
+            v-if="bake.interpolationMode === SCALAR_INTERPOLATION.SMOOTHSTEP"
+            class="help"
+          >
+            Slows at each keyframe. Use Linear for a steady pace.
+          </p>
+          <p v-if="!bake.frameCount" class="help is-danger">
+            Enter a non-negative whole number of intermediate frames.
+          </p>
+          <p
+            v-if="bake.unequalTimeGaps"
+            class="notification is-warning is-light p-2 is-size-7"
+            role="status"
+          >
+            Source timestamps have unequal gaps. Equal frame counts per interval
+            mean the simulated time advances at different speeds.
+          </p>
+        </div>
+        <p
+          v-if="bake.pathlinePlaybackError"
+          class="help is-danger"
+          role="alert"
+        >
+          {{ bake.pathlinePlaybackError }}
+        </p>
+        <label class="label is-small mt-3" for="bake-seek">
+          Frame {{ bake.current + 1 }} / {{ bake.frameCount }}
+          <span
+            v-if="bake.frameCount && bake.fps > 0"
+            class="has-text-weight-normal"
+          >
+            · {{ (bake.frameCount / bake.fps).toFixed(2) }} s
+          </span>
+        </label>
+        <input
+          id="bake-seek"
+          class="w-100"
+          type="range"
+          :min="0"
+          :max="Math.max(0, bake.frameCount - 1)"
+          :disabled="!bake.frameCount || !!bake.pathlinePlaybackError"
+          :value="bake.current"
+          @input="
+            bake.pause();
+            bake.seek(Number(($event.target as HTMLInputElement).value));
+          "
+        />
+        <div class="field is-grouped mt-2 mb-1">
+          <button
+            class="button is-small is-info mr-2"
+            type="button"
+            :disabled="!bake.frameCount || !!bake.pathlinePlaybackError"
+            @click="bake.playing ? bake.pause() : bake.play()"
+          >
+            {{ bake.playing ? "Pause" : "Play" }}
+          </button>
+          <label class="label is-small mr-2" for="bake-fps">FPS</label>
+          <input
+            id="bake-fps"
+            v-model.number="bake.fps"
+            class="input is-small"
+            type="number"
+            min="1"
+            :max="SCALAR_BAKE_LIMITS.MAX_FPS"
+            step="1"
+            @input="bake.pause()"
+          />
+        </div>
+        <p class="help">
+          Playback continues with this window closed. Rotate and zoom as usual.
+        </p>
+        <details v-if="bake.hasPathlines" class="mt-3">
+          <summary class="is-size-7 has-text-weight-semibold mb-2">
+            Particle appearance
+          </summary>
           <label class="label is-small" for="pathline-display"
             >Particle preview</label
           >
@@ -278,9 +431,9 @@ function duration(seconds: number) {
             </select>
           </div>
           <p class="help mb-3">
-            Fast preview blends particle positions linearly between dataset
-            keyframes. It may shortcut curved motion. Switch to compare without
-            preparing again. Video export always uses the full trajectories.
+            Fast preview approximates motion between keyframes. Export always
+            uses full trajectories; both follow the selected interpolation
+            timing.
           </p>
           <p v-if="!bake.estimate?.pathlinePreviewBytes" class="help mb-3">
             Fast preview exceeds this device's texture dimensions. Full
@@ -313,8 +466,7 @@ function duration(seconds: number) {
             @input="bake.refreshPathlines()"
           />
           <p class="help mb-3">
-            Size and opacity update playback and export immediately without
-            preparing again. Opacity is shared with the Streamlines layer.
+            Changes apply to playback and export without preparing again.
           </p>
           <label class="label is-small" for="pathline-fade"
             >Fade duration (dataset seconds)</label
@@ -329,142 +481,32 @@ function duration(seconds: number) {
             @input="bake.refreshPathlines()"
           />
           <p class="help">
-            Fades particles at trajectory endpoints, including the selected time
-            range boundaries. Changes display and export without preparing
-            trajectories again.
+            Fades particles at trajectory endpoints and time-range boundaries.
           </p>
-          <p v-if="bake.pathlinePlaybackError" class="help is-danger">
-            {{ bake.pathlinePlaybackError }}
+        </details>
+        <details class="mt-3">
+          <summary class="is-size-7">Playback details</summary>
+          <p v-if="bake.bounds" class="help">
+            Time-range min/max: {{ bake.bounds.low.toPrecision(5) }} –
+            {{ bake.bounds.high.toPrecision(5) }}. Applied automatically after
+            preparation; change the bounds under Appearance → Colormap.
           </p>
-        </div>
-        <div class="field">
-          <label class="label is-small" for="bake-interpolation"
-            >Interpolation</label
-          >
-          <div class="select is-small">
-            <select
-              id="bake-interpolation"
-              v-model="bake.interpolationMode"
-              @change="bake.resetPlayback()"
-            >
-              <option :value="SCALAR_INTERPOLATION.ORIGINAL">
-                Original timesteps
-              </option>
-              <option
-                :value="SCALAR_INTERPOLATION.LINEAR"
-                :disabled="!!bake.interpolationUnavailable"
-              >
-                Linear
-              </option>
-              <option
-                :value="SCALAR_INTERPOLATION.SMOOTHSTEP"
-                :disabled="!!bake.interpolationUnavailable"
-              >
-                Smoothstep (cubic)
-              </option>
-            </select>
-          </div>
-          <p v-if="bake.interpolationUnavailable" class="help">
-            {{ bake.interpolationUnavailable }}
-          </p>
-        </div>
-        <div
-          v-if="bake.interpolationMode !== SCALAR_INTERPOLATION.ORIGINAL"
-          class="field"
-        >
-          <label class="label is-small" for="bake-intermediate"
-            >Intermediate frames per interval</label
-          >
-          <input
-            id="bake-intermediate"
-            v-model.number="bake.intermediateFrames"
-            class="input is-small"
-            type="number"
-            min="0"
-            step="1"
-            @input="bake.resetPlayback()"
-          />
           <p class="help">
-            Scalar interpolation stores only original keyframes. Missing cells
-            stay missing between endpoints; source-time gaps are bridged.
+            Interpolation retains only original keyframes. Missing scalar cells
+            stay missing; source-time gaps are bridged.
           </p>
-          <p
-            v-if="bake.interpolationMode === SCALAR_INTERPOLATION.SMOOTHSTEP"
-            class="help"
-          >
-            Eases into and out of each keyframe with zero slope and no
-            overshoot.
+          <p v-if="bake.hasVolumes" class="help">
+            Volume normalization stays fixed across the time range. Edit colors
+            and opacity in Layers. Missing cells fade to zero. Preview uses
+            reduced quality for speed; export uses full quality.
           </p>
-          <p v-if="!bake.frameCount" class="help is-danger">
-            Enter a non-negative whole number of intermediate frames.
-          </p>
-          <p
-            v-if="bake.unequalTimeGaps"
-            class="notification is-warning is-light p-2 is-size-7"
-            role="status"
-          >
-            Source timestamps have unequal gaps. Equal frame counts per interval
-            mean the simulated time advances at different speeds.
-          </p>
-        </div>
-        <p v-if="bake.frameCount && bake.fps > 0" class="help mb-2">
-          {{ bake.frameCount }} frames ·
-          {{ (bake.frameCount / bake.fps).toFixed(2) }} s at {{ bake.fps }} fps
-        </p>
-        <label class="label is-small" for="bake-seek"
-          >Frame {{ bake.current + 1 }} / {{ bake.frameCount }}</label
-        >
-        <input
-          id="bake-seek"
-          class="w-100"
-          type="range"
-          :min="0"
-          :max="Math.max(0, bake.frameCount - 1)"
-          :disabled="!bake.frameCount || !!bake.pathlinePlaybackError"
-          :value="bake.current"
-          @input="
-            bake.pause();
-            bake.seek(Number(($event.target as HTMLInputElement).value));
-          "
-        />
-        <div class="field is-grouped mt-2 mb-1">
-          <button
-            class="button is-small is-info mr-2"
-            type="button"
-            :disabled="!bake.frameCount || !!bake.pathlinePlaybackError"
-            @click="bake.playing ? bake.pause() : bake.play()"
-          >
-            {{ bake.playing ? "Pause" : "Play" }}
-          </button>
-          <label class="label is-small mr-2" for="bake-fps"
-            >Frames / second</label
-          >
-          <input
-            id="bake-fps"
-            v-model.number="bake.fps"
-            class="input is-small"
-            type="number"
-            min="1"
-            :max="SCALAR_BAKE_LIMITS.MAX_FPS"
-            step="1"
-            @input="bake.pause()"
-          />
-        </div>
-        <p class="help">
-          Rotate and zoom the globe as usual. Close this popup to see the full
-          view.
-        </p>
+        </details>
       </fieldset>
-      <VideoExportControls v-if="previewing" />
+      <details v-if="previewing" class="mt-3">
+        <summary class="has-text-weight-semibold">Video export</summary>
+        <VideoExportControls />
+      </details>
       <div class="buttons mt-3 mb-0">
-        <button
-          v-if="planned"
-          class="button is-small is-info"
-          type="button"
-          @click="bake.bake()"
-        >
-          Prepare {{ bake.estimate?.count }} keyframes
-        </button>
         <button
           v-if="bake.busy || bake.estimate"
           class="button is-small"
