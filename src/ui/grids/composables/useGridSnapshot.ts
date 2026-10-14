@@ -221,8 +221,50 @@ export function useGridSnapshot(deps: TUseGridSnapshotOptions) {
     const orientation = camera.quaternion.clone();
     const rotation = new THREE.Quaternion();
     const baseSurface = getBaseSurface();
-    // Grid shaders already output display colors; avoid encoding them twice.
+    // The canvas blends display-encoded colors. An SRGB8_ALPHA8 attachment
+    // instead blends in linear light, making transparent volumes look denser.
     const target = new THREE.WebGLRenderTarget(width, height);
+    const restoreMaterials = new Map<THREE.Material, () => void>();
+    function prepareMaterials() {
+      scene.traverse((object) => {
+        const material = (object as THREE.Mesh).material;
+        if (!material) {
+          return;
+        }
+        for (const item of Array.isArray(material) ? material : [material]) {
+          if (restoreMaterials.has(item)) {
+            continue;
+          }
+          const compile = item.onBeforeCompile;
+          const cacheKey = item.customProgramCacheKey;
+          const key = item.customProgramCacheKey();
+          restoreMaterials.set(item, () => {
+            item.onBeforeCompile = compile;
+            item.customProgramCacheKey = cacheKey;
+            item.needsUpdate = true;
+          });
+          item.onBeforeCompile = function (shader, context) {
+            compile.call(this, shader, context);
+            if (
+              context.getRenderTarget() === target &&
+              context.outputColorSpace === THREE.SRGBColorSpace
+            ) {
+              // Stock/textured materials still need their usual canvas output
+              // conversion. Our display-encoded scalar shaders stay unchanged.
+              shader.fragmentShader = shader.fragmentShader.replaceAll(
+                "#include <colorspace_fragment>",
+                "gl_FragColor = sRGBTransferOETF( gl_FragColor );"
+              );
+            }
+          };
+          item.customProgramCacheKey = () =>
+            renderer.getRenderTarget() === target
+              ? `${key}:snapshot-${renderer.outputColorSpace}`
+              : key;
+          item.needsUpdate = true;
+        }
+      });
+    }
     const pixels = new Uint8Array(4 * width * height);
     let image: ImageData | undefined;
     let disposed = false;
@@ -230,8 +272,13 @@ export function useGridSnapshot(deps: TUseGridSnapshotOptions) {
       dispose() {
         disposed = true;
         target.dispose();
+        for (const restore of restoreMaterials.values()) {
+          restore();
+        }
+        restoreMaterials.clear();
         image = undefined;
       },
+      // eslint-disable-next-line max-lines-per-function
       render(ctx: CanvasRenderingContext2D, rotationSeconds = 0) {
         if (disposed) {
           throw new Error("The frame renderer has been released.");
@@ -260,6 +307,7 @@ export function useGridSnapshot(deps: TUseGridSnapshotOptions) {
             background === SnapshotBackgrounds.WHITE ? 0xffffff : 0,
             background === SnapshotBackgrounds.TRANSPARENT ? 0 : 1
           );
+          prepareMaterials();
           renderer.setRenderTarget(target);
           renderer.render(scene, camera);
           renderer.readRenderTargetPixels(target, 0, 0, width, height, pixels);

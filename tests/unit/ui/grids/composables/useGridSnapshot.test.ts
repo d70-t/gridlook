@@ -53,6 +53,7 @@ function createCanvas() {
   };
 }
 
+// eslint-disable-next-line max-lines-per-function
 function setup() {
   const store = useGlobeControlStore();
   store.varnameDisplay = "temperature";
@@ -75,13 +76,17 @@ function setup() {
   );
   const scene = new THREE.Scene();
   scene.add(base);
+  let renderTarget: THREE.WebGLRenderTarget | null = null;
   const renderer = {
+    outputColorSpace: THREE.SRGBColorSpace,
     capabilities: { maxTextureSize: 4096 },
     getClearColor: (color: THREE.Color) => color.set(0),
     getClearAlpha: () => 1,
-    getRenderTarget: () => null,
+    getRenderTarget: () => renderTarget,
     setClearColor: vi.fn(),
-    setRenderTarget: vi.fn(),
+    setRenderTarget: vi.fn((target: THREE.WebGLRenderTarget | null) => {
+      renderTarget = target;
+    }),
     render: vi.fn(),
     readRenderTargetPixels: vi.fn(),
   };
@@ -303,5 +308,54 @@ it.each([5, 1.15])(
       expect(captured.projectionMatrix.equals(projection)).toBe(true);
       frames.dispose();
     }
+  }
+);
+
+it.each([false, true])(
+  "matches canvas color conversion and restores material hooks (readback failure: %s)",
+  (failReadback) => {
+    const h = setup();
+    const material = h.base.material;
+    const compile = vi.fn();
+    material.onBeforeCompile = compile;
+    const cacheKey = material.customProgramCacheKey;
+    const originalKey = material.customProgramCacheKey();
+    const fragmentShader = "void main() {\n#include <colorspace_fragment>\n}";
+    const shader = () =>
+      ({ fragmentShader }) as Parameters<THREE.Material["onBeforeCompile"]>[0];
+    h.renderer.render.mockImplementation(() => {
+      const target = h.renderer.getRenderTarget()!;
+      expect(target.texture.colorSpace).toBe(THREE.NoColorSpace);
+      const captured = shader();
+      material.onBeforeCompile(
+        captured,
+        h.renderer as unknown as THREE.WebGLRenderer
+      );
+      expect(captured.fragmentShader).toContain("sRGBTransferOETF");
+      expect(captured.fragmentShader).not.toContain("#include");
+      expect(material.customProgramCacheKey()).not.toBe(originalKey);
+    });
+    if (failReadback) {
+      h.renderer.readRenderTargetPixels.mockImplementationOnce(() => {
+        throw new Error("readback failed");
+      });
+    }
+    const frames = h.snapshot.createSnapshotRenderer(h.options)!;
+    if (failReadback) {
+      expect(() => frames.render()).toThrow("readback failed");
+    } else {
+      frames.render();
+    }
+    const live = shader();
+    material.onBeforeCompile(
+      live,
+      h.renderer as unknown as THREE.WebGLRenderer
+    );
+    expect(live.fragmentShader).toBe(fragmentShader);
+    expect(material.customProgramCacheKey()).toBe(originalKey);
+    expect(compile).toHaveBeenCalledTimes(2);
+    frames.dispose();
+    expect(material.onBeforeCompile).toBe(compile);
+    expect(material.customProgramCacheKey).toBe(cacheKey);
   }
 );
