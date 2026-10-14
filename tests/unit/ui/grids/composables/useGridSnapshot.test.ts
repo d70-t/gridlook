@@ -359,3 +359,122 @@ it.each([false, true])(
     expect(material.customProgramCacheKey).toBe(cacheKey);
   }
 );
+
+it.each([
+  [false, false],
+  [true, false],
+  [false, true],
+  [true, true],
+])(
+  "labels enabled volume and particle variables (volumes: %s, particles: %s)",
+  (volumes, particles) => {
+    const h = setup();
+    h.store.setVolumeSelections(
+      ["clw", "cli", "hus", "ql"].map((variable) => ({
+        variable,
+        color: "#ffffff",
+        opacity: 0.35,
+      }))
+    );
+    h.store.setVolumeLayerEnabled(volumes);
+    h.store.setStreamlinePair({
+      u: "eastward_velocity",
+      v: "northward_velocity",
+      kind: "custom",
+    });
+    h.store.setStreamlineLayerEnabled(particles);
+    h.store.pathlineAnimationActive = true;
+    const frames = h.snapshot.createSnapshotRenderer({
+      ...h.options,
+      showDatasetInfo: true,
+      overlayPosition: SnapshotOverlayPositions.LEFT,
+    })!;
+    try {
+      const ctx = frames.render().getContext("2d")!;
+      const text = vi
+        .mocked(ctx.fillText)
+        .mock.calls.map(([line]) => line)
+        .join(" ");
+      expect(text).toContain("Variable: temperature (K)");
+      for (const { variable } of h.store.volumeSelections) {
+        expect(text.includes(`Volume: ${variable}`)).toBe(volumes);
+      }
+      expect(
+        text.includes("Particles: eastward_velocity, northward_velocity")
+      ).toBe(particles);
+    } finally {
+      frames.dispose();
+    }
+  }
+);
+
+it("omits layer labels when dataset labels are disabled", () => {
+  const h = setup();
+  h.store.setVolumeLayerEnabled(true);
+  h.store.setVolumeSelections([
+    { variable: "clw", color: "#ffffff", opacity: 1 },
+  ]);
+  h.store.setStreamlineLayerEnabled(true);
+  h.store.setStreamlinePair({ u: "u", v: "v", kind: "u/v" });
+  h.store.pathlineAnimationActive = true;
+  const frames = h.snapshot.createSnapshotRenderer({
+    ...h.options,
+    overlayPosition: SnapshotOverlayPositions.LEFT,
+  })!;
+  try {
+    expect(frames.render().getContext("2d")!.fillText).not.toHaveBeenCalled();
+  } finally {
+    frames.dispose();
+  }
+});
+
+it("wraps qualified volume and particle names inside the video sidebar", () => {
+  const h = setup();
+  h.canvas.value.width = 1280;
+  h.canvas.value.height = 720;
+  const group = "PT6H_inst_atm/multiscales/zoom_7/";
+  h.store.setVolumeLayerEnabled(true);
+  h.store.setVolumeSelections(
+    ["clw", "cli", "hus", "ql"].map((variable) => ({
+      variable: group + variable,
+      color: "#ffffff",
+      opacity: 0.35,
+    }))
+  );
+  h.store.setStreamlineLayerEnabled(true);
+  h.store.setStreamlinePair({
+    u: group + "ua",
+    v: group + "va",
+    kind: "ua/va",
+  });
+  h.store.pathlineAnimationActive = true;
+  const frames = h.snapshot.createSnapshotRenderer({
+    ...h.options,
+    showDatasetInfo: true,
+    showColormap: true,
+    overlayPosition: SnapshotOverlayPositions.LEFT,
+  })!;
+  try {
+    for (const label of ["First time", "14 Oct 2026 • 12:34:56"]) {
+      h.store.scalarAnimationTime = { index: 0, label };
+      const canvas = frames.render();
+      const ctx = canvas.getContext("2d")!;
+      const lines = vi.mocked(ctx.fillText).mock.calls;
+      const text = lines
+        .map(([line]) => line)
+        .join("")
+        .replace(/\s/g, "");
+      for (const variable of ["clw", "cli", "hus", "ql", "ua", "va"]) {
+        expect(text).toContain(group + variable);
+      }
+      const globeX = vi.mocked(ctx.drawImage).mock.calls[0][5] as number;
+      for (const [line, x, y] of lines) {
+        expect(x + ctx.measureText(line).width).toBeLessThan(globeX);
+        expect(y).toBeLessThan(canvas.height);
+      }
+      vi.mocked(ctx.fillText).mockClear();
+    }
+  } finally {
+    frames.dispose();
+  }
+});

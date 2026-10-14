@@ -379,6 +379,16 @@ export function useGridSnapshot(deps: TUseGridSnapshotOptions) {
     }
 
     lines.push(`Variable: ${varname}` + (units ? ` (${units})` : ""));
+    if (store.isVolumeLayerEnabled()) {
+      for (const { variable } of store.volumeSelections) {
+        lines.push(`Volume: ${variable}`);
+      }
+    }
+    const pair = store.streamlinePair;
+    if (store.isStreamlineLayerEnabled() && pair) {
+      const label = store.pathlineAnimationActive ? "Particles" : "Streamlines";
+      lines.push(`${label}: ${pair.u}, ${pair.v}`);
+    }
     const vi = store.varinfo;
     if (!vi) {
       return { datasetTitle, lines };
