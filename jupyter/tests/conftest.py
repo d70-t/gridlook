@@ -29,7 +29,11 @@ def allowed_buckets():
 @pytest.fixture
 def jp_server_config(static_root, allowed_buckets):
     return {
-        "ServerApp": {"jpserver_extensions": {"gridlook_jupyter": True}},
+        "ServerApp": {
+            "jpserver_extensions": {"gridlook_jupyter": True},
+            # as jupyterhub-singleuser does: a handler is public only if it says so
+            "allow_unauthenticated_access": False,
+        },
         "GridlookProxy": {
             "allowed_buckets": allowed_buckets,
             "static_dir": str(static_root),

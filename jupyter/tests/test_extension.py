@@ -50,6 +50,11 @@ async def test_spa_csp_has_no_sandbox(jp_fetch, proxy, static_root):
     [
         # jupyterhub-singleuser's default would block the Lab tab's iframe
         ("frame-ancestors 'none'", "frame-ancestors 'self'"),
+        # the same, from the legacy (non-extension) jupyterhub-singleuser
+        (
+            "frame-ancestors 'none';report-uri /hub/security/csp-report",
+            "frame-ancestors 'self';report-uri /hub/security/csp-report",
+        ),
         # a policy a hub admin wrote is left alone
         (
             "frame-ancestors 'self' https://hub.example.org",
@@ -73,17 +78,29 @@ async def test_static_asset_served(jp_fetch, proxy, static_root):
     assert b"console.log" in resp.body
 
 
-async def test_spa_needs_no_login_but_data_routes_do(jp_fetch, proxy, static_root):
+async def test_spa_assets_need_no_login_but_document_and_data_routes_do(
+    jp_fetch, proxy, static_root
+):
     # Under JupyterHub the page's module scripts (CORS-mode, no XSRF token) are not
-    # cookie-authenticated, so the bundle is served like Lab's own /static/.
+    # cookie-authenticated, so the bundle is served like Lab's own /static/. The
+    # document, like any Lab page, sends an anonymous visitor to the login.
+    # follow_redirects=False: following the login redirect would need DNS.
     (static_root / "app.js").write_text("console.log('gridlook');")
     anonymous = {"Authorization": ""}
-    for path in (("gridlook/",), ("gridlook", "app.js")):
-        resp = await jp_fetch(*path, headers=anonymous)
-        assert resp.code == 200
-    with pytest.raises(HTTPClientError) as e:
-        await jp_fetch("gridlook", "api", "health", headers=anonymous, follow_redirects=False)
-    assert e.value.code in (302, 403)
+    resp = await jp_fetch("gridlook", "app.js", headers=anonymous, follow_redirects=False)
+    assert resp.code == 200
+    for path in (("gridlook/",), ("gridlook", "index.html"), ("gridlook", "api", "health")):
+        with pytest.raises(HTTPClientError) as e:
+            await jp_fetch(*path, headers=anonymous, follow_redirects=False)
+        assert e.value.code in (302, 403)
+
+
+async def test_document_sets_xsrf_cookie_and_is_revalidated(jp_fetch, proxy):
+    # A bookmarked /gridlook/ must set the _xsrf cookie the viewer adds to its data
+    # fetches, and must not be cached past a wheel upgrade that renames the assets.
+    resp = await jp_fetch("gridlook/", headers={"Sec-Fetch-Mode": "navigate"})
+    assert "_xsrf=" in resp.headers.get("Set-Cookie", "")
+    assert resp.headers["Cache-Control"] == "no-cache"
 
 
 async def test_bare_route_redirects_to_slash(jp_fetch, jp_base_url, proxy):

@@ -11,20 +11,27 @@ from tornado import web
 from .config import GridlookProxy
 from .handlers import HealthHandler, S3ProxyHandler
 
-# jupyterhub/singleuser/extension.py: headers.setdefault("Content-Security-Policy", ...)
-HUB_DEFAULT_CSP = "frame-ancestors 'none'"
+# jupyterhub/singleuser/extension.py sets "frame-ancestors 'none'"; the legacy
+# singleuser mixin (JUPYTERHUB_SINGLEUSER_EXTENSION=0) appends ";report-uri <hub>".
+HUB_DEFAULT_CSP = re.compile(r"frame-ancestors 'none'(;report-uri \S+)?")
 
 
 class SpaFileHandler(JupyterHandler, web.StaticFileHandler):
     """Serve the built SPA the way JupyterLab serves its own bundle.
 
-    Like Lab's ``/static/`` and ``/lab/extensions/``, it needs no login. That
-    matters under JupyterHub: the page's ``<script type="module">``
-    and ``crossorigin`` stylesheets are CORS-mode requests, and the hub ignores
-    the session cookie on those unless they carry an XSRF token, so behind an
+    Like Lab's ``/static/`` and ``/lab/extensions/``, the assets need no login.
+    That matters under JupyterHub: the page's ``<script type="module">`` and
+    ``crossorigin`` stylesheets are CORS-mode requests, and the hub ignores the
+    session cookie on those unless they carry an XSRF token, so behind an
     authenticated handler every asset is bounced into the OAuth flow. The
     bundle is the extension's public code; the data routes (``/files/``, the S3
     proxy) stay authenticated.
+
+    The document itself does need login, like any Lab page: an anonymous
+    visitor goes to the login, and serving it sets the ``_xsrf`` cookie the
+    viewer adds to its data fetches. The hub sets that cookie only on a page
+    navigation that reads ``xsrf_token``, and it lasts one browser session, so a
+    bookmarked ``/gridlook/`` must set it rather than rely on Lab having run.
 
     It also avoids ``AuthenticatedFileHandler``'s ``sandbox allow-scripts``,
     meant for user-authored files: under it the document gets an opaque
@@ -37,7 +44,20 @@ class SpaFileHandler(JupyterHandler, web.StaticFileHandler):
 
     @allow_unauthenticated
     def get(self, path, include_body=True):
+        if path in ("", "index.html"):
+            return self._get_document(path, include_body)
         return super().get(path, include_body)
+
+    @web.authenticated
+    def _get_document(self, path, include_body):
+        self.xsrf_token  # noqa: B018 -- reading it sets the _xsrf cookie
+        return super().get(path, include_body)
+
+    def set_headers(self):
+        super().set_headers()
+        # Revalidate every file, as jupyter's own file handler does: a cached
+        # index.html would point at hashed assets a wheel upgrade removed.
+        self.set_header("Cache-Control", "no-cache")
 
     @allow_unauthenticated
     def head(self, path):
@@ -48,8 +68,9 @@ class SpaFileHandler(JupyterHandler, web.StaticFileHandler):
         policy = super().content_security_policy
         # ponytail: exact match on the hub default, so an admin who sets this same string
         # on purpose is relaxed too; telling them apart would need the hub's config.
-        if policy == HUB_DEFAULT_CSP:
-            return "frame-ancestors 'self'"
+        match = HUB_DEFAULT_CSP.fullmatch(policy)
+        if match:
+            return "frame-ancestors 'self'" + (match[1] or "")
         return policy
 
 

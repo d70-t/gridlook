@@ -66,10 +66,13 @@ e.g. on a hub: `https://hub.example.org/user/<you>/gridlook/`, optionally with a
 `#<dataset-url>` hash.
 
 On JupyterHub, the hub ignores the session cookie on a script `fetch()` that carries no XSRF
-token, so the viewer adds `?_xsrf=` from Jupyter's `_xsrf` cookie to dataset URLs on the same
-server (`/files/…`, `/gridlook/s3/…`), whether opened from Lab or typed in. It is never added
-to another origin, or to stores named inside a JSON index, icechunk stores, or live mode's
-endpoints.
+token, so the viewer adds `?_xsrf=` from Jupyter's `_xsrf` cookie to dataset URLs on its own
+Jupyter server (`/files/…`, `/gridlook/s3/…`), whether opened from Lab or typed in: loading
+`/gridlook/` requires login and sets that cookie. It is only added when the viewer is served
+from `<base>/gridlook/`, and never to another origin or another user's server, to stores named
+inside a JSON index, to icechunk stores, or in live mode (those join paths onto the store URL),
+so on a hub those stores don't load from the user's own server. Plain Jupyter Server doesn't
+need the token for reads, so they load there as before.
 
 ### Stores opened through `/files/` need consolidated metadata
 
@@ -116,8 +119,9 @@ static directory or a page under `/files/`, for three reasons:
 - **one build** — the wheel carries the viewer once, as the server extension's package data;
   the same `/gridlook/` also serves the S3 proxy the app fetches from.
 - **the server extension's own policy** — `extension.py` serves the SPA through
-  `SpaFileHandler`, without login like Lab's own `/static/` (under JupyterHub, the page's
-  CORS-mode module scripts are not cookie-authenticated), under jupyter's ordinary
+  `SpaFileHandler`: the page needs login like any Lab page (and sets the `_xsrf` cookie), its
+  assets don't, like Lab's own `/static/` (under JupyterHub, the page's CORS-mode module
+  scripts are not cookie-authenticated), and all are served under jupyter's ordinary
   content-security policy (`frame-ancestors 'self'`; JupyterHub's default `'none'` is
   relaxed to that so the Lab tab can embed it). A copy under `/files/` would not work: jupyter serves user files
   with `sandbox allow-scripts`, which gives the document an opaque origin, so the app's own

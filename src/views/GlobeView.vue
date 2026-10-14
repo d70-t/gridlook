@@ -15,6 +15,7 @@ import {
   GRID_TYPES,
   type T_GRID_TYPES,
 } from "@/lib/data/gridTypeDetector.ts";
+import { isIcechunkStorePath } from "@/lib/data/icechunkStore.ts";
 import {
   fetchCurrentTimestep,
   liveStoreBaseUrl,
@@ -460,10 +461,13 @@ async function updateSrc(updateId: number) {
     // On JupyterHub, same-origin stores need Jupyter's XSRF token; it is added
     // here, not to `src`, so the hash and the data-path input stay clean.
     // ponytail: only the index URL is tokenized. Same-origin stores named
-    // inside a JSON index, same-origin icechunk, and live mode's endpoint
-    // (joined onto the store URL as a path) don't get it; each would need its
-    // own join to be query-aware.
-    const fetchSrc = withXsrfToken(src, document.cookie, location.href);
+    // inside a JSON index don't get it, and icechunk and live mode are left
+    // untokenized because they join paths onto the store URL, after the query;
+    // each would need its own join to be query-aware.
+    const fetchSrc =
+      isIcechunkStorePath(src) || paramLive.value === "true"
+        ? src
+        : withXsrfToken(src, document.cookie, location.href);
     indexPromises = [indexFromZarr(fetchSrc), indexFromIndex(fetchSrc)];
   }
   const indices = await Promise.allSettled(indexPromises);

@@ -8,30 +8,42 @@
  * because chunk reads run in web workers, which cannot read cookies, and
  * zarrita's FetchStore copies the query onto every key it requests.
  *
- * Without the cookie (any non-Jupyter deployment) or for another origin, the
- * URL is returned unchanged, so the token never leaves the server it came from.
+ * Only a page served by gridlook-jupyter (at `<base_url>gridlook/`) adds it,
+ * and only to URLs under that same Jupyter server: cookies ignore the port, so
+ * a dev server next to a JupyterLab sees Lab's `_xsrf` too, and on a hub
+ * another user's server shares the origin. Without the cookie, or for any
+ * other URL, the URL is returned unchanged.
  */
 export function withXsrfToken(
   url: string,
   cookie: string,
   pageHref: string
 ): string {
+  const page = new URL(pageHref);
+  // ponytail: recognises gridlook-jupyter by its route; a plain deployment
+  // under a `/gridlook/` path on a host that also runs Jupyter would match too.
+  if (!/\/gridlook\/(index\.html)?$/.test(page.pathname)) {
+    return url;
+  }
   const match = /(?:^|;\s*)_xsrf=([^;]+)/.exec(cookie);
   if (!match) {
     return url;
   }
   let parsed: URL;
   try {
-    parsed = new URL(url, pageHref);
+    parsed = new URL(url, page);
   } catch {
     return url;
   }
+  const jupyterBase = new URL("..", page);
   if (
-    parsed.origin !== new URL(pageHref).origin ||
+    parsed.origin !== page.origin ||
+    !parsed.pathname.startsWith(jupyterBase.pathname) ||
     parsed.searchParams.has("_xsrf")
   ) {
     return url;
   }
-  const token = encodeURIComponent(decodeURIComponent(match[1]));
+  // The raw cookie value is the token the server compares against.
+  const token = encodeURIComponent(match[1]);
   return `${url}${url.includes("?") ? "&" : "?"}_xsrf=${token}`;
 }
