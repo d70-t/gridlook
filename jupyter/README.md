@@ -65,6 +65,12 @@ The URL form still works without Lab (Jupyter Server alone, notebook 7, a bookma
 e.g. on a hub: `https://hub.example.org/user/<you>/gridlook/`, optionally with a
 `#<dataset-url>` hash.
 
+On JupyterHub, the hub ignores the session cookie on a script `fetch()` that carries no XSRF
+token, so the viewer adds `?_xsrf=` from Jupyter's `_xsrf` cookie to dataset URLs on the same
+server (`/files/…`, `/gridlook/s3/…`), whether opened from Lab or typed in. It is never added
+to another origin, or to stores named inside a JSON index, icechunk stores, or live mode's
+endpoints.
+
 ### Stores opened through `/files/` need consolidated metadata
 
 `/files/` serves single files and **cannot list a directory**, so the viewer can only
@@ -110,8 +116,10 @@ static directory or a page under `/files/`, for three reasons:
 - **one build** — the wheel carries the viewer once, as the server extension's package data;
   the same `/gridlook/` also serves the S3 proxy the app fetches from.
 - **the server extension's own policy** — `extension.py` serves the SPA through
-  `SpaFileHandler` under jupyter's ordinary content-security policy
-  (`frame-ancestors 'self'`). A copy under `/files/` would not work: jupyter serves user files
+  `SpaFileHandler`, without login like Lab's own `/static/` (under JupyterHub, the page's
+  CORS-mode module scripts are not cookie-authenticated), under jupyter's ordinary
+  content-security policy (`frame-ancestors 'self'`; JupyterHub's default `'none'` is
+  relaxed to that so the Lab tab can embed it). A copy under `/files/` would not work: jupyter serves user files
   with `sandbox allow-scripts`, which gives the document an opaque origin, so the app's own
   module scripts and every same-origin fetch (the `/files/` store, the S3 proxy) fail CORS
   with `Origin: null`, and IndexedDB is denied.

@@ -33,7 +33,7 @@ async def test_static_index_served(jp_fetch, proxy):
 
 
 async def test_spa_csp_has_no_sandbox(jp_fetch, proxy, static_root):
-    # AuthenticatedFileHandler's `sandbox allow-scripts` gives the document an
+    # `sandbox allow-scripts` (jupyter's policy for user files) gives the document an
     # opaque origin (module scripts and same-origin fetches fail CORS); the SPA
     # is served under jupyter's ordinary policy instead.
     (static_root / "app.js").write_text("console.log('gridlook');")
@@ -45,11 +45,45 @@ async def test_spa_csp_has_no_sandbox(jp_fetch, proxy, static_root):
         assert "frame-ancestors" in csp  # the ordinary jupyter policy still applies
 
 
+@pytest.mark.parametrize(
+    "configured, served",
+    [
+        # jupyterhub-singleuser's default would block the Lab tab's iframe
+        ("frame-ancestors 'none'", "frame-ancestors 'self'"),
+        # a policy a hub admin wrote is left alone
+        (
+            "frame-ancestors 'self' https://hub.example.org",
+            "frame-ancestors 'self' https://hub.example.org",
+        ),
+    ],
+)
+async def test_spa_csp_under_hub_headers(
+    jp_fetch, jp_serverapp, proxy, monkeypatch, configured, served
+):
+    headers = jp_serverapp.web_app.settings.setdefault("headers", {})
+    monkeypatch.setitem(headers, "Content-Security-Policy", configured)
+    resp = await jp_fetch("gridlook/")
+    assert resp.headers["Content-Security-Policy"] == served
+
+
 async def test_static_asset_served(jp_fetch, proxy, static_root):
     (static_root / "app.js").write_text("console.log('gridlook');")
     resp = await jp_fetch("gridlook", "app.js")
     assert resp.code == 200
     assert b"console.log" in resp.body
+
+
+async def test_spa_needs_no_login_but_data_routes_do(jp_fetch, proxy, static_root):
+    # Under JupyterHub the page's module scripts (CORS-mode, no XSRF token) are not
+    # cookie-authenticated, so the bundle is served like Lab's own /static/.
+    (static_root / "app.js").write_text("console.log('gridlook');")
+    anonymous = {"Authorization": ""}
+    for path in (("gridlook/",), ("gridlook", "app.js")):
+        resp = await jp_fetch(*path, headers=anonymous)
+        assert resp.code == 200
+    with pytest.raises(HTTPClientError) as e:
+        await jp_fetch("gridlook", "api", "health", headers=anonymous, follow_redirects=False)
+    assert e.value.code in (302, 403)
 
 
 async def test_bare_route_redirects_to_slash(jp_fetch, jp_base_url, proxy):

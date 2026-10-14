@@ -73,6 +73,7 @@ import GlobeControls from "@/ui/overlays/Controls.vue";
 import DistanceScale from "@/ui/overlays/DistanceScale.vue";
 import HoverReadout from "@/ui/overlays/HoverReadout.vue";
 import InfoPanel from "@/ui/overlays/InfoPanel.vue";
+import { withXsrfToken } from "@/utils/xsrfToken.ts";
 
 const props = defineProps<{ src: string }>();
 
@@ -456,7 +457,14 @@ async function updateSrc(updateId: number) {
     // works. If both fail, we log the last error which is from the json-index.
     // This leads to confusing error messages if the zarr source is supposed to
     // work but fails for some reason.
-    indexPromises = [indexFromZarr(src), indexFromIndex(src)];
+    // On JupyterHub, same-origin stores need Jupyter's XSRF token; it is added
+    // here, not to `src`, so the hash and the data-path input stay clean.
+    // ponytail: only the index URL is tokenized. Same-origin stores named
+    // inside a JSON index, same-origin icechunk, and live mode's endpoint
+    // (joined onto the store URL as a path) don't get it; each would need its
+    // own join to be query-aware.
+    const fetchSrc = withXsrfToken(src, document.cookie, location.href);
+    indexPromises = [indexFromZarr(fetchSrc), indexFromIndex(fetchSrc)];
   }
   const indices = await Promise.allSettled(indexPromises);
   let lastError = null;
