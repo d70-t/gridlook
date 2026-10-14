@@ -260,6 +260,15 @@ beforeEach(() => {
   setActivePinia(createPinia());
 });
 
+it("includes the scalar and selected velocity variable in time mismatch errors", async () => {
+  const h = setup();
+  h.state.shiftedTime = true;
+  await expect(planPathlinePreparation(h.options)).rejects.toThrow(
+    "Time-axis mismatch between scalar and u: timestamps differ at index 1."
+  );
+  expect(getGridVariableData).not.toHaveBeenCalled();
+});
+
 it.each(cases)(
   "plans and prepares physical velocity on $name with bounded reads",
 

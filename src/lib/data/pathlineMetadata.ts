@@ -5,6 +5,7 @@ import { timeUnitSeconds } from "./timeHandling.ts";
 export type TPathlineTimeAxis = {
   values: ArrayLike<number | bigint | string>;
   attrs: zarr.Attributes;
+  variable?: string;
 };
 
 function velocityScale(units: unknown) {
@@ -145,16 +146,34 @@ export function pathlineTimes(
     );
   }
   const times: number[] = [];
+  const mismatch = (axis: TPathlineTimeAxis, detail: string) =>
+    new Error(
+      `Time-axis mismatch between ${scalar.variable ?? "scalar"} and ${axis.variable ?? "velocity"}: ${detail}.`
+    );
   for (const axis of [u, v]) {
-    if (
-      !timeUnitSeconds(axis.attrs.units) ||
-      origin(axis) !== origin(scalar) ||
-      calendar(axis.attrs) !== calendar(scalar.attrs) ||
-      axis.values.length !== scalar.values.length
-    ) {
+    if (!timeUnitSeconds(axis.attrs.units)) {
+      throw mismatch(
+        axis,
+        `unsupported velocity time units: ${axis.attrs.units}`
+      );
+    }
+    if (origin(axis) !== origin(scalar)) {
       // ponytail: differing epochs need calendar-aware reconciliation before support.
-      throw new Error(
-        "Scalar and velocity time axes must have matching epochs, calendars and lengths."
+      throw mismatch(
+        axis,
+        `epochs differ (${origin(scalar)} vs ${origin(axis)})`
+      );
+    }
+    if (calendar(axis.attrs) !== calendar(scalar.attrs)) {
+      throw mismatch(
+        axis,
+        `calendars differ (${calendar(scalar.attrs)} vs ${calendar(axis.attrs)})`
+      );
+    }
+    if (axis.values.length !== scalar.values.length) {
+      throw mismatch(
+        axis,
+        `${scalar.values.length} scalar timestamps vs ${axis.values.length} velocity timestamps`
       );
     }
   }
@@ -178,7 +197,7 @@ export function pathlineTimes(
         !Number.isFinite(physical) ||
         Math.abs(physical - value * seconds) > 1e-6
       ) {
-        throw new Error("Scalar and velocity timestamps do not match.");
+        throw mismatch(axis, `timestamps differ at index ${i}`);
       }
     }
     times.push(elapsed);

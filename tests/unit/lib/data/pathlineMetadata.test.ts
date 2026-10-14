@@ -115,6 +115,36 @@ it.each([
 });
 
 it.each([
+  [
+    { ...time, values: [10, 11] },
+    "3 scalar timestamps vs 2 velocity timestamps",
+  ],
+  [
+    { ...time, attrs: { ...time.attrs, calendar: "standard" } },
+    "calendars differ (360_day vs standard)",
+  ],
+  [
+    { ...time, attrs: { ...time.attrs, units: "hours since 2001-01-01" } },
+    "epochs differ (2000-01-01 vs 2001-01-01)",
+  ],
+  [
+    { ...time, attrs: { ...time.attrs, units: "months since 2000-01-01" } },
+    "unsupported velocity time units: months since 2000-01-01",
+  ],
+  [{ ...time, values: [10, 12, 13] }, "timestamps differ at index 1"],
+])(
+  "identifies the offending component and time-axis difference: %j",
+  (other, detail) => {
+    const scalar = { ...time, variable: "six_hourly/egpvi" };
+    const a = { ...time, variable: "six_hourly/uas" };
+    const b = { ...other, variable: "other_group/vas" };
+    expect(() => pathlineTimes(scalar, a, b, 0, 2)).toThrow(
+      `Time-axis mismatch between six_hourly/egpvi and other_group/vas: ${detail}.`
+    );
+  }
+);
+
+it.each([
   [0, 0, 1],
   [0, NaN, 2],
   [2, 1, 0],

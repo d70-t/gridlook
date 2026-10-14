@@ -81,7 +81,7 @@ async function coordinate(
         : value * scale + offset;
     }
   );
-  return { values, attrs };
+  return { values, attrs, variable };
 }
 
 function sameCoordinates(a: TPathlineTimeAxis, b: TPathlineTimeAxis) {
@@ -283,7 +283,11 @@ export async function planPathlinePreparation(options: TOptions) {
   const ut = await coordinate(options, pair.u, options.timeName);
   const vt = await coordinate(options, pair.v, options.timeName);
   const times = pathlineTimes(
-    { values: scalarTime.values!, attrs: scalarTime.attrs! },
+    {
+      values: scalarTime.values!,
+      attrs: scalarTime.attrs!,
+      variable: frame.name,
+    },
     ut,
     vt,
     config.start,
