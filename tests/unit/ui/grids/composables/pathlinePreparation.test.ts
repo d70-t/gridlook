@@ -1,5 +1,5 @@
 import { Grid } from "healpix-geo";
-import { Scene } from "three";
+import { Scene, type ShaderMaterial } from "three";
 import { beforeEach, expect, it, vi } from "vitest";
 import { computed, effectScope } from "vue";
 
@@ -18,14 +18,26 @@ import {
   planPathlineTrajectories,
   type TPathlineConfig,
 } from "@/lib/data/pathlineTrajectories.ts";
+import { formatTimeCoordinate } from "@/lib/data/timeHandling.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { getGridVariableData } from "@/lib/grids/gridDataWorkerClient.ts";
 import { PATHLINE_DISPLAY } from "@/lib/layers/pathlinePreview.ts";
+import { VolumeLayer } from "@/lib/layers/volumeLayer.ts";
 import {
   ProjectionHelper,
   PROJECTION_TYPES,
 } from "@/lib/projection/projectionUtils.ts";
 import { ZARR_FORMAT, type TSources } from "@/lib/types/GlobeTypes.ts";
+import {
+  planVolumeFrame,
+  prepareVolumeFrame,
+} from "@/lib/volume/volumeFrame.ts";
+import {
+  VOLUME_GRID_TYPES,
+  type TVolumeGrid,
+} from "@/lib/volume/volumeGrid.ts";
+import { buildVolumeTexture } from "@/lib/volume/volumeTexture.ts";
+import { buildVolumeTextureInWorker } from "@/lib/volume/volumeTextureWorkerClient.ts";
 import {
   planPathlinePreparation,
   extendPathlineEstimate,
@@ -40,6 +52,9 @@ import {
   type TScalarBakeHandle,
 } from "@/ui/grids/composables/useScalarBake.ts";
 
+vi.mock("@/lib/volume/volumeTextureWorkerClient.ts", () => ({
+  buildVolumeTextureInWorker: vi.fn(),
+}));
 vi.mock("@/lib/grids/gridDataWorkerClient.ts", () => ({
   getGridVariableData: vi.fn(),
 }));
@@ -494,7 +509,7 @@ it.each(
         bake.intermediateFrames = 3;
         await bake.seek(1);
         expect(seekPathline).toHaveBeenLastCalledWith(
-          1800,
+          1125,
           bake.fadeSeconds,
           bake.particleSize,
           PATHLINE_DISPLAY.PREVIEW
@@ -512,10 +527,10 @@ it.each(
           }
         });
         expect(times).toEqual([
-          0, 1800, 3600, 5400, 7200, 9900, 12600, 15300, 18000,
+          0, 1125, 3600, 6075, 7200, 8887.5, 12600, 16312.5, 18000,
         ]);
         expect(seekPathline).toHaveBeenLastCalledWith(
-          1800,
+          1125,
           bake.fadeSeconds,
           bake.particleSize,
           PATHLINE_DISPLAY.PREVIEW
@@ -574,7 +589,7 @@ it.each(
         expect(bake.phase).toBe(SCALAR_BAKE_PHASE.READY);
         bake.refreshPathlines();
         expect(seekPathline).toHaveBeenLastCalledWith(
-          1800,
+          1125,
           123,
           bake.particleSize,
           PATHLINE_DISPLAY.PREVIEW
@@ -763,5 +778,223 @@ it.each(cases)(
     expect(pathlinePositionAt(data, 0, 10)).toBeDefined();
     expect(pathlinePositionAt(data, 0, 11)).toBeUndefined();
     expect(data.times[data.counts[0] - 1]).toBe(10);
+  }
+);
+
+it.each(cases.filter((test) => test.grid.kind !== PATHLINE_GRID.POINTS))(
+  "synchronizes $name magnitude, particles and volumes during playback and export",
+  // eslint-disable-next-line max-lines-per-function
+  async (test) => {
+    if (test.name === "rotated regular") {
+      test = {
+        ...test,
+        grid: {
+          ...test.grid,
+          x: new Float32Array([-10, 10]),
+          y: new Float32Array([-10, 10]),
+        } as TPathlineGrid,
+      };
+    }
+    const h = setup(test);
+    const metadata = vi
+      .mocked(ZarrDataManager.getVariableInfo)
+      .getMockImplementation()!;
+    vi.mocked(ZarrDataManager.getVariableInfo).mockImplementation(
+      async (...args) => {
+        const array = await metadata(...args);
+        return {
+          ...array,
+          dtype: "float32",
+          chunks: array.shape.map((size) => size),
+        } as unknown as typeof array;
+      }
+    );
+    const grid = test.grid;
+    const volumeGrid: TVolumeGrid =
+      grid.kind === PATHLINE_GRID.HEALPIX
+        ? {
+            kind: VOLUME_GRID_TYPES.HEALPIX,
+            nside: grid.grid.nside,
+            options: { level: grid.grid.level, scheme: grid.grid.scheme },
+          }
+        : grid.kind === PATHLINE_GRID.PROJECTED
+          ? {
+              ...grid,
+              x: Float32Array.from(grid.x),
+              y: Float32Array.from(grid.y),
+              kind: VOLUME_GRID_TYPES.PROJECTED,
+            }
+          : {
+              kind: VOLUME_GRID_TYPES.REGULAR,
+              latitudes: Float32Array.from((grid as typeof regular).y),
+              longitudes: Float32Array.from((grid as typeof regular).x),
+            };
+    const read = vi.mocked(getGridVariableData).getMockImplementation()!;
+    vi.mocked(getGridVariableData).mockImplementation(async (request) => {
+      if (request.variable === "pressure") {
+        return new Float32Array([1000, 850]);
+      }
+      if (request.selection[1] === null) {
+        return new Float32Array(test.shape.reduce((a, b) => a * b, 2)).fill(
+          Number(request.selection[0]) + 1
+        );
+      }
+      return read(request);
+    });
+    vi.mocked(buildVolumeTextureInWorker)
+      .mockReset()
+      .mockImplementation(async (request) => {
+        using hpGrid =
+          request.grid.kind === VOLUME_GRID_TYPES.HEALPIX
+            ? new Grid(request.grid.options)
+            : undefined;
+        return {
+          ...buildVolumeTexture(request, undefined, hpGrid),
+          type: "result",
+          requestId: 0,
+        };
+      });
+    const store = useGlobeControlStore();
+    store.varnameSelector = "scalar";
+    store.varinfo = h.frame.info;
+    store.dimSlidersValues = [0, 0, ...test.spatial.map(() => null)];
+    store.streamlineLevelIndex = 1;
+    store.setStreamlineLayerEnabled(true);
+    store.streamlineMagnitudeRequested = true;
+    store.setVolumeSelections([
+      { variable: "u", color: "#ffffff", opacity: 1 },
+    ]);
+    store.setVolumeLayerEnabled(true);
+    store.volumeAvailable = true;
+    const scene = new Scene(),
+      scope = effectScope();
+    const volume = new VolumeLayer();
+    scene.add(volume.object);
+    const display = scope.run(() =>
+      usePathlineLayer({
+        getScene: () => scene,
+        getRenderer: () => undefined,
+        redraw: vi.fn(),
+        projectionHelper: computed(
+          () =>
+            new ProjectionHelper(PROJECTION_TYPES.NEARSIDE_PERSPECTIVE, {
+              lat: 0,
+              lon: 0,
+            })
+        ),
+      })
+    )!;
+    const particles = vi.spyOn(display, "seek");
+    const commit = vi.fn<TScalarBakeHandle["commitScalarFrame"]>(
+      async (_, __, presentation) => {
+        volume.setInterpolation(
+          presentation!.sequence,
+          presentation!.first,
+          presentation!.next,
+          presentation!.alpha
+        );
+        return true;
+      }
+    );
+    const handle: TScalarBakeHandle = {
+      pathlineDisplay: display,
+      commitScalarFrame: commit,
+      getScalarFrameLayout: async () => ({
+        shape: h.shape,
+        chunks: [1, 1, ...test.shape],
+        bytesPerValue: 4,
+      }),
+      prepareScalarFrame: async (input) => {
+        const time = input!.dimensionIndices!.time;
+        const prepared = input?.prepareVolume
+          ? await prepareVolumeFrame(
+              await planVolumeFrame(
+                sources,
+                ["u"],
+                {
+                  grid: volumeGrid,
+                  dimensionNames: ["time", "pressure", ...test.spatial],
+                  indices: [time, 0, ...test.spatial.map(() => null)],
+                },
+                8,
+                { interpolatable: true }
+              ),
+              { signal: input.signal, isCurrent: input.isCurrent }
+            )
+          : undefined;
+        const data = input?.magnitude?.data ?? h.frame.data;
+        return {
+          ...h.frame,
+          volume: prepared,
+          data,
+          memory: scalarFrameMemory(
+            [data, prepared?.data],
+            prepared?.plan.context.grid
+          ),
+          info: {
+            ...h.frame.info,
+            bounds: {
+              low: input?.magnitude?.min ?? 0,
+              high: input?.magnitude?.max ?? 1,
+            },
+          },
+          interpolation: {
+            values: [data as Float32Array],
+            geometry: [],
+            sample: () => null,
+          },
+        };
+      },
+    };
+    const bake = scope.run(() =>
+      useScalarBake(
+        () => handle,
+        () => sources
+      )
+    )!;
+    try {
+      await bake.plan({ start: 0, end: 2, pathlines: pathlineConfig });
+      expect(bake.message).toBe("");
+      expect(bake.phase).toBe(SCALAR_BAKE_PHASE.PLANNED);
+      expect(buildVolumeTextureInWorker).toHaveBeenCalledOnce();
+      await bake.bake();
+      expect(bake.message).toBe("");
+      expect(bake.phase).toBe(SCALAR_BAKE_PHASE.READY);
+      expect(buildVolumeTextureInWorker).toHaveBeenCalledTimes(3);
+      expect(bake.hasVolumes && bake.hasPathlines).toBe(true);
+      expect(bake.estimate!.volumeBytes).toBeGreaterThan(0);
+      expect(bake.estimate!.trajectoryBytes).toBeGreaterThan(0);
+      bake.interpolationMode = SCALAR_INTERPOLATION.SMOOTHSTEP;
+      bake.intermediateFrames = 3;
+      await bake.seek(1);
+      expect(commit.mock.lastCall![1]!.alpha).toBe(0.15625);
+      expect(
+        (volume.object.material as ShaderMaterial).uniforms.volumeAlpha.value
+      ).toBe(0.15625);
+      expect(particles.mock.lastCall![0]).toBe(1125);
+      expect(commit.mock.lastCall![1]!.label).toBe("01 Jan 2000 • 00:18:45");
+      const reads = vi.mocked(getGridVariableData).mock.calls.length;
+      await bake.withPreparedFrames(async (session) => {
+        for (let index = 0; index < session.frameCount; index++) {
+          await session.seek(index);
+          const presentation = commit.mock.lastCall![2]!;
+          expect(presentation.alpha).toBe(commit.mock.lastCall![1]!.alpha);
+          const times = [0, 7200, 18000];
+          const seconds =
+            times[presentation.first] * (1 - presentation.alpha) +
+            times[presentation.next] * presentation.alpha;
+          expect(particles.mock.lastCall![0]).toBe(seconds);
+          expect(commit.mock.lastCall![1]!.label).toBe(
+            formatTimeCoordinate(seconds / 3600, h.frame.info.dimInfo[0]!.attrs)
+          );
+          expect(particles.mock.lastCall![3]).toBe(PATHLINE_DISPLAY.TRAJECTORY);
+        }
+      });
+      expect(particles.mock.lastCall![3]).toBe(PATHLINE_DISPLAY.PREVIEW);
+      expect(getGridVariableData).toHaveBeenCalledTimes(reads);
+    } finally {
+      scope.stop();
+      volume.dispose();
+    }
   }
 );

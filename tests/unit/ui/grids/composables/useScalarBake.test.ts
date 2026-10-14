@@ -452,7 +452,7 @@ it("keeps 30 fps deadlines across late display callbacks and avoids catch-up bur
   }
 });
 
-it("eases scalar values without easing timestamps or rebaking", async () => {
+it("eases scalar values and timestamps together without rebaking", async () => {
   const h = setup();
   try {
     await h.bake.plan(config);
@@ -466,7 +466,7 @@ it("eases scalar values without easing timestamps or rebaking", async () => {
       vi.mocked(h.handle.value!.commitScalarFrame).mock.lastCall![1]
     ).toMatchObject({
       alpha: 5 / 32,
-      label: "01 Jan 2000 • 12:00:00",
+      label: "01 Jan 2000 • 07:30:00",
     });
     h.bake.interpolationMode = SCALAR_INTERPOLATION.LINEAR;
     await h.bake.seek(1);

@@ -987,7 +987,8 @@ export function useScalarBake(
         );
         if (velocity) {
           displayedSeconds =
-            velocity.times[first] * (1 - alpha) + velocity.times[next] * alpha;
+            velocity.times[first] * (1 - weight) +
+            velocity.times[next] * weight;
         }
         store.scalarAnimationBounds ??= { ...store.selection };
         committed =
@@ -998,7 +999,7 @@ export function useScalarBake(
               next: frames[next],
               alpha: weight,
               timeIndex: time.value!.index,
-              label: timeline.label(first, alpha),
+              label: timeline.label(first, weight),
             },
             volumePresentation(first, next, weight)
           ));
