@@ -68,11 +68,11 @@ e.g. on a hub: `https://hub.example.org/user/<you>/gridlook/`, optionally with a
 On JupyterHub, the hub ignores the session cookie on a script `fetch()` that carries no XSRF
 token, so the viewer adds `?_xsrf=` from Jupyter's `_xsrf` cookie to dataset URLs on its own
 Jupyter server (`/files/…`, `/gridlook/s3/…`), whether opened from Lab or typed in: loading
-`/gridlook/` requires login and sets that cookie. It is only added when the viewer is served
-from `<base>/gridlook/`, and never to another origin or another user's server, to stores named
-inside a JSON index, to icechunk stores, or in live mode (those join paths onto the store URL),
-so on a hub those stores don't load from the user's own server. Plain Jupyter Server doesn't
-need the token for reads, so they load there as before.
+`/gridlook/` requires login and sets that cookie. That covers zarr and icechunk stores, the
+stores a JSON index names, and live mode's timestep endpoints; icechunk gets it as an
+`X-XSRFToken` header on the repo's own requests (virtual chunks don't get it). It is only added
+when the viewer is served from `<base>/gridlook/`, and never to another origin or another
+user's server.
 
 ### Stores opened through `/files/` need consolidated metadata
 

@@ -15,7 +15,7 @@ import {
   GRID_TYPES,
   type T_GRID_TYPES,
 } from "@/lib/data/gridTypeDetector.ts";
-import { isIcechunkStorePath } from "@/lib/data/icechunkStore.ts";
+import { withStoreXsrfToken } from "@/lib/data/icechunkStore.ts";
 import {
   fetchCurrentTimestep,
   liveStoreBaseUrl,
@@ -74,7 +74,6 @@ import GlobeControls from "@/ui/overlays/Controls.vue";
 import DistanceScale from "@/ui/overlays/DistanceScale.vue";
 import HoverReadout from "@/ui/overlays/HoverReadout.vue";
 import InfoPanel from "@/ui/overlays/InfoPanel.vue";
-import { withXsrfToken } from "@/utils/xsrfToken.ts";
 
 const props = defineProps<{ src: string }>();
 
@@ -458,17 +457,16 @@ async function updateSrc(updateId: number) {
     // works. If both fail, we log the last error which is from the json-index.
     // This leads to confusing error messages if the zarr source is supposed to
     // work but fails for some reason.
-    // On JupyterHub, same-origin stores need Jupyter's XSRF token; it is added
-    // here, not to `src`, so the hash and the data-path input stay clean.
-    // ponytail: only the index URL is tokenized. Same-origin stores named
-    // inside a JSON index don't get it, and icechunk and live mode are left
-    // untokenized because they join paths onto the store URL, after the query;
-    // each would need its own join to be query-aware.
-    const fetchSrc =
-      isIcechunkStorePath(src) || paramLive.value === "true"
-        ? src
-        : withXsrfToken(src, document.cookie, location.href);
-    indexPromises = [indexFromZarr(fetchSrc), indexFromIndex(fetchSrc)];
+    // On JupyterHub, stores on the user's own server need Jupyter's XSRF
+    // token; it is added here, not to `src`, so the hash and the data-path
+    // input stay clean. Stores named inside a JSON index get it the same way.
+    const tokenize = (store: string) =>
+      withStoreXsrfToken(store, document.cookie, location.href);
+    const fetchSrc = tokenize(src);
+    indexPromises = [
+      indexFromZarr(fetchSrc),
+      indexFromIndex(fetchSrc, tokenize),
+    ];
   }
   const indices = await Promise.allSettled(indexPromises);
   let lastError = null;

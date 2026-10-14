@@ -47,3 +47,24 @@ export function withXsrfToken(
   const token = encodeURIComponent(match[1]);
   return `${url}${url.includes("?") ? "&" : "?"}_xsrf=${token}`;
 }
+
+/**
+ * Splits off the trailing `_xsrf` parameter `withXsrfToken` adds, for clients
+ * that build request URLs by joining paths onto the store URL (icechunk-js).
+ * The token comes back still percent-encoded.
+ */
+export function splitXsrfToken(url: string): { url: string; token?: string } {
+  const match = /[?&]_xsrf=([^&#]*)$/.exec(url);
+  return match ? { url: url.slice(0, match.index), token: match[1] } : { url };
+}
+
+/**
+ * `<url>/<path>` with the path placed before the URL's query, so a token
+ * `withXsrfToken` added stays a query parameter: `a?_xsrf=T` → `a/b?_xsrf=T`.
+ */
+export function joinUrlPath(url: string, path: string): string {
+  const queryStart = url.indexOf("?");
+  const base = queryStart === -1 ? url : url.slice(0, queryStart);
+  const query = queryStart === -1 ? "" : url.slice(queryStart);
+  return `${base.replace(/\/+$/, "")}/${path}${query}`;
+}

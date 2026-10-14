@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { withXsrfToken } from "@/utils/xsrfToken.ts";
+import {
+  joinUrlPath,
+  splitXsrfToken,
+  withXsrfToken,
+} from "@/utils/xsrfToken.ts";
 
 const PAGE = "https://hub.example.org/user/x/gridlook/";
 const COOKIE = "other=1; _xsrf=2|ab:c=; more=2";
@@ -58,5 +62,31 @@ describe("withXsrfToken", () => {
     expect(withXsrfToken("/user/x/files/s.zarr", "_xsrf=%E0%A4%A", PAGE)).toBe(
       "/user/x/files/s.zarr?_xsrf=%25E0%25A4%25A"
     );
+  });
+});
+
+describe("token-aware URL helpers", () => {
+  it("joins paths in front of the query", () => {
+    expect(joinUrlPath("https://h/u/s.zarr?_xsrf=T", "current-timestep")).toBe(
+      "https://h/u/s.zarr/current-timestep?_xsrf=T"
+    );
+    expect(joinUrlPath("u/s.zarr/?_xsrf=T", "grp")).toBe(
+      "u/s.zarr/grp?_xsrf=T"
+    );
+    expect(joinUrlPath("https://h/s.zarr/", "")).toBe("https://h/s.zarr/");
+  });
+
+  it("splits only a trailing _xsrf parameter, still encoded", () => {
+    expect(splitXsrfToken(`/u/r.icechunk?_xsrf=${TOKEN}`)).toEqual({
+      url: "/u/r.icechunk",
+      token: TOKEN,
+    });
+    expect(splitXsrfToken(`/u/r.icechunk?v=1&_xsrf=${TOKEN}`)).toEqual({
+      url: "/u/r.icechunk?v=1",
+      token: TOKEN,
+    });
+    expect(splitXsrfToken("/u/r.icechunk?v=1")).toEqual({
+      url: "/u/r.icechunk?v=1",
+    });
   });
 });

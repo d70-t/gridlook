@@ -1,5 +1,7 @@
-import { IcechunkStore } from "icechunk-js";
+import { HttpStorage, IcechunkStore } from "icechunk-js";
 import * as zarr from "zarrita";
+
+import { splitXsrfToken, withXsrfToken } from "@/utils/xsrfToken.ts";
 
 const ICECHUNK_PREFIX = "icechunk+";
 
@@ -36,10 +38,36 @@ export function isIcechunkStorePath(storePath: string) {
   return normalizeStorePath(storePath.split(/[?#]/)[0]).endsWith(".icechunk");
 }
 
+/**
+ * `withXsrfToken` for a store path, including the `icechunk+<url>` form, whose
+ * scheme would otherwise hide the URL's origin.
+ */
+export function withStoreXsrfToken(
+  storePath: string,
+  cookie: string,
+  pageHref: string
+): string {
+  const { backend, url } = parseStorePath(storePath);
+  return backend === "icechunk"
+    ? `${ICECHUNK_PREFIX}${withXsrfToken(url, cookie, pageHref)}`
+    : withXsrfToken(storePath, cookie, pageHref);
+}
+
 export async function createIcechunkStore(
   storePath: string
 ): Promise<TIcechunkStore> {
-  return await IcechunkStore.open(parseStorePath(storePath).url);
+  // icechunk-js joins paths onto the repo URL, so a Jupyter `_xsrf` token
+  // can't stay in its query; it goes in a header instead. Virtual chunks are
+  // fetched separately and don't get it.
+  const { url, token } = splitXsrfToken(parseStorePath(storePath).url);
+  return await IcechunkStore.open(
+    new HttpStorage(
+      url,
+      token
+        ? { headers: { "X-XSRFToken": decodeURIComponent(token) } }
+        : undefined
+    )
+  );
 }
 
 export async function createListableIcechunkStore(storePath: string) {
@@ -57,7 +85,15 @@ export async function splitIcechunkStoreAndGroup(
   const rawUrl = src.startsWith(ICECHUNK_PREFIX)
     ? src.slice(ICECHUNK_PREFIX.length)
     : src;
-  const normalizedUrl = normalizeStorePath(rawUrl);
+  // Each parent is probed for a repo root, so a Jupyter `_xsrf` token is taken
+  // off first and put back on every candidate; on a hub, a probe without it is
+  // bounced into the OAuth flow.
+  const { url, token } = splitXsrfToken(rawUrl);
+  const withToken = (candidate: string) =>
+    token
+      ? `${candidate}${candidate.includes("?") ? "&" : "?"}_xsrf=${token}`
+      : candidate;
+  const normalizedUrl = normalizeStorePath(url);
   const urlParts = normalizedUrl.split("/");
   let minSegments = urlParts.length;
 
@@ -68,7 +104,7 @@ export async function splitIcechunkStoreAndGroup(
   for (let i = urlParts.length; i >= minSegments; i--) {
     const storeUrl = urlParts.slice(0, i).join("/");
     const groupPath = urlParts.slice(i).join("/");
-    const storePath = toIcechunkStorePath(storeUrl);
+    const storePath = toIcechunkStorePath(withToken(storeUrl));
     try {
       await createIcechunkStore(storePath);
       return { storePath, groupPath };
@@ -78,7 +114,7 @@ export async function splitIcechunkStoreAndGroup(
   }
 
   return {
-    storePath: toIcechunkStorePath(normalizedUrl),
+    storePath: toIcechunkStorePath(withToken(normalizedUrl)),
     groupPath: "",
   };
 }
