@@ -4,17 +4,22 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
 import type { TVolumeSource } from "@/lib/volume/volumeData.ts";
 import { VOLUME_GRID_TYPES } from "@/lib/volume/volumeGrid.ts";
+import { createVolumeInterpolation } from "@/lib/volume/volumeInterpolation.ts";
 import type { TVolumeTextureBuildResult } from "@/lib/volume/volumeTexture.ts";
 
-const { inspect, load, build, setData, logError } = vi.hoisted(() => ({
-  inspect: vi.fn(),
-  load: vi.fn(),
-  build: vi.fn(),
-  setData: vi.fn(),
-  logError: vi.fn(),
-}));
-vi.mock("@/lib/volume/volumeData.ts", () => ({
+const { inspect, load, build, setData, setInterpolation, logError } =
+  vi.hoisted(() => ({
+    inspect: vi.fn(),
+    load: vi.fn(),
+    build: vi.fn(),
+    setData: vi.fn(),
+    setInterpolation: vi.fn(),
+    logError: vi.fn(),
+  }));
+vi.mock("@/lib/volume/volumeData.ts", async (original) => ({
+  ...(await original<typeof import("@/lib/volume/volumeData.ts")>()),
   inspectVolumeSources: inspect,
+  inspectVolumeCoordinates: vi.fn(async () => ({ heights: [] })),
   loadVolumeData: load,
 }));
 vi.mock("@/lib/volume/volumeTextureWorkerClient.ts", () => ({
@@ -26,15 +31,18 @@ vi.mock("vue", async (importOriginal) => ({
   ...(await importOriginal<typeof import("vue")>()),
   onMounted: vi.fn(),
 }));
-vi.mock("@/lib/layers/volumeLayer.ts", async () => {
+vi.mock("@/lib/layers/volumeLayer.ts", async (original) => {
   const { Object3D } = await import("three");
   return {
+    ...(await original<typeof import("@/lib/layers/volumeLayer.ts")>()),
     getMax3DTextureSize: () => 4,
     VolumeLayer: class {
       object = new Object3D();
       setData = setData;
+      setInterpolation = setInterpolation;
       setAppearance = vi.fn();
       setOpacity = vi.fn();
+      setQuality = vi.fn();
       setProjection = vi.fn();
       setRenderOrder = vi.fn();
       dispose = vi.fn();
@@ -56,6 +64,7 @@ const scopes: ReturnType<typeof effectScope>[] = [];
 const projectionChanges: (() => void)[] = [];
 const source = {
   name: "water",
+  variable: { attrs: {} },
   selection: [0, null, null],
   sourceLevelCount: 2,
   sourceCellCount: 1,
@@ -228,14 +237,14 @@ it("keeps appearance changes made while the worker is building", async () => {
   const pending = deferred<TVolumeTextureBuildResult>();
   build.mockReturnValueOnce(pending.promise);
   const volume = setupVolume();
-  volume.setContext(context);
+  const loading = volume.setContext(context);
   await vi.waitFor(() => expect(build).toHaveBeenCalledOnce());
   useGlobeControlStore().setVolumeSelections([
     { variable: "water", color: "#abcdef", opacity: 0.5 },
   ]);
   await nextTick();
   pending.resolve(result);
-  await pending.promise;
+  await loading;
 
   expect(setData.mock.calls[0].slice(4, 6)).toEqual([["#abcdef"], [0.5]]);
 });
@@ -268,4 +277,105 @@ it("loads regular volumes in a flat projection and reuses them when switching vi
   await nextTick();
   expect(load).toHaveBeenCalledOnce();
   expect(build).toHaveBeenCalledOnce();
+});
+
+it("awaits live volume readiness and prepares other timesteps without changing the scene", async () => {
+  const pending = deferred<TVolumeTextureBuildResult>();
+  build.mockReturnValueOnce(pending.promise);
+  const volume = setupVolume();
+  let ready = false;
+  const loading = volume.setContext(context).then(() => (ready = true));
+  await vi.waitFor(() => expect(build).toHaveBeenCalledOnce());
+  expect(ready).toBe(false);
+  pending.resolve(result);
+  await loading;
+  expect(ready).toBe(true);
+  inspect.mockResolvedValueOnce([{ ...source, selection: [1, null, null] }]);
+  const frame = await volume.prepareFrame({
+    ...context,
+    indices: [1, null, null],
+  });
+  expect(setData).toHaveBeenCalledOnce();
+  expect(frame.plan.context.indices[0]).toBe(1);
+  const reads = load.mock.calls.length;
+  await volume.setContext(frame.plan.context, frame);
+  expect(setData).toHaveBeenCalledTimes(2);
+  expect(load).toHaveBeenCalledTimes(reads);
+  expect(build).toHaveBeenCalledTimes(2);
+});
+
+it("discards cancelled preparation and accepts a fresh job without keeping its data", async () => {
+  const pending = deferred<TVolumeTextureBuildResult>();
+  build.mockReturnValueOnce(pending.promise);
+  const volume = setupVolume();
+  const controller = new AbortController();
+  const preparing = volume.prepareFrame(context, { signal: controller.signal });
+  await vi.waitFor(() => expect(build).toHaveBeenCalledOnce());
+  controller.abort();
+  pending.resolve(result);
+  await expect(preparing).rejects.toMatchObject({ name: "AbortError" });
+  expect(setData).not.toHaveBeenCalled();
+  const frame = await volume.prepareFrame(context);
+  expect(volume.commitFrame(frame)).toBe(true);
+  expect(setData).toHaveBeenCalledOnce();
+  scopes[0].stop();
+  expect(volume.commitFrame(frame)).toBe(false);
+});
+
+it("propagates preparation failures and rejects frames after changing variables", async () => {
+  const volume = setupVolume();
+  build.mockRejectedValueOnce(new Error("Build failed"));
+  await expect(volume.prepareFrame(context)).rejects.toThrow("Build failed");
+  expect(setData).not.toHaveBeenCalled();
+  const frame = await volume.prepareFrame(context);
+  useGlobeControlStore().setVolumeSelections([
+    { variable: "ice", color: "#ffffff", opacity: 1 },
+  ]);
+  expect(volume.commitFrame(frame)).toBe(false);
+  expect(setData).not.toHaveBeenCalled();
+});
+
+it("stops live volume work when its scalar frame is superseded", async () => {
+  const pending = deferred<{ values: Float32Array[] }>();
+  load.mockReturnValueOnce(pending.promise);
+  const volume = setupVolume();
+  let current = true;
+  const loading = volume.setContext(context, undefined, () => current);
+  await vi.waitFor(() => expect(load).toHaveBeenCalledOnce());
+  current = false;
+  pending.resolve({ values: [new Float32Array([1, 2])] });
+  await loading;
+  expect(build).not.toHaveBeenCalled();
+  expect(setData).not.toHaveBeenCalled();
+  expect(logError).not.toHaveBeenCalled();
+});
+
+it("commits interpolation without reads and rejects cancelled or disposed endpoints", async () => {
+  build.mockResolvedValue({
+    ...result,
+    data: new Uint16Array(16),
+    physical: { scales: [2], vertical: "level", range: { min: 0, max: 1 } },
+  });
+  const volume = setupVolume();
+  const controller = new AbortController();
+  const first = await volume.prepareFrame(context);
+  const next = await volume.prepareFrame(context, {
+    signal: controller.signal,
+  });
+  expect(build.mock.calls[0][0].interpolatable).toBe(true);
+  expect(setInterpolation).not.toHaveBeenCalled();
+  const sequence = createVolumeInterpolation([first, next]);
+  const reads = load.mock.calls.length;
+  for (const alpha of [0, 0.25, 0.5, 1]) {
+    expect(volume.commitInterpolation(sequence, 0, 1, alpha)).toBe(true);
+  }
+  expect(load).toHaveBeenCalledTimes(reads);
+  expect(setInterpolation).toHaveBeenCalledTimes(4);
+  controller.abort();
+  expect(volume.commitInterpolation(sequence, 0, 1, 0.5)).toBe(false);
+  expect(volume.commitFrame(first)).toBe(true);
+  expect(setInterpolation).toHaveBeenCalledTimes(5);
+  scopes[0].stop();
+  expect(volume.commitInterpolation(sequence, 0, 0, 0)).toBe(false);
+  expect(setInterpolation).toHaveBeenCalledTimes(5);
 });

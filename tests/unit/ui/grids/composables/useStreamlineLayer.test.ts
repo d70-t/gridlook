@@ -211,3 +211,26 @@ it.each([false, true])(
     }
   }
 );
+
+it("cancels a pending static streamline layer and pauses it while pathlines own playback", async () => {
+  const { store, scope, scene, layer } = setupLayer();
+  let finish!: (value: unknown) => void;
+  const field = {} as TStreamlineVectorField;
+  const pair = { u: "u", v: "v", kind: "u/v" } as const;
+  create.mockReturnValue(
+    new Promise((resolve) => {
+      finish = resolve;
+    })
+  );
+  const pending = layer.setField(field, pair, () => true);
+  store.pathlineAnimationActive = true;
+  expect(create.mock.calls[0][2]()).toBe(true);
+  const dispose = vi.fn();
+  finish({ object: new Object3D(), dispose });
+  expect(await pending).toBe(false);
+  expect(dispose).toHaveBeenCalledOnce();
+  expect(scene.children).toEqual([]);
+  expect(await layer.prepareField(() => true)).toBe(false);
+  expect(await layer.setField(field, pair, () => true)).toBe(false);
+  scope.stop();
+});

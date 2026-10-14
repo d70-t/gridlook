@@ -98,11 +98,17 @@ export type TSnapshotBackground =
   (typeof SnapshotBackgrounds)[keyof typeof SnapshotBackgrounds];
 export type TSnapshotResolutionScale = 1 | 2 | 4;
 
+export const SnapshotOverlayPositions = {
+  BOTTOM: "bottom",
+  LEFT: "left",
+} as const;
+
 export type TSnapshotOptions = {
   background: TSnapshotBackground;
   resolutionScale: TSnapshotResolutionScale;
   showDatasetInfo: boolean;
   showColormap: boolean;
+  overlayPosition?: (typeof SnapshotOverlayPositions)[keyof typeof SnapshotOverlayPositions];
 };
 
 export const DEFAULT_SNAPSHOT_OPTIONS: TSnapshotOptions = {

@@ -108,6 +108,47 @@ included in shared URLs: automatically detected components only add
 `streamlines=true`, while manually selected components also add `streamlineu`
 and `streamlinev`.
 
+## Animation
+
+On desktop, use **Animation** to prepare a time range for interactive playback
+or video export. Enable the desired layers first, select the start and end
+indices, then choose **Estimate preparation**. This loads one timestep to
+estimate preparation time and memory. Choose **Prepare** to load the remaining
+keyframes. Memory estimates are advisory; the editable reference is under
+**Memory and estimate details**.
+
+After preparation, colormap bounds switch to **Animation**, using the minimum
+and maximum across the prepared range. You can choose Data or custom bounds
+under Appearance → Colormap afterwards.
+
+Once prepared, choose original timesteps, linear interpolation, or cubic
+Smoothstep, then set intermediate frames and FPS. All animated layers and the
+displayed timestamp use the same interpolation timing. Smoothstep slows at each
+keyframe; unequal source-time gaps produce different simulated speeds because
+each interval has the same number of frames. Only original scalar and volume
+keyframes are retained. Interpolation and appearance changes do not require
+preparing again. **Release animation** frees the prepared sequence and lets you
+choose another range.
+
+Enabled streamlines become particles following time-dependent horizontal flow
+at the selected level. Particle count is set before preparation; worker count
+and accuracy controls are under **Integration settings**. **Particle appearance**
+controls size, opacity, fading and preview quality afterwards. Fast preview
+approximates motion between keyframes; video export uses the full trajectories.
+
+Volumes participate on their supported grids, including HEALPix, regular and
+projected curvilinear grids. Their normalization stays fixed across the selected
+range; preview uses fewer ray samples than export. Particles currently render on
+the globe surface, while volumes use an exaggerated shell. Physical vertical
+alignment and adjustable vertical scale are not yet supported.
+
+Expand **Video export** to save H.264/MP4 or lossless FFV1/MKV, using the current
+view and optional globe rotation. Labels and the colormap can be included on
+the left. Dataset labels include the grid variable, enabled volume variables
+and the particle velocity components. The encoded video stays in browser memory
+until download; lossless files can be large. Layer order is not currently
+preserved in shared URLs.
+
 ## Notes
 
 - Presenter mode is only available on desktop

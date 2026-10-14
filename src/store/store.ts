@@ -222,6 +222,11 @@ export const useGlobeControlStore = defineStore("globeControl", {
       userBoundsHigh: undefined as number | undefined,
       dimSlidersValues: [] as (number | null)[],
       dimSlidersDisplay: [] as (number | null)[],
+      scalarAnimationTime: undefined as
+        { index: number; label: string } | undefined,
+      pathlineAnimationActive: false,
+      animationInputRevision: 0,
+      scalarAnimationBounds: undefined as TBounds | undefined,
       isInitializingVariable: false,
       controlPanelVisible: true,
       datasetTitle: "" as string,

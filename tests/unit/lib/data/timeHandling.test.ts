@@ -4,6 +4,7 @@ import { it } from "vitest";
 
 import {
   decodeTime,
+  formatTimeCoordinate,
   findTimeIndex,
   isTimeCoordinate,
 } from "@/lib/data/timeHandling.ts";
@@ -194,5 +195,47 @@ it("preserves nanosecond floor comparisons and millisecond display precision", (
   assert.equal(
     decodeTime(900000, attrs).toISOString(),
     "2000-01-01T00:00:00.000Z"
+  );
+});
+
+it("formats standard dates and fractional source times without redundant milliseconds", () => {
+  const attrs = { units: "seconds since 2000-02-28 00:00:00" };
+  assert.equal(formatTimeCoordinate(86400, attrs), "29 Feb 2000 • 00:00:00");
+  assert.equal(
+    formatTimeCoordinate(0.125, attrs),
+    "28 Feb 2000 • 00:00:00.125"
+  );
+  assert.equal(formatTimeCoordinate(-1, attrs), "27 Feb 2000 • 23:59:59");
+});
+
+it("formats fixed-length model calendars across month/year boundaries", () => {
+  const cases = [
+    ["360_day", 59.5, "30 Feb 2000 • 12:00:00 (360_day)"],
+    ["360_day", 360, "01 Jan 2001 • 00:00:00 (360_day)"],
+    ["360_day", -0.5, "30 Dec 1999 • 12:00:00 (360_day)"],
+    ["noleap", 59, "01 Mar 2000 • 00:00:00 (noleap)"],
+    ["365_day", 365, "01 Jan 2001 • 00:00:00 (365_day)"],
+    ["all_leap", 366 + 59, "29 Feb 2001 • 00:00:00 (all_leap)"],
+    ["366_day", 366, "01 Jan 2001 • 00:00:00 (366_day)"],
+  ] as const;
+  for (const [calendar, value, expected] of cases) {
+    assert.equal(
+      formatTimeCoordinate(value, { units: "days since 2000-01-01", calendar }),
+      expected
+    );
+  }
+  assert.equal(
+    formatTimeCoordinate(1.5, {
+      units: "days since 2001-02-30 12:00:00",
+      calendar: "360_day",
+    }),
+    "02 Mar 2001 • 00:00:00 (360_day)"
+  );
+  assert.equal(
+    formatTimeCoordinate(1, {
+      units: "days since 2000-01-01",
+      calendar: "custom",
+    }),
+    "1 days since 2000-01-01 (custom)"
   );
 });

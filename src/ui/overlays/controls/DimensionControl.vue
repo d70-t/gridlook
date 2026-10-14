@@ -247,6 +247,9 @@ function onDatetimeIndexUpdate(dimensionIndex: number, index: number) {
 }
 
 function formatCurrentValue(index: number) {
+  if (store.scalarAnimationTime?.index === index) {
+    return store.scalarAnimationTime.label;
+  }
   const dimInfo = varinfo.value?.dimInfo[index];
   if (!dimInfo || !("current" in dimInfo)) {
     return "-";

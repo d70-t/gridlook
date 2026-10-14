@@ -88,6 +88,13 @@ function millisecondsPerUnit(interval: string): number | undefined {
   }
 }
 
+/** Physical duration of a numeric CF time unit; months/years are unsupported. */
+export function timeUnitSeconds(units: unknown) {
+  const match = typeof units === "string" ? units.match(unitsRegEx) : null;
+  const milliseconds = match ? millisecondsPerUnit(match[1]) : undefined;
+  return milliseconds === undefined ? undefined : milliseconds / 1000;
+}
+
 /**
  * Converts a bigint or number to a number, handling BigInt64Array values.
  */
@@ -224,4 +231,101 @@ export function decodeTime(
     return dayjs.utc(ref.valueOf() + offset);
   }
   return ref.add(numericValue, interval as dayjs.ManipulateType);
+}
+
+const MODEL_CALENDAR_MONTHS: Record<string, readonly number[]> = {
+  "360_day": Array(12).fill(30),
+  "365_day": [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31],
+  "366_day": [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31],
+};
+const MODEL_CALENDAR_ALIASES: Record<string, string> = {
+  noleap: "365_day",
+  ["all_leap"]: "366_day",
+};
+
+/** Format CF model dates without passing them through the Gregorian calendar. */
+// eslint-disable-next-line max-lines-per-function
+function formatModelTime(value: number, units: string, calendar: string) {
+  const key = MODEL_CALENDAR_ALIASES[calendar] ?? calendar;
+  if (!Object.hasOwn(MODEL_CALENDAR_MONTHS, key)) {
+    return;
+  }
+  const parts = units.match(unitsRegEx);
+  const scale = parts && millisecondsPerUnit(parts[1]);
+  // ponytail: Nonzero model-calendar timezone offsets retain the CF label until
+  // calendar-aware timezone arithmetic is needed. UTC references cover our datasets.
+  const ref = parts?.[2].match(
+    /^([+-]?\d+)-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}(?:\.\d+)?))?)?(?:\s*(?:Z|[+-]?0{1,2}:?00))?$/i
+  );
+  if (!ref || scale === undefined || scale === null) {
+    return;
+  }
+  const [year, month, day, hour, minute, second] = ref
+    .slice(1)
+    .map((v) => Number(v ?? 0));
+  const months = MODEL_CALENDAR_MONTHS[key];
+  if (
+    !Number.isSafeInteger(year) ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > months[month - 1] ||
+    hour >= 24 ||
+    minute >= 60 ||
+    second >= 60
+  ) {
+    return;
+  }
+  const dayMs = 86400000;
+  let dayOfYear = day - 1;
+  for (let i = 0; i < month - 1; i++) {
+    dayOfYear += months[i];
+  }
+  const offset = Math.round(
+    value * scale + ((hour * 60 + minute) * 60 + second) * 1000
+  );
+  if (!Number.isSafeInteger(offset)) {
+    return;
+  }
+  const totalDays = dayOfYear + Math.floor(offset / dayMs);
+  const yearDays = months.reduce((sum, length) => sum + length, 0);
+  const yearOffset = Math.floor(totalDays / yearDays);
+  let remaining = totalDays - yearOffset * yearDays;
+  let targetMonth = 0;
+  while (remaining >= months[targetMonth]) {
+    remaining -= months[targetMonth++];
+  }
+  const time = dayjs.utc(0).add(((offset % dayMs) + dayMs) % dayMs, "ms");
+  const targetYear = year + yearOffset;
+  const yearText = `${targetYear < 0 ? "-" : ""}${String(Math.abs(targetYear)).padStart(4, "0")}`;
+  const date = `${String(remaining + 1).padStart(2, "0")} ${dayjs.utc("2000-01-01").month(targetMonth).format("MMM")} ${yearText}`;
+  return `${date} • ${time.format(time.millisecond() ? "HH:mm:ss.SSS" : "HH:mm:ss")} (${calendar})`;
+}
+
+/** One display format for both source timesteps and interpolated coordinates. */
+export function formatTimeCoordinate(
+  value: number | bigint | string,
+  attrs: zarr.Attributes
+): string {
+  const units = String(attrs.units ?? "");
+  const calendar = String(attrs.calendar ?? "standard").toLowerCase();
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && isTimeUnits(units)) {
+    if (["standard", "gregorian", "proleptic_gregorian"].includes(calendar)) {
+      const decoded = decodeTime(value, attrs);
+      if (decoded.isValid()) {
+        return decoded.format(
+          decoded.millisecond()
+            ? "DD MMM YYYY • HH:mm:ss.SSS"
+            : "DD MMM YYYY • HH:mm:ss"
+        );
+      }
+    } else {
+      const formatted = formatModelTime(numeric, units, calendar);
+      if (formatted) {
+        return formatted;
+      }
+    }
+  }
+  return `${value} ${units}${calendar === "standard" ? "" : ` (${calendar})`}`.trim();
 }

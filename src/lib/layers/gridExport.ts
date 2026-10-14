@@ -781,7 +781,9 @@ async function encodePixelsToGeoTiffBlob(
 }
 
 function createExportRenderTarget(size: TExportSize) {
-  return new THREE.WebGLRenderTarget(size.width, size.height);
+  return new THREE.WebGLRenderTarget(size.width, size.height, {
+    colorSpace: THREE.SRGBColorSpace,
+  });
 }
 
 function createDirectTextureExportGeometry(

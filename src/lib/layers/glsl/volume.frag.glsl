@@ -2,6 +2,14 @@ precision highp float;
 precision highp sampler3D;
 
 uniform sampler3D volumeData;
+uniform sampler3D nextVolumeData;
+uniform bool interpolateValues;
+uniform float volumeAlpha;
+uniform vec4 firstPhysicalScale;
+uniform vec4 nextPhysicalScale;
+uniform vec4 normalizationScale;
+uniform vec2 firstHeightTransform;
+uniform vec2 nextHeightTransform;
 uniform float innerRadius;
 uniform float outerRadius;
 uniform float opacity;
@@ -47,6 +55,35 @@ vec3 sphericalTextureCoordinate(vec3 position) {
   );
 }
 
+// Both textures are sampled at the same physical vertical coordinate. Missing
+// cells and heights outside an endpoint's coverage contribute zero density.
+vec4 physicalSample(sampler3D field, vec3 coordinate, vec2 heightTransform, vec4 scale) {
+  float height = coordinate.x * heightTransform.x + heightTransform.y;
+  if (height < 0.0 || height > 1.0) return vec4(0.0);
+  float depth = float(textureSize(field, 0).x);
+  coordinate.x = (0.5 + height * (depth - 1.0)) / depth;
+  return texture(field, coordinate) * scale;
+}
+
+vec4 volumeDensities(vec3 coordinate) {
+  if (!interpolateValues) return texture(volumeData, coordinate);
+  // Uniform branches skip the unused texture at original/exact keyframes.
+  vec4 values = vec4(0.0);
+  if (volumeAlpha < 1.0) {
+    values = (1.0 - volumeAlpha) * physicalSample(
+      volumeData, coordinate, firstHeightTransform, firstPhysicalScale
+    );
+  }
+  if (volumeAlpha > 0.0) {
+    values += volumeAlpha * physicalSample(
+      nextVolumeData, coordinate, nextHeightTransform, nextPhysicalScale
+    );
+  }
+  // Apply the transfer function AFTER interpolation, with one scale per channel
+  // for the entire animation. Never interpolate independently normalized colors.
+  return min(vec4(1.0), log(vec4(1.0) + 9.0 * (values / normalizationScale)) / log(10.0));
+}
+
 void main() {
   vec3 rayOrigin = cameraPosition;
   vec3 rayDirection = normalize(volumeWorldPosition - cameraPosition);
@@ -88,8 +125,7 @@ void main() {
     if (textureCoordinate.x > 1.0 || textureCoordinate.y < 0.0 || textureCoordinate.y > 1.0) continue;
     // The CPU stores complete vertical columns contiguously: texture X is
     // altitude, Y is longitude, and Z is latitude.
-    vec4 channelDensities = texture(
-      volumeData,
+    vec4 channelDensities = volumeDensities(
       vec3(textureCoordinate.z, textureCoordinate.x, textureCoordinate.y)
     );
     float combinedDensity = 0.0;
@@ -106,8 +142,9 @@ void main() {
     float density = smoothstep(0.015, 0.75, min(combinedDensity, 1.0));
 
     float relativeStep = projectionType == PROJ_GLOBE ? stepLength / (outerRadius - innerRadius) : stepLength;
-    float sampleAlpha =
-      (1.0 - exp(-density * 5.0 * relativeStep)) * opacity;
+    // Scale extinction, not per-sample alpha: splitting a ray into more samples
+    // must preserve its total transmittance (preview 24, export 72 samples).
+    float sampleAlpha = 1.0 - exp(-density * opacity * 5.0 * relativeStep);
     vec3 cloudColor = weightedColor / max(combinedDensity, 0.0001);
     accumulated.rgb +=
       (1.0 - accumulated.a) * sampleAlpha * cloudColor;

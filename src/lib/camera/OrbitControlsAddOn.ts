@@ -31,6 +31,9 @@ declare module "three" {
 const ZOOM_STEP = 96;
 const KEYBOARD_ROTATION_SPEED = 0.025; // Radians per key press
 
+// OrbitControls measures autoRotateSpeed in turns per minute.
+export const GLOBE_AUTO_ROTATE_SPEED = 2;
+
 export function useSurfaceZoom(
   controls: OrbitControls,
   isFlatProjection: () => boolean

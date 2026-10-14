@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { useEventListener } from "@vueuse/core";
 import { storeToRefs } from "pinia";
-import { computed, onBeforeMount, ref, watch, type Ref } from "vue";
+import { computed, inject, onBeforeMount, ref, watch, type Ref } from "vue";
 
 import CollapsibleCard from "../common/CollapsibleCard.vue";
 
@@ -30,6 +30,10 @@ import type {
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 import { MOBILE_BREAKPOINT } from "@/ui/common/viewConstants.ts";
+import {
+  SCALAR_BAKE_KEY,
+  SCALAR_BAKE_PHASE,
+} from "@/ui/grids/composables/useScalarBake.ts";
 
 const props = defineProps<{
   modelInfo?: TModelInfo;
@@ -48,12 +52,14 @@ defineEmits<{
 // Bounds management types
 const BOUND_MODES = {
   DATA: "data",
+  ANIMATION: "animation",
   USER: "user",
 } as const;
 
 type TBoundModes = (typeof BOUND_MODES)[keyof typeof BOUND_MODES];
 
 const store = useGlobeControlStore();
+const scalarBake = inject(SCALAR_BAKE_KEY, undefined);
 const {
   colormap,
   invertColormap,
@@ -101,9 +107,16 @@ const dataBounds = computed(() => {
   return varinfo.value?.bounds ?? {};
 });
 
+const animationBounds = computed(() =>
+  scalarBake?.phase === SCALAR_BAKE_PHASE.READY ? scalarBake.bounds : undefined
+);
+
 const currentBounds = computed(() => {
+  if (pickedBoundsMode.value === BOUND_MODES.ANIMATION) {
+    return animationBounds.value ?? dataBounds.value;
+  }
   if (pickedBoundsMode.value === BOUND_MODES.DATA) {
-    return dataBounds.value;
+    return store.scalarAnimationBounds ?? dataBounds.value;
   } else if (pickedBoundsMode.value === BOUND_MODES.USER) {
     const isLowEmpty =
       userBoundsLow.value === undefined ||
@@ -209,13 +222,28 @@ watch(
   }
 );
 
-watch(currentBounds, (bounds) => {
-  if (bounds) {
-    store.updateBounds(bounds as TBounds);
+watch(
+  [currentBounds, animationBounds],
+  ([bounds, range], [, previousRange]) => {
+    if (range && !previousRange) {
+      pickedBoundsMode.value = BOUND_MODES.ANIMATION;
+      store.updateBounds(range);
+      return;
+    }
+    if (pickedBoundsMode.value === BOUND_MODES.ANIMATION && !range) {
+      pickedBoundsMode.value = BOUND_MODES.DATA;
+      store.scalarAnimationBounds = undefined;
+    }
+    if (bounds) {
+      store.updateBounds(bounds as TBounds);
+    }
   }
-});
+);
 
 function onPickedBoundsModeChange(newMode: TBoundModes) {
+  if (newMode === BOUND_MODES.DATA) {
+    store.scalarAnimationBounds = undefined;
+  }
   if (newMode === BOUND_MODES.USER) {
     const lowEmpty =
       userBoundsLow.value === undefined ||
@@ -398,7 +426,15 @@ defineExpose({
             v-model="varnameSelector"
             :model-info="modelInfo"
           />
-          <DimensionControl />
+          <fieldset
+            :disabled="
+              scalarBake &&
+              scalarBake.phase !== SCALAR_BAKE_PHASE.EMPTY &&
+              scalarBake.phase !== SCALAR_BAKE_PHASE.ERROR
+            "
+          >
+            <DimensionControl />
+          </fieldset>
         </CollapsibleCard>
 
         <CollapsibleCard title="Appearance">
@@ -406,6 +442,7 @@ defineExpose({
           <BoundsControls
             :picked-bounds-mode="pickedBoundsMode"
             :data-bounds="dataBounds"
+            :animation-bounds="animationBounds"
             :bound-modes="BOUND_MODES"
             @update:picked-bounds-mode="
               onPickedBoundsModeChange($event as TBoundModes)

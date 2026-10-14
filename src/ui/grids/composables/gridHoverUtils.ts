@@ -94,7 +94,7 @@ export function useGridHoverLookup(
   };
 }
 
-function createSampleIndexLookup(
+export function createSampleIndexLookup(
   index: TGeoSampleIndex,
   fillValue: number,
   missingValue: number

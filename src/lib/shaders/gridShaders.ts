@@ -86,9 +86,11 @@ export function makeGpuProjectedTextureMaterial(
       scaleFactor: { value: scaleFactor },
       colormap: { value: availableColormaps[colormap] },
       posterizeLevels: { value: 0.0 },
+      scalarMix: { value: 0 },
       hideBelowValue: { value: -1e38 },
       hideAboveValue: { value: 1e38 },
       data: { value: texture },
+      dataNext: { value: texture },
       // The full-face UV rectangle the texture actually covers (identity
       // unless the texture only holds a sub-region, e.g. a regional dataset).
       dataUvOffset: { value: new THREE.Vector2(0, 0) },
@@ -119,6 +121,9 @@ export function makeGpuProjectedTextureMaterial(
     [0, 0];
   (material.defaultAttributeValues as Record<string, unknown>).triangleLatLon2 =
     [0, 0];
+  (material.defaultAttributeValues as Record<string, unknown>)[
+    "data_value_next"
+  ] = [0];
   return material;
 }
 
@@ -137,6 +142,7 @@ function makeGpuProjectedMeshMaterial(
       scaleFactor: { value: scaleFactor },
       colormap: { value: availableColormaps[colormap] },
       posterizeLevels: { value: 0.0 },
+      scalarMix: { value: 0 },
       hideBelowValue: { value: -1e38 },
       hideAboveValue: { value: 1e38 },
       // Projection uniforms
@@ -161,6 +167,9 @@ function makeGpuProjectedMeshMaterial(
     [0, 0];
   (material.defaultAttributeValues as Record<string, unknown>).triangleLatLon2 =
     [0, 0];
+  (material.defaultAttributeValues as Record<string, unknown>)[
+    "data_value_next"
+  ] = [0];
   return material;
 }
 
@@ -190,6 +199,7 @@ export function makeGpuProjectedPointMaterial(
       minPointSize: { value: 1.0 },
       maxPointSize: { value: 10.0 },
       posterizeLevels: { value: 0.0 },
+      scalarMix: { value: 0 },
       hideBelowValue: { value: -1e38 },
       hideAboveValue: { value: 1e38 },
       colormap: { value: availableColormaps[colormap] },
@@ -207,6 +217,9 @@ export function makeGpuProjectedPointMaterial(
     vertexShader: gpuProjectedPointVertexShader,
     fragmentShader: pointFalloffFragmentShader,
   });
+  (material.defaultAttributeValues as Record<string, unknown>)[
+    "data_value_next"
+  ] = [0];
   return material;
 }
 

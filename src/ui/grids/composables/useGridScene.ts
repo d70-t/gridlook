@@ -33,6 +33,7 @@ import {
   getVisibleVerticalSpan,
 } from "@/lib/camera/cameraSettings.ts";
 import {
+  GLOBE_AUTO_ROTATE_SPEED,
   handleKeyDown,
   useSurfaceZoom,
 } from "@/lib/camera/OrbitControlsAddOn.ts";
@@ -190,18 +191,34 @@ export function useGridScene(options: UseGridSceneOptions) {
     };
   }
 
+  let redrawFrame: number | undefined;
   function redraw() {
-    if (store.isRotating || projectionDragActive || mouseDown || wheelActive) {
+    if (
+      store.isRotating ||
+      projectionDragActive ||
+      mouseDown ||
+      wheelActive ||
+      redrawFrame !== undefined
+    ) {
       return;
     }
-    render();
+    // Scalar commits update geometry, bounds and colors together. Draw once after
+    // those updates, instead of rendering the whole scene after each one.
+    redrawFrame = requestAnimationFrame(() => {
+      redrawFrame = undefined;
+      render();
+    });
   }
 
-  function render() {
+  function render(deltaSeconds = 0) {
+    if (redrawFrame !== undefined) {
+      cancelAnimationFrame(redrawFrame);
+      redrawFrame = undefined;
+    }
     if (updateLOD) {
       updateLOD();
     }
-    getOrbitControls()?.update();
+    getOrbitControls()?.update(deltaSeconds);
     // OrbitControls can report movement forever when rounding at minDistance.
     // Ignore sub-millimetre position noise so settling and URL saves complete.
     const controlsUpdated = camera
@@ -871,6 +888,7 @@ export function useGridScene(options: UseGridSceneOptions) {
     camera.lookAt(center);
 
     orbitControls = new OrbitControls(camera, renderer.domElement);
+    orbitControls.autoRotateSpeed = GLOBE_AUTO_ROTATE_SPEED;
     useSurfaceZoom(orbitControls, () => projectionHelper.value.isFlat);
     orbitControls.minDistance = GLOBE_MIN_CAMERA_DISTANCE;
     orbitControls.enablePan = false;
@@ -1014,11 +1032,8 @@ export function useGridScene(options: UseGridSceneOptions) {
   }
 
   function toggleRotate() {
+    // The rotation watcher configures controls and starts the loop once.
     store.toggleRotating();
-    if (!projectionHelper.value.isFlat) {
-      getOrbitControls()!.autoRotate = store.isRotating;
-    }
-    animationLoop();
   }
 
   function syncProjectionCenterAfterCameraChange(
@@ -1044,6 +1059,7 @@ export function useGridScene(options: UseGridSceneOptions) {
     for (const callback of animationCallbacks) {
       callback(deltaSeconds);
     }
+    return deltaSeconds;
   }
 
   function updateRotationSpeed() {
@@ -1059,12 +1075,14 @@ export function useGridScene(options: UseGridSceneOptions) {
       getGlobeMovementScale(camera.position.length());
   }
 
-  function updateFlatProjectionRotation() {
+  function updateFlatProjectionRotation(deltaSeconds: number) {
     if (!store.isRotating || !projectionHelper.value.isFlat) {
       return;
     }
     const center = projectionCenter.value ?? DEFAULT_PROJECTION_CENTER;
-    const newLon = ProjectionHelper.normalizeLongitude(center.lon - 0.3);
+    const newLon = ProjectionHelper.normalizeLongitude(
+      center.lon - 18 * deltaSeconds
+    );
     projectionCenter.value = { lat: center.lat, lon: newLon };
   }
 
@@ -1079,12 +1097,12 @@ export function useGridScene(options: UseGridSceneOptions) {
 
   function animationLoop(timestamp = performance.now()) {
     cancelAnimationFrame(frameId.value);
-    runAnimationCallbacks(timestamp);
+    const deltaSeconds = runAnimationCallbacks(timestamp);
 
-    updateFlatProjectionRotation();
+    updateFlatProjectionRotation(deltaSeconds);
     updateRotationSpeed();
 
-    const controlsUpdated = render();
+    const controlsUpdated = render(deltaSeconds);
     const userInteractionActive = mouseDown || wheelActive;
     syncMotionState(controlsUpdated, userInteractionActive);
     if (lastPointerPosition) {
@@ -1117,6 +1135,7 @@ export function useGridScene(options: UseGridSceneOptions) {
         }
         if (animationCallbacks.size === 0) {
           idleFrameCount = 0;
+          lastAnimationTime = undefined;
           return;
         }
       }
@@ -1361,6 +1380,9 @@ export function useGridScene(options: UseGridSceneOptions) {
   useResizeObserver(box, onCanvasResize);
 
   onBeforeUnmount(() => {
+    if (redrawFrame !== undefined) {
+      cancelAnimationFrame(redrawFrame);
+    }
     store.distanceScale = null;
     if (frameId.value) {
       cancelAnimationFrame(frameId.value);
@@ -1393,6 +1415,7 @@ export function useGridScene(options: UseGridSceneOptions) {
   watch(
     () => store.isRotating,
     (rotating) => {
+      lastAnimationTime = undefined;
       if (!projectionHelper.value.isFlat) {
         const oc = getOrbitControls();
         if (oc) {
@@ -1469,7 +1492,7 @@ export function useGridScene(options: UseGridSceneOptions) {
     }
   );
 
-  const { makeSnapshot } = useGridSnapshot({
+  const { makeSnapshot, createSnapshotRenderer } = useGridSnapshot({
     canvas,
     getRenderer,
     getScene,
@@ -1487,6 +1510,7 @@ export function useGridScene(options: UseGridSceneOptions) {
     redraw,
     toggleRotate,
     makeSnapshot,
+    createSnapshotRenderer,
     applyCameraPreset,
     fitCameraToDataset,
     registerUpdateLOD,

@@ -286,3 +286,21 @@ describe("buildVolumeTexture", () => {
     expect(packedWater).toEqual(Array.from(waterOnly.data));
   });
 });
+
+it("rejects folded height columns before displaying an interpolatable volume", () => {
+  const values = new Float32Array(36).fill(1);
+  const heights = new Float32Array(36);
+  heights.fill(1000, 12, 24);
+  heights.fill(500, 24);
+  expect(() =>
+    buildVolumeTexture({
+      nside: 1,
+      sourceLevelCount: 3,
+      sourceCellCount: 12,
+      values: [values],
+      heights,
+      interpolatable: true,
+      dimensions: { width: 2, height: 1, depth: 3, byteLength: 12 },
+    })
+  ).toThrow(/strictly ordered/);
+});

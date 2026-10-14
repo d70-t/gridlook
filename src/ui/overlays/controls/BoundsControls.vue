@@ -8,6 +8,7 @@ import { useGlobeControlStore } from "@/store/store.ts";
 const props = defineProps<{
   pickedBoundsMode: string;
   dataBounds: TBounds;
+  animationBounds?: TBounds;
   boundModes: Record<string, string>;
 }>();
 
@@ -100,6 +101,31 @@ function formatNum(val: number | undefined) {
       </div>
       <div class="bounds-cell bounds-cell--num">
         {{ formatNum(dataBounds.high) }}
+      </div>
+    </div>
+
+    <div
+      v-if="animationBounds"
+      class="bounds-row"
+      :class="{ 'is-active': pickedBoundsMode === boundModes.ANIMATION }"
+      title="Min/max across all prepared timesteps; used for display and export"
+    >
+      <div class="bounds-cell bounds-cell--label">
+        <input
+          id="animation_bounds"
+          class="bounds-radio"
+          type="radio"
+          :value="boundModes.ANIMATION"
+          :checked="pickedBoundsMode === boundModes.ANIMATION"
+          @change="$emit('update:pickedBoundsMode', boundModes.ANIMATION)"
+        />
+        <label for="animation_bounds">Animation</label>
+      </div>
+      <div class="bounds-cell bounds-cell--num">
+        {{ formatNum(animationBounds.low) }}
+      </div>
+      <div class="bounds-cell bounds-cell--num">
+        {{ formatNum(animationBounds.high) }}
       </div>
     </div>
 

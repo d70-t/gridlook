@@ -5,7 +5,11 @@ import {
 } from "three";
 import { expect, it } from "vitest";
 
-import { VolumeLayer } from "@/lib/layers/volumeLayer.ts";
+import fragmentShader from "@/lib/layers/glsl/volume.frag.glsl";
+import {
+  VolumeLayer,
+  VOLUME_RENDER_QUALITY,
+} from "@/lib/layers/volumeLayer.ts";
 import { getProjectionTypeFromMode } from "@/lib/projection/projectionShaders.ts";
 import {
   ProjectionHelper,
@@ -57,5 +61,39 @@ it("keeps the volume texture and appearance through every projection and center 
     expect(material.uniforms.volumeData.value.wrapT).toBe(RepeatWrapping);
   } finally {
     layer.dispose();
+  }
+});
+
+it("preserves volume transmittance across preview and export sampling rates", () => {
+  // Evaluate the actual shader expression, so reverting the placement of
+  // opacity fails this check instead of leaving a separate CPU formula green.
+  const expression = fragmentShader.match(/float sampleAlpha\s*=([^;]+);/)![1];
+  const sampleAlpha = new Function(
+    "density",
+    "opacity",
+    "relativeStep",
+    "exp",
+    `return ${expression};`
+  ) as (
+    density: number,
+    opacity: number,
+    relativeStep: number,
+    exp: typeof Math.exp
+  ) => number;
+  for (const density of [0, 0.1, 0.5, 1]) {
+    for (const opacity of [0, 0.1, 0.35, 1]) {
+      for (const rayLength of [0.25, 1, 4]) {
+        const expected = Math.exp(-density * opacity * 5 * rayLength);
+        for (const count of Object.values(VOLUME_RENDER_QUALITY)) {
+          const alpha = sampleAlpha(
+            density,
+            opacity,
+            rayLength / count,
+            Math.exp
+          );
+          expect((1 - alpha) ** count).toBeCloseTo(expected, 12);
+        }
+      }
+    }
   }
 });

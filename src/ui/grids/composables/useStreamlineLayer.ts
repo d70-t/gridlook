@@ -69,7 +69,11 @@ export function useStreamlineLayer(options: TOptions) {
       getLayerRenderOrder(store.layerStack, BUILTIN_LAYER_IDS.STREAMLINES)
     );
     layer.setOpacity(entry?.opacity ?? LAYER_OPACITY.MAX);
-    const visible = Boolean(entry?.visible && store.streamlineAvailable);
+    const visible = Boolean(
+      entry?.visible &&
+      store.streamlineAvailable &&
+      !store.pathlineAnimationActive
+    );
     layer.object.visible = visible;
     stopAnimation = syncAnimation(options, layer, visible, stopAnimation);
     options.redraw();
@@ -127,14 +131,24 @@ export function useStreamlineLayer(options: TOptions) {
   }
 
   async function prepareField(isCurrent: () => boolean) {
-    if (disposed || !isCurrent() || !store.isStreamlineLayerEnabled()) {
+    if (
+      disposed ||
+      !isCurrent() ||
+      !store.isStreamlineLayerEnabled() ||
+      store.pathlineAnimationActive
+    ) {
       return false;
     }
     store.streamlineLoadingStage = STREAMLINE_LOADING_STAGES.FIELD;
     setFieldProgress(0);
     // Allow the loading indicator to paint before synchronous field setup.
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
-    return !disposed && isCurrent() && store.isStreamlineLayerEnabled();
+    return (
+      !disposed &&
+      isCurrent() &&
+      store.isStreamlineLayerEnabled() &&
+      !store.pathlineAnimationActive
+    );
   }
 
   // eslint-disable-next-line max-lines-per-function
@@ -144,7 +158,7 @@ export function useStreamlineLayer(options: TOptions) {
     isCurrent: () => boolean,
     beforeInstall?: () => Promise<void>
   ) {
-    if (disposed || !isCurrent()) {
+    if (disposed || !isCurrent() || store.pathlineAnimationActive) {
       return false;
     }
     // Keep the previous timestep visible until its replacement is ready.
@@ -158,7 +172,8 @@ export function useStreamlineLayer(options: TOptions) {
         disposed ||
         revision !== buildRevision ||
         !isCurrent() ||
-        !store.isStreamlineLayerEnabled();
+        !store.isStreamlineLayerEnabled() ||
+        store.pathlineAnimationActive;
       const nextLayer = await StreamlineParticleLayer.create(
         field,
         options.projectionHelper.value,
@@ -210,7 +225,11 @@ export function useStreamlineLayer(options: TOptions) {
     layer?.updateProjection(options.projectionHelper.value);
     options.redraw();
   });
-  watch(() => store.layerStack, updateAppearance, { deep: true });
+  watch(
+    [() => store.layerStack, () => store.pathlineAnimationActive],
+    updateAppearance,
+    { deep: true, flush: "sync" }
+  );
   onScopeDispose(() => {
     disposed = true;
     // Scalar-variable changes remount the grid renderer. Dispose its GPU

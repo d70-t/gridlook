@@ -1,3 +1,5 @@
+import { DataUtils } from "three";
+
 import { getHealpixVolumeSourceCells } from "./healpixVolumeMapping.ts";
 import type { THealpixVolumeGrid } from "./healpixVolumeMapping.ts";
 import { getProjectedVolumeMapping } from "./projectedVolumeMapping.ts";
@@ -33,10 +35,23 @@ export type TVolumeTextureBuildRequest = {
   values: Float32Array[];
   heights?: Float32Array;
   dimensions: TVolumeTextureDimensions;
+  interpolatable?: boolean;
+};
+
+export type TVolumeTextureData = Uint8Array | Uint16Array;
+const VOLUME_VERTICAL_MAPPING = {
+  HEIGHT: "height",
+  LEVEL: "level",
+} as const;
+type TVolumePhysicalMapping = {
+  scales: number[];
+  vertical: (typeof VOLUME_VERTICAL_MAPPING)[keyof typeof VOLUME_VERTICAL_MAPPING];
+  range: { min: number; max: number };
 };
 
 export type TVolumeTextureBuildResult = {
-  data: Uint8Array;
+  data: TVolumeTextureData;
+  physical?: TVolumePhysicalMapping;
   dimensions: TVolumeTextureDimensions;
   valueScales: number[];
   channelCount: number;
@@ -223,12 +238,15 @@ const DENSITY_LOOKUP = Uint8Array.from(
 );
 
 function findHeightRange(
-  referenceValues: Float32Array,
+  referenceValues: Float32Array | undefined,
   heights: Float32Array | undefined,
   sourceCellCount: number,
   onLevelComplete?: (completed: number, total: number) => void
 ) {
-  if (!heights || referenceValues.length !== heights.length) {
+  if (
+    !heights ||
+    (referenceValues && referenceValues.length !== heights.length)
+  ) {
     return undefined;
   }
   let min = Number.POSITIVE_INFINITY;
@@ -237,8 +255,8 @@ function findHeightRange(
   for (let level = 0; level < levelCount; level++) {
     const end = Math.min((level + 1) * sourceCellCount, heights.length);
     for (let index = level * sourceCellCount; index < end; index++) {
-      const value = referenceValues[index];
-      if (!Number.isFinite(value) || value <= 0) {
+      const value = referenceValues?.[index];
+      if (value !== undefined && (!Number.isFinite(value) || value <= 0)) {
         continue;
       }
       const height = heights[index];
@@ -265,6 +283,26 @@ function densityByte(value: number, densityFactor: number) {
     return 255;
   }
   return DENSITY_LOOKUP[lookupIndex];
+}
+
+// Half floats are linearly filterable in WebGL2 without a float-filter extension.
+// Scale each channel by its maximum to preserve small physical units (e.g. kg/kg).
+// ponytail: half precision loses values below ~6e-8 of the channel maximum;
+// a future scientific-data export must use native values, not these visual textures.
+function physicalScale(values: Float32Array) {
+  let max = 0;
+  for (const value of values) {
+    if (Number.isFinite(value) && value > max) {
+      max = value;
+    }
+  }
+  return max || 1;
+}
+
+function physicalHalf(value: number, scale: number) {
+  return DataUtils.toHalfFloat(
+    Number.isFinite(value) && value > 0 ? value / scale : 0
+  );
 }
 
 function makeTargetHeights(
@@ -331,13 +369,14 @@ function makeLevelSamples(
 }
 
 function writeLevelColumn(
-  output: Uint8Array,
+  output: TVolumeTextureData,
   columnOffset: number,
   values: Float32Array[],
   sourceCell: number,
   levelSamples: TLevelSamples,
   densityFactors: number[],
-  storageChannelCount: number
+  storageChannelCount: number,
+  encode: (value: number, factor: number) => number
 ) {
   for (let z = 0; z < levelSamples.fractions.length; z++) {
     const lowerIndex = levelSamples.lowerOffsets[z] + sourceCell;
@@ -358,17 +397,41 @@ function writeLevelColumn(
       } else {
         value = lowerValue + (upperValue - lowerValue) * fraction;
       }
-      output[voxelOffset + channel] = densityByte(
-        value,
-        densityFactors[channel]
-      );
+      output[voxelOffset + channel] = encode(value, densityFactors[channel]);
     }
   }
 }
 
+function heightColumnStep(
+  heights: Float32Array,
+  cell: number,
+  cellCount: number,
+  levelCount: number
+) {
+  let previous = NaN,
+    direction = 0;
+  for (let level = 0; level < levelCount; level++) {
+    const height = heights[level * cellCount + cell];
+    if (!Number.isFinite(height)) {
+      continue;
+    }
+    if (Number.isFinite(previous)) {
+      const step = Math.sign(height - previous);
+      if (!step || (direction && direction !== step)) {
+        throw new Error(
+          "Volume heights must be strictly ordered within each column for interpolation."
+        );
+      }
+      direction = step;
+    }
+    previous = height;
+  }
+  return direction || 1;
+}
+
 // eslint-disable-next-line max-lines-per-function
 function writeHeightColumn(
-  output: Uint8Array,
+  output: TVolumeTextureData,
   columnOffset: number,
   targetHeights: Float32Array,
   values: Float32Array[],
@@ -377,12 +440,18 @@ function writeHeightColumn(
   sourceCellCount: number,
   sourceLevelCount: number,
   densityFactors: number[],
-  storageChannelCount: number
+  storageChannelCount: number,
+  encode: (value: number, factor: number) => number
 ) {
   const firstHeight = heights[sourceCell];
   const lastHeight =
     heights[(sourceLevelCount - 1) * sourceCellCount + sourceCell];
-  const step = firstHeight <= lastHeight ? 1 : -1;
+  const step =
+    encode === physicalHalf
+      ? heightColumnStep(heights, sourceCell, sourceCellCount, sourceLevelCount)
+      : firstHeight <= lastHeight
+        ? 1
+        : -1;
   let level = step > 0 ? 0 : sourceLevelCount - 1;
 
   for (let z = 0; z < targetHeights.length; z++) {
@@ -434,10 +503,7 @@ function writeHeightColumn(
       } else {
         value = lowerValue + (upperValue - lowerValue) * fraction;
       }
-      output[voxelOffset + channel] = densityByte(
-        value,
-        densityFactors[channel]
-      );
+      output[voxelOffset + channel] = encode(value, densityFactors[channel]);
     }
   }
 }
@@ -481,7 +547,7 @@ export function buildVolumeTexture(
 
   const channelCount = values.length;
   const storageChannelCount = volumeStorageChannelCount(channelCount);
-  const output = new Uint8Array(
+  const output = new (request.interpolatable ? Uint16Array : Uint8Array)(
     dimensions.width *
       dimensions.height *
       dimensions.depth *
@@ -490,19 +556,23 @@ export function buildVolumeTexture(
   const valueScales = values.map((field) =>
     sampledPositiveQuantile(field, 0.995)
   );
-  const densityFactors = valueScales.map(
-    (scale) => DENSITY_LOOKUP_MAX_INDEX / scale
-  );
+  const physicalScales = request.interpolatable
+    ? values.map(physicalScale)
+    : undefined;
+  const densityFactors =
+    physicalScales ??
+    valueScales.map((scale) => DENSITY_LOOKUP_MAX_INDEX / scale);
+  const encode = request.interpolatable ? physicalHalf : densityByte;
   const heightRangeUnits = heights ? expectedLength : 0;
   const pixelLookupUnits = dimensions.width * dimensions.height;
   const columnUnits = pixelLookupUnits * dimensions.depth;
   const progressTotal = heightRangeUnits + pixelLookupUnits + columnUnits;
   onProgress?.(0, progressTotal);
-  // Anchor the shared vertical mapping to the primary field. Additional
-  // channels therefore cannot stretch or compress its appearance, while the
-  // occupied part of the atmosphere still fills the rendered volume shell.
+  // Static rendering fits the primary field. Animation uses all finite heights,
+  // independent of changing field values; the shader maps each keyframe into
+  // one shared vertical range for the whole sequence.
   const heightRange = findHeightRange(
-    values[0],
+    request.interpolatable ? undefined : values[0],
     heights,
     sourceCellCount,
     (completed, total) =>
@@ -511,6 +581,15 @@ export function buildVolumeTexture(
         progressTotal
       )
   );
+  if (
+    request.interpolatable &&
+    heights &&
+    (!heightRange || heightRange.max <= heightRange.min)
+  ) {
+    throw new Error(
+      "Volume height coordinates have no usable range for interpolation."
+    );
+  }
   const targetHeights = heightRange
     ? makeTargetHeights(dimensions.depth, heightRange)
     : undefined;
@@ -562,7 +641,8 @@ export function buildVolumeTexture(
           sourceCellCount,
           sourceLevelCount,
           densityFactors,
-          storageChannelCount
+          storageChannelCount,
+          encode
         );
         sourceColumnOffsets[sourceCell] = columnOffset;
       } else if (levelSamples) {
@@ -573,7 +653,8 @@ export function buildVolumeTexture(
           sourceCell,
           levelSamples,
           densityFactors,
-          storageChannelCount
+          storageChannelCount,
+          encode
         );
         sourceColumnOffsets[sourceCell] = columnOffset;
       }
@@ -593,7 +674,23 @@ export function buildVolumeTexture(
 
   return {
     data: output,
-    dimensions,
+    dimensions: { ...dimensions, byteLength: output.byteLength },
+    physical: physicalScales
+      ? {
+          scales: physicalScales,
+          vertical: heightRange
+            ? VOLUME_VERTICAL_MAPPING.HEIGHT
+            : VOLUME_VERTICAL_MAPPING.LEVEL,
+          range:
+            heightRange ??
+            (levels
+              ? {
+                  min: Math.min(levels[0], levels[levels.length - 1]),
+                  max: Math.max(levels[0], levels[levels.length - 1]),
+                }
+              : { min: 0, max: sourceLevelCount - 1 }),
+        }
+      : undefined,
     valueScales,
     channelCount,
     storageChannelCount,

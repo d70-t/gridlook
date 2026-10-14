@@ -5,11 +5,26 @@ import * as THREE from "three";
 import { onBeforeMount, onBeforeUnmount, ref } from "vue";
 import type * as zarr from "zarrita";
 
-import { useGridHoverLookup } from "./composables/gridHoverUtils.ts";
+import {
+  createSampleIndexLookup,
+  useGridHoverLookup,
+} from "./composables/gridHoverUtils.ts";
 import type {
   TGeoSample,
   TGeoSampleIndex,
 } from "./composables/gridHoverUtils.ts";
+import {
+  fetchScalarFrameData,
+  decodeScalarFrameData,
+  getScalarFrameDimensions,
+  type TPreparedScalarFrame,
+  type TScalarFrameRequest,
+} from "./composables/scalarFrame.ts";
+import {
+  scalarFrameMemory,
+  shareScalarBuffers,
+} from "./composables/scalarFrameMemory.ts";
+import { updateScalarTexture } from "./composables/scalarTexture.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
@@ -27,12 +42,9 @@ import {
   projectXYGridToLonLat,
 } from "@/lib/data/coordinateVariables.ts";
 import { downsampleDataTexture } from "@/lib/data/dataTexture.ts";
-import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
+import { PATHLINE_GRID } from "@/lib/data/pathlineField.ts";
 import { loadVectorComponents } from "@/lib/data/streamlineData.ts";
-import {
-  castDataVarToFloat32,
-  decodeVariableDataAndGetBounds,
-} from "@/lib/data/variableDecoding.ts";
+import { castDataVarToFloat32 } from "@/lib/data/variableDecoding.ts";
 import {
   IrregularVectorField,
   RegularVectorField,
@@ -43,10 +55,7 @@ import {
   type TVectorMagnitudeData,
 } from "@/lib/data/vectorMagnitude.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
-import {
-  getGridVariableData,
-  terminateGridDataWorker,
-} from "@/lib/grids/gridDataWorkerClient.ts";
+import { terminateGridDataWorker } from "@/lib/grids/gridDataWorkerClient.ts";
 import {
   GridTextureExportUserDataKey,
   getRegularLatLonGridBounds,
@@ -69,7 +78,6 @@ import {
   VOLUME_GRID_TYPES,
   type TProjectedVolumeGrid,
 } from "@/lib/volume/volumeGrid.ts";
-import { useUrlParameterStore } from "@/store/paramStore.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 import { useLog } from "@/ui/common/useLog.ts";
 
@@ -80,18 +88,15 @@ const props = defineProps<{
 
 const store = useGlobeControlStore();
 const { logError } = useLog();
-const { dimSlidersValues, colormap, varnameSelector, invertColormap, varinfo } =
-  storeToRefs(store);
-
-const urlParameterStore = useUrlParameterStore();
-const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
-  storeToRefs(urlParameterStore);
+const { colormap, varnameSelector, invertColormap } = storeToRefs(store);
 
 const {
+  pathlineDisplay,
   getScene,
   getRenderer,
   redraw,
   makeSnapshot,
+  createSnapshotRenderer,
   toggleRotate,
   applyCameraPreset,
   fitCameraToDataset,
@@ -111,7 +116,7 @@ const {
   hoveredGeoPoint,
 } = useSharedGridLogic();
 
-const { setHoverLookupFromIndex, clearHoverLookup } =
+const { setHoverLookup, setHoverLookupFromIndex, clearHoverLookup } =
   useGridHoverLookup(hoveredGeoPoint);
 
 const longitudes = ref<Float32Array>(new Float32Array());
@@ -168,10 +173,18 @@ function updateMeshProjectionUniforms() {
   });
 }
 
-const { datasourceUpdate } = useGridDataLoader({
+const {
+  datasourceUpdate,
+  prepareScalarFrame,
+  commitScalarFrame,
+  getScalarFrameLayout,
+} = useGridDataLoader({
+  volume,
   getDatasources: () => props.datasources,
   getDataVar,
-  fetchAndRenderData,
+  prepareFrame,
+  getScalarObjects: () => meshes,
+  setHoverLookup,
   scalarCache,
   clearHoverLookup,
   prepareDatasource: async () => {
@@ -623,36 +636,28 @@ function createLatOnlyTextureData(
   return data;
 }
 
-function createRegularTexture(rawData: Float32Array, wrapRepeat: boolean) {
+function prepareTextureData(rawData: Float32Array) {
   const latCount = latitudes.value.length;
   const lonCount = longitudes.value.length;
   const textureData = isLatOnly.value
     ? createLatOnlyTextureData(rawData, latCount, lonCount)
     : rawData;
-  const { data, texWidth, texHeight } = fitDataToMaxTextureSize(
-    textureData,
-    lonCount,
-    latCount
-  );
+  return fitDataToMaxTextureSize(textureData, lonCount, latCount);
+}
 
-  const texture = new THREE.DataTexture(
-    data,
-    texWidth,
-    texHeight,
-    THREE.RedFormat,
-    THREE.FloatType,
-    THREE.UVMapping
-  );
-  if (wrapRepeat) {
-    texture.wrapS = THREE.RepeatWrapping;
-  }
-  texture.needsUpdate = true;
+function updateRegularTexture(
+  { data, texWidth, texHeight }: ReturnType<typeof prepareTextureData>,
+  wrapRepeat: boolean,
+  previous?: THREE.Texture
+) {
+  const texture = updateScalarTexture(previous, data, texWidth, texHeight);
+  texture.wrapS = wrapRepeat ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
   return texture;
 }
 
-function makeMaterial(rawData: Float32Array) {
-  const texture = createRegularTexture(
-    rawData,
+function makeMaterial(textureData: ReturnType<typeof prepareTextureData>) {
+  const texture = updateRegularTexture(
+    textureData,
     isLongitudeGlobal(longitudes.value)
   );
   const low = store.selection?.low as number;
@@ -773,39 +778,22 @@ function nearestLonIndex(lons: Float32Array, target: number): number {
 }
 
 async function buildDimensionConfig(
-  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
+  request: TScalarFrameRequest
 ) {
   const dimensionNames = await ZarrDataManager.getDimensionNames(
-    props.datasources!,
-    varnameSelector.value
+    request.datasources,
+    request.variable
   );
   const excludedDims = isLatOnly.value
     ? [datavar.shape.length - 1]
     : [datavar.shape.length - 2, datavar.shape.length - 1];
-  return buildDimensionRangesAndIndices(
+  return getScalarFrameDimensions(
     datavar,
     dimensionNames,
-    paramDimIndices.value,
-    paramDimMinBounds.value,
-    paramDimMaxBounds.value,
-    dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
     excludedDims,
-    varinfo.value?.dimRanges
+    request
   );
-}
-
-function fetchRegularGridVariableData(
-  selection: (number | null | zarr.Slice)[]
-) {
-  return getGridVariableData({
-    source: ZarrDataManager.getDatasetSource(
-      props.datasources!,
-      varnameSelector.value
-    ),
-    variable: varnameSelector.value,
-    format: props.datasources!.zarr_format,
-    selection,
-  });
 }
 
 function setMeshMaterials(material: THREE.ShaderMaterial) {
@@ -824,18 +812,30 @@ function setMeshMaterials(material: THREE.ShaderMaterial) {
   material.needsUpdate = true;
 }
 
-function updateMeshMaterials(rawData: Float32Array) {
-  const material = makeMaterial(rawData);
-  updateProjectionUniforms(material, projectionHelper.value);
-  setMeshMaterials(material);
+function updateMeshMaterials(
+  textureData: ReturnType<typeof prepareTextureData>
+) {
+  const material = meshes[0]?.material as THREE.ShaderMaterial | undefined;
+  if (material?.uniforms.data) {
+    material.uniforms.data.value = updateRegularTexture(
+      textureData,
+      isLongitudeGlobal(longitudes.value),
+      material.uniforms.data.value
+    );
+  } else {
+    const initialMaterial = makeMaterial(textureData);
+    updateProjectionUniforms(initialMaterial, projectionHelper.value);
+    setMeshMaterials(initialMaterial);
+  }
   updateColormap(meshes);
 }
 
 async function showMagnitude(scalar: TVectorMagnitudeData) {
   await scalarCache.showMagnitude(scalar, async () => {
     const hoverIndex = buildHoverSamples(scalar.data);
+    const textureData = prepareTextureData(scalar.data);
     return () => {
-      updateMeshMaterials(scalar.data);
+      updateMeshMaterials(textureData);
       setHoverLookupFromIndex(hoverIndex, NaN, NaN);
     };
   });
@@ -890,6 +890,9 @@ async function updateStreamlines(
   reuseCached = false
 ) {
   const requestRevision = ++streamlineRequestRevision;
+  if (store.pathlineAnimationActive) {
+    return;
+  }
   const pair = selectedVectorPair();
   if (!pair || isLatOnly.value || !props.datasources) {
     cachedMagnitude = undefined;
@@ -1000,33 +1003,37 @@ async function updateStreamlines(
 }
 
 // eslint-disable-next-line max-lines-per-function
-async function fetchAndRenderData(
+async function prepareFrame(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
-  isCurrent: () => boolean
-) {
-  const { dimensionRanges, indices } = await buildDimensionConfig(datavar);
+  request: TScalarFrameRequest
+): Promise<TPreparedScalarFrame | undefined> {
+  const { isCurrent } = request;
+  const { dimensionRanges, indices } = await buildDimensionConfig(
+    datavar,
+    request
+  );
 
-  const variableData = await fetchRegularGridVariableData(indices);
+  const variableData = await fetchScalarFrameData(request, indices);
   const rawData = castDataVarToFloat32(variableData);
 
   if (!isCurrent()) {
     return;
   }
-  const { min, max, missingValue, fillValue } = decodeVariableDataAndGetBounds(
+  const { min, max, missingValue, fillValue } = decodeScalarFrameData(
     datavar,
-    rawData
+    rawData,
+    request
   );
 
   const hoverIndex = buildHoverSamples(rawData);
-
-  lastStreamlineIndices = indices;
+  const textureData = prepareTextureData(rawData);
 
   if (!isCurrent()) {
     return;
   }
   const dimInfo = await fetchDimensionDetails(
-    varnameSelector.value,
-    props.datasources!,
+    request.variable,
+    request.datasources,
     dimensionRanges,
     indices
   );
@@ -1038,9 +1045,17 @@ async function fetchAndRenderData(
     dimRanges: dimensionRanges,
   };
   const renderScalar = () => {
-    updateMeshMaterials(rawData);
+    updateMeshMaterials(textureData);
     setHoverLookupFromIndex(hoverIndex, fillValue, missingValue);
   };
+  shareScalarBuffers(
+    "coordinates",
+    {
+      latitudes: latitudes.value,
+      longitudes: longitudes.value,
+    },
+    request.geometryCache
+  );
   const volumeGrid =
     isProjectedGrid.value || props.isRotated
       ? projectedGrid
@@ -1054,16 +1069,41 @@ async function fetchAndRenderData(
   if (!isCurrent()) {
     return;
   }
-  volume.setContext(
-    volumeGrid
+  return {
+    volumeContext: volumeGrid
       ? {
           dimensionNames: selectedDimensionNames.value,
           indices,
           grid: volumeGrid,
         }
-      : undefined
-  );
-  scalarCache.captureScalar({
+      : undefined,
+    pathlineGrid: isLatOnly.value
+      ? undefined
+      : {
+          grid: projectedGrid
+            ? { ...projectedGrid, kind: PATHLINE_GRID.PROJECTED }
+            : {
+                kind: PATHLINE_GRID.REGULAR,
+                x: longitudes.value,
+                y: latitudes.value,
+              },
+          spatialDimensionNames: selectedDimensionNames.value.slice(-2),
+          spatialShape: datavar.shape.slice(-2),
+        },
+    memory: scalarFrameMemory(
+      textureData,
+      rawData,
+      latitudes.value,
+      longitudes.value,
+      volumeGrid,
+      scalarInfo
+    ),
+    interpolation: {
+      values: meshes.map(() => textureData.data),
+      geometry: [latitudes.value, longitudes.value],
+      sample: createSampleIndexLookup(hoverIndex, fillValue, missingValue),
+    },
+    name: request.variable,
     render: renderScalar,
     info: scalarInfo,
     indices: indices as number[],
@@ -1071,11 +1111,12 @@ async function fetchAndRenderData(
     missingValue,
     fillValue,
     isCurrent,
-  });
-  await updateStreamlines(indices);
-  if (isCurrent() && !store.streamlineMagnitudeDisplayed) {
-    await scalarCache.restoreScalar();
-  }
+    updateLayers: async () => {
+      lastStreamlineIndices = indices;
+
+      await updateStreamlines(indices);
+    },
+  };
 }
 
 onBeforeMount(async () => {
@@ -1094,7 +1135,12 @@ onBeforeUnmount(() => {
 });
 
 defineExpose({
+  pathlineDisplay,
+  prepareScalarFrame,
+  commitScalarFrame,
+  getScalarFrameLayout,
   makeSnapshot,
+  createSnapshotRenderer,
   toggleRotate,
   applyCameraPreset,
 });

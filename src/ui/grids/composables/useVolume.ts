@@ -6,29 +6,28 @@ import {
   type ComputedRef,
   type Ref,
 } from "vue";
-import type * as zarr from "zarrita";
 
-import { getMax3DTextureSize, VolumeLayer } from "@/lib/layers/volumeLayer.ts";
+import {
+  getMax3DTextureSize,
+  VolumeLayer,
+  VOLUME_RENDER_QUALITY,
+  type TVolumeRenderQuality,
+} from "@/lib/layers/volumeLayer.ts";
 import type { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
+import { assertVolumeCurrent } from "@/lib/volume/volumeData.ts";
 import {
-  inspectVolumeSources,
-  loadVolumeData,
-} from "@/lib/volume/volumeData.ts";
+  planVolumeFrame,
+  prepareVolumeFrame,
+  type TVolumeContext,
+  type TVolumeFrameOptions,
+  type TPreparedVolumeFrame,
+} from "@/lib/volume/volumeFrame.ts";
 import {
-  VOLUME_GRID_TYPES,
-  type TVolumeGrid,
-} from "@/lib/volume/volumeGrid.ts";
-import {
-  chooseVolumeTextureDimensions,
-  chooseRegularVolumeTextureDimensions,
-  HIGH_RES_VOLUME_TEXTURE_BUDGET_BYTES,
-  RESERVED_VOLUME_CHANNEL_COUNT,
-} from "@/lib/volume/volumeTexture.ts";
-import {
-  buildVolumeTextureInWorker,
-  terminateVolumeTextureWorker,
-} from "@/lib/volume/volumeTextureWorkerClient.ts";
+  createVolumeInterpolation,
+  type TVolumeInterpolation,
+} from "@/lib/volume/volumeInterpolation.ts";
+import { terminateVolumeTextureWorker } from "@/lib/volume/volumeTextureWorkerClient.ts";
 import {
   BUILTIN_LAYER_IDS,
   LAYER_OPACITY,
@@ -36,13 +35,7 @@ import {
 } from "@/store/store.ts";
 import { useLog } from "@/ui/common/useLog.ts";
 
-export type TVolumeContext = {
-  dimensionNames: string[];
-  indices: (number | null | zarr.Slice)[];
-  grid: TVolumeGrid;
-};
-
-type TNormalizedVolumeContext = TVolumeContext & { gridKey: string };
+export type { TVolumeContext } from "@/lib/volume/volumeFrame.ts";
 
 type TOptions = {
   getDatasources: () => TSources | undefined;
@@ -66,40 +59,16 @@ function renderOrder(store: ReturnType<typeof useGlobeControlStore>) {
   return delta > 0 ? 10 + delta : Math.max(delta, -9);
 }
 
-function normalizeCellCoordinates(
-  coordinates: Float64Array | undefined,
-  nside: number
-) {
-  if (!coordinates) {
-    return { coordinates: undefined, key: "global" };
-  }
-  let isIdentity = coordinates.length === 12 * nside * nside;
-  let hash = 2_166_136_261;
-  const normalized = new Float64Array(coordinates.length);
-  for (let index = 0; index < coordinates.length; index++) {
-    const coordinate = coordinates[index];
-    normalized[index] = coordinate;
-    isIdentity &&= coordinate === index;
-    hash = Math.imul(hash ^ coordinate, 16_777_619);
-    hash = Math.imul(hash ^ Math.floor(coordinate / 2 ** 32), 16_777_619);
-  }
-  return isIdentity
-    ? { coordinates: undefined, key: "global" }
-    : {
-        coordinates: normalized,
-        key: `${normalized.length}:${hash >>> 0}`,
-      };
-}
-
 // eslint-disable-next-line max-lines-per-function
 export function useVolume(options: TOptions) {
   const store = useGlobeControlStore();
   store.volumeAvailable = true;
   const { logError } = useLog();
-  let context: TNormalizedVolumeContext | undefined;
+  let context: TVolumeContext | undefined;
   let layer: VolumeLayer | undefined;
   let cachedKey: string | undefined;
   let hasData = false;
+  let animationQuality: TVolumeRenderQuality | undefined;
   let requestRevision = 0;
   let disposed = false;
 
@@ -119,6 +88,15 @@ export function useVolume(options: TOptions) {
     return layer;
   }
 
+  function updateQuality() {
+    layer?.setQuality(
+      animationQuality ??
+        (options.isSceneInMotion.value
+          ? VOLUME_RENDER_QUALITY.INTERACTIVE
+          : VOLUME_RENDER_QUALITY.FULL)
+    );
+  }
+
   function updateAppearance() {
     if (!layer) {
       return;
@@ -126,6 +104,7 @@ export function useVolume(options: TOptions) {
     const entry = store.layerStack.find(
       (candidate) => candidate.id === BUILTIN_LAYER_IDS.VOLUME
     );
+    updateQuality();
     layer.setOpacity(entry?.opacity ?? LAYER_OPACITY.MAX);
     layer.setRenderOrder(renderOrder(store));
     layer.setProjection(options.projectionHelper.value);
@@ -133,19 +112,148 @@ export function useVolume(options: TOptions) {
     options.redraw();
   }
 
+  function preparationOptions(input: TVolumeFrameOptions) {
+    const datasources = options.getDatasources();
+    const variables = store.volumeSelections.map(
+      (selection) => selection.variable
+    );
+    return {
+      ...input,
+      isCurrent: () =>
+        !disposed &&
+        !input.signal?.aborted &&
+        (input.isCurrent?.() ?? true) &&
+        datasources === options.getDatasources() &&
+        store.isVolumeLayerEnabled() &&
+        variables.join("\0") ===
+          store.volumeSelections
+            .map((selection) => selection.variable)
+            .join("\0"),
+    };
+  }
+
+  async function planFrame(
+    nextContext: TVolumeContext,
+    input: TVolumeFrameOptions
+  ) {
+    assertVolumeCurrent(input);
+    const renderer = options.getRenderer();
+    const datasources = options.getDatasources();
+    if (!renderer || !datasources) {
+      throw new Error(
+        "Volume preparation requires a loaded dataset and renderer."
+      );
+    }
+    return planVolumeFrame(
+      datasources,
+      store.volumeSelections.map((selection) => selection.variable),
+      nextContext,
+      getMax3DTextureSize(renderer),
+      input
+    );
+  }
+
+  async function prepareFrame(
+    nextContext: TVolumeContext,
+    input: TVolumeFrameOptions = {}
+  ) {
+    const guarded = preparationOptions({ interpolatable: true, ...input });
+    const plan = await planFrame(nextContext, guarded);
+    return prepareVolumeFrame(plan, guarded);
+  }
+
+  function canCommit(frame: TPreparedVolumeFrame) {
+    return !(
+      disposed ||
+      !store.isVolumeLayerEnabled() ||
+      !frame.isCurrent() ||
+      frame.plan.datasources !== options.getDatasources() ||
+      frame.plan.variables.join("\0") !==
+        store.volumeSelections.map((selection) => selection.variable).join("\0")
+    );
+  }
+
+  function commitFrame(frame: TPreparedVolumeFrame) {
+    if (!canCommit(frame)) {
+      return false;
+    }
+    requestRevision++;
+    animationQuality = undefined;
+    context = frame.plan.context;
+    if (cachedKey !== frame.plan.key || !hasData) {
+      if (frame.physical) {
+        ensureLayer().setInterpolation(
+          createVolumeInterpolation([frame]),
+          0,
+          0,
+          0
+        );
+        layer!.setAppearance(
+          store.volumeSelections.map((selection) => selection.color),
+          store.volumeSelections.map((selection) => selection.opacity)
+        );
+      } else {
+        ensureLayer().setData(
+          frame.data,
+          frame.dimensions,
+          frame.channelCount,
+          frame.storageChannelCount,
+          store.volumeSelections.map((selection) => selection.color),
+          store.volumeSelections.map((selection) => selection.opacity),
+          frame.bounds
+        );
+      }
+    }
+    cachedKey = frame.plan.key;
+    hasData = true;
+    store.volumeLoading = false;
+    store.volumeProgress = undefined;
+    updateAppearance();
+    return true;
+  }
+
+  function commitInterpolation(
+    sequence: TVolumeInterpolation,
+    firstIndex: number,
+    nextIndex: number,
+    alpha: number,
+    forExport = false
+  ) {
+    const first = sequence.frames[firstIndex],
+      next = sequence.frames[nextIndex];
+    if (!first || !next || !canCommit(first) || !canCommit(next)) {
+      return false;
+    }
+    ensureLayer().setInterpolation(sequence, firstIndex, nextIndex, alpha);
+    // ponytail: fixed preview sampling trades fine detail for speed. Large views
+    // may still need a reduced-resolution volume pass; export keeps full quality.
+    animationQuality = forExport
+      ? VOLUME_RENDER_QUALITY.FULL
+      : VOLUME_RENDER_QUALITY.PREVIEW;
+    layer!.setAppearance(
+      store.volumeSelections.map((selection) => selection.color),
+      store.volumeSelections.map((selection) => selection.opacity)
+    );
+    requestRevision++;
+    context = first.plan.context;
+    cachedKey = undefined;
+    hasData = true;
+    store.volumeLoading = false;
+    store.volumeProgress = undefined;
+    updateAppearance();
+    return true;
+  }
+
   // eslint-disable-next-line max-lines-per-function
-  async function loadVolume() {
+  async function loadVolume(isCurrent: () => boolean = () => true) {
     const revision = ++requestRevision;
     const requestContext = context;
-    const datasources = options.getDatasources();
-    const selections = store.volumeSelections.slice(0, 4);
-    const renderer = options.getRenderer();
     if (
       disposed ||
       !requestContext ||
-      !datasources ||
-      selections.length === 0 ||
-      !renderer ||
+      !store.volumeSelections.length ||
+      !options.getRenderer() ||
+      !options.getDatasources() ||
       !store.isVolumeLayerEnabled()
     ) {
       store.volumeLoading = false;
@@ -153,118 +261,32 @@ export function useVolume(options: TOptions) {
       updateAppearance();
       return;
     }
-
     store.volumeLoading = true;
     store.volumeProgress = 0;
+    const input = preparationOptions({
+      isCurrent: () => revision === requestRevision && isCurrent(),
+      onProgress: (fraction) => reportProgress(revision, 5 + fraction * 95),
+    });
     try {
-      const sources = await inspectVolumeSources(
-        datasources,
-        selections.map((selection) => selection.variable),
-        requestContext
-      );
-      if (revision !== requestRevision || disposed) {
-        return;
-      }
-      reportProgress(revision, 5);
-      const first = sources[0];
-      const max3DTextureSize = getMax3DTextureSize(renderer);
-      if (!(max3DTextureSize > 0)) {
-        throw new Error("This device does not support WebGL 3D textures.");
-      }
-      const grid = requestContext.grid;
-      const horizontalShape =
-        grid.kind === VOLUME_GRID_TYPES.HEALPIX
-          ? undefined
-          : grid.kind === VOLUME_GRID_TYPES.PROJECTED
-            ? [grid.y.length, grid.x.length]
-            : [grid.latitudes.length, grid.longitudes.length];
-      // Reserve water/ice channels to keep resolution stable when adding a field.
-      const channelCount = Math.max(
-        RESERVED_VOLUME_CHANNEL_COUNT,
-        sources.length
-      );
-      if (
-        horizontalShape &&
-        (first.spatialShape[0] !== horizontalShape[0] ||
-          first.spatialShape[1] !== horizontalShape[1])
-      ) {
-        throw new Error("Volume coordinates do not match the displayed grid.");
-      }
-      const dimensions =
-        grid.kind === VOLUME_GRID_TYPES.HEALPIX
-          ? chooseVolumeTextureDimensions(
-              grid.nside,
-              first.sourceLevelCount,
-              max3DTextureSize,
-              channelCount,
-              HIGH_RES_VOLUME_TEXTURE_BUDGET_BYTES
-            )
-          : chooseRegularVolumeTextureDimensions(
-              horizontalShape![1],
-              horizontalShape![0],
-              first.sourceLevelCount,
-              max3DTextureSize,
-              channelCount,
-              HIGH_RES_VOLUME_TEXTURE_BUDGET_BYTES
-            );
-      const key = JSON.stringify({
-        variables: sources.map((source) => source.name),
-        selection: first.selection,
-        grid: requestContext.gridKey,
-        dimensions,
-      });
-      if (key === cachedKey && hasData) {
+      const plan = await planFrame(requestContext, input);
+      assertVolumeCurrent(input);
+      if (plan.key === cachedKey && hasData) {
         layer?.setAppearance(
-          selections.map((selection) => selection.color),
-          selections.map((selection) => selection.opacity)
+          store.volumeSelections.map((selection) => selection.color),
+          store.volumeSelections.map((selection) => selection.opacity)
         );
         updateAppearance();
         return;
       }
-
-      const { values, heights, levels } = await loadVolumeData(
-        datasources,
-        sources,
-        requestContext,
-        (fraction) => reportProgress(revision, 5 + fraction * 70)
-      );
-      if (revision !== requestRevision || disposed) {
-        return;
-      }
-      const result = await buildVolumeTextureInWorker(
-        {
-          grid: structuredClone(grid),
-          sourceLevelCount: first.sourceLevelCount,
-          sourceCellCount: first.sourceCellCount,
-          values,
-          heights,
-          levels,
-          dimensions,
-        },
-        (completed, total) =>
-          reportProgress(
-            revision,
-            75 + (total > 0 ? (completed / total) * 24 : 0)
-          )
-      );
-      if (revision !== requestRevision || disposed) {
-        return;
-      }
-      ensureLayer().setData(
-        result.data,
-        result.dimensions,
-        result.channelCount,
-        result.storageChannelCount,
-        store.volumeSelections.map((selection) => selection.color),
-        store.volumeSelections.map((selection) => selection.opacity),
-        result.bounds
-      );
-      cachedKey = key;
-      hasData = true;
-      reportProgress(revision, 100);
-      updateAppearance();
+      const frame = await prepareVolumeFrame(plan, input);
+      assertVolumeCurrent(input);
+      commitFrame(frame);
     } catch (error) {
-      if (revision === requestRevision && !disposed) {
+      if (
+        revision === requestRevision &&
+        !disposed &&
+        !(error instanceof DOMException && error.name === "AbortError")
+      ) {
         hasData = false;
         updateAppearance();
         logError(error, "Could not render the volume");
@@ -277,31 +299,25 @@ export function useVolume(options: TOptions) {
     }
   }
 
-  function setContext(nextContext?: TVolumeContext) {
-    if (!nextContext) {
-      context = undefined;
-      hasData = false;
-      void loadVolume();
+  async function setContext(
+    nextContext?: TVolumeContext,
+    frame?: TPreparedVolumeFrame,
+    isCurrent?: () => boolean
+  ) {
+    if (frame) {
+      if (isCurrent?.() === false || !commitFrame(frame)) {
+        throw new DOMException(
+          "Volume frame is no longer current",
+          "AbortError"
+        );
+      }
       return;
     }
-    const grid = nextContext.grid;
-    if (grid.kind === VOLUME_GRID_TYPES.HEALPIX) {
-      const normalized = normalizeCellCoordinates(
-        grid.cellCoordinates,
-        grid.nside
-      );
-      context = {
-        ...nextContext,
-        grid: { ...grid, cellCoordinates: normalized.coordinates },
-        gridKey: JSON.stringify([grid.options, grid.nside, normalized.key]),
-      };
-    } else {
-      context = {
-        ...nextContext,
-        gridKey: JSON.stringify(grid),
-      };
+    context = nextContext;
+    if (!nextContext) {
+      hasData = false;
     }
-    void loadVolume();
+    await loadVolume(isCurrent);
   }
 
   function refresh() {
@@ -339,7 +355,7 @@ export function useVolume(options: TOptions) {
     }
   });
   options.onMotionStateChange(() => {
-    layer?.setInteractive(options.isSceneInMotion.value);
+    updateQuality();
     options.redraw();
   });
   onMounted(() => void loadVolume());
@@ -357,5 +373,11 @@ export function useVolume(options: TOptions) {
     }
   });
 
-  return { setContext, refresh };
+  return {
+    setContext,
+    refresh,
+    prepareFrame,
+    commitFrame,
+    commitInterpolation,
+  };
 }

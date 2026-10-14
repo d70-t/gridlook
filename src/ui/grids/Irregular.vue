@@ -4,25 +4,38 @@ import * as THREE from "three";
 import { computed, onBeforeMount, onBeforeUnmount, ref } from "vue";
 import * as zarr from "zarrita";
 
-import { useGridHoverLookup } from "./composables/gridHoverUtils.ts";
+import {
+  createSampleIndexLookup,
+  useGridHoverLookup,
+} from "./composables/gridHoverUtils.ts";
+import {
+  fetchScalarFrameData,
+  decodeScalarFrameData,
+  getScalarFrameDimensions,
+  type TPreparedScalarFrame,
+  type TScalarFrameRequest,
+} from "./composables/scalarFrame.ts";
+import {
+  scalarFrameMemory,
+  shareScalarBuffers,
+  shareScalarGeometry,
+} from "./composables/scalarFrameMemory.ts";
+import {
+  captureScalarGeometry,
+  updateScalarGeometry,
+} from "./composables/scalarGeometry.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useIrregularStreamlines } from "./composables/useIrregularStreamlines.ts";
 import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
 import { getLatLonData } from "@/lib/data/coordinateVariables.ts";
-import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
 import { reconcileCoordinates } from "@/lib/data/irregularGridHelpers.ts";
-import {
-  castDataVarToFloat32,
-  decodeVariableDataAndGetBounds,
-} from "@/lib/data/variableDecoding.ts";
+import { PATHLINE_GRID } from "@/lib/data/pathlineField.ts";
+import { castDataVarToFloat32 } from "@/lib/data/variableDecoding.ts";
 import type { TVectorMagnitudeData } from "@/lib/data/vectorMagnitude.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
-import {
-  getGridVariableData,
-  terminateGridDataWorker,
-} from "@/lib/grids/gridDataWorkerClient.ts";
+import { terminateGridDataWorker } from "@/lib/grids/gridDataWorkerClient.ts";
 import type { TGridPointBatch } from "@/lib/grids/gridWorkerTypes.ts";
 import {
   buildIrregularGrid,
@@ -34,7 +47,6 @@ import {
   updateProjectionUniforms,
 } from "@/lib/shaders/gridShaders.ts";
 import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
-import { useUrlParameterStore } from "@/store/paramStore.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 
 const props = defineProps<{
@@ -42,11 +54,7 @@ const props = defineProps<{
 }>();
 
 const store = useGlobeControlStore();
-const { dimSlidersValues, colormap, varnameSelector, invertColormap, varinfo } =
-  storeToRefs(store);
-const urlParameterStore = useUrlParameterStore();
-const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
-  storeToRefs(urlParameterStore);
+const { colormap, varnameSelector, invertColormap } = storeToRefs(store);
 
 const estimatedSpacing = ref(0);
 const BATCH_SIZE = 500000;
@@ -61,9 +69,11 @@ let magnitudeCoordinates:
   | undefined;
 
 const {
+  pathlineDisplay,
   getScene,
   getCamera,
   makeSnapshot,
+  createSnapshotRenderer,
   toggleRotate,
   applyCameraPreset,
   fitCameraToDataset,
@@ -83,7 +93,7 @@ const {
   hoveredGeoPoint,
 } = useSharedGridLogic();
 
-const { setHoverLookupFromIndex, clearHoverLookup } =
+const { setHoverLookup, setHoverLookupFromIndex, clearHoverLookup } =
   useGridHoverLookup(hoveredGeoPoint);
 
 onColormapChange(() => updateColormap(points));
@@ -157,10 +167,17 @@ async function showMagnitude(scalar: TVectorMagnitudeData) {
   });
 }
 
-const { datasourceUpdate } = useGridDataLoader({
+const {
+  datasourceUpdate,
+  prepareScalarFrame,
+  commitScalarFrame,
+  getScalarFrameLayout,
+} = useGridDataLoader({
   getDatasources: () => props.datasources,
   getDataVar,
-  fetchAndRenderData,
+  prepareFrame,
+  getScalarObjects: () => points,
+  setHoverLookup,
   scalarCache,
   clearHoverLookup,
   updateLandSeaMask,
@@ -181,6 +198,9 @@ function cleanupPoints(totalBatches: number) {
 }
 
 function updateBatch(batch: TGridPointBatch) {
+  if (updateScalarGeometry(points[batch.batchIndex]?.geometry, batch)) {
+    return;
+  }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute(
     "position",
@@ -194,6 +214,7 @@ function updateBatch(batch: TGridPointBatch) {
     "data_value",
     new THREE.BufferAttribute(batch.dataValues, 1)
   );
+  captureScalarGeometry(geometry, batch);
   geometry.computeBoundingSphere();
   if (points[batch.batchIndex]) {
     points[batch.batchIndex].geometry.dispose();
@@ -252,28 +273,25 @@ function getGeographicDimensionIndices(
 }
 
 async function buildDimensionConfig(
-  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
+  request: TScalarFrameRequest
 ) {
   const { latitudes, longitudes, latitudesAttrs, longitudesAttrs } =
-    await getLatLonData(varnameSelector.value, datavar, props.datasources);
+    await getLatLonData(request.variable, datavar, request.datasources);
   const dimensions = await ZarrDataManager.getDimensionNames(
-    props.datasources!,
-    varnameSelector.value
+    request.datasources,
+    request.variable
   );
   const geographicDimensions = getGeographicDimensionIndices(
     dimensions,
     latitudesAttrs,
     longitudesAttrs!
   );
-  const config = buildDimensionRangesAndIndices(
+  const config = getScalarFrameDimensions(
     datavar,
     dimensions,
-    paramDimIndices.value,
-    paramDimMinBounds.value,
-    paramDimMaxBounds.value,
-    dimSlidersValues.value.length > 0 ? dimSlidersValues.value : null,
     geographicDimensions,
-    varinfo.value?.dimRanges
+    request
   );
   return {
     latitudes,
@@ -284,36 +302,25 @@ async function buildDimensionConfig(
   };
 }
 
-function fetchIrregularVariableData(selection: (number | null | zarr.Slice)[]) {
-  return getGridVariableData({
-    source: ZarrDataManager.getDatasetSource(
-      props.datasources!,
-      varnameSelector.value
-    ),
-    variable: varnameSelector.value,
-    format: props.datasources!.zarr_format,
-    selection,
-  });
-}
-
 async function getDimensionValues(
+  request: TScalarFrameRequest,
   dimensionRanges: TDimensionRange[],
   indices: (number | zarr.Slice | null)[]
 ) {
   return await fetchDimensionDetails(
-    varnameSelector.value,
-    props.datasources!,
+    request.variable,
+    request.datasources,
     dimensionRanges,
     indices
   );
 }
 
 /* eslint-disable-next-line max-lines-per-function */
-async function fetchAndRenderData(
+async function prepareFrame(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
-  isCurrent: () => boolean
-) {
-  const deferDisplay = store.isStreamlineLayerEnabled();
+  request: TScalarFrameRequest
+): Promise<TPreparedScalarFrame | undefined> {
+  const { isCurrent } = request;
   const {
     latitudes,
     longitudes,
@@ -321,16 +328,27 @@ async function fetchAndRenderData(
     indices,
     dimensions,
     geographicDimensions,
-  } = await buildDimensionConfig(datavar);
+  } = await buildDimensionConfig(datavar, request);
+  const sharedCoordinates = shareScalarBuffers(
+    "coordinates",
+    {
+      latitudesData: latitudes.data,
+      longitudesData: longitudes.data,
+    },
+    request.geometryCache
+  );
+  latitudes.data = sharedCoordinates.latitudesData;
+  longitudes.data = sharedCoordinates.longitudesData;
   const rawData = castDataVarToFloat32(
-    await fetchIrregularVariableData(indices)
+    await fetchScalarFrameData(request, indices)
   );
   if (!isCurrent()) {
     return;
   }
-  const { min, max, fillValue, missingValue } = decodeVariableDataAndGetBounds(
+  const { min, max, fillValue, missingValue } = decodeScalarFrameData(
     datavar,
-    rawData
+    rawData,
+    request
   );
   const helper = projectionHelper.value;
   const batches: TGridPointBatch[] = [];
@@ -349,41 +367,30 @@ async function fetchAndRenderData(
     {
       onMetadata: (metadata) => {
         spacing = metadata.estimatedSpacing;
-        if (!deferDisplay && isCurrent()) {
-          cleanupPoints(metadata.totalBatches);
-          estimatedSpacing.value = metadata.estimatedSpacing;
-        }
       },
       onBatch: (batch) => {
-        batches.push(batch);
-        if (!deferDisplay && isCurrent()) {
-          updateBatch(batch);
-        }
+        batches.push(shareScalarGeometry(batch, request.geometryCache));
       },
     }
   );
-  magnitudeCoordinates = {
-    latitudes: latitudes.data as Float32Array,
-    longitudes: longitudes.data as Float32Array,
-    latitudeShape: [...latitudes.shape],
-    longitudeShape: [...longitudes.shape],
-  };
+
+  shareScalarBuffers("hover", result.hoverIndexData, request.geometryCache);
   const hoverIndex = createSerializedGeoSampleIndex(result.hoverIndexData);
 
   if (!isCurrent()) {
     return;
   }
-  const dimInfo = await getDimensionValues(dimensionRanges, indices);
+  const dimInfo = await getDimensionValues(request, dimensionRanges, indices);
   const scalarInfo = {
     attrs: datavar.attrs,
     dimInfo,
     bounds: { low: min, high: max },
     dimRanges: dimensionRanges,
   };
-  const coordinates = reconcileCoordinates(
-    latitudes,
-    longitudes,
-    rawData.length
+  const coordinates = shareScalarBuffers(
+    "reconciled",
+    reconcileCoordinates(latitudes, longitudes, rawData.length),
+    request.geometryCache
   );
   const renderScalar = () => {
     cleanupPoints(batches.length);
@@ -397,7 +404,32 @@ async function fetchAndRenderData(
   if (!isCurrent()) {
     return;
   }
-  scalarCache.captureScalar({
+  return {
+    pathlineGrid: {
+      grid: { kind: PATHLINE_GRID.POINTS, ...coordinates },
+      spatialDimensionNames: geographicDimensions.map(
+        (index) => dimensions[index]
+      ),
+      spatialShape: geographicDimensions.map((index) => datavar.shape[index]),
+    },
+    memory: scalarFrameMemory(
+      batches,
+      rawData,
+      result.hoverIndexData,
+      latitudes.data,
+      longitudes.data,
+      coordinates,
+      scalarInfo
+    ),
+    interpolation: {
+      values: batches.map((batch) => batch.dataValues),
+      geometry: batches.flatMap((batch) => [
+        batch.positionValues,
+        batch.latLonValues,
+      ]),
+      sample: createSampleIndexLookup(hoverIndex, fillValue, missingValue),
+    },
+    name: request.variable,
     render: renderScalar,
     info: scalarInfo,
     indices: indices as number[],
@@ -405,18 +437,24 @@ async function fetchAndRenderData(
     missingValue,
     fillValue,
     isCurrent,
-  });
-  await streamlines.setContext({
-    ...coordinates,
-    dimensionNames: dimensions,
-    indices,
-    spatialDimensionNames: geographicDimensions.map(
-      (index) => dimensions[index]
-    ),
-  });
-  if (isCurrent() && !store.streamlineMagnitudeDisplayed) {
-    await scalarCache.restoreScalar();
-  }
+    updateLayers: async () => {
+      magnitudeCoordinates = {
+        latitudes: latitudes.data as Float32Array,
+        longitudes: longitudes.data as Float32Array,
+        latitudeShape: [...latitudes.shape],
+        longitudeShape: [...longitudes.shape],
+      };
+
+      await streamlines.setContext({
+        ...coordinates,
+        dimensionNames: dimensions,
+        indices,
+        spatialDimensionNames: geographicDimensions.map(
+          (index) => dimensions[index]
+        ),
+      });
+    },
+  };
 }
 
 onBeforeMount(async () => {
@@ -429,7 +467,16 @@ onBeforeUnmount(() => {
   terminateGridDataWorker();
 });
 
-defineExpose({ makeSnapshot, toggleRotate, applyCameraPreset });
+defineExpose({
+  pathlineDisplay,
+  makeSnapshot,
+  createSnapshotRenderer,
+  toggleRotate,
+  applyCameraPreset,
+  prepareScalarFrame,
+  commitScalarFrame,
+  getScalarFrameLayout,
+});
 </script>
 
 <template>

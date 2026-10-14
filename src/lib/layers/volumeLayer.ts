@@ -6,12 +6,21 @@ import vertexShader from "./glsl/volume.vert.glsl";
 
 import { getProjectionTypeFromMode } from "@/lib/projection/projectionShaders.ts";
 import type { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
-import type { TVolumeTextureDimensions } from "@/lib/volume/volumeTexture.ts";
+import type { TVolumeInterpolation } from "@/lib/volume/volumeInterpolation.ts";
+import type {
+  TVolumeTextureData,
+  TVolumeTextureDimensions,
+} from "@/lib/volume/volumeTexture.ts";
 
 const INNER_RADIUS = 1.002;
 const OUTER_RADIUS = 1.09;
-const INTERACTIVE_STEP_COUNT = 32;
-const SETTLED_STEP_COUNT = 72;
+export const VOLUME_RENDER_QUALITY = {
+  PREVIEW: 24,
+  INTERACTIVE: 32,
+  FULL: 72,
+} as const;
+export type TVolumeRenderQuality =
+  (typeof VOLUME_RENDER_QUALITY)[keyof typeof VOLUME_RENDER_QUALITY];
 
 export function getMax3DTextureSize(renderer: THREE.WebGLRenderer) {
   const context = renderer.getContext() as WebGL2RenderingContext;
@@ -19,7 +28,7 @@ export function getMax3DTextureSize(renderer: THREE.WebGLRenderer) {
 }
 
 function makeVolumeTexture(
-  data: Uint8Array,
+  data: TVolumeTextureData,
   dimensions: TVolumeTextureDimensions,
   storageChannelCount: number,
   bounds: TGeoBounds
@@ -36,7 +45,8 @@ function makeVolumeTexture(
       : storageChannelCount === 2
         ? THREE.RGFormat
         : THREE.RGBAFormat;
-  texture.type = THREE.UnsignedByteType;
+  texture.type =
+    data instanceof Uint16Array ? THREE.HalfFloatType : THREE.UnsignedByteType;
   texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
   texture.wrapS = THREE.ClampToEdgeWrapping;
@@ -55,7 +65,10 @@ export class VolumeLayer {
   readonly object: THREE.Mesh;
 
   private readonly material: THREE.ShaderMaterial;
-  private texture?: THREE.Data3DTexture;
+  private readonly textures = new Map<
+    TVolumeTextureData,
+    THREE.Data3DTexture
+  >();
   private flat = false;
 
   constructor() {
@@ -65,6 +78,14 @@ export class VolumeLayer {
       fragmentShader,
       uniforms: {
         volumeData: { value: null },
+        nextVolumeData: { value: null },
+        interpolateValues: { value: false },
+        volumeAlpha: { value: 0 },
+        firstPhysicalScale: { value: new THREE.Vector4() },
+        nextPhysicalScale: { value: new THREE.Vector4() },
+        normalizationScale: { value: new THREE.Vector4(1, 1, 1, 1) },
+        firstHeightTransform: { value: new THREE.Vector2(1, 0) },
+        nextHeightTransform: { value: new THREE.Vector2(1, 0) },
         projectionType: { value: 0 },
         centerLon: { value: 0 },
         centerLat: { value: 0 },
@@ -72,7 +93,7 @@ export class VolumeLayer {
         innerRadius: { value: INNER_RADIUS },
         outerRadius: { value: OUTER_RADIUS },
         opacity: { value: 1 },
-        stepCount: { value: SETTLED_STEP_COUNT },
+        stepCount: { value: VOLUME_RENDER_QUALITY.FULL },
         channelCount: { value: 1 },
         channelColors: {
           value: [
@@ -99,7 +120,7 @@ export class VolumeLayer {
   }
 
   setData(
-    data: Uint8Array,
+    data: TVolumeTextureData,
     dimensions: TVolumeTextureDimensions,
     channelCount: number,
     storageChannelCount: number,
@@ -107,23 +128,115 @@ export class VolumeLayer {
     opacities: number[],
     bounds: TGeoBounds
   ) {
-    this.texture?.dispose();
-    this.texture = makeVolumeTexture(
+    this.clearTextures();
+    const texture = makeVolumeTexture(
       data,
       dimensions,
       storageChannelCount,
       bounds
     );
+    this.textures.set(data, texture);
+    this.material.uniforms.interpolateValues.value = false;
+    this.material.uniforms.nextVolumeData.value = texture;
     this.material.uniforms.textureBounds.value.set(
       bounds.west,
       bounds.south,
       bounds.east,
       bounds.north
     );
-    this.material.uniforms.volumeData.value = this.texture;
+    this.material.uniforms.volumeData.value = texture;
     this.material.uniforms.channelCount.value = channelCount;
     this.setAppearance(colors, opacities);
     this.material.needsUpdate = true;
+  }
+
+  // Pair changes upload at most one new keyframe; intermediate frames change uniforms only.
+  // eslint-disable-next-line max-lines-per-function
+  setInterpolation(
+    sequence: TVolumeInterpolation,
+    firstIndex: number,
+    nextIndex: number,
+    alpha: number
+  ) {
+    const first = sequence.frames[firstIndex],
+      next = sequence.frames[nextIndex];
+    if (
+      !first?.physical ||
+      !next?.physical ||
+      !Number.isFinite(alpha) ||
+      alpha < 0 ||
+      alpha > 1
+    ) {
+      throw new Error(
+        "Choose valid volume keyframes and an interpolation fraction between zero and one."
+      );
+    }
+    for (const [data, texture] of this.textures) {
+      if (data !== first.data && data !== next.data) {
+        texture.dispose();
+        this.textures.delete(data);
+      }
+    }
+    for (const frame of [first, next]) {
+      if (!this.textures.has(frame.data)) {
+        this.textures.set(
+          frame.data,
+          makeVolumeTexture(
+            frame.data,
+            frame.dimensions,
+            frame.storageChannelCount,
+            frame.bounds
+          )
+        );
+      }
+    }
+    const uniforms = this.material.uniforms;
+    uniforms.volumeData.value = this.textures.get(first.data);
+    uniforms.nextVolumeData.value = this.textures.get(next.data);
+    uniforms.interpolateValues.value = true;
+    uniforms.volumeAlpha.value = alpha;
+    uniforms.channelCount.value = first.channelCount;
+    const bounds = first.bounds;
+    uniforms.textureBounds.value.set(
+      bounds.west,
+      bounds.south,
+      bounds.east,
+      bounds.north
+    );
+    for (let channel = 0; channel < 4; channel++) {
+      uniforms.firstPhysicalScale.value.setComponent(
+        channel,
+        first.physical.scales[channel] ?? 1
+      );
+      uniforms.nextPhysicalScale.value.setComponent(
+        channel,
+        next.physical.scales[channel] ?? 1
+      );
+      uniforms.normalizationScale.value.setComponent(
+        channel,
+        sequence.valueScales[channel] ?? 1
+      );
+    }
+    for (const [frame, uniform] of [
+      [first, uniforms.firstHeightTransform],
+      [next, uniforms.nextHeightTransform],
+    ] as const) {
+      const range = frame.physical!.range;
+      const span = range.max - range.min;
+      uniform.value.set(
+        span ? (sequence.range.max - sequence.range.min) / span : 0,
+        span ? (sequence.range.min - range.min) / span : 0.5
+      );
+    }
+  }
+
+  private clearTextures() {
+    for (const texture of this.textures.values()) {
+      texture.dispose();
+    }
+    this.textures.clear();
+    this.material.uniforms.volumeData.value = null;
+    this.material.uniforms.nextVolumeData.value = null;
   }
 
   setProjection(projection: ProjectionHelper) {
@@ -161,10 +274,8 @@ export class VolumeLayer {
     this.material.uniforms.opacity.value = opacity;
   }
 
-  setInteractive(interactive: boolean) {
-    this.material.uniforms.stepCount.value = interactive
-      ? INTERACTIVE_STEP_COUNT
-      : SETTLED_STEP_COUNT;
+  setQuality(quality: TVolumeRenderQuality) {
+    this.material.uniforms.stepCount.value = quality;
   }
 
   setRenderOrder(renderOrder: number) {
@@ -172,7 +283,7 @@ export class VolumeLayer {
   }
 
   dispose() {
-    this.texture?.dispose();
+    this.clearTextures();
     this.object.geometry.dispose();
     this.material.dispose();
   }

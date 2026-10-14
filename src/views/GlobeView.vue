@@ -1,7 +1,15 @@
 <script lang="ts" setup>
 import { useEventListener } from "@vueuse/core";
 import { storeToRefs } from "pinia";
-import { computed, nextTick, onMounted, ref, watch, type Ref } from "vue";
+import {
+  computed,
+  nextTick,
+  onMounted,
+  provide,
+  ref,
+  watch,
+  type Ref,
+} from "vue";
 
 import type {
   TModelInfo,
@@ -50,6 +58,16 @@ import Toast from "@/ui/common/Toast.vue";
 import { useLog } from "@/ui/common/useLog.ts";
 import { isMobileDevice } from "@/ui/common/viewConstants.ts";
 import type { TCameraState } from "@/ui/grids/composables/useGridCameraState.ts";
+import {
+  SCALAR_BAKE_KEY,
+  SCALAR_BAKE_PHASE,
+  useScalarBake,
+  type TScalarBakeHandle,
+} from "@/ui/grids/composables/useScalarBake.ts";
+import {
+  useScalarVideoExport,
+  SCALAR_VIDEO_EXPORT_KEY,
+} from "@/ui/grids/composables/useScalarVideoExport.ts";
 import GridCurvilinear from "@/ui/grids/Curvilinear.vue";
 import GridGaussianReduced from "@/ui/grids/GaussianReduced.vue";
 import GridHealpix from "@/ui/grids/Healpix.vue";
@@ -123,8 +141,11 @@ const {
   paramVolumeOpacity,
 } = storeToRefs(urlParameterStore);
 
-type TGlobeHandle = {
+type TGlobeHandle = TScalarBakeHandle & {
   makeSnapshot: (options: TSnapshotOptions) => void;
+  createSnapshotRenderer: ReturnType<
+    typeof import("@/ui/grids/composables/useGridSnapshot.ts").useGridSnapshot
+  >["createSnapshotRenderer"];
   toggleRotate: () => void;
   applyCameraPreset: (state: TCameraState) => void;
 };
@@ -148,6 +169,19 @@ const globeKey = ref(0);
 const isInitialized = ref(false);
 const sourceValid = ref(false);
 const datasources: Ref<TSources | undefined> = ref(undefined);
+const scalarBake = useScalarBake(
+  () => globe.value,
+  () => datasources.value
+);
+provide(SCALAR_BAKE_KEY, scalarBake);
+provide(
+  SCALAR_VIDEO_EXPORT_KEY,
+  useScalarVideoExport(
+    scalarBake,
+    () => globe.value,
+    () => props.src
+  )
+);
 const detectedGridType: Ref<T_GRID_TYPES | undefined> = ref(undefined);
 const infoPanelOpen = ref(false);
 
@@ -559,7 +593,18 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
     applyHyperglobePresenter();
   } else if (key === " ") {
     e.preventDefault();
-    toggleTimeAnimation();
+    if (scalarBake.phase === SCALAR_BAKE_PHASE.READY) {
+      if (scalarBake.playing) {
+        scalarBake.pause();
+      } else {
+        void scalarBake.play();
+      }
+    } else if (
+      scalarBake.phase === SCALAR_BAKE_PHASE.EMPTY ||
+      scalarBake.phase === SCALAR_BAKE_PHASE.ERROR
+    ) {
+      toggleTimeAnimation();
+    }
   }
 });
 </script>

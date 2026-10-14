@@ -1,12 +1,14 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { effectScope, nextTick } from "vue";
+import { effectScope, inject, nextTick, reactive } from "vue";
 
 import { GRID_TYPES } from "@/lib/data/gridTypeDetector.ts";
 import type { TModelInfo } from "@/lib/types/GlobeTypes.ts";
+import { SCALAR_BAKE_PHASE } from "@/ui/grids/composables/useScalarBake.ts";
 
 vi.mock("vue", async (importOriginal) => ({
   ...(await importOriginal<typeof import("vue")>()),
   onBeforeMount: vi.fn(),
+  inject: vi.fn(),
   useSSRContext: () => ({}),
 }));
 vi.stubGlobal("localStorage", { getItem: () => null });
@@ -18,7 +20,10 @@ const { default: Controls } = await import("@/ui/overlays/Controls.vue");
 const { showVectorMagnitudeScalarInfo } =
   await import("@/ui/grids/composables/vectorMagnitudeScalar.ts");
 
-beforeEach(() => setActivePinia(createPinia()));
+beforeEach(() => {
+  setActivePinia(createPinia());
+  vi.mocked(inject).mockReset();
+});
 
 function setupControls() {
   const store = useGlobeControlStore();
@@ -35,7 +40,7 @@ function setupControls() {
   params.paramBoundHigh = "600";
   const expose = vi.fn();
   const scope = effectScope();
-  scope.run(() =>
+  const controls = scope.run(() =>
     Controls.setup!(
       {
         modelInfo: {
@@ -53,7 +58,13 @@ function setupControls() {
     )
   );
   expose.mock.calls[0][0].initForDataset();
-  return { store, scope };
+  return {
+    store,
+    scope,
+    controls: controls as unknown as {
+      onPickedBoundsModeChange: (mode: string) => void;
+    },
+  };
 }
 
 it("uses magnitude bounds and restores the scalar's custom bounds", async () => {
@@ -78,6 +89,90 @@ it("uses magnitude bounds and restores the scalar's custom bounds", async () => 
     store.setStreamlineMagnitudeDisplayed(false);
     store.varnameDisplay = "rlds";
     store.varinfo!.bounds = { low: 100, high: 500 };
+    await nextTick();
+    expect(store.selection).toEqual({ low: 0, high: 600 });
+  } finally {
+    scope.stop();
+  }
+});
+
+it("selects completed animation bounds automatically and preserves later manual choices", async () => {
+  const bake = reactive({
+    phase: SCALAR_BAKE_PHASE.PLANNED as string,
+    bounds: { low: -10, high: 900 },
+  });
+  vi.mocked(inject).mockReturnValue(bake);
+  const { store, scope, controls } = setupControls();
+  try {
+    await nextTick();
+    expect(store.selection).toEqual({ low: 0, high: 600 });
+    bake.phase = SCALAR_BAKE_PHASE.READY;
+    await nextTick();
+    expect(store.selection).toEqual(bake.bounds);
+    store.varinfo!.bounds = { low: 200, high: 400 };
+    store.scalarAnimationBounds = { low: 100, high: 500 };
+    await nextTick();
+    expect(store.selection).toEqual(bake.bounds);
+    controls.onPickedBoundsModeChange("user");
+    await nextTick();
+    expect(store.selection).toEqual({ low: 0, high: 600 });
+    store.varinfo!.bounds = { low: 210, high: 390 };
+    await nextTick();
+    expect(store.selection).toEqual({ low: 0, high: 600 });
+    controls.onPickedBoundsModeChange("data");
+    await nextTick();
+    expect(store.selection).toEqual({ low: 210, high: 390 });
+    store.varinfo!.bounds = { low: 220, high: 380 };
+    await nextTick();
+    expect(store.selection).toEqual({ low: 220, high: 380 });
+    expect(store.scalarAnimationBounds).toBeUndefined();
+  } finally {
+    scope.stop();
+  }
+});
+
+it("returns to data bounds on release and selects Animation again for the next prepared range", async () => {
+  const bake = reactive({
+    phase: SCALAR_BAKE_PHASE.READY as string,
+    bounds: { low: -10, high: 900 },
+  });
+  vi.mocked(inject).mockReturnValue(bake);
+  const { store, scope, controls } = setupControls();
+  try {
+    controls.onPickedBoundsModeChange("animation");
+    await nextTick();
+    expect(store.selection).toEqual(bake.bounds);
+    store.scalarAnimationBounds = { ...bake.bounds };
+    bake.phase = SCALAR_BAKE_PHASE.EMPTY;
+    await nextTick();
+    expect(store.selection).toEqual({ low: 100, high: 500 });
+    expect(store.scalarAnimationBounds).toBeUndefined();
+    bake.bounds = { low: -50, high: 1000 };
+    bake.phase = SCALAR_BAKE_PHASE.READY;
+    await nextTick();
+    expect(store.selection).toEqual({ low: -50, high: 1000 });
+  } finally {
+    scope.stop();
+  }
+});
+
+it("keeps custom bounds when preparation has no finite range or fails", async () => {
+  const bake = reactive({
+    phase: SCALAR_BAKE_PHASE.BAKING as string,
+    bounds: undefined as { low: number; high: number } | undefined,
+  });
+  vi.mocked(inject).mockReturnValue(bake);
+  const { store, scope } = setupControls();
+  try {
+    await nextTick();
+    bake.phase = SCALAR_BAKE_PHASE.READY;
+    await nextTick();
+    expect(store.selection).toEqual({ low: 0, high: 600 });
+    bake.phase = SCALAR_BAKE_PHASE.BAKING;
+    bake.bounds = { low: -10, high: 900 };
+    await nextTick();
+    expect(store.selection).toEqual({ low: 0, high: 600 });
+    bake.phase = SCALAR_BAKE_PHASE.ERROR;
     await nextTick();
     expect(store.selection).toEqual({ low: 0, high: 600 });
   } finally {

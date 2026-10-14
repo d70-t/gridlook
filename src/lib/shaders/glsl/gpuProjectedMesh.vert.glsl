@@ -9,7 +9,10 @@ uniform int edgeQuality;
 uniform int useTriangleWrapCull;
 
 attribute vec2 latLon;  // lat, lon in degrees
+#include "./scalarTime.glsl"
+
 attribute float data_value;
+attribute float data_value_next;
 attribute float wrapDirection;
 attribute vec2 triangleLatLon0;
 attribute vec2 triangleLatLon1;
@@ -19,7 +22,7 @@ varying float v_value;
 varying vec2 vProjectedXY;
 
 void main() {
-  v_value = data_value;
+  v_value = scalarAtTime(data_value, data_value_next);
   if (
     shouldCullTriangleWrapInstance(
       triangleLatLon0,

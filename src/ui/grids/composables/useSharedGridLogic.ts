@@ -6,6 +6,7 @@ import { useGridCameraState } from "./useGridCameraState.ts";
 import { useGridHistogram } from "./useGridHistogram.ts";
 import { useGridOverlays } from "./useGridOverlays.ts";
 import { useGridScene } from "./useGridScene.ts";
+import { usePathlineLayer } from "./usePathlineLayer.ts";
 
 import { fetchDimensionDetails } from "@/lib/data/dimensionData.ts";
 import {
@@ -83,6 +84,7 @@ export function useSharedGridLogic() {
     redraw,
     toggleRotate,
     makeSnapshot,
+    createSnapshotRenderer,
     applyCameraPreset,
     fitCameraToDataset,
     registerUpdateLOD,
@@ -124,6 +126,15 @@ export function useSharedGridLogic() {
     getScene,
     redraw,
   });
+
+  const pathlineDisplay = usePathlineLayer({
+    getScene,
+    getRenderer,
+    redraw,
+    projectionHelper,
+  });
+  onProjectionChange(pathlineDisplay.updateProjection);
+  onColormapChange(pathlineDisplay.updateAppearance);
 
   updateCoastlines = updateCoastlinesInternal;
   updateGraticules = updateGraticulesInternal;
@@ -245,7 +256,7 @@ export function useSharedGridLogic() {
           ? high
           : 1e38;
       }
-      material.needsUpdate = true;
+      // Uniform values refresh on the next draw; the shader program is unchanged.
     }
     redraw();
   }
@@ -285,12 +296,14 @@ export function useSharedGridLogic() {
   const { updateHistogram } = useGridHistogram();
 
   return {
+    pathlineDisplay,
     getScene,
     getCamera,
     getRenderer,
     redraw,
     toggleRotate,
     makeSnapshot,
+    createSnapshotRenderer,
     applyCameraPreset,
     fitCameraToDataset,
     getDataVar,
