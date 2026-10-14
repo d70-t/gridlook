@@ -179,6 +179,7 @@ const {
   commitScalarFrame,
   getScalarFrameLayout,
 } = useGridDataLoader({
+  volume,
   getDatasources: () => props.datasources,
   getDataVar,
   prepareFrame,
@@ -1069,6 +1070,13 @@ async function prepareFrame(
     return;
   }
   return {
+    volumeContext: volumeGrid
+      ? {
+          dimensionNames: selectedDimensionNames.value,
+          indices,
+          grid: volumeGrid,
+        }
+      : undefined,
     pathlineGrid: isLatOnly.value
       ? undefined
       : {
@@ -1105,15 +1113,6 @@ async function prepareFrame(
     isCurrent,
     updateLayers: async () => {
       lastStreamlineIndices = indices;
-      volume.setContext(
-        volumeGrid
-          ? {
-              dimensionNames: selectedDimensionNames.value,
-              indices,
-              grid: volumeGrid,
-            }
-          : undefined
-      );
 
       await updateStreamlines(indices);
     },

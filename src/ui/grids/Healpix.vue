@@ -20,6 +20,7 @@ import {
 import {
   scalarFrameMemory,
   shareScalarGeometry,
+  shareScalarBuffers,
 } from "./composables/scalarFrameMemory.ts";
 import { updateScalarTexture } from "./composables/scalarTexture.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
@@ -201,6 +202,7 @@ const {
   commitScalarFrame,
   getScalarFrameLayout,
 } = useGridDataLoader({
+  volume,
   getDatasources: () => props.datasources,
   getDataVar,
   prepareFrame,
@@ -960,14 +962,46 @@ async function prepareFrame(
   if (!isCurrent()) {
     return;
   }
+  const volumeCoordinates = shareScalarBuffers(
+    "volume",
+    {
+      cellCoordinates: cellCoord ? Float64Array.from(cellCoord) : undefined,
+    },
+    request.geometryCache
+  );
   return {
+    volumeContext: {
+      dimensionNames,
+      indices,
+      grid: {
+        kind: VOLUME_GRID_TYPES.HEALPIX,
+        nside: grid.nside,
+        cellCoordinates: volumeCoordinates.cellCoordinates,
+        options: {
+          scheme: grid.scheme,
+          level: grid.level,
+          ellipsoid: {
+            // eslint-disable-next-line camelcase
+            semi_major_axis: grid.semiMajorAxis,
+            // eslint-disable-next-line camelcase
+            semi_minor_axis: grid.semiMajorAxis * (1 - grid.flattening),
+          },
+        },
+      },
+    },
     pathlineGrid: {
       grid: { kind: PATHLINE_GRID.HEALPIX, grid, cells: cellCoord },
       spatialDimensionNames: dimensionNames.slice(-1),
       spatialShape: datavar.shape.slice(-1),
     },
     memory: {
-      ...scalarFrameMemory(batches, textures, cellCoord, scalarInfo),
+      ...scalarFrameMemory(
+        batches,
+        textures,
+        cellCoord,
+        scalarInfo,
+        volumeCoordinates
+      ),
       // Expanded triangles carry position, UV, lat/lon and three corner attributes.
       gpuBytes: batches.reduce(
         (bytes, batch) =>
@@ -994,25 +1028,6 @@ async function prepareFrame(
     updateLayers: async () => {
       selectedDimensionNames.value = dimensionNames;
       lastStreamlineContext = { indices, grid, cellCoord };
-      volume.setContext({
-        dimensionNames,
-        indices,
-        grid: {
-          kind: VOLUME_GRID_TYPES.HEALPIX,
-          nside: grid.nside,
-          cellCoordinates: cellCoord ? Float64Array.from(cellCoord) : undefined,
-          options: {
-            scheme: grid.scheme,
-            level: grid.level,
-            ellipsoid: {
-              // eslint-disable-next-line camelcase
-              semi_major_axis: grid.semiMajorAxis,
-              // eslint-disable-next-line camelcase
-              semi_minor_axis: grid.semiMajorAxis * (1 - grid.flattening),
-            },
-          },
-        },
-      });
 
       await updateStreamlines({ indices, grid, cellCoord });
     },

@@ -36,6 +36,19 @@ export type TVolumeDataContext = {
   indices: (number | null | zarr.Slice)[];
 };
 
+export type TVolumeReadOptions = {
+  signal?: AbortSignal;
+  isCurrent?: () => boolean;
+  chunkConcurrency?: number;
+  coordinates?: TVolumeCoordinates;
+};
+
+export function assertVolumeCurrent(options: TVolumeReadOptions) {
+  if (options.signal?.aborted || options.isCurrent?.() === false) {
+    throw new DOMException("Volume preparation cancelled", "AbortError");
+  }
+}
+
 export type TVolumeSource = {
   name: string;
   variable: zarr.Array<zarr.DataType, zarr.AsyncReadable>;
@@ -91,6 +104,18 @@ async function inspectSource(
   ) {
     throw new Error(`${name} is not a supported volume on this grid.`);
   }
+  const selection = volumeSelection(dimensionNames, verticalDimension, context);
+  for (let i = 0; i < selection.length; i++) {
+    const index = selection[i];
+    if (
+      index !== null &&
+      (!Number.isSafeInteger(index) || index < 0 || index >= variable.shape[i])
+    ) {
+      throw new Error(
+        `Invalid volume index for ${dimensionNames[i]}: ${index}`
+      );
+    }
+  }
   const spatialShape = variable.shape.slice(-spatial.length);
   const verticalIndex = dimensionNames.indexOf(verticalDimension);
   return {
@@ -98,7 +123,7 @@ async function inspectSource(
     variable,
     dimensionNames,
     verticalDimension,
-    selection: volumeSelection(dimensionNames, verticalDimension, context),
+    selection,
     sourceLevelCount: variable.shape[verticalIndex],
     sourceCellCount: spatialShape.reduce((count, size) => count * size, 1),
     spatialShape,
@@ -128,6 +153,13 @@ export async function inspectVolumeSources(
   names: string[],
   context: TVolumeDataContext
 ) {
+  if (
+    !names.length ||
+    names.length > 4 ||
+    new Set(names).size !== names.length
+  ) {
+    throw new Error("Select between one and four distinct volume variables.");
+  }
   const sources = await Promise.all(
     names.map((name) => inspectSource(datasources, name, context))
   );
@@ -138,17 +170,20 @@ export async function inspectVolumeSources(
 async function loadSourceValues(
   datasources: TSources,
   source: TVolumeSource,
-  onProgress?: (completed: number, total: number) => void
+  onProgress: ((completed: number, total: number) => void) | undefined,
+  options: TVolumeReadOptions
 ) {
-  const values = castDataVarToFloat32(
-    await getGridVariableData({
-      source: ZarrDataManager.getDatasetSource(datasources, source.name),
-      variable: source.name,
-      format: datasources.zarr_format,
-      selection: source.selection,
-      onProgress,
-    })
-  );
+  assertVolumeCurrent(options);
+  const raw = await getGridVariableData({
+    source: ZarrDataManager.getDatasetSource(datasources, source.name),
+    variable: source.name,
+    format: datasources.zarr_format,
+    selection: source.selection,
+    onProgress,
+    chunkConcurrency: options.chunkConcurrency,
+  });
+  assertVolumeCurrent(options);
+  const values = castDataVarToFloat32(raw);
   decodeVariableDataAndGetBounds(source.variable, values);
   const expectedLength = source.sourceLevelCount * source.sourceCellCount;
   if (values.length !== expectedLength) {
@@ -170,60 +205,67 @@ function coordinateCandidates(
   );
 }
 
-// eslint-disable-next-line max-lines-per-function
-async function loadHeightValues(
+export type TVolumeCoordinates = {
+  heights: TVolumeSource[];
+  levels?: {
+    name: string;
+    variable: zarr.Array<zarr.DataType, zarr.AsyncReadable>;
+    negative: boolean;
+  };
+};
+
+export async function inspectVolumeCoordinates(
   datasources: TSources,
   source: TVolumeSource,
   context: TVolumeDataContext,
-  onProgress?: (completed: number, total: number) => void
-) {
+  options: TVolumeReadOptions = {}
+): Promise<TVolumeCoordinates> {
+  const heights: TVolumeSource[] = [];
   for (const coordinate of coordinateCandidates(source.variable)) {
-    const coordinateName = ZarrDataManager.resolveVariablePath(
-      source.name,
-      coordinate
-    );
-    if (!datasources.levels[0].datasources[coordinateName]) {
+    assertVolumeCurrent(options);
+    const name = ZarrDataManager.resolveVariablePath(source.name, coordinate);
+    if (!datasources.levels[0].datasources[name]) {
       continue;
     }
     try {
-      const [coordinateVariable, dimensionNames] = await Promise.all([
-        ZarrDataManager.getVariableInfoByDatasetSources(
-          datasources,
-          coordinateName
-        ),
-        ZarrDataManager.getDimensionNames(datasources, coordinateName),
-      ]);
+      const candidate = await inspectSource(datasources, name, context);
+      assertVolumeCurrent(options);
       if (
-        String(coordinateVariable.attrs.standard_name ?? "").toLowerCase() !==
-          "height" ||
-        !dimensionNames.includes(source.verticalDimension) ||
-        volumeSpatialDimensions(dimensionNames).join("\0") !==
-          volumeSpatialDimensions(source.dimensionNames).join("\0")
+        String(candidate.variable.attrs.standard_name ?? "").toLowerCase() ===
+          "height" &&
+        candidate.verticalDimension === source.verticalDimension &&
+        candidate.sourceLevelCount === source.sourceLevelCount &&
+        candidate.spatialShape.every(
+          (size, i) => size === source.spatialShape[i]
+        )
       ) {
-        continue;
-      }
-      const values = castDataVarToFloat32(
-        await getGridVariableData({
-          source: ZarrDataManager.getDatasetSource(datasources, coordinateName),
-          variable: coordinateName,
-          format: datasources.zarr_format,
-          selection: volumeSelection(
-            dimensionNames,
-            source.verticalDimension,
-            context
-          ),
-          onProgress,
-        })
-      );
-      decodeVariableDataAndGetBounds(coordinateVariable, values);
-      if (values.length === source.sourceLevelCount * source.sourceCellCount) {
-        return values;
+        heights.push(candidate);
       }
     } catch {
+      assertVolumeCurrent(options);
       // Try the next declared or conventional height coordinate.
     }
   }
-  return undefined;
+  const levels = await inspectVerticalCoordinate(datasources, source, options);
+  assertVolumeCurrent(options);
+  return { heights, levels };
+}
+
+async function loadHeightValues(
+  datasources: TSources,
+  sources: TVolumeSource[],
+  onProgress: (completed: number, total: number) => void,
+  options: TVolumeReadOptions
+) {
+  for (const source of sources) {
+    assertVolumeCurrent(options);
+    try {
+      return await loadSourceValues(datasources, source, onProgress, options);
+    } catch {
+      assertVolumeCurrent(options);
+      // Keep the existing fallback to the next coordinate or model-level order.
+    }
+  }
 }
 
 function createDownloadProgress(
@@ -245,10 +287,12 @@ function createDownloadProgress(
   };
 }
 
-async function loadVerticalCoordinates(
+async function inspectVerticalCoordinate(
   datasources: TSources,
-  source: TVolumeSource
+  source: TVolumeSource,
+  options: TVolumeReadOptions
 ) {
+  assertVolumeCurrent(options);
   const name = ZarrDataManager.resolveVariablePath(
     source.name,
     source.verticalDimension
@@ -264,6 +308,7 @@ async function loadVerticalCoordinates(
     // CF vertical formula evaluation can replace this fallback later.
     return undefined;
   }
+  assertVolumeCurrent(options);
   const { units } = coordinate.attrs;
   // NEMO's deptht axis may omit CF metadata; its depths increase downward.
   const positive =
@@ -282,17 +327,31 @@ async function loadVerticalCoordinates(
   ) {
     return undefined;
   }
-  const levels = castDataVarToFloat32(
-    await getGridVariableData({
-      source: datasources.levels[0].grid,
-      variable: name,
-      format: datasources.zarr_format,
-      selection: [null],
-    })
-  );
-  decodeVariableDataAndGetBounds(coordinate, levels);
+  return {
+    name,
+    variable: coordinate,
+    negative: pressure || positive === "down",
+  };
+}
+
+async function loadVerticalCoordinates(
+  datasources: TSources,
+  coordinate: NonNullable<TVolumeCoordinates["levels"]>,
+  options: TVolumeReadOptions
+) {
+  assertVolumeCurrent(options);
+  const raw = await getGridVariableData({
+    source: datasources.levels[0].grid,
+    variable: coordinate.name,
+    format: datasources.zarr_format,
+    selection: [null],
+    chunkConcurrency: options.chunkConcurrency,
+  });
+  assertVolumeCurrent(options);
+  const levels = castDataVarToFloat32(raw);
+  decodeVariableDataAndGetBounds(coordinate.variable, levels);
   // Place increasing height (or decreasing pressure/depth) outward in the shell.
-  if (pressure || positive === "down") {
+  if (coordinate.negative) {
     for (let index = 0; index < levels.length; index++) {
       levels[index] = -levels[index];
     }
@@ -304,25 +363,40 @@ export async function loadVolumeData(
   datasources: TSources,
   sources: TVolumeSource[],
   context: TVolumeDataContext,
-  onProgress: (fraction: number) => void
+  onProgress: (fraction: number) => void,
+  options: TVolumeReadOptions = {}
 ) {
+  assertVolumeCurrent(options);
   const progress = createDownloadProgress(sources.length + 1, onProgress);
-  const values = sources.map((source, index) =>
-    loadSourceValues(datasources, source, (completed, total) =>
-      progress.update(index, completed, total)
-    ).finally(() => progress.complete(index))
-  );
+  const values: Float32Array[] = [];
+  // Read one variable at a time so the chunk limit also bounds the whole job.
+  // In-flight shared-worker reads finish on cancellation; no further read starts.
+  for (const [index, source] of sources.entries()) {
+    values.push(
+      await loadSourceValues(
+        datasources,
+        source,
+        (completed, total) => progress.update(index, completed, total),
+        options
+      )
+    );
+    progress.complete(index);
+  }
+  const coordinates =
+    options.coordinates ??
+    (await inspectVolumeCoordinates(datasources, sources[0], context, options));
   const heightIndex = sources.length;
-  const heights = loadHeightValues(
+  const heights = await loadHeightValues(
     datasources,
-    sources[0],
-    context,
-    (completed, total) => progress.update(heightIndex, completed, total)
-  ).finally(() => progress.complete(heightIndex));
-  const [loadedValues, loadedHeights, levels] = await Promise.all([
-    Promise.all(values),
-    heights,
-    loadVerticalCoordinates(datasources, sources[0]),
-  ]);
-  return { values: loadedValues, heights: loadedHeights, levels };
+    coordinates.heights,
+    (completed, total) => progress.update(heightIndex, completed, total),
+    options
+  );
+  assertVolumeCurrent(options);
+  const levels = coordinates.levels
+    ? await loadVerticalCoordinates(datasources, coordinates.levels, options)
+    : undefined;
+  assertVolumeCurrent(options);
+  progress.complete(heightIndex);
+  return { values, heights, levels };
 }

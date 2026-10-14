@@ -182,6 +182,7 @@ const {
   commitScalarFrame,
   getScalarFrameLayout,
 } = useGridDataLoader({
+  volume,
   getDatasources: () => props.datasources,
   getDataVar,
   prepareFrame,
@@ -439,6 +440,9 @@ async function prepareFrame(
     return;
   }
   return {
+    volumeContext: projectedGrid
+      ? { dimensionNames, indices, grid: projectedGrid }
+      : undefined,
     pathlineGrid: {
       grid: projectedGrid
         ? { ...projectedGrid, kind: PATHLINE_GRID.PROJECTED }
@@ -486,11 +490,6 @@ async function prepareFrame(
     isCurrent,
     updateLayers: async () => {
       magnitudeContext = { datavar, dimensionNames, request };
-      volume.setContext(
-        projectedGrid
-          ? { dimensionNames, indices, grid: projectedGrid }
-          : undefined
-      );
 
       await updateStreamlines(
         latitudesData,

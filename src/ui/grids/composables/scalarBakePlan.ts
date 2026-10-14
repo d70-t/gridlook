@@ -4,11 +4,13 @@ import type {
 } from "./scalarFrame.ts";
 import {
   scalarMemoryBytes,
+  scalarFrameMemory,
   type TScalarGeometryCache,
 } from "./scalarFrameMemory.ts";
 
 import type { TPathlineConfig } from "@/lib/data/pathlineTrajectories.ts";
 import { scalarChunkConcurrency } from "@/lib/grids/gridDataQueue.ts";
+import type { estimateVolumeFrames } from "@/lib/volume/volumeFrame.ts";
 
 export const SCALAR_BAKE_LIMITS = {
   GIB: 1024 ** 3,
@@ -33,6 +35,8 @@ export type TScalarBakeEstimate = {
   workingBytes: number;
   sourceWorkingBytes: number;
   vectorBytes?: number;
+  volumeBytes?: number;
+  volumeWorkingBytes?: number;
   pathlineWorkerBytes?: number;
   trajectoryBytes?: number;
   pathlineDisplayBytes?: number;
@@ -133,11 +137,13 @@ export function scalarSourceCost(
   };
 }
 
+// eslint-disable-next-line max-lines-per-function
 export function estimateScalarBake(
   frame: TPreparedScalarFrame,
   geometry: TScalarGeometryCache,
   source: ReturnType<typeof scalarSourceCost>,
-  count: number
+  count: number,
+  volume?: ReturnType<typeof estimateVolumeFrames>
 ): TScalarBakeEstimate {
   if (!frame.memory || !frame.timing) {
     throw new Error("This renderer did not report preparation resources.");
@@ -155,21 +161,41 @@ export function estimateScalarBake(
   }
   const sampleBytes = scalarMemoryBytes(frame.memory);
   const retainedBytes = sharedBytes + (sampleBytes - sharedBytes) * count;
+  // Attached volumes are already in retained/GPU bytes and measured timing.
+  // Replace their generic scalar scratch allowance with the volume estimate.
+  const volumeSample =
+    volume && frame.volume
+      ? scalarMemoryBytes(
+          scalarFrameMemory(frame.volume.data, frame.volume.plan.context.grid)
+        )
+      : 0;
   const workingBytes =
-    source.workingBytes + sampleBytes * 2 + frame.memory.gpuBytes * 2;
+    source.workingBytes +
+    sampleBytes * 2 +
+    frame.memory.gpuBytes * 2 +
+    (volume
+      ? volume.workingBytes -
+        volumeSample * 2 -
+        frame.volume!.data.byteLength * 2
+      : 0);
   const gpuBytes = frame.memory.gpuBytes * 2;
   const prepareMs = Math.max(0, frame.timing.totalMs - frame.timing.fetchMs);
-  const sharedFetchMs = frame.timing.fetchMs * source.fetchMultiplier;
+  const volumeFetchMs = frame.volume?.timing.fetchMs ?? 0;
+  const sharedFetchMs =
+    (frame.timing.fetchMs - volumeFetchMs) * source.fetchMultiplier +
+    volumeFetchMs * count;
   return {
     count,
     retainedBytes,
     workingBytes,
-    sourceWorkingBytes: source.workingBytes,
+    sourceWorkingBytes: source.workingBytes + (volume?.sourceWorkingBytes ?? 0),
+    volumeBytes: volume?.retainedBytes,
+    volumeWorkingBytes: volume?.workingBytes,
     chunkConcurrency: source.chunkConcurrency,
     gpuBytes,
     peakBytes: (retainedBytes + workingBytes) * 1.25,
-    uniqueChunks: source.uniqueChunks,
-    decodedBytes: source.decodedBytes,
+    uniqueChunks: source.uniqueChunks + (volume?.uniqueChunks ?? 0),
+    decodedBytes: source.decodedBytes + (volume?.decodedBytes ?? 0),
     secondsLow: (prepareMs * count + sharedFetchMs) / 2000,
     secondsHigh: (frame.timing.totalMs * count * 2) / 1000,
   };

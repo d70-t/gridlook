@@ -60,6 +60,15 @@ import {
 } from "@/lib/layers/pathlinePreview.ts";
 import { ZARR_FORMAT, type TSources } from "@/lib/types/GlobeTypes.ts";
 import {
+  estimateVolumeFrames,
+  validateVolumeFrameTimes,
+} from "@/lib/volume/volumeFrame.ts";
+import {
+  createVolumeInterpolation,
+  type TVolumeInterpolation,
+  type TVolumePresentation,
+} from "@/lib/volume/volumeInterpolation.ts";
+import {
   BUILTIN_LAYER_IDS,
   LAYER_OPACITY,
   useGlobeControlStore,
@@ -129,6 +138,8 @@ export function useScalarBake(
   );
   const frames: TPreparedScalarFrame[] = [];
   const includeVelocity = ref(false);
+  let volumes: TVolumeInterpolation | undefined;
+  const hasVolumes = ref(false);
   let velocity: TPathlinePreparation | undefined;
   const velocityFields: TPathlineField[] = [];
   let trajectories: TPathlineTrajectories | undefined;
@@ -178,6 +189,7 @@ export function useScalarBake(
         handle: TScalarBakeHandle;
         timeName: string;
         chunkConcurrency?: number;
+        prepareVolume: boolean;
         selection: Record<string, number>;
       }
     | undefined;
@@ -215,7 +227,12 @@ export function useScalarBake(
       return "Turn off Live mode before preparing a fixed time range.";
     }
     if (store.isVolumeLayerEnabled()) {
-      return "Turn off volumes to prepare animation. Scalar fields, pathlines and static layers are supported.";
+      if (!store.volumeAvailable) {
+        return "This renderer does not support volumes. Turn off the volume layer to prepare animation.";
+      }
+      if (!store.volumeSelections.length) {
+        return "Choose a volume variable before preparing animation.";
+      }
     }
     if (pathlinesEnabled.value && !getHandle()?.pathlineDisplay) {
       return "This renderer does not support prepared pathlines.";
@@ -233,14 +250,18 @@ export function useScalarBake(
         (_, index) => index !== time.value?.index
       ),
       projection: store.projectionMode,
-      // Particle opacity is display-only; geometry, visibility and order still
+      // Particle/volume opacity is display-only; visibility and order still
       // belong to the captured preparation settings.
       layers: store.layerStack.map((layer) =>
-        layer.id === BUILTIN_LAYER_IDS.STREAMLINES
+        layer.id === BUILTIN_LAYER_IDS.STREAMLINES ||
+        layer.id === BUILTIN_LAYER_IDS.VOLUME
           ? { ...layer, opacity: undefined }
           : layer
       ),
       live: store.live,
+      volumeVariables: store.isVolumeLayerEnabled()
+        ? store.volumeSelections.map((selection) => selection.variable)
+        : undefined,
       velocitySelection: includeVelocity.value
         ? [
             store.streamlineSelection,
@@ -269,6 +290,8 @@ export function useScalarBake(
     }
     hasPathlines.value = false;
     frames.length = 0;
+    volumes = undefined;
+    hasVolumes.value = false;
     velocity = undefined;
     velocityFields.length = 0;
     trajectories = undefined;
@@ -313,6 +336,15 @@ export function useScalarBake(
     if (!frame.memory || !job) {
       throw new Error("Prepared frame memory is unavailable.");
     }
+    if (job.prepareVolume) {
+      if (!frame.volume) {
+        throw new Error("An enabled volume could not be prepared.");
+      }
+      // Validate as frames arrive; fix normalization across the full range before playback.
+      if (frames.length) {
+        createVolumeInterpolation([frames[0].volume!, frame.volume]);
+      }
+    }
     let added = frame.memory.extraBytes;
     for (const buffer of frame.memory.buffers) {
       if (!allocations.has(buffer)) {
@@ -354,7 +386,8 @@ export function useScalarBake(
   async function prepare(
     index: number,
     token: number,
-    magnitude?: TVectorMagnitudeData
+    magnitude?: TVectorMagnitudeData,
+    prepareVolume = job!.prepareVolume
   ) {
     const active = job!;
     const frame = await active.handle.prepareScalarFrame({
@@ -364,6 +397,7 @@ export function useScalarBake(
       geometryCache: geometry,
       chunkConcurrency: active.chunkConcurrency,
       magnitude,
+      prepareVolume,
     });
     if (!isCurrent(token)) {
       return;
@@ -673,7 +707,9 @@ export function useScalarBake(
         handle: getHandle()!,
         timeName: range.name,
         selection,
+        prepareVolume: store.isVolumeLayerEnabled(),
       };
+      hasVolumes.value = job.prepareVolume;
       hasPathlines.value = !!config.pathlines;
       if (config.pathlines) {
         fadeSeconds.value = config.pathlines.sampleSeconds * 4;
@@ -697,7 +733,15 @@ export function useScalarBake(
         job.source?.zarr_format !== ZARR_FORMAT.NETCDF
       );
       job.chunkConcurrency = source.chunkConcurrency;
-      let frame = await prepare(config.start, token);
+      // A magnitude background needs a second scalar preparation. Defer the
+      // volume until then so calibration fetches/builds it only once.
+      let frame = await prepare(
+        config.start,
+        token,
+        undefined,
+        job.prepareVolume &&
+          !(config.pathlines && store.streamlineMagnitudeRequested)
+      );
       if (!frame) {
         finishCancelled();
         return;
@@ -747,11 +791,41 @@ export function useScalarBake(
           }
         }
       }
+      if (frame.volume) {
+        const axis = frame.info.dimInfo[range.index];
+        if (!axis || !("values" in axis) || !axis.values) {
+          throw new Error(
+            "Scalar timestamps are unavailable for volume animation."
+          );
+        }
+        await validateVolumeFrameTimes(
+          frame.volume.plan,
+          {
+            values: axis.values,
+            attrs: axis.attrs ?? {},
+            variable: store.varnameSelector,
+            dimension: range.name,
+          },
+          config,
+          { isCurrent: () => isCurrent(token) }
+        );
+        if (!isCurrent(token)) {
+          finishCancelled();
+          return;
+        }
+      }
       estimate.value = estimateScalarBake(
         frame,
         geometry,
         source,
-        config.end - config.start + 1
+        config.end - config.start + 1,
+        frame.volume
+          ? estimateVolumeFrames(frame.volume, {
+              dimension: range.name,
+              start: config.start,
+              end: config.end,
+            })
+          : undefined
       );
       if (prepared && velocity) {
         const scalarBuffers = new Set(frame.memory!.buffers);
@@ -837,6 +911,11 @@ export function useScalarBake(
           return;
         }
       }
+      if (active.prepareVolume) {
+        volumes = createVolumeInterpolation(
+          frames.map((frame) => frame.volume!)
+        );
+      }
       await prepareTrajectories(token);
       if (!isCurrent(token)) {
         finishCancelled();
@@ -872,13 +951,27 @@ export function useScalarBake(
     return pendingSeek;
   }
   // eslint-disable-next-line max-lines-per-function
-  async function displayFrame(index: number) {
+  async function displayFrame(index: number, forExport = exporting.value) {
     const token = generation;
     const revision = ++seekRevision;
     seeking = true;
     const start = performance.now();
     try {
       let committed = false;
+      const volumePresentation = (
+        first: number,
+        next: number,
+        alpha: number
+      ): TVolumePresentation | undefined =>
+        volumes
+          ? {
+              sequence: volumes,
+              first,
+              next,
+              alpha,
+              forExport,
+            }
+          : undefined;
       if (interpolationMode.value !== SCALAR_INTERPOLATION.ORIGINAL) {
         if (interpolationUnavailable.value || !timeline || !frameCount.value) {
           return;
@@ -888,6 +981,10 @@ export function useScalarBake(
           frames.length,
           intermediateFrames.value
         );
+        const weight = scalarInterpolationWeight(
+          alpha,
+          interpolationMode.value
+        );
         if (velocity) {
           displayedSeconds =
             velocity.times[first] * (1 - alpha) + velocity.times[next] * alpha;
@@ -895,13 +992,16 @@ export function useScalarBake(
         store.scalarAnimationBounds ??= { ...store.selection };
         committed =
           isCurrent(token) &&
-          (await job!.handle.commitScalarFrame(frames[first], {
-            next: frames[next],
-            alpha: scalarInterpolationWeight(alpha, interpolationMode.value),
-            timeIndex: time.value!.index,
-            // Ease scalar values, while the timestamp advances through source time.
-            label: timeline.label(first, alpha),
-          }));
+          (await job!.handle.commitScalarFrame(
+            frames[first],
+            {
+              next: frames[next],
+              alpha: weight,
+              timeIndex: time.value!.index,
+              label: timeline.label(first, alpha),
+            },
+            volumePresentation(first, next, weight)
+          ));
       } else {
         if (velocity) {
           displayedSeconds = velocity.times[index];
@@ -909,7 +1009,11 @@ export function useScalarBake(
         store.scalarAnimationBounds = undefined;
         committed =
           isCurrent(token) &&
-          (await job!.handle.commitScalarFrame(frames[index]));
+          (await job!.handle.commitScalarFrame(
+            frames[index],
+            undefined,
+            volumePresentation(index, index, 0)
+          ));
       }
       if (revision !== seekRevision || generation !== token) {
         return;
@@ -1031,6 +1135,13 @@ export function useScalarBake(
     const fade = fadeSeconds.value;
     const size = particleSize.value;
     const opacity = particleOpacity.value;
+    const volumeAppearance = () =>
+      JSON.stringify([
+        store.volumeSelections,
+        store.layerStack.find((layer) => layer.id === BUILTIN_LAYER_IDS.VOLUME)
+          ?.opacity,
+      ]);
+    const appearance = volumeAppearance();
     const sessionController = new AbortController();
     exportController = sessionController;
     exporting.value = true;
@@ -1042,7 +1153,8 @@ export function useScalarBake(
         steps !== intermediateFrames.value ||
         fade !== fadeSeconds.value ||
         size !== particleSize.value ||
-        opacity !== particleOpacity.value
+        opacity !== particleOpacity.value ||
+        (hasVolumes.value && appearance !== volumeAppearance())
       ) {
         throw new Error("Animation settings changed during export.");
       }
@@ -1068,8 +1180,14 @@ export function useScalarBake(
       return result;
     } finally {
       try {
-        if (isCurrent(token) && phase.value === SCALAR_BAKE_PHASE.READY) {
-          await seek(previous, true);
+        if (
+          isCurrent(token) &&
+          phase.value === SCALAR_BAKE_PHASE.READY &&
+          previous < frameCount.value
+        ) {
+          // Restore preview quality while the export still owns the frame sequence.
+          pendingSeek = displayFrame(previous, false);
+          await pendingSeek;
         }
       } finally {
         exporting.value = false;
@@ -1124,6 +1242,7 @@ export function useScalarBake(
     trajectoryProgress,
     pathlinesEnabled,
     hasPathlines,
+    hasVolumes,
     fadeSeconds,
     particleSize,
     particleDisplayMode,

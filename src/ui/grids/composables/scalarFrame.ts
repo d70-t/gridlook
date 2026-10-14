@@ -14,11 +14,17 @@ import type { TVectorMagnitudeData } from "@/lib/data/vectorMagnitude.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { getGridVariableData } from "@/lib/grids/gridDataWorkerClient.ts";
 import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
+import type {
+  TPreparedVolumeFrame,
+  TVolumeContext,
+} from "@/lib/volume/volumeFrame.ts";
 
 export type TScalarFrameInput = {
   /** Original source indices, including time; no wall-clock conversion. */
   dimensionIndices?: Readonly<Record<string, number>>;
   magnitude?: TVectorMagnitudeData;
+  /** Retain the enabled volume at this original timestep for later commit. */
+  prepareVolume?: boolean;
   geometryCache?: TScalarGeometryCache;
   chunkConcurrency?: number;
   signal?: AbortSignal;
@@ -51,6 +57,8 @@ export type TScalarFrameLayout = {
 export type TPreparedScalarFrame = TScalarFrame & {
   interpolation?: TScalarInterpolationData;
   pathlineGrid?: TPathlineGridContext;
+  volumeContext?: TVolumeContext;
+  volume?: TPreparedVolumeFrame;
   memory?: TScalarFrameMemory;
   timing?: { fetchMs: number; totalMs: number };
   name: string;

@@ -1,5 +1,10 @@
 import { expect, it } from "vitest";
 
+import type {
+  TPreparedVolumeFrame,
+  estimateVolumeFrames,
+} from "@/lib/volume/volumeFrame.ts";
+import { VOLUME_GRID_TYPES } from "@/lib/volume/volumeGrid.ts";
 import {
   estimateScalarBake,
   scalarBakeMemoryUsage,
@@ -169,3 +174,50 @@ it.each([undefined, "", "128", NaN, Infinity, Number.MAX_VALUE, 0, -1])(
     expect(scalarBakeMemoryUsage(200 * 1024 ** 3, budget)).toBeUndefined();
   }
 );
+
+it("counts attached volume keyframes/GPU bytes once and adds their preparation scratch", () => {
+  const scalar = new Float32Array(5);
+  const volume = {
+    data: new Uint16Array(8),
+    timing: { totalMs: 80, fetchMs: 50 },
+    plan: {
+      context: {
+        grid: {
+          kind: VOLUME_GRID_TYPES.REGULAR,
+          latitudes: new Float32Array([1]),
+          longitudes: new Float32Array([1]),
+        },
+      },
+    },
+  } as TPreparedVolumeFrame;
+  const frame = {
+    volume,
+    memory: scalarFrameMemory([scalar, volume.data], volume.plan.context.grid),
+    timing: { totalMs: 200, fetchMs: 120 },
+  } as TPreparedScalarFrame;
+  const source = {
+    workingBytes: 100,
+    uniqueChunks: 3,
+    decodedBytes: 24,
+    fetchMultiplier: 2,
+    chunkConcurrency: 1,
+  };
+  const cost = {
+    retainedBytes: 72,
+    workingBytes: 400,
+    sourceWorkingBytes: 250,
+    uniqueChunks: 6,
+    decodedBytes: 96,
+  } as ReturnType<typeof estimateVolumeFrames>;
+  const estimate = estimateScalarBake(frame, new Map(), source, 3, cost);
+  expect(estimate.retainedBytes).toBe((20 + 16 + 8) * 3);
+  expect(estimate.gpuBytes).toBe((20 + 16) * 2);
+  expect(estimate.workingBytes).toBe(100 + 20 * 2 + 20 * 2 + 400);
+  expect(estimate.sourceWorkingBytes).toBe(350);
+  expect(estimate.volumeBytes).toBe(72);
+  expect(estimate.uniqueChunks).toBe(9);
+  expect(estimate.decodedBytes).toBe(120);
+  expect(estimate.secondsLow).toBeCloseTo(0.265);
+  expect(estimate.secondsHigh).toBeCloseTo(1.2);
+  expect(estimate.peakBytes).toBe((132 + 580) * 1.25);
+});

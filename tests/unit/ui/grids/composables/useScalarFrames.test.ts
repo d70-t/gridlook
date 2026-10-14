@@ -3,12 +3,15 @@ import { effectScope } from "vue";
 import type * as zarr from "zarrita";
 
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
+import type { TPreparedVolumeFrame } from "@/lib/volume/volumeFrame.ts";
+import { VOLUME_GRID_TYPES } from "@/lib/volume/volumeGrid.ts";
 import {
   getScalarFrameDimensions,
   decodeScalarFrameData,
   type TScalarFrameRequest,
   type TPreparedScalarFrame,
 } from "@/ui/grids/composables/scalarFrame.ts";
+import type { TScalarFramesOptions } from "@/ui/grids/composables/useScalarFrames.ts";
 
 vi.stubGlobal("localStorage", { getItem: () => null });
 const { createPinia, setActivePinia } = await import("pinia");
@@ -30,7 +33,7 @@ function deferred() {
 }
 
 // eslint-disable-next-line max-lines-per-function
-function setup() {
+function setup(volume?: TScalarFramesOptions["volume"]) {
   const store = useGlobeControlStore();
   const parameters = useUrlParameterStore();
   store.varnameSelector = "temperature";
@@ -65,6 +68,18 @@ function setup() {
       const time = indices[0] as number;
       return {
         name: request.variable,
+        volumeContext: volume
+          ? {
+              dimensionNames: ["time", "cell"],
+              indices,
+              grid: {
+                kind: VOLUME_GRID_TYPES.HEALPIX,
+                nside: 1,
+                options: { level: 0, scheme: "nested" },
+              },
+            }
+          : undefined,
+        memory: { buffers: [], extraBytes: 0, gpuBytes: 0 },
         interpolation: { values: [], geometry: [], sample: () => null },
         indices: indices as number[],
         isCurrent: request.isCurrent,
@@ -93,6 +108,7 @@ function setup() {
   let cache!: ReturnType<typeof useScalarFieldCache>;
   const frames = scope.run(() =>
     useScalarFrames({
+      volume,
       getDatasources: () => source.current,
       getScalarObjects: () => [],
       getDataVar,
@@ -353,4 +369,105 @@ it("does not apply source packing or missing values to prepared magnitude", () =
     fillValue: NaN,
   });
   expect([...data]).toEqual([0, 5, NaN, 10]);
+});
+
+// eslint-disable-next-line max-lines-per-function
+it("awaits original-time volumes before exposing prepared frames and reuses them at commit", async () => {
+  const gate = deferred();
+  const volume = {
+    prepareFrame: vi.fn(async () => {
+      await gate.promise;
+      return {
+        data: new Uint8Array([2, 3]),
+        timing: { fetchMs: 4, totalMs: 5 },
+        plan: { context: { grid: {} } },
+      } as TPreparedVolumeFrame;
+    }),
+    commitInterpolation: vi.fn(() => true),
+    setContext: vi.fn(async () => {}),
+  };
+  const h = setup(volume);
+  try {
+    h.store.setVolumeLayerEnabled(true);
+    h.metadata.resolve();
+    h.ready.resolve();
+    let prepared = false;
+    const pending = h
+      .prepareScalarFrame({
+        dimensionIndices: { time: 2 },
+        prepareVolume: true,
+      })
+      .then((frame) => {
+        prepared = true;
+        return frame!;
+      });
+    await vi.waitFor(() => expect(volume.prepareFrame).toHaveBeenCalledOnce());
+    expect(prepared).toBe(false);
+    expect(h.rendered).toEqual([]);
+    expect(volume.setContext).not.toHaveBeenCalled();
+    gate.resolve();
+    const frame = await pending;
+    expect(volume.prepareFrame).toHaveBeenCalledWith(
+      frame.volumeContext,
+      expect.objectContaining({ isCurrent: expect.any(Function) })
+    );
+    expect(frame.volumeContext!.indices[0]).toBe(2);
+    expect(frame.memory!.buffers).toContain(frame.volume!.data.buffer);
+    expect(frame.memory!.gpuBytes).toBe(2);
+    expect(await h.commitScalarFrame(frame)).toBe(true);
+    expect(volume.setContext).toHaveBeenLastCalledWith(
+      frame.volumeContext,
+      frame.volume,
+      expect.any(Function)
+    );
+    expect(h.rendered).toEqual([2]);
+    expect(await h.commitScalarFrame(frame)).toBe(true);
+    expect(volume.prepareFrame).toHaveBeenCalledOnce();
+    await expect(
+      h.commitScalarFrame(frame, {
+        next: frame,
+        alpha: 0.5,
+        timeIndex: 2,
+        label: "2",
+      })
+    ).rejects.toThrow(/prepared time range/);
+  } finally {
+    h.scope.stop();
+  }
+});
+
+it("waits for live volume commit and discards cancellation during volume preparation", async () => {
+  const gate = deferred();
+  const volume = {
+    prepareFrame: vi.fn(),
+    commitInterpolation: vi.fn(() => true),
+    setContext: vi.fn(() => gate.promise),
+  };
+  const h = setup(volume);
+  try {
+    h.metadata.resolve();
+    h.ready.resolve();
+    const frame = (await h.prepareScalarFrame())!;
+    const committing = h.commitScalarFrame(frame);
+    await vi.waitFor(() => expect(volume.setContext).toHaveBeenCalledOnce());
+    expect(h.rendered).toEqual([]);
+    gate.resolve();
+    expect(await committing).toBe(true);
+    expect(h.rendered).toEqual([0]);
+    h.store.setVolumeLayerEnabled(true);
+    const controller = new AbortController();
+    volume.prepareFrame.mockImplementationOnce(async () => {
+      controller.abort();
+      throw new DOMException("Cancelled", "AbortError");
+    });
+    expect(
+      await h.prepareScalarFrame({
+        prepareVolume: true,
+        signal: controller.signal,
+      })
+    ).toBeUndefined();
+    expect(h.rendered).toEqual([0]);
+  } finally {
+    h.scope.stop();
+  }
 });

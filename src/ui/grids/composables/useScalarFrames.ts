@@ -17,14 +17,20 @@ import {
 } from "./scalarInterpolation.ts";
 import { createGridHistogramSummary } from "./useGridHistogram.ts";
 import type { useScalarFieldCache } from "./useScalarFieldCache.ts";
+import type { useVolume } from "./useVolume.ts";
 import { createVectorMagnitudeVarInfo } from "./vectorMagnitudeScalar.ts";
 
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
+import type { TVolumePresentation } from "@/lib/volume/volumeInterpolation.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 
 type TDataVar = zarr.Array<zarr.DataType, zarr.AsyncReadable>;
 export type TScalarFramesOptions = {
+  volume?: Pick<
+    ReturnType<typeof useVolume>,
+    "prepareFrame" | "setContext" | "commitInterpolation"
+  >;
   getDatasources: () => TSources | undefined;
   getScalarObjects?: () => (TScalarObject | undefined)[];
   setHoverLookup?: ReturnType<typeof useGridHoverLookup>["setHoverLookup"];
@@ -113,6 +119,36 @@ export function useScalarFrames(options: TScalarFramesOptions) {
     let frame: TPreparedScalarFrame | undefined;
     try {
       frame = await options.prepareFrame(datavar, request);
+      if (
+        frame &&
+        request.isCurrent() &&
+        input.prepareVolume &&
+        store.isVolumeLayerEnabled()
+      ) {
+        if (!options.volume || !frame.volumeContext) {
+          throw new Error("This grid does not support prepared volumes.");
+        }
+        frame.volume = await options.volume.prepareFrame(frame.volumeContext, {
+          signal: request.signal,
+          isCurrent: request.isCurrent,
+          // Volume chunks can be much larger than the selected scalar slice.
+          chunkConcurrency: 1,
+        });
+        request.timing.fetchMs += frame.volume.timing.fetchMs;
+        if (frame.memory) {
+          const volumeMemory = scalarFrameMemory(
+            frame.volume.data,
+            frame.volume.plan.context.grid
+          );
+          frame.memory = {
+            buffers: [
+              ...new Set([...frame.memory.buffers, ...volumeMemory.buffers]),
+            ],
+            extraBytes: frame.memory.extraBytes + volumeMemory.extraBytes,
+            gpuBytes: frame.memory.gpuBytes + frame.volume.data.byteLength,
+          };
+        }
+      }
     } catch (error) {
       if (!request.isCurrent()) {
         return;
@@ -164,7 +200,9 @@ export function useScalarFrames(options: TScalarFramesOptions) {
             delete parameters.paramDimIndices[name];
           }
         }
-        await frame.updateLayers();
+        if (request.isCurrent()) {
+          await frame.updateLayers();
+        }
       },
     };
   }
@@ -177,12 +215,27 @@ export function useScalarFrames(options: TScalarFramesOptions) {
       alpha: number;
       timeIndex: number;
       label: string;
-    }
+    },
+    volume?: TVolumePresentation
   ) {
     if (disposed || !frame.isCurrent()) {
       return false;
     }
+    if (
+      volume &&
+      (!options.volume ||
+        volume.sequence.frames[volume.first] !== frame.volume ||
+        volume.sequence.frames[volume.next] !== (blend?.next ?? frame).volume ||
+        volume.alpha !== (blend?.alpha ?? 0))
+    ) {
+      throw new Error("Scalar and volume frames must show the same timestep.");
+    }
     if (blend) {
+      if ((frame.volume || blend.next.volume) && !volume) {
+        throw new Error(
+          "Volume interpolation requires the prepared time range."
+        );
+      }
       if (
         !options.getScalarObjects ||
         !compatibleScalarFrames(frame, blend.next) ||
@@ -237,6 +290,28 @@ export function useScalarFrames(options: TScalarFramesOptions) {
       (committed ? displayedRequest.isCurrent() : frame.isCurrent());
     options.scalarCache.captureScalar({ ...frame, isCurrent });
     await frame.updateLayers();
+    if (!isCurrent()) {
+      return false;
+    }
+    if (volume) {
+      if (
+        !options.volume!.commitInterpolation(
+          volume.sequence,
+          volume.first,
+          volume.next,
+          volume.alpha,
+          volume.forExport
+        )
+      ) {
+        return false;
+      }
+    } else {
+      await options.volume?.setContext(
+        frame.volumeContext,
+        frame.volume,
+        isCurrent
+      );
+    }
     if (!isCurrent()) {
       return false;
     }
