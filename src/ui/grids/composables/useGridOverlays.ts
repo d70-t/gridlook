@@ -8,6 +8,7 @@ import {
   chooseTileWindow,
   getAtlasLayout,
   getTileRequests,
+  getViewZoom,
 } from "@/lib/layers/basemapTiles.ts";
 import {
   applyLayerStackPosition,
@@ -578,7 +579,8 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
     basemapMesh.visible = entry.visible;
     applyLayerOrders();
     void basemap.setProvider(
-      store.basemaps?.find((item) => item.id === store.selectedBasemap)
+      store.basemaps?.find((item) => item.id === store.selectedBasemap),
+      store.basemapOptions
     );
     redraw();
   }
@@ -602,6 +604,8 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
     const { maxWindowTiles } = getAtlasLayout(
       renderer.capabilities.maxTextureSize
     );
+    // Labels follow the zoom right away, also while new tiles wait.
+    basemap.setViewZoom(getViewZoom(grid, pixelStep));
     const window = chooseTileWindow(grid, pixelStep, maxWindowTiles);
     if (!applyZoomChange && window?.zoom !== basemap.windowZoom) {
       void debouncedZoomBasemapWindow();
@@ -624,8 +628,14 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
     BASEMAP_ZOOM_DELAY_MS
   );
 
-  watch([() => store.selectedBasemap, () => store.basemaps], () =>
-    updateBasemap()
+  watch(
+    [
+      () => store.selectedBasemap,
+      () => store.basemaps,
+      () => store.basemapOptions,
+    ],
+    () => updateBasemap(),
+    { deep: true }
   );
 
   onScopeDispose(() => {

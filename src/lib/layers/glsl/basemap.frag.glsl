@@ -24,6 +24,18 @@ uniform float detailTiles;
 uniform vec2 referenceMercator;
 uniform vec2 referenceTile;
 uniform float opacity;
+// Equirectangular land coverage in alpha, to hide the land or water of
+// raster basemaps; vector basemaps leave them out when drawing their tiles.
+uniform sampler2D landMask;
+uniform bool showLand;
+uniform bool showWater;
+// Labels of vector basemaps, drawn onto an image of a tile window (labelSize
+// tiles at 2^zoom = labelTiles; 0 without labels) and laid onto the map.
+uniform sampler2D labelImage;
+uniform float labelTiles;
+uniform vec2 labelSize;
+// The reference point in label window tiles, like referenceTile.
+uniform vec2 labelReferenceTile;
 
 // Camera position minus the reference point, computed on the CPU in double
 // precision.
@@ -159,6 +171,24 @@ void main() {
         vec4 detail = texture2D(atlasTexture, (vec2(page.xy) + inTile) / atlasSlots);
         color = mix(color, detail, detail.a);
       }
+    }
+  }
+  if (!showLand || !showWater) {
+    float lat = atan(sinh(PI * (1.0 - 2.0 * clamp(mercator.y, 0.0, 1.0))));
+    float land = texture2D(landMask, vec2(fract(mercator.x), lat / PI + 0.5)).a;
+    color.a *= (showLand ? land : 0.0) + (showWater ? 1.0 - land : 0.0);
+  }
+  if (labelTiles > 0.0) {
+    vec2 labelTile = labelReferenceTile + offset * labelTiles;
+    labelTile.x = mod(labelTile.x, labelTiles);
+    if (labelTile.x < labelSize.x && labelTile.y >= 0.0 && labelTile.y < labelSize.y) {
+      vec4 label = texture2D(labelImage, vec2(labelTile.x, labelSize.y - labelTile.y) / labelSize);
+      // The label over the map.
+      float alpha = label.a + color.a * (1.0 - label.a);
+      if (alpha > 0.0) {
+        color.rgb = (label.rgb * label.a + color.rgb * color.a * (1.0 - label.a)) / alpha;
+      }
+      color.a = alpha;
     }
   }
   if (color.a < 0.01) discard;

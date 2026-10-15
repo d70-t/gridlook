@@ -46,7 +46,7 @@ import {
 } from "@/store/store.ts";
 import { useLog } from "@/ui/common/useLog.ts";
 import VolumeControls from "@/ui/overlays/controls/VolumeControls.vue";
-import { fetchBasemapCatalog } from "@/utils/basemap.ts";
+import { BasemapTileType, fetchBasemapCatalog } from "@/utils/basemap.ts";
 
 const props = defineProps<{
   modelInfo?: TModelInfo;
@@ -91,6 +91,12 @@ const fileInput = ref<HTMLInputElement>();
 const draggedId = ref<string | undefined>(undefined);
 const dropTargetIndex = ref<number | undefined>(undefined);
 const expandedLayerId = ref<string | undefined>(undefined);
+
+const isVectorBasemap = computed(
+  () =>
+    store.basemaps?.find((entry) => entry.id === store.selectedBasemap)
+      ?.type === BasemapTileType.VECTOR
+);
 const addLayerSelection = ref<TAddLayerAction | null>(null);
 const LAYER_ENTRY_SELECTOR = ".layer-entry";
 
@@ -989,6 +995,20 @@ function getLayerName(layer: TLayerEntry) {
               @input="setLayerOpacity(layer, $event)"
             />
           </label>
+          <div v-if="layer.kind === LAYER_KINDS.BASEMAP" class="mt-2 is-size-7">
+            <label class="checkbox mr-3">
+              <input v-model="store.basemapOptions.water" type="checkbox" />
+              Water
+            </label>
+            <label class="checkbox mr-3">
+              <input v-model="store.basemapOptions.land" type="checkbox" />
+              Land
+            </label>
+            <label v-if="isVectorBasemap" class="checkbox">
+              <input v-model="store.basemapOptions.labels" type="checkbox" />
+              Labels
+            </label>
+          </div>
           <div
             v-if="
               LAYER_PROPERTIES[layer.kind].buttons.includes(

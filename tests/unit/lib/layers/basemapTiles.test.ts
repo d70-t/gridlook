@@ -7,11 +7,13 @@ import {
   formatTileUrl,
   getAtlasLayout,
   getTileRequests,
+  getTileSource,
   getWindowReference,
   getWindowTiles,
   latToMercatorY,
   lonToMercatorX,
   mercatorYToLat,
+  replaceMissingTiles,
   WEB_MERCATOR_LAT_LIMIT,
   type TGeoPoint,
 } from "@/lib/layers/basemapTiles.ts";
@@ -48,6 +50,60 @@ describe("formatTileUrl", () => {
       "https://t/3/2/5.png"
     );
     expect(() => formatTileUrl("https://{s}.t/{z}", 1, 0, 0)).toThrow(/"s"/);
+  });
+});
+
+describe("getTileSource", () => {
+  const url = "https://t/{z}/{x}/{y}";
+
+  it("serves 256 px tiles as quadrants of 512 px tiles one level up", () => {
+    expect(getTileSource({ url }, 5, 7, 2)).toEqual({
+      url: "https://t/5/7/2",
+      z: 5,
+      x: 7,
+      y: 2,
+      region: { x: 0, y: 0, size: 1 },
+    });
+    expect(getTileSource({ url, tileSize: 512 }, 5, 7, 2)).toEqual({
+      url: "https://t/4/3/1",
+      z: 4,
+      x: 3,
+      y: 1,
+      region: { x: 0.5, y: 0, size: 0.5 },
+    });
+  });
+
+  it("cuts tiles beyond the deepest zoom from it", () => {
+    // Zoom 16 tile 3 columns and 1 row into its zoom-14 tile.
+    expect(
+      getTileSource({ url, maxZoom: 14 }, 16, 4 * 100 + 3, 4 * 7 + 1)
+    ).toEqual({
+      url: "https://t/14/100/7",
+      z: 14,
+      x: 100,
+      y: 7,
+      region: { x: 0.75, y: 0.25, size: 0.25 },
+    });
+    // Unusable values from the catalog are ignored.
+    expect(getTileSource({ url, maxZoom: -1 }, 16, 0, 0).z).toBe(16);
+  });
+});
+
+describe("replaceMissingTiles", () => {
+  it("falls back to the nearest parent that may exist, in order", () => {
+    const request = (z: number, x: number, y: number) => ({
+      z,
+      x,
+      y,
+      key: `${z}/${x}/${y}`,
+    });
+    const missing = new Set(["6/8/8", "6/9/8", "5/4/4", "3/1/1", "4/3/3"]);
+    const requests = [request(6, 8, 8), request(6, 9, 8), request(4, 3, 3)];
+    // 6/8/8 and 6/9/8 share 5/4/4, also missing, so both become 4/2/2;
+    // 4/3/3 has no parent above the base zoom left.
+    expect(
+      replaceMissingTiles(requests, missing).map((tile) => tile.key)
+    ).toEqual(["4/2/2"]);
   });
 });
 

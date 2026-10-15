@@ -19,7 +19,11 @@ import {
 } from "@/lib/projection/projectionUtils.ts";
 import type { TColorMap } from "@/lib/shaders/colormapShaders.ts";
 import type { TVarInfo, TBounds } from "@/lib/types/GlobeTypes.ts";
-import type { TBasemapEntry } from "@/utils/basemap.ts";
+import {
+  DEFAULT_BASEMAP_OPTIONS,
+  type TBasemapEntry,
+  type TBasemapOptions,
+} from "@/utils/basemap.ts";
 import type { TCatalog } from "@/utils/catalog.ts";
 import type { THistogramSummary } from "@/utils/histogram.ts";
 
@@ -224,6 +228,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
       lastVisibleMaskMode: LAND_SEA_MASK_MODES.LAND as TVisibleLandSeaMaskMode,
       basemaps: undefined as TBasemapEntry[] | undefined,
       selectedBasemap: "osm" as string,
+      basemapOptions: { ...DEFAULT_BASEMAP_OPTIONS } as TBasemapOptions,
       varnameSelector: "-", // the varname currently selected in the dropdown
       varnameDisplay: "-", // the varname currently shown on the globe (will be updated after loading)
       loading: false,
@@ -464,6 +469,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
       // An opaque basemap on top would hide everything else.
       if (kind === LAYER_KINDS.BASEMAP) {
         this.layerStack.push(createBuiltinLayer(kind));
+        this.basemapOptions = { ...DEFAULT_BASEMAP_OPTIONS };
       } else {
         this.layerStack.unshift(createBuiltinLayer(kind));
       }

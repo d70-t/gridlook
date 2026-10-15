@@ -10,6 +10,10 @@ import {
 } from "./store.ts";
 
 import { LAND_SEA_MASK_MODES } from "@/lib/layers/landSeaMask.ts";
+import {
+  DEFAULT_BASEMAP_OPTIONS,
+  type TBasemapOptions,
+} from "@/utils/basemap.ts";
 
 /* The `layers` URL parameter: layers top to bottom, separated by ";". Each
    layer is "<kind>,<field>,<field>,..." with a fixed field order per kind.
@@ -65,6 +69,7 @@ export type TLayerUrlEntry =
       visible: boolean;
       opacity: number;
       provider: string;
+      options: TBasemapOptions;
     };
 
 function parseFlag(value: string | undefined, fallback: boolean) {
@@ -178,6 +183,11 @@ function parseLayer(kind: string, f: string[]): TLayerUrlEntry | undefined {
         visible,
         opacity: parseOpacity(f[1], LAYER_OPACITY.MAX),
         provider: f[2] || DEFAULT_BASEMAP,
+        options: {
+          water: parseFlag(f[3], DEFAULT_BASEMAP_OPTIONS.water),
+          land: parseFlag(f[4], DEFAULT_BASEMAP_OPTIONS.land),
+          labels: parseFlag(f[5], DEFAULT_BASEMAP_OPTIONS.labels),
+        },
       };
     default:
       return undefined;
@@ -247,6 +257,9 @@ function formatFields(entry: TLayerUrlEntry): string[] {
         formatFlag(entry.visible),
         formatOpacity(entry.opacity),
         entry.provider,
+        formatFlag(entry.options.water),
+        formatFlag(entry.options.land),
+        formatFlag(entry.options.labels),
       ];
   }
 }

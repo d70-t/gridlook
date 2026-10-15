@@ -49,3 +49,14 @@ it("translates legacy mask parameters in the old layer order", () => {
   );
   expect(legacyMaskToLayersParam("off", "true")).toBeUndefined();
 });
+
+it("keeps basemap options, labels off by default", () => {
+  const param = "grid;basemap,1,1,versatiles-osm,1,0,1";
+  expect(formatLayersParam(parseLayersParam(param))).toBe(param);
+  expect(parseLayersParam(param)[1]).toMatchObject({
+    options: { water: true, land: false, labels: true },
+  });
+  expect(
+    formatLayersParam(parseLayersParam("grid;basemap,1,1,esri,1,1,0"))
+  ).toBe("grid;basemap,1,1,esri");
+});

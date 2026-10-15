@@ -1,6 +1,8 @@
 // Web-Mercator (XYZ) tile maths for the basemap layer. Mercator coordinates
 // are normalised to [0, 1] with y = 0 at the northern edge, like tile indices.
 
+import { BasemapTileSize, type TBasemapEntry } from "@/utils/basemap.ts";
+
 export const TILE_SIZE = 256;
 
 export const BasemapZoom = {
@@ -81,6 +83,50 @@ export function formatTileUrl(
   });
 }
 
+export type TTileSource = {
+  url: string;
+  // The provider's tile holding the requested one.
+  z: number;
+  x: number;
+  y: number;
+  // The requested tile's part of it, in fractions of its side.
+  region: { x: number; y: number; size: number };
+};
+
+/**
+ * Where a provider serves a 256 px tile: in a tile of its own one level up
+ * for 512 px tiles, and at its deepest zoom beyond that.
+ */
+export function getTileSource(
+  provider: Pick<TBasemapEntry, "url" | "tileSize" | "maxZoom">,
+  z: number,
+  x: number,
+  y: number
+): TTileSource {
+  const largeTiles = provider.tileSize === BasemapTileSize.LARGE ? 1 : 0;
+  // The catalog is user input; ignore unusable values.
+  const maxZoom =
+    Number.isInteger(provider.maxZoom) && provider.maxZoom! >= 0
+      ? provider.maxZoom!
+      : Infinity;
+  const sourceZ = Math.min(z - largeTiles, maxZoom);
+  const up = z - sourceZ;
+  const sourceX = x >> up;
+  const sourceY = y >> up;
+  const size = 1 / 2 ** up;
+  return {
+    url: formatTileUrl(provider.url, sourceZ, sourceX, sourceY),
+    z: sourceZ,
+    x: sourceX,
+    y: sourceY,
+    region: {
+      x: (x - sourceX * 2 ** up) * size,
+      y: (y - sourceY * 2 ** up) * size,
+      size,
+    },
+  };
+}
+
 function wrappedDelta(a: number, b: number) {
   const delta = Math.abs(a - b);
   return Math.min(delta, 1 - delta);
@@ -147,6 +193,14 @@ function getMercatorPerPixel(grid: (TGeoPoint | null)[][], pixelStep: number) {
  */
 function getIdealZoom(mercatorPerPixel: number) {
   return Math.round(Math.log2(1 / (mercatorPerPixel * TILE_SIZE)));
+}
+
+/**
+ * The zoom matching the finest detail of the view, unrounded; see
+ * chooseTileWindow for the grid.
+ */
+export function getViewZoom(grid: (TGeoPoint | null)[][], pixelStep: number) {
+  return Math.log2(1 / (getMercatorPerPixel(grid, pixelStep) * TILE_SIZE));
 }
 
 /**
@@ -415,6 +469,30 @@ export function getTileRequests(
     }
   }
   return [...requests.values()];
+}
+
+/**
+ * `requests` with each tile the provider lacks replaced by its nearest parent
+ * not known to be missing, keeping the order; tiles without one are dropped,
+ * as the base texture covers them.
+ */
+export function replaceMissingTiles(
+  requests: TTileRequest[],
+  missing: Set<string>
+): TTileRequest[] {
+  const result = new Map<string, TTileRequest>();
+  for (let tile of requests) {
+    while (missing.has(tile.key) && tile.z - 1 > BasemapZoom.BASE) {
+      const z = tile.z - 1;
+      const x = tile.x >> 1;
+      const y = tile.y >> 1;
+      tile = { z, x, y, key: getTileKey(z, x, y) };
+    }
+    if (!missing.has(tile.key) && !result.has(tile.key)) {
+      result.set(tile.key, tile);
+    }
+  }
+  return [...result.values()];
 }
 
 /**

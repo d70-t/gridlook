@@ -134,6 +134,7 @@ function getLayerUrlEntry(
         visible,
         opacity,
         provider: store.selectedBasemap,
+        options: store.basemapOptions,
       };
     default:
       // texture layers are stored locally and never written to the URL

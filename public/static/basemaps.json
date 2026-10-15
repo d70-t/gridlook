@@ -8,16 +8,19 @@
       "attribution": "© OpenStreetMap contributors"
     },
     {
-      "id": "opentopo",
-      "name": "OpenTopoMap",
-      "url": "https://tile.opentopomap.org/{z}/{x}/{y}.png",
-      "attribution": "Map data: © OpenStreetMap contributors | DEM: SRTM, Sonny | Map style: © OpenTopoMap (CC-BY-SA)"
+      "id": "versatiles-osm",
+      "name": "VersaTiles OSM",
+      "url": "https://tiles.versatiles.org/tiles/osm/{z}/{x}/{y}",
+      "type": "vector",
+      "maxZoom": 14,
+      "attribution": "© OpenStreetMap contributors | ESA WorldCover 2021 (CC BY 4.0) | Tiles: VersaTiles"
     },
     {
-      "id": "esri-world-imagery",
-      "name": "ESRI WorldImagery",
-      "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-      "attribution": "Tiles © Esri — Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community"
+      "id": "versatiles-satellite",
+      "name": "VersaTiles Satellite",
+      "url": "https://tiles.versatiles.org/tiles/satellite/{z}/{x}/{y}",
+      "tileSize": 512,
+      "attribution": "Tiles: VersaTiles | Imagery: Copernicus Sentinel-2, NASA Blue Marble and national orthophotos, see versatiles.org/sources"
     }
   ]
 }

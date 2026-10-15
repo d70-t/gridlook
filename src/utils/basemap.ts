@@ -1,10 +1,43 @@
 import axios from "axios";
 
+// Pixel size of a provider's tiles; 256 when not given.
+export const BasemapTileSize = {
+  STANDARD: 256,
+  LARGE: 512,
+} as const;
+
+type TBasemapTileSize = (typeof BasemapTileSize)[keyof typeof BasemapTileSize];
+
+// Raster tiles are images; vector tiles (Shortbread schema) are drawn here.
+export const BasemapTileType = {
+  RASTER: "raster",
+  VECTOR: "vector",
+} as const;
+
+type TBasemapTileType = (typeof BasemapTileType)[keyof typeof BasemapTileType];
+
 export type TBasemapEntry = {
   id: string;
   name: string;
   url: string;
   attribution: string;
+  tileSize?: TBasemapTileSize;
+  type?: TBasemapTileType;
+  // Deepest zoom the provider serves; deeper tiles are cut from it.
+  maxZoom?: number;
+};
+
+// What basemaps show; only vector basemaps have labels.
+export type TBasemapOptions = {
+  water: boolean;
+  land: boolean;
+  labels: boolean;
+};
+
+export const DEFAULT_BASEMAP_OPTIONS: TBasemapOptions = {
+  water: true,
+  land: true,
+  labels: false,
 };
 
 export type TBasemapCatalog = {

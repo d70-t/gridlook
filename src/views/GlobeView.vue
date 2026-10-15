@@ -365,6 +365,7 @@ function initLayersFromParams() {
   const basemap = findLayerParam(entries, LAYER_KINDS.BASEMAP);
   if (basemap) {
     store.selectedBasemap = basemap.provider;
+    store.basemapOptions = basemap.options;
   }
   initDatasetLayersFromParams(entries);
 }

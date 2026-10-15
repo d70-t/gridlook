@@ -3,34 +3,55 @@
 // into fixed slots of an atlas texture, and a small page table tells the
 // shader which slot holds each tile of the current view.
 
+import { useThrottleFn } from "@vueuse/core";
 import axios from "axios";
 import QuickLRU from "quick-lru";
 import * as THREE from "three";
 
 import {
+  drawLabelImage,
+  prepareLabels,
+  type TBasemapLabel,
+} from "./basemapLabels.ts";
+import {
   BasemapZoom,
   buildPageTable,
-  formatTileUrl,
   getAtlasLayout,
   EXPANSION_VIEW_RADIUS,
   getFlatMercatorExpansion,
+  getTileSource,
   getWindowReference,
   getWindowTiles,
   isSameTileWindow,
   latToMercatorY,
   lonToMercatorX,
   mercatorYToLat,
+  replaceMissingTiles,
   TILE_SIZE,
   type TGeoPoint,
   type TTileRequest,
   type TTileWindow,
 } from "./basemapTiles.ts";
+import {
+  applyLandSeaCutout,
+  configureEquirectangularTexture,
+  copyAntimeridianEdge,
+  createLayerCanvas,
+  LAND_SEA_MASK_MODES,
+} from "./equirectLayer.ts";
 import basemapFragmentShader from "./glsl/basemap.frag.glsl";
 import basemapScreenVertexShader from "./glsl/basemapScreen.vert.glsl";
+import { drawVectorTile, type TVectorDrawOptions } from "./vectorTiles.ts";
 
 import { getProjectionTypeFromMode } from "@/lib/projection/projectionShaders.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
-import type { TBasemapEntry } from "@/utils/basemap.ts";
+import {
+  BasemapTileSize,
+  BasemapTileType,
+  DEFAULT_BASEMAP_OPTIONS,
+  type TBasemapEntry,
+  type TBasemapOptions,
+} from "@/utils/basemap.ts";
 
 const BASE_WINDOW: TTileWindow = {
   zoom: BasemapZoom.BASE,
@@ -42,6 +63,19 @@ const BASE_WINDOW: TTileWindow = {
 
 // Screen samples along the longer canvas side when choosing tiles.
 const VIEW_SAMPLE_STEPS = 16;
+
+// Decoding for the atlas; tiles of any size fit the slot.
+const ATLAS_IMAGE_OPTIONS: ImageBitmapOptions = {
+  resizeWidth: TILE_SIZE,
+  resizeHeight: TILE_SIZE,
+  premultiplyAlpha: "none",
+  colorSpaceConversion: "none",
+};
+
+// The label image is redrawn at most this often, e.g. while tiles arrive.
+const LABEL_IMAGE_INTERVAL_MS = 200;
+// View zoom changes below this step keep the label image.
+const VIEW_ZOOM_STEP = 0.05;
 
 // Each upload is a 256 KB texSubImage2D; this bounds the work per frame.
 const UPLOADS_PER_FRAME = 8;
@@ -69,8 +103,35 @@ function getRetryTime(failure: TTileFailure) {
 // memory low when tiles come back after leaving the atlas.
 const tileCache = new QuickLRU<string, Blob>({ maxSize: 1024 });
 
+// Downloads in flight, so the quadrants of a 512 px tile share one. Each is
+// aborted once every tile waiting for it is.
+const pendingDownloads = new Map<
+  string,
+  { blob: Promise<Blob>; request: AbortController; waiting: number }
+>();
+
 const EMPTY_TEXTURE = new THREE.DataTexture(new Uint8Array(4), 1, 1);
 EMPTY_TEXTURE.needsUpdate = true;
+
+let landMask: Promise<THREE.Texture> | undefined;
+
+/**
+ * Land in alpha, from the land/sea mask's land polygons, in its resolution:
+ * larger canvases can exceed the browser's limits for path fills.
+ */
+function loadLandMask() {
+  landMask ??= (async () => {
+    const { canvas, ctx, width, height } = createLayerCanvas(4096, 2048);
+    ctx.fillRect(0, 0, width, height);
+    await applyLandSeaCutout(ctx, width, height, LAND_SEA_MASK_MODES.LAND);
+    copyAntimeridianEdge(ctx, width);
+    return configureEquirectangularTexture(new THREE.CanvasTexture(canvas));
+  })().catch((error: unknown) => {
+    landMask = undefined;
+    throw error;
+  });
+  return landMask;
+}
 
 const UNIT_SPHERE = new THREE.Sphere(new THREE.Vector3(), 1);
 const cameraPosition = new THREE.Vector3();
@@ -80,17 +141,87 @@ const cornerHit = new THREE.Vector3();
 const referencePoint = new THREE.Vector3();
 const FLAT_PLANE = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
 
-async function fetchTile(url: string, signal: AbortSignal) {
+function fetchTile(url: string, signal: AbortSignal) {
+  signal.throwIfAborted();
   const cached = tileCache.get(url);
   if (cached) {
-    return cached;
+    return Promise.resolve(cached);
   }
-  const response = await axios.get<Blob>(url, {
-    responseType: "blob",
-    signal,
-  });
-  tileCache.set(url, response.data);
-  return response.data;
+  let pending = pendingDownloads.get(url);
+  if (!pending) {
+    const request = new AbortController();
+    const blob = axios
+      .get<Blob>(url, { responseType: "blob", signal: request.signal })
+      .then((response) => {
+        tileCache.set(url, response.data);
+        return response.data;
+      })
+      .finally(() => pendingDownloads.delete(url));
+    pending = { blob, request, waiting: 0 };
+    pendingDownloads.set(url, pending);
+  }
+  const download = pending;
+  download.waiting++;
+  signal.addEventListener(
+    "abort",
+    () => {
+      if (--download.waiting === 0) {
+        download.request.abort();
+      }
+    },
+    { once: true }
+  );
+  return download.blob;
+}
+
+/**
+ * Downloads a 256 px tile and decodes it, off the main thread for raster
+ * tiles; vector tiles are drawn here and also return their labels.
+ */
+async function decodeTile(
+  provider: TBasemapEntry,
+  drawOptions: TVectorDrawOptions,
+  tile: { z: number; x: number; y: number },
+  signal: AbortSignal,
+  options?: ImageBitmapOptions
+): Promise<{ image: ImageBitmap; labels: TBasemapLabel[] }> {
+  const source = getTileSource(provider, tile.z, tile.x, tile.y);
+  const blob = await fetchTile(source.url, signal);
+  if (provider.type === BasemapTileType.VECTOR) {
+    // ponytail: parses the tile again for each tile cut from it and draws on
+    // the main thread; a Web Worker could take this over if it stutters.
+    const { canvas, labels } = drawVectorTile(
+      await blob.arrayBuffer(),
+      source,
+      drawOptions
+    );
+    return { image: await createImageBitmap(canvas, options), labels };
+  }
+  const { x, y, size } = source.region;
+  if (size === 1) {
+    return { image: await createImageBitmap(blob, options), labels: [] };
+  }
+  const pixels = provider.tileSize ?? BasemapTileSize.STANDARD;
+  const image = await createImageBitmap(
+    blob,
+    x * pixels,
+    y * pixels,
+    size * pixels,
+    size * pixels,
+    options
+  );
+  return { image, labels: [] };
+}
+
+/** Identifies what the tiles show: the source, and how vector tiles look. */
+function getSourceKey(
+  provider: TBasemapEntry | undefined,
+  drawOptions: TVectorDrawOptions
+) {
+  if (provider?.type !== BasemapTileType.VECTOR) {
+    return provider?.url;
+  }
+  return `${provider.url} ${drawOptions.water} ${drawOptions.land}`;
 }
 
 /**
@@ -98,7 +229,8 @@ async function fetchTile(url: string, signal: AbortSignal) {
  * Returns undefined when aborted and throws only if every tile failed.
  */
 async function drawTiles(
-  template: string,
+  provider: TBasemapEntry,
+  drawOptions: TVectorDrawOptions,
   window: TTileWindow,
   signal: AbortSignal
 ) {
@@ -106,10 +238,12 @@ async function drawTiles(
   canvas.width = window.width * TILE_SIZE;
   canvas.height = window.height * TILE_SIZE;
   const ctx = canvas.getContext("2d")!;
+  const labels: TBasemapLabel[] = [];
   const results = await Promise.allSettled(
     getWindowTiles(window).map(async (tile) => {
-      const url = formatTileUrl(template, tile.z, tile.x, tile.y);
-      const image = await createImageBitmap(await fetchTile(url, signal));
+      const decoded = await decodeTile(provider, drawOptions, tile, signal);
+      const image = decoded.image;
+      labels.push(...decoded.labels);
       ctx.drawImage(
         image,
         tile.column * TILE_SIZE,
@@ -129,7 +263,16 @@ async function drawTiles(
   if (failure && results.every((result) => result.status === "rejected")) {
     throw failure.reason;
   }
-  return canvas;
+  return { canvas, labels };
+}
+
+function createLabelTexture(canvas: HTMLCanvasElement) {
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.generateMipmaps = false;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  return texture;
 }
 
 function createBaseTexture(canvas: HTMLCanvasElement): THREE.Texture {
@@ -266,12 +409,41 @@ export class BasemapLayer {
     expansionCurvatureX: { value: new THREE.Vector3() },
     expansionCurvatureY: { value: new THREE.Vector3() },
     useExpansion: { value: false },
+    landMask: { value: EMPTY_TEXTURE as THREE.Texture },
+    showLand: { value: true },
+    showWater: { value: true },
+    labelImage: { value: EMPTY_TEXTURE as THREE.Texture },
+    labelTiles: { value: 0 },
+    labelSize: { value: new THREE.Vector2() },
+    labelReferenceTile: { value: new THREE.Vector2() },
   };
   private readonly onChange: () => void;
   private readonly onError: (error: unknown) => void;
   private provider: TBasemapEntry | undefined;
-  // Source of the current base texture, once it is complete.
-  private baseUrl: string | undefined;
+  private drawOptions: TVectorDrawOptions = DEFAULT_BASEMAP_OPTIONS;
+  // What raster basemaps show of land and water, applied with the land mask.
+  private maskOptions: TVectorDrawOptions = DEFAULT_BASEMAP_OPTIONS;
+  // What the tiles show (see getSourceKey), and what the base texture shows
+  // once it is complete.
+  private sourceKey: string | undefined;
+  private baseKey: string | undefined;
+  private baseLabels: TBasemapLabel[] = [];
+  // Labels of the tiles in the atlas, and of those shown with the base's.
+  private readonly tileLabels = new Map<string, TBasemapLabel[]>();
+  private shownLabels: TBasemapLabel[] = [];
+  private showLabels = false;
+  // Zoom of the finest detail in view (see getViewZoom), rounded.
+  private viewZoom: number = BasemapZoom.BASE;
+  private labelCanvas: HTMLCanvasElement | undefined;
+  // What the label image shows.
+  private labelImage:
+    | { window: TTileWindow; displayRatio: number; labels: TBasemapLabel[] }
+    | undefined;
+  private readonly scheduleLabelImage = useThrottleFn(
+    () => this.updateLabelImage(),
+    LABEL_IMAGE_INTERVAL_MS,
+    true
+  );
   // Aborts the base download when the source changes.
   private baseRequest = new AbortController();
   // Bumped on every source change so late tiles of the old one are dropped.
@@ -292,9 +464,14 @@ export class BasemapLayer {
   private readonly downloads = new Map<string, AbortController>();
   private queue: TTileRequest[] = [];
   private readonly failures = new Map<string, TTileFailure>();
+  // Tiles the provider answered with 404.
+  private readonly missing = new Set<string>();
   private retryTimer: ReturnType<typeof setTimeout> | undefined;
   private retryTime = Infinity;
-  private readonly uploads = new Map<string, ImageBitmap>();
+  private readonly uploads = new Map<
+    string,
+    { image: ImageBitmap; labels: TBasemapLabel[] }
+  >();
   private readonly uploadSource = new THREE.Texture();
   private uploadFrame = 0;
 
@@ -331,16 +508,23 @@ export class BasemapLayer {
   }
 
   /**
-   * Switches the tile source. The old base stays visible until the new one is
-   * complete, and sharper tiles only load on top of a base of the same
-   * source, so two sources never mix.
+   * Switches the tile source, or how vector tiles are drawn. The old base
+   * stays visible until the new one is complete, and sharper tiles only load
+   * on top of a base of the same source, so two sources never mix.
    */
-  async setProvider(provider: TBasemapEntry | undefined) {
-    if (provider?.url === this.provider?.url) {
+  async setProvider(
+    provider: TBasemapEntry | undefined,
+    drawOptions: TBasemapOptions
+  ) {
+    this.applyOptions(provider, drawOptions);
+    const sourceKey = getSourceKey(provider, drawOptions);
+    if (sourceKey === this.sourceKey) {
       return;
     }
     this.provider = provider;
-    this.baseUrl = undefined;
+    this.drawOptions = drawOptions;
+    this.sourceKey = sourceKey;
+    this.baseKey = undefined;
     this.baseRequest.abort();
     this.baseRequest = new AbortController();
     this.generation++;
@@ -348,14 +532,17 @@ export class BasemapLayer {
     this.clearTiles();
     this.updatePageTable();
     if (!provider) {
+      this.baseLabels = [];
+      this.updatePageTable();
       this.setBase(EMPTY_TEXTURE);
       this.onChange();
       return;
     }
-    let canvas: HTMLCanvasElement | undefined;
+    let base: Awaited<ReturnType<typeof drawTiles>>;
     try {
-      canvas = await drawTiles(
-        provider.url,
+      base = await drawTiles(
+        provider,
+        drawOptions,
         BASE_WINDOW,
         this.baseRequest.signal
       );
@@ -363,13 +550,114 @@ export class BasemapLayer {
       this.onError(error);
       return;
     }
-    if (!canvas) {
+    if (!base) {
       return;
     }
-    this.baseUrl = provider.url;
-    this.setBase(createBaseTexture(canvas));
+    this.baseKey = sourceKey;
+    this.baseLabels = base.labels;
+    this.updatePageTable();
+    this.setBase(createBaseTexture(base.canvas));
     this.onChange();
     this.requestTiles();
+  }
+
+  /**
+   * Hides the land or water of raster basemaps once the mask is loaded;
+   * vector basemaps leave them out of their tiles.
+   */
+  private async setMaskOptions(
+    provider: TBasemapEntry | undefined,
+    options: TVectorDrawOptions
+  ) {
+    this.maskOptions =
+      provider?.type === BasemapTileType.VECTOR
+        ? DEFAULT_BASEMAP_OPTIONS
+        : options;
+    if (!this.maskOptions.land || !this.maskOptions.water) {
+      try {
+        this.uniforms.landMask.value = await loadLandMask();
+      } catch (error) {
+        this.onError(error);
+        return;
+      }
+    }
+    // The latest options, should they have changed while loading.
+    this.uniforms.showLand.value = this.maskOptions.land;
+    this.uniforms.showWater.value = this.maskOptions.water;
+    this.onChange();
+  }
+
+  /** Applies what does not change the tiles: masks and labels. */
+  private applyOptions(
+    provider: TBasemapEntry | undefined,
+    options: TBasemapOptions
+  ) {
+    void this.setMaskOptions(provider, options);
+    this.showLabels =
+      provider?.type === BasemapTileType.VECTOR && options.labels;
+    void this.scheduleLabelImage();
+  }
+
+  /** Sizes the labels for the view's zoom (see getViewZoom). */
+  setViewZoom(zoom: number) {
+    const rounded = Math.round(zoom / VIEW_ZOOM_STEP) * VIEW_ZOOM_STEP;
+    if (rounded !== this.viewZoom) {
+      this.viewZoom = rounded;
+      void this.scheduleLabelImage();
+    }
+  }
+
+  private isLabelImageCurrent(
+    labels: TBasemapLabel[],
+    window: TTileWindow,
+    displayRatio: number
+  ) {
+    const image = this.labelImage;
+    if (!image || labels.length === 0) {
+      return !image && labels.length === 0;
+    }
+    return (
+      isSameTileWindow(image.window, window) &&
+      image.displayRatio === displayRatio &&
+      image.labels.length === labels.length &&
+      image.labels.every((label, index) => label === labels[index])
+    );
+  }
+
+  /** Redraws the label image if the window, zoom or shown labels changed. */
+  private updateLabelImage() {
+    const labels = this.showLabels ? this.shownLabels : [];
+    const window = this.window ?? BASE_WINDOW;
+    const displayRatio = 2 ** (this.viewZoom - window.zoom);
+    if (this.isLabelImageCurrent(labels, window, displayRatio)) {
+      return;
+    }
+    const uniforms = this.uniforms;
+    this.labelImage = labels.length
+      ? { window, displayRatio, labels }
+      : undefined;
+    uniforms.labelTiles.value = labels.length ? 2 ** window.zoom : 0;
+    if (labels.length) {
+      this.labelCanvas ??= document.createElement("canvas");
+      const { width, height } = this.labelCanvas;
+      drawLabelImage(this.labelCanvas, labels, window, displayRatio);
+      const texture = uniforms.labelImage.value;
+      // A texture keeps the size it was first uploaded with.
+      if (
+        texture === EMPTY_TEXTURE ||
+        width !== this.labelCanvas.width ||
+        height !== this.labelCanvas.height
+      ) {
+        if (texture !== EMPTY_TEXTURE) {
+          texture.dispose();
+        }
+        uniforms.labelImage.value = createLabelTexture(this.labelCanvas);
+      } else {
+        texture.needsUpdate = true;
+      }
+      uniforms.labelSize.value.set(window.width, window.height);
+    }
+    this.onChange();
   }
 
   /** Zoom of the current window; undefined while the base is shown. */
@@ -382,16 +670,19 @@ export class BasemapLayer {
    * arrive; undefined shows the base.
    */
   setWindow(window: TTileWindow | undefined, requests: TTileRequest[]) {
-    const wanted = new Set(requests.map((request) => request.key));
+    const keys = new Set(requests.map((request) => request.key));
     if (
       isSameTileWindow(window, this.window) &&
-      wanted.size === this.requests.length &&
-      this.requests.every((request) => wanted.has(request.key))
+      keys.size === this.requests.length &&
+      this.requests.every((request) => keys.has(request.key))
     ) {
       return;
     }
     this.window = window;
     this.requests = requests;
+    const wanted = new Set(
+      replaceMissingTiles(requests, this.missing).map((request) => request.key)
+    );
     for (const [key, request] of this.downloads) {
       if (!wanted.has(key)) {
         request.abort();
@@ -447,6 +738,16 @@ export class BasemapLayer {
       this.uniforms.referenceTile.value.set(0, 0);
     }
     this.uniforms.referenceMercator.value.set(mercatorX, mercatorY);
+    const labelWindow = this.labelImage?.window;
+    if (labelWindow) {
+      // Relative to the label window, wrapped close to it, for precision.
+      const tiles = 2 ** labelWindow.zoom;
+      const column = mercatorX * tiles - labelWindow.x;
+      this.uniforms.labelReferenceTile.value.set(
+        column - Math.round(column / tiles) * tiles,
+        mercatorY * tiles - labelWindow.y
+      );
+    }
     if (projectionHelper.isFlat) {
       this.updateFlatReference(camera, projectionHelper, mercatorX, mercatorY);
     } else {
@@ -513,7 +814,7 @@ export class BasemapLayer {
   private uploadTiles(renderer: THREE.WebGLRenderer) {
     const atlas = this.getAtlas(renderer);
     let count = 0;
-    for (const [key, image] of this.uploads) {
+    for (const [key, { image, labels }] of this.uploads) {
       if (count++ === UPLOADS_PER_FRAME) {
         break;
       }
@@ -531,6 +832,7 @@ export class BasemapLayer {
           )
         );
         this.slots.set(key, slot);
+        this.tileLabels.set(key, labels);
       }
       image.close();
     }
@@ -564,6 +866,7 @@ export class BasemapLayer {
     for (const [key, slot] of this.slots) {
       if (!this.shownKeys.has(key)) {
         this.slots.delete(key);
+        this.tileLabels.delete(key);
         return slot;
       }
     }
@@ -573,27 +876,29 @@ export class BasemapLayer {
   private requestTiles() {
     const window = this.window;
     const provider = this.provider;
-    if (!window || !provider || this.baseUrl !== provider.url) {
+    if (!window || !provider || this.baseKey !== this.sourceKey) {
       // setProvider requests the tiles once its base is in.
       this.queue = [];
       return;
     }
     const now = Date.now();
-    this.queue = this.requests.filter((tile) => {
-      if (
-        this.slots.has(tile.key) ||
-        this.downloads.has(tile.key) ||
-        this.uploads.has(tile.key)
-      ) {
-        return false;
+    this.queue = replaceMissingTiles(this.requests, this.missing).filter(
+      (tile) => {
+        if (
+          this.slots.has(tile.key) ||
+          this.downloads.has(tile.key) ||
+          this.uploads.has(tile.key)
+        ) {
+          return false;
+        }
+        const failure = this.failures.get(tile.key);
+        if (failure && getRetryTime(failure) > now) {
+          this.scheduleRetry(getRetryTime(failure));
+          return false;
+        }
+        return true;
       }
-      const failure = this.failures.get(tile.key);
-      if (failure && getRetryTime(failure) > now) {
-        this.scheduleRetry(getRetryTime(failure));
-        return false;
-      }
-      return true;
-    });
+    );
     this.startDownloads();
   }
 
@@ -617,34 +922,39 @@ export class BasemapLayer {
       this.downloads.size < MAX_DOWNLOADS &&
       this.queue.length > 0
     ) {
-      void this.loadTile(provider.url, this.queue.shift()!);
+      void this.loadTile(provider, this.queue.shift()!);
     }
   }
 
-  private async loadTile(template: string, tile: TTileRequest) {
+  private async loadTile(provider: TBasemapEntry, tile: TTileRequest) {
     const key = tile.key;
     const request = new AbortController();
     this.downloads.set(key, request);
     const generation = this.generation;
     try {
-      const url = formatTileUrl(template, tile.z, tile.x, tile.y);
-      const blob = await fetchTile(url, request.signal);
-      // Decodes off the main thread; tiles of any size fit the slot.
-      const image = await createImageBitmap(blob, {
-        resizeWidth: TILE_SIZE,
-        resizeHeight: TILE_SIZE,
-        premultiplyAlpha: "none",
-        colorSpaceConversion: "none",
-      });
+      const { image, labels } = await decodeTile(
+        provider,
+        this.drawOptions,
+        tile,
+        request.signal,
+        ATLAS_IMAGE_OPTIONS
+      );
       if (request.signal.aborted || generation !== this.generation) {
         image.close();
         return;
       }
       this.failures.delete(key);
-      this.uploads.set(key, image);
+      this.uploads.set(key, { image, labels });
       this.onChange();
     } catch (error) {
-      if (!request.signal.aborted) {
+      if (request.signal.aborted) {
+        return;
+      }
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        // E.g. imagery beyond its coverage: load the parent instead.
+        this.missing.add(key);
+        this.requestTiles();
+      } else {
         const failure = {
           at: Date.now(),
           count: (this.failures.get(key)?.count ?? 0) + 1,
@@ -669,6 +979,8 @@ export class BasemapLayer {
     if (!window || !this.atlas) {
       this.uniforms.detailTiles.value = 0;
       this.shownKeys = new Set();
+      this.shownLabels = prepareLabels(this.baseLabels, BasemapZoom.BASE);
+      void this.scheduleLabelImage();
       return;
     }
     const { data, used } = buildPageTable(
@@ -683,6 +995,14 @@ export class BasemapLayer {
       this.slots.set(key, slot);
     }
     this.shownKeys = used;
+    this.shownLabels = prepareLabels(
+      [
+        ...this.baseLabels,
+        ...[...used].flatMap((key) => this.tileLabels.get(key) ?? []),
+      ],
+      window.zoom
+    );
+    void this.scheduleLabelImage();
 
     if (
       this.pageTable?.image.width === window.width &&
@@ -708,16 +1028,18 @@ export class BasemapLayer {
   private clearTiles() {
     this.queue = [];
     this.failures.clear();
+    this.missing.clear();
     clearTimeout(this.retryTimer);
     this.retryTime = Infinity;
     for (const request of this.downloads.values()) {
       request.abort();
     }
     this.downloads.clear();
-    for (const image of this.uploads.values()) {
+    for (const { image } of this.uploads.values()) {
       image.close();
     }
     this.uploads.clear();
+    this.tileLabels.clear();
     for (const slot of this.slots.values()) {
       this.freeSlots.push(slot);
     }
@@ -736,6 +1058,8 @@ export class BasemapLayer {
     this.baseRequest.abort();
     this.generation++;
     cancelAnimationFrame(this.uploadFrame);
+    // A late throttled redraw then finds nothing to show.
+    this.showLabels = false;
     this.clearTiles();
     this.window = undefined;
     this.requests = [];
@@ -744,6 +1068,11 @@ export class BasemapLayer {
     this.pageTable?.dispose();
     this.pageTable = undefined;
     this.uniforms.pageTable.value = EMPTY_TEXTURE;
+    if (this.uniforms.labelImage.value !== EMPTY_TEXTURE) {
+      this.uniforms.labelImage.value.dispose();
+      this.uniforms.labelImage.value = EMPTY_TEXTURE;
+    }
+    this.labelImage = undefined;
     this.atlas?.dispose();
     this.atlas = undefined;
   }
