@@ -8,13 +8,30 @@ import { registerLocalZarr } from "@/lib/data/localZarr.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 import Modal from "@/ui/common/Modal.vue";
 import { fetchCatalog, type TCatalogEntry } from "@/utils/catalog.ts";
+import { URL_PARAMETERS, type TURLParameterValues } from "@/utils/urlParams.ts";
 
 const props = defineProps<{ currentSource: string }>();
+
+const KEEP_SETTINGS_PARAMETERS: TURLParameterValues[] = [
+  URL_PARAMETERS.LAYERS,
+  URL_PARAMETERS.CAMERA_PX,
+  URL_PARAMETERS.CAMERA_PY,
+  URL_PARAMETERS.CAMERA_ALT,
+  URL_PARAMETERS.PROJECTION,
+  URL_PARAMETERS.LAT,
+  URL_PARAMETERS.LON,
+  URL_PARAMETERS.COLORMAP,
+  URL_PARAMETERS.INVERT_COLORMAP,
+  URL_PARAMETERS.POSTERIZE_LEVELS,
+  URL_PARAMETERS.HIDE_LOWER_BOUND,
+  URL_PARAMETERS.HIDE_UPPER_BOUND,
+];
 
 const store = useGlobeControlStore();
 
 const visible = ref(false);
 const checking = ref(false);
+const keepSettings = ref(false);
 const dataPath = ref("");
 const datasetInput = ref<HTMLInputElement | null>(null);
 const localFileInput = ref<HTMLInputElement | null>(null);
@@ -42,6 +59,21 @@ async function open() {
 
 function close() {
   visible.value = false;
+}
+
+// Copies parameters verbatim from the current hash, so their encoding survives.
+function carriedParams() {
+  const carried: string[] = [
+    URL_PARAMETERS.BASEMAP_CATALOG,
+    ...(keepSettings.value ? KEEP_SETTINGS_PARAMETERS : []),
+  ];
+  return location.hash
+    .substring(1)
+    .split("::")
+    .slice(1)
+    .filter((entry) => carried.includes(entry.split("=")[0]))
+    .map((entry) => "::" + entry)
+    .join("");
 }
 
 async function setLocationHash() {
@@ -74,9 +106,12 @@ async function setLocationHash() {
   const catUrl = store.catalogUrl;
   if (catUrl) {
     location.hash =
-      "#" + next + (catUrl ? "::catalog=" + encodeURIComponent(catUrl) : "");
+      "#" +
+      next +
+      (catUrl ? "::catalog=" + encodeURIComponent(catUrl) : "") +
+      carriedParams();
   } else {
-    location.hash = "#" + next;
+    location.hash = "#" + next + carriedParams();
   }
   close();
 }
@@ -84,7 +119,10 @@ async function setLocationHash() {
 function onCatalogSelect(entry: TCatalogEntry) {
   const catUrl = store.catalogUrl;
   location.hash =
-    "#" + entry.url + (catUrl ? "::catalog=" + encodeURIComponent(catUrl) : "");
+    "#" +
+    entry.url +
+    (catUrl ? "::catalog=" + encodeURIComponent(catUrl) : "") +
+    carriedParams();
   close();
 }
 
@@ -99,7 +137,7 @@ function onLocalFileSelected(event: Event) {
   if (!file || !isNetCDFFile(file)) {
     return;
   }
-  location.hash = `#${registerLocalNetCDF(file)}`;
+  location.hash = `#${registerLocalNetCDF(file)}${carriedParams()}`;
   close();
 }
 
@@ -116,7 +154,7 @@ function onLocalZarrSelected(event: Event) {
   if (files.length === 0) {
     return;
   }
-  location.hash = `#${registerLocalZarr(files)}`;
+  location.hash = `#${registerLocalZarr(files)}${carriedParams()}`;
   close();
 }
 
@@ -159,6 +197,12 @@ onMounted(async () => {
             <i class="fa-solid fa-folder-open"></i>
           </span>
         </div>
+      </div>
+      <div class="field">
+        <label class="checkbox">
+          <input v-model="keepSettings" type="checkbox" />
+          Keep the current layers, camera and colormap
+        </label>
       </div>
     </form>
 

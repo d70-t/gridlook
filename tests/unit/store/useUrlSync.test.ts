@@ -7,11 +7,12 @@ const { createPinia, setActivePinia } = await import("pinia");
 const { useGlobeControlStore } = await import("@/store/store.ts");
 const { useUrlSync } = await import("@/store/useUrlSync.ts");
 
-it("shares the magnitude request while retaining the underlying scalar", async () => {
+it("writes the layer stack and drops the legacy mask parameters", async () => {
+  vi.useFakeTimers();
   setActivePinia(createPinia());
   const location = {
     pathname: "/",
-    hash: "#https://example.test/data.zarr::varname=temperature::streamlines=true",
+    hash: "#https://example.test/data.zarr::varname=temperature::maskmode=off",
   };
   vi.stubGlobal("location", location);
   vi.stubGlobal("document", { location });
@@ -25,29 +26,36 @@ it("shares the magnitude request while retaining the underlying scalar", async (
   store.setStreamlineLayerEnabled(true);
   const scope = effectScope();
   scope.run(useUrlSync);
+  const flush = async () => {
+    await nextTick();
+    vi.advanceTimersByTime(100);
+  };
   try {
     store.setStreamlineMagnitudeDisplayed(true);
-    await nextTick();
-    expect(location.hash).toContain("::streamlinemagnitude=true");
+    await flush();
+    expect(location.hash).toContain(
+      "::layers=streamlines,1,0.55,,,1;coastlines;grid"
+    );
     expect(location.hash).toContain("::varname=temperature");
+    expect(location.hash).not.toContain("maskmode");
 
+    // the request is shared even when the magnitude cannot be derived
     store.setStreamlineMagnitudeInfo(undefined);
-    await nextTick();
+    await flush();
     expect(store.streamlineMagnitudeDisplayed).toBe(false);
-    expect(location.hash).toContain("::streamlinemagnitude=true");
+    expect(location.hash).toContain("::layers=streamlines,1,0.55,,,1;");
 
-    store.setStreamlineMagnitudeDisplayed(false);
-    await nextTick();
-    expect(location.hash).not.toContain("streamlinemagnitude");
-
-    store.setStreamlineMagnitudeDisplayed(true);
-    await nextTick();
     store.setStreamlineLayerEnabled(false);
-    await nextTick();
-    expect(location.hash).not.toContain("streamlinemagnitude");
+    await flush();
+    expect(location.hash).toContain("::layers=streamlines,0;coastlines;grid");
+
+    store.removeLayer("streamlines");
+    await flush();
+    expect(location.hash).not.toContain("layers");
     expect(location.hash).toContain("::varname=temperature");
   } finally {
     scope.stop();
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   }
 });

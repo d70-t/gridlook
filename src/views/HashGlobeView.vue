@@ -5,6 +5,7 @@ import { ref, onBeforeMount, type Ref } from "vue";
 import GlobeView from "./GlobeView.vue";
 
 import { GRID_TYPES, type T_GRID_TYPES } from "@/lib/data/gridTypeDetector.ts";
+import { legacyMaskToLayersParam } from "@/store/layerUrlState.ts";
 import {
   STORE_PARAM_MAPPING,
   useUrlParameterStore,
@@ -72,6 +73,10 @@ const onHashChange = () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       urlParameterStore[paramProperty] = value as any;
     }
+    urlParameterStore.paramLayers ??= legacyMaskToLayersParam(
+      params.value.maskmode,
+      params.value.maskusetexture
+    );
     src.value = resource || defaultSrc.value;
     store.catalogUrl = params.value.catalog || DEFAULT_CATALOG;
     store.basemapCatalogUrl =

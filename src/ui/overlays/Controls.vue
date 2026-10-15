@@ -59,8 +59,6 @@ const {
   invertColormap,
   posterizeLevels,
   varnameSelector,
-  landSeaMaskChoice,
-  landSeaMaskUseTexture,
   varinfo,
   userBoundsLow,
   userBoundsHigh,
@@ -84,8 +82,6 @@ const {
   paramPosterizeLevels,
   paramHideLowerBound,
   paramHideUpperBound,
-  paramMaskMode,
-  paramMaskingUseTexture,
   paramProjection,
   paramLat,
   paramLon,
@@ -267,7 +263,6 @@ function initDatasetControls() {
   initFromParams();
 }
 
-// eslint-disable-next-line max-lines-per-function
 function initFromParams() {
   if (paramColormap.value) {
     colormap.value = paramColormap.value;
@@ -292,17 +287,6 @@ function initFromParams() {
   }
   if (paramHideUpperBound.value === "true") {
     store.hideUpperBound = true;
-  }
-  if (paramMaskingUseTexture.value) {
-    if (paramMaskingUseTexture.value === "false") {
-      landSeaMaskUseTexture.value = false;
-    } else if (paramMaskingUseTexture.value === "true") {
-      landSeaMaskUseTexture.value = true;
-    }
-  }
-  if (paramMaskMode.value) {
-    landSeaMaskChoice.value =
-      paramMaskMode.value as typeof landSeaMaskChoice.value;
   }
   if (paramProjection.value) {
     const projection = paramProjection.value as TProjectionType;

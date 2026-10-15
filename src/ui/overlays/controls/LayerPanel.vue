@@ -29,7 +29,6 @@ import {
 import {
   deleteTexture,
   getTexture,
-  loadTextures,
   saveTexture,
 } from "@/lib/layers/textureStore.ts";
 import type { TModelInfo } from "@/lib/types/GlobeTypes.ts";
@@ -43,6 +42,7 @@ import {
   useGlobeControlStore,
   type TLayerEntry,
   type TLayerKind,
+  type TVisibleLandSeaMaskMode,
 } from "@/store/store.ts";
 import { useLog } from "@/ui/common/useLog.ts";
 import VolumeControls from "@/ui/overlays/controls/VolumeControls.vue";
@@ -61,6 +61,7 @@ const {
   selectedBasemap,
   landSeaMaskChoice,
   landSeaMaskUseTexture,
+  lastVisibleMaskMode,
   layerStack,
   showCoastLines,
   showGraticules,
@@ -343,11 +344,6 @@ const MASK_LAYER_OPTIONS = {
 type TMaskLayerOption =
   (typeof MASK_LAYER_OPTIONS)[keyof typeof MASK_LAYER_OPTIONS];
 
-type TVisibleLandSeaMaskMode = Exclude<
-  TLandSeaMaskMode,
-  typeof LAND_SEA_MASK_MODES.OFF
->;
-
 const MASK_LAYER_OPTION_CONFIG: Record<
   TMaskLayerOption,
   { mode: TVisibleLandSeaMaskMode; useTexture: boolean }
@@ -393,23 +389,19 @@ function getMaskLayerOption(
   return useTexture ? MASK_LAYER_OPTIONS.LAND : MASK_LAYER_OPTIONS.LAND_SIMPLE;
 }
 
-const lastVisibleMaskLayerOption = ref<TMaskLayerOption>(
-  getMaskLayerOption(landSeaMaskChoice.value, landSeaMaskUseTexture.value)
-);
-
+// While the mask is hidden, landSeaMaskUseTexture keeps its last value.
 const maskLayerOption = computed<TMaskLayerOption>({
   get() {
-    if (landSeaMaskChoice.value === LAND_SEA_MASK_MODES.OFF) {
-      return lastVisibleMaskLayerOption.value;
-    }
     return getMaskLayerOption(
-      landSeaMaskChoice.value,
+      landSeaMaskChoice.value === LAND_SEA_MASK_MODES.OFF
+        ? lastVisibleMaskMode.value
+        : landSeaMaskChoice.value,
       landSeaMaskUseTexture.value
     );
   },
   set(value) {
     const config = MASK_LAYER_OPTION_CONFIG[value];
-    lastVisibleMaskLayerOption.value = value;
+    lastVisibleMaskMode.value = config.mode;
     landSeaMaskChoice.value = config.mode;
     landSeaMaskUseTexture.value = config.useTexture;
   },
@@ -417,15 +409,10 @@ const maskLayerOption = computed<TMaskLayerOption>({
 
 function toggleMaskLayerVisibility() {
   if (landSeaMaskChoice.value === LAND_SEA_MASK_MODES.OFF) {
-    const config = MASK_LAYER_OPTION_CONFIG[lastVisibleMaskLayerOption.value];
-    landSeaMaskChoice.value = config.mode;
-    landSeaMaskUseTexture.value = config.useTexture;
+    landSeaMaskChoice.value = lastVisibleMaskMode.value;
     return;
   }
-  lastVisibleMaskLayerOption.value = getMaskLayerOption(
-    landSeaMaskChoice.value,
-    landSeaMaskUseTexture.value
-  );
+  lastVisibleMaskMode.value = landSeaMaskChoice.value;
   landSeaMaskChoice.value = LAND_SEA_MASK_MODES.OFF;
 }
 
@@ -461,17 +448,6 @@ const LAYER_PROPERTIES: Record<TLayerKind, TLayerProperties> = {
 };
 
 onMounted(async () => {
-  try {
-    const stored = await loadTextures();
-    for (const texture of stored) {
-      if (!layerStack.value.some((layer) => layer.id === texture.id)) {
-        store.addTextureLayer(texture.id, texture.name, false);
-      }
-    }
-  } catch (error) {
-    logError(error, "Couldn't load stored texture layers");
-  }
-
   try {
     if (store.basemapCatalogUrl === undefined) {
       throw new Error("No basemap url found.");
@@ -729,9 +705,7 @@ function addLayer(action: TAddLayerAction) {
   } else if (action === ADD_LAYER_ACTIONS.MASK) {
     store.restoreBuiltinLayer(LAYER_KINDS.MASK);
     if (landSeaMaskChoice.value === LAND_SEA_MASK_MODES.OFF) {
-      const config = MASK_LAYER_OPTION_CONFIG[lastVisibleMaskLayerOption.value];
-      landSeaMaskChoice.value = config.mode;
-      landSeaMaskUseTexture.value = config.useTexture;
+      landSeaMaskChoice.value = lastVisibleMaskMode.value;
     }
   } else if (action === ADD_LAYER_ACTIONS.STREAMLINES) {
     store.restoreBuiltinLayer(LAYER_KINDS.STREAMLINES);

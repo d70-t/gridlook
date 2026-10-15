@@ -53,6 +53,11 @@ export const LAYER_KINDS = {
 
 export type TLayerKind = (typeof LAYER_KINDS)[keyof typeof LAYER_KINDS];
 
+export type TVisibleLandSeaMaskMode = Exclude<
+  TLandSeaMaskMode,
+  typeof LAND_SEA_MASK_MODES.OFF
+>;
+
 export const COASTLINE_RESOLUTIONS = {
   TEN_M: "10m",
   FIFTY_M: "50m",
@@ -190,7 +195,7 @@ const INITIAL_BUILTIN_LAYER_KINDS = [
   LAYER_KINDS.GRID,
 ] as const satisfies readonly TBuiltinLayerKind[];
 
-function createBuiltinLayer(kind: TBuiltinLayerKind): TLayerEntry {
+export function createBuiltinLayer(kind: TBuiltinLayerKind): TLayerEntry {
   return {
     ...BUILTIN_LAYER_DEFAULTS[kind],
     name: BUILTIN_LAYER_NAMES[kind],
@@ -215,6 +220,8 @@ export const useGlobeControlStore = defineStore("globeControl", {
       landSeaMaskChoice: LAND_SEA_MASK_MODES.OFF as TLandSeaMaskMode,
       // when true, use the textured versions; when false, use the simple versions
       landSeaMaskUseTexture: false,
+      // mode restored when a hidden mask is shown again
+      lastVisibleMaskMode: LAND_SEA_MASK_MODES.LAND as TVisibleLandSeaMaskMode,
       basemaps: undefined as TBasemapEntry[] | undefined,
       selectedBasemap: "osm" as string,
       varnameSelector: "-", // the varname currently selected in the dropdown
@@ -485,12 +492,6 @@ export const useGlobeControlStore = defineStore("globeControl", {
           layer.visible = !layer.visible;
         }
       }
-    },
-    isBasemapLayerEnabled() {
-      return Boolean(
-        this.layerStack.find((entry) => entry.id === BUILTIN_LAYER_IDS.BASEMAP)
-          ?.visible
-      );
     },
     setBasemapLayerEnabled(enabled: boolean) {
       if (enabled) {
