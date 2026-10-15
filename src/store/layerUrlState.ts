@@ -5,12 +5,11 @@ import {
   LAYER_OPACITY,
   type TCoastlineResolution,
   type TGraticuleSpacing,
-  type TVisibleLandSeaMaskMode,
   type TVolumeSelection,
 } from "./store.ts";
 
-import { LAND_SEA_MASK_MODES } from "@/lib/layers/landSeaMask.ts";
 import {
+  DEFAULT_BASEMAP,
   DEFAULT_BASEMAP_OPTIONS,
   type TBasemapOptions,
 } from "@/utils/basemap.ts";
@@ -20,15 +19,17 @@ import {
    Empty or missing fields fall back to the default. Variable names and
    basemap ids must not contain "," or ";". */
 
-const MASK_STYLES = {
-  SIMPLE: "simple",
-  TEXTURED: "textured",
-} as const;
-
 const DEFAULT_LAYERS_PARAM = "coastlines;grid";
 const MAX_VOLUME_SELECTIONS = 4;
 const DEFAULT_STREAMLINE_OPACITY = 0.55;
-const DEFAULT_BASEMAP = "osm";
+// Replaces the textured land/sea mask of legacy URLs.
+const SATELLITE_BASEMAP = "versatiles-satellite";
+// Modes of the removed land/sea mask in legacy URLs.
+const LEGACY_MASK_MODES = {
+  LAND: "land",
+  SEA: "sea",
+  GLOBE: "globe",
+} as const;
 
 export type TLayerUrlEntry =
   | {
@@ -42,13 +43,6 @@ export type TLayerUrlEntry =
       spacing: TGraticuleSpacing;
     }
   | { kind: typeof LAYER_KINDS.GRID; visible: boolean; opacity: number }
-  | {
-      kind: typeof LAYER_KINDS.MASK;
-      visible: boolean;
-      opacity: number;
-      mode: TVisibleLandSeaMaskMode;
-      textured: boolean;
-    }
   | {
       kind: typeof LAYER_KINDS.STREAMLINES;
       visible: boolean;
@@ -145,22 +139,6 @@ function parseLayer(kind: string, f: string[]): TLayerUrlEntry | undefined {
       };
     case LAYER_KINDS.GRID:
       return { kind, visible, opacity: parseOpacity(f[1], LAYER_OPACITY.MAX) };
-    case LAYER_KINDS.MASK:
-      return {
-        kind,
-        visible,
-        opacity: parseOpacity(f[1], LAYER_OPACITY.MAX),
-        mode: parseOneOf(
-          f[2] as TVisibleLandSeaMaskMode,
-          {
-            LAND: LAND_SEA_MASK_MODES.LAND,
-            SEA: LAND_SEA_MASK_MODES.SEA,
-            GLOBE: LAND_SEA_MASK_MODES.GLOBE,
-          },
-          LAND_SEA_MASK_MODES.LAND
-        ),
-        textured: f[3] === MASK_STYLES.TEXTURED,
-      };
     case LAYER_KINDS.STREAMLINES:
       return {
         kind,
@@ -227,13 +205,6 @@ function formatFields(entry: TLayerUrlEntry): string[] {
       return [formatFlag(entry.visible), String(entry.spacing)];
     case LAYER_KINDS.GRID:
       return [formatFlag(entry.visible), formatOpacity(entry.opacity)];
-    case LAYER_KINDS.MASK:
-      return [
-        formatFlag(entry.visible),
-        formatOpacity(entry.opacity),
-        entry.mode,
-        entry.textured ? MASK_STYLES.TEXTURED : MASK_STYLES.SIMPLE,
-      ];
     case LAYER_KINDS.STREAMLINES:
       return [
         formatFlag(entry.visible),
@@ -282,21 +253,27 @@ export function formatLayersParam(entries: TLayerUrlEntry[]): string {
   return value === DEFAULT_LAYERS_PARAM ? "" : value;
 }
 
-/** Translates the pre-`layers` mask parameters, using the old layer order. */
+/**
+ * Translates the pre-`layers` land/sea mask parameters into "Maps and
+ * Masks", in the old layer order: simple masks become the vector map,
+ * textured ones the satellite imagery, without labels.
+ */
 export function legacyMaskToLayersParam(
   maskMode: string | undefined,
   useTexture: string | undefined
 ): string | undefined {
-  const style =
-    useTexture === "true" ? MASK_STYLES.TEXTURED : MASK_STYLES.SIMPLE;
-  if (maskMode === LAND_SEA_MASK_MODES.GLOBE) {
-    return `coastlines;grid;mask,1,1,${maskMode},${style}`;
+  const provider = useTexture === "true" ? SATELLITE_BASEMAP : DEFAULT_BASEMAP;
+  const water = formatFlag(maskMode !== LEGACY_MASK_MODES.LAND);
+  const land = formatFlag(maskMode !== LEGACY_MASK_MODES.SEA);
+  const mask = `${LAYER_KINDS.BASEMAP},1,1,${provider},${water},${land},0`;
+  if (maskMode === LEGACY_MASK_MODES.GLOBE) {
+    return `coastlines;grid;${mask}`;
   }
   if (
-    maskMode === LAND_SEA_MASK_MODES.LAND ||
-    maskMode === LAND_SEA_MASK_MODES.SEA
+    maskMode === LEGACY_MASK_MODES.LAND ||
+    maskMode === LEGACY_MASK_MODES.SEA
   ) {
-    return `coastlines;mask,1,1,${maskMode},${style};grid`;
+    return `coastlines;${mask};grid`;
   }
   return undefined;
 }

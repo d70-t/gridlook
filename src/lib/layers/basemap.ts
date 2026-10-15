@@ -116,7 +116,7 @@ EMPTY_TEXTURE.needsUpdate = true;
 let landMask: Promise<THREE.Texture> | undefined;
 
 /**
- * Land in alpha, from the land/sea mask's land polygons, in its resolution:
+ * Land in alpha, from the Natural Earth land polygons, at 4096 x 2048:
  * larger canvases can exceed the browser's limits for path fills.
  */
 function loadLandMask() {

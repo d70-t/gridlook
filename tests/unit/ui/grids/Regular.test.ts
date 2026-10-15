@@ -46,7 +46,6 @@ vi.mock("@/ui/grids/composables/useGridScene.ts", async () => {
 vi.mock("@/ui/grids/composables/useGridOverlays.ts", () => ({
   getLayerRenderOrder: () => 0,
   useGridOverlays: () => ({
-    updateLandSeaMask: vi.fn(),
     updateTextureLayers: vi.fn(),
   }),
 }));

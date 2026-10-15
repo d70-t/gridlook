@@ -1,6 +1,6 @@
 #include "../../projection/glsl/inverseProjection.glsl"
 
-uniform sampler2D maskTexture;
+uniform sampler2D imageTexture;
 uniform vec4 textureBounds;
 uniform float opacity;
 uniform int projectionType;
@@ -37,7 +37,7 @@ void main() {
   float v = (geo.x - textureBounds.y) / (textureBounds.w - textureBounds.y);
   if (u < 0.0 || u > 1.0 || v < 0.0 || v > 1.0) discard;
 
-  vec4 texColor = texture2D(maskTexture, vec2(u, v));
+  vec4 texColor = texture2D(imageTexture, vec2(u, v));
   if (texColor.a < 0.01) discard;
   gl_FragColor = vec4(texColor.rgb, texColor.a * opacity);
   // Encode explicitly; see the color space note in AGENTS.md.

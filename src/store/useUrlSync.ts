@@ -16,8 +16,6 @@ import {
   type TLayerEntry,
 } from "./store.ts";
 
-import { LAND_SEA_MASK_MODES } from "@/lib/layers/landSeaMask.ts";
-
 type TUrlSyncEntry = {
   key:
     | TGlobeControlStoreKeys
@@ -77,7 +75,6 @@ const URL_PARAM_SYNC_MAP: TUrlSyncEntry[] = [
   },
 ];
 
-// eslint-disable-next-line max-lines-per-function
 function getLayerUrlEntry(
   store: ReturnType<typeof useGlobeControlStore>,
   layer: TLayerEntry
@@ -98,18 +95,6 @@ function getLayerUrlEntry(
       };
     case LAYER_KINDS.GRID:
       return { kind: LAYER_KINDS.GRID, visible, opacity };
-    case LAYER_KINDS.MASK: {
-      const hidden = store.landSeaMaskChoice === LAND_SEA_MASK_MODES.OFF;
-      return {
-        kind: LAYER_KINDS.MASK,
-        visible: !hidden,
-        opacity,
-        mode: hidden
-          ? store.lastVisibleMaskMode
-          : (store.landSeaMaskChoice as typeof store.lastVisibleMaskMode),
-        textured: store.landSeaMaskUseTexture,
-      };
-    }
     case LAYER_KINDS.STREAMLINES: {
       const selection = store.streamlineSelection;
       return {

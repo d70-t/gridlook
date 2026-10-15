@@ -24,7 +24,7 @@ describe("prepareLabels", () => {
         // Repeated by a neighbouring tile with a slightly different position.
         label("Cologne", "city", 1_000_000, 0.01),
       ],
-      8
+      10
     );
     expect(labels.map((entry) => entry.name)).toEqual([
       "Germany",
@@ -42,9 +42,10 @@ describe("prepareLabels", () => {
     ];
     const names = (zoom: number) =>
       prepareLabels(labels, zoom).map((entry) => entry.name);
-    expect(names(3)).toEqual(["Germany"]);
-    expect(names(6)).toEqual(["Germany", "Berlin", "Munich"]);
-    expect(names(8)).toEqual(["Germany", "Berlin", "Munich", "Bonn"]);
+    expect(names(5)).toEqual(["Germany"]);
+    expect(names(6)).toEqual(["Germany", "Berlin"]);
+    expect(names(8)).toEqual(["Germany", "Berlin", "Munich"]);
+    expect(names(10)).toEqual(["Germany", "Berlin", "Munich", "Bonn"]);
   });
 });
 
@@ -57,7 +58,7 @@ describe("layoutLabels", () => {
         label("Cologne", "city", 2, 1),
         label("Faraway", "city", 1, 10),
       ],
-      8
+      10
     );
     // Longitude 1° is 10 px; Hidden lies outside the image.
     const project = (_lat: number, lon: number) =>

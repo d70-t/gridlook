@@ -27,6 +27,8 @@ export type TBasemapEntry = {
   maxZoom?: number;
 };
 
+export const DEFAULT_BASEMAP = "versatiles-osm";
+
 // What basemaps show; only vector basemaps have labels.
 export type TBasemapOptions = {
   water: boolean;

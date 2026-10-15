@@ -27,7 +27,6 @@ type TGridDataLoaderOptions = {
     isCurrent: () => boolean
   ) => Promise<void>;
   clearHoverLookup: () => void;
-  updateLandSeaMask: () => void | Promise<void>;
   updateColormap: () => void;
   prepareDatasource?: () => void | Promise<void>;
   resetDataVars?: () => void;
@@ -121,7 +120,6 @@ function createDatasourceUpdate(
 
     await options.prepareDatasource?.();
     await getData();
-    await options.updateLandSeaMask();
     options.updateColormap();
   };
 }

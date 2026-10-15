@@ -7,7 +7,7 @@ const { formatLayersParam, legacyMaskToLayersParam, parseLayersParam } =
 
 const FULL =
   "coastlines,1,10m;graticules,0,15;volume,1,0.8,ta,ff8800,0.6,hus,0088ff,1;" +
-  "streamlines,1,0.4,ua,va,1;mask,1,0.7,sea,textured;grid;basemap,1,0.6,esri";
+  "streamlines,1,0.4,ua,va,1;mask,1,0.7,versatiles-satellite,0;grid";
 
 it("round-trips every layer kind", () => {
   expect(formatLayersParam(parseLayersParam(FULL))).toBe(FULL);
@@ -37,26 +37,29 @@ it("falls back on invalid input and always keeps the grid", () => {
     formatLayersParam(
       parseLayersParam("bogus;texture;mask,x,7,moon,odd;mask,0;coastlines,1,1m")
     )
-  ).toBe("mask;coastlines;grid");
+  ).toBe("mask,1,1,moon;coastlines;grid");
 });
 
 it("translates legacy mask parameters in the old layer order", () => {
   expect(legacyMaskToLayersParam("land", undefined)).toBe(
-    "coastlines;mask,1,1,land,simple;grid"
+    "coastlines;mask,1,1,versatiles-osm,0,1,0;grid"
+  );
+  expect(legacyMaskToLayersParam("sea", "false")).toBe(
+    "coastlines;mask,1,1,versatiles-osm,1,0,0;grid"
   );
   expect(legacyMaskToLayersParam("globe", "true")).toBe(
-    "coastlines;grid;mask,1,1,globe,textured"
+    "coastlines;grid;mask,1,1,versatiles-satellite,1,1,0"
   );
   expect(legacyMaskToLayersParam("off", "true")).toBeUndefined();
 });
 
 it("keeps basemap options, labels off by default", () => {
-  const param = "grid;basemap,1,1,versatiles-osm,1,0,1";
+  const param = "grid;mask,1,1,versatiles-osm,1,0,1";
   expect(formatLayersParam(parseLayersParam(param))).toBe(param);
   expect(parseLayersParam(param)[1]).toMatchObject({
     options: { water: true, land: false, labels: true },
   });
-  expect(
-    formatLayersParam(parseLayersParam("grid;basemap,1,1,esri,1,1,0"))
-  ).toBe("grid;basemap,1,1,esri");
+  expect(formatLayersParam(parseLayersParam("grid;mask,1,1,esri,1,1,0"))).toBe(
+    "grid;mask,1,1,esri"
+  );
 });

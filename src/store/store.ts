@@ -10,7 +10,7 @@ import type { TVectorMagnitudeInfo } from "@/lib/data/vectorMagnitude.ts";
 import {
   LAND_SEA_MASK_MODES,
   type TLandSeaMaskMode,
-} from "@/lib/layers/landSeaMask.ts";
+} from "@/lib/layers/equirectLayer.ts";
 import type { TDistanceScale } from "@/lib/projection/distanceScale.ts";
 import {
   PROJECTION_TYPES,
@@ -20,6 +20,7 @@ import {
 import type { TColorMap } from "@/lib/shaders/colormapShaders.ts";
 import type { TVarInfo, TBounds } from "@/lib/types/GlobeTypes.ts";
 import {
+  DEFAULT_BASEMAP,
   DEFAULT_BASEMAP_OPTIONS,
   type TBasemapEntry,
   type TBasemapOptions,
@@ -48,19 +49,14 @@ export const LAYER_KINDS = {
   COASTLINES: "coastlines",
   GRATICULES: "graticules",
   GRID: "grid",
-  MASK: "mask",
   STREAMLINES: "streamlines",
   VOLUME: "volume",
   TEXTURE: "texture",
-  BASEMAP: "basemap",
+  // "Maps and Masks"; it replaced the land/sea mask, hence its URL name.
+  BASEMAP: "mask",
 } as const;
 
 export type TLayerKind = (typeof LAYER_KINDS)[keyof typeof LAYER_KINDS];
-
-export type TVisibleLandSeaMaskMode = Exclude<
-  TLandSeaMaskMode,
-  typeof LAND_SEA_MASK_MODES.OFF
->;
 
 export const COASTLINE_RESOLUTIONS = {
   TEN_M: "10m",
@@ -82,7 +78,6 @@ export const BUILTIN_LAYER_IDS = {
   COASTLINES: "coastlines",
   GRATICULES: "graticules",
   GRID: "grid",
-  MASK: "mask",
   STREAMLINES: "streamlines",
   VOLUME: "volume",
   BASEMAP: "basemap",
@@ -136,10 +131,9 @@ export const BUILTIN_LAYER_NAMES = {
   [LAYER_KINDS.COASTLINES]: "Coastlines",
   [LAYER_KINDS.GRATICULES]: "Lat/Lon grid",
   [LAYER_KINDS.GRID]: "Data grid",
-  [LAYER_KINDS.MASK]: "Land/sea mask",
   [LAYER_KINDS.STREAMLINES]: "Flow streamlines",
   [LAYER_KINDS.VOLUME]: "Volume",
-  [LAYER_KINDS.BASEMAP]: "Basemap",
+  [LAYER_KINDS.BASEMAP]: "Maps and Masks",
 } as const satisfies Record<
   Exclude<TLayerKind, typeof LAYER_KINDS.TEXTURE>,
   string
@@ -165,12 +159,6 @@ const BUILTIN_LAYER_DEFAULTS: Record<TBuiltinLayerKind, TBuiltinLayerDefaults> =
     [LAYER_KINDS.GRID]: {
       id: BUILTIN_LAYER_IDS.GRID,
       kind: LAYER_KINDS.GRID,
-      opacity: LAYER_OPACITY.MAX,
-      maskMode: LAND_SEA_MASK_MODES.OFF,
-    },
-    [LAYER_KINDS.MASK]: {
-      id: BUILTIN_LAYER_IDS.MASK,
-      kind: LAYER_KINDS.MASK,
       opacity: LAYER_OPACITY.MAX,
       maskMode: LAND_SEA_MASK_MODES.OFF,
     },
@@ -221,13 +209,8 @@ export const useGlobeControlStore = defineStore("globeControl", {
       coastlineResolution:
         COASTLINE_RESOLUTIONS.FIFTY_M as TCoastlineResolution,
       graticuleSpacing: GRATICULE_SPACINGS.THIRTY_DEGREES as TGraticuleSpacing,
-      landSeaMaskChoice: LAND_SEA_MASK_MODES.OFF as TLandSeaMaskMode,
-      // when true, use the textured versions; when false, use the simple versions
-      landSeaMaskUseTexture: false,
-      // mode restored when a hidden mask is shown again
-      lastVisibleMaskMode: LAND_SEA_MASK_MODES.LAND as TVisibleLandSeaMaskMode,
       basemaps: undefined as TBasemapEntry[] | undefined,
-      selectedBasemap: "osm" as string,
+      selectedBasemap: DEFAULT_BASEMAP as string,
       basemapOptions: { ...DEFAULT_BASEMAP_OPTIONS } as TBasemapOptions,
       varnameSelector: "-", // the varname currently selected in the dropdown
       varnameDisplay: "-", // the varname currently shown on the globe (will be updated after loading)
@@ -466,12 +449,9 @@ export const useGlobeControlStore = defineStore("globeControl", {
       ) {
         return;
       }
-      // An opaque basemap on top would hide everything else.
+      this.layerStack.unshift(createBuiltinLayer(kind));
       if (kind === LAYER_KINDS.BASEMAP) {
-        this.layerStack.push(createBuiltinLayer(kind));
         this.basemapOptions = { ...DEFAULT_BASEMAP_OPTIONS };
-      } else {
-        this.layerStack.unshift(createBuiltinLayer(kind));
       }
     },
     updateTextureLayer(

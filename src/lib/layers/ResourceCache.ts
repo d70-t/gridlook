@@ -3,33 +3,11 @@ type GeoJSONData = GeoJSON.FeatureCollection<
   GeoJSON.GeoJsonProperties
 >;
 
-/** Utility class for caching and loading resources like images and JSON data */
+/** Utility class for caching and loading resources like JSON data */
 export class ResourceCache {
   // Private constructor to prevent instantiation of this static-only utility class
   private constructor() {}
-  private static imageCache = new Map<string, Promise<HTMLImageElement>>();
   private static jsonCache = new Map<string, Promise<GeoJSONData>>();
-
-  static async loadImage(url: string): Promise<HTMLImageElement> {
-    const existing = this.imageCache.get(url);
-    if (existing) {
-      return existing;
-    }
-
-    const promise = new Promise<HTMLImageElement>((resolve, reject) => {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.src = url;
-      img.onload = () => resolve(img);
-      img.onerror = (e) => {
-        this.imageCache.delete(url);
-        reject(e);
-      };
-    });
-
-    this.imageCache.set(url, promise);
-    return promise;
-  }
 
   static async loadGeoJSON(url: string): Promise<GeoJSONData> {
     const existing = this.jsonCache.get(url);

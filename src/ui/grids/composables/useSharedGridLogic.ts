@@ -35,8 +35,6 @@ export function useSharedGridLogic() {
   const {
     showCoastLines,
     showGraticules,
-    landSeaMaskChoice,
-    landSeaMaskUseTexture,
     selection,
     colormap,
     invertColormap,
@@ -117,7 +115,6 @@ export function useSharedGridLogic() {
   const {
     updateCoastlines: updateCoastlinesInternal,
     updateGraticules: updateGraticulesInternal,
-    updateLandSeaMask,
     updateTextureLayers,
     updateLayerProjectionUniforms,
     updateOverlayProjectionUniforms,
@@ -126,8 +123,6 @@ export function useSharedGridLogic() {
     projectionHelper,
     showCoastLines,
     showGraticules,
-    landSeaMaskChoice,
-    landSeaMaskUseTexture,
     getScene,
     getCamera,
     getRenderer,
@@ -138,13 +133,6 @@ export function useSharedGridLogic() {
   updateGraticules = updateGraticulesInternal;
   syncTextureLayersOnReady = () => updateTextureLayers();
   updateBasemapOnReady = () => updateBasemap();
-
-  watch(
-    [() => landSeaMaskChoice.value, () => landSeaMaskUseTexture.value],
-    () => {
-      updateLandSeaMask();
-    }
-  );
 
   // covers reordering, add/remove, visibility and mask-mode changes
   watch(
@@ -198,7 +186,6 @@ export function useSharedGridLogic() {
       if (modeChanged) {
         updateBaseSurface();
         void updateOverlayProjectionUniforms(true);
-        updateLandSeaMask();
         void updateTextureLayers(true);
         updateBasemap(true);
         configureCameraForProjection();
@@ -317,7 +304,6 @@ export function useSharedGridLogic() {
     fetchDimensionDetails,
     registerUpdateLOD,
     registerAnimationCallback,
-    updateLandSeaMask,
     updateColormap,
     updateHistogram,
     projectionHelper,

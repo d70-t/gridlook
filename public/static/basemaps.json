@@ -9,7 +9,7 @@
     },
     {
       "id": "versatiles-osm",
-      "name": "VersaTiles OSM",
+      "name": "Simple",
       "url": "https://tiles.versatiles.org/tiles/osm/{z}/{x}/{y}",
       "type": "vector",
       "maxZoom": 14,
@@ -17,7 +17,7 @@
     },
     {
       "id": "versatiles-satellite",
-      "name": "VersaTiles Satellite",
+      "name": "Satellite",
       "url": "https://tiles.versatiles.org/tiles/satellite/{z}/{x}/{y}",
       "tileSize": 512,
       "attribution": "Tiles: VersaTiles | Imagery: Copernicus Sentinel-2, NASA Blue Marble and national orthophotos, see versatiles.org/sources"

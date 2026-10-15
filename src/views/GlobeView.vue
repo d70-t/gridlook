@@ -26,7 +26,6 @@ import {
   indexFromZarr,
 } from "@/lib/data/sourceIndexing.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
-import { LAND_SEA_MASK_MODES } from "@/lib/layers/landSeaMask.ts";
 import { loadTextures } from "@/lib/layers/textureStore.ts";
 import { PROJECTION_TYPES, clamp } from "@/lib/projection/projectionUtils.ts";
 import {
@@ -352,14 +351,6 @@ function initLayersFromParams() {
   store.showGraticules = graticules?.visible ?? false;
   if (graticules) {
     store.graticuleSpacing = graticules.spacing;
-  }
-
-  const mask = findLayerParam(entries, LAYER_KINDS.MASK);
-  store.landSeaMaskChoice =
-    mask?.visible === true ? mask.mode : LAND_SEA_MASK_MODES.OFF;
-  if (mask) {
-    store.lastVisibleMaskMode = mask.mode;
-    store.landSeaMaskUseTexture = mask.textured;
   }
 
   const basemap = findLayerParam(entries, LAYER_KINDS.BASEMAP);

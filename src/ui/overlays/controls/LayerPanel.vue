@@ -18,10 +18,7 @@ import {
   getVariableGroup,
   levelAxesAreIdentical,
 } from "@/lib/data/vectorField.ts";
-import {
-  LAND_SEA_MASK_MODES,
-  type TLandSeaMaskMode,
-} from "@/lib/layers/landSeaMask.ts";
+import { LAND_SEA_MASK_MODES } from "@/lib/layers/equirectLayer.ts";
 import {
   isSupportedTextureLayerFile,
   TEXTURE_LAYER_UPLOAD_ACCEPT,
@@ -42,7 +39,6 @@ import {
   useGlobeControlStore,
   type TLayerEntry,
   type TLayerKind,
-  type TVisibleLandSeaMaskMode,
 } from "@/store/store.ts";
 import { useLog } from "@/ui/common/useLog.ts";
 import VolumeControls from "@/ui/overlays/controls/VolumeControls.vue";
@@ -59,9 +55,6 @@ const {
   dimSlidersValues,
   graticuleSpacing,
   selectedBasemap,
-  landSeaMaskChoice,
-  landSeaMaskUseTexture,
-  lastVisibleMaskMode,
   layerStack,
   showCoastLines,
   showGraticules,
@@ -103,7 +96,6 @@ const LAYER_ENTRY_SELECTOR = ".layer-entry";
 const ADD_LAYER_ACTIONS = {
   COASTLINES: LAYER_KINDS.COASTLINES,
   GRATICULES: LAYER_KINDS.GRATICULES,
-  MASK: LAYER_KINDS.MASK,
   STREAMLINES: LAYER_KINDS.STREAMLINES,
   VOLUME: LAYER_KINDS.VOLUME,
   BASEMAP: LAYER_KINDS.BASEMAP,
@@ -331,96 +323,11 @@ const LAYER_ICONS: Record<TLayerKind, string> = {
   [LAYER_KINDS.COASTLINES]: "fa-earth-europe",
   [LAYER_KINDS.GRATICULES]: "fa-globe",
   [LAYER_KINDS.GRID]: "fa-border-all",
-  [LAYER_KINDS.MASK]: "fa-mask",
   [LAYER_KINDS.STREAMLINES]: "fa-wind",
   [LAYER_KINDS.VOLUME]: "fa-cloud",
   [LAYER_KINDS.TEXTURE]: "fa-image",
-  [LAYER_KINDS.BASEMAP]: "fa-map",
+  [LAYER_KINDS.BASEMAP]: "fa-mask",
 };
-
-const MASK_LAYER_OPTIONS = {
-  GLOBE: "globe",
-  GLOBE_SIMPLE: "globe_simple",
-  LAND: "land",
-  LAND_SIMPLE: "land_simple",
-  SEA: "sea",
-  SEA_SIMPLE: "sea_simple",
-} as const;
-
-type TMaskLayerOption =
-  (typeof MASK_LAYER_OPTIONS)[keyof typeof MASK_LAYER_OPTIONS];
-
-const MASK_LAYER_OPTION_CONFIG: Record<
-  TMaskLayerOption,
-  { mode: TVisibleLandSeaMaskMode; useTexture: boolean }
-> = {
-  [MASK_LAYER_OPTIONS.GLOBE]: {
-    mode: LAND_SEA_MASK_MODES.GLOBE,
-    useTexture: true,
-  },
-  [MASK_LAYER_OPTIONS.GLOBE_SIMPLE]: {
-    mode: LAND_SEA_MASK_MODES.GLOBE,
-    useTexture: false,
-  },
-  [MASK_LAYER_OPTIONS.LAND]: {
-    mode: LAND_SEA_MASK_MODES.LAND,
-    useTexture: true,
-  },
-  [MASK_LAYER_OPTIONS.LAND_SIMPLE]: {
-    mode: LAND_SEA_MASK_MODES.LAND,
-    useTexture: false,
-  },
-  [MASK_LAYER_OPTIONS.SEA]: {
-    mode: LAND_SEA_MASK_MODES.SEA,
-    useTexture: true,
-  },
-  [MASK_LAYER_OPTIONS.SEA_SIMPLE]: {
-    mode: LAND_SEA_MASK_MODES.SEA,
-    useTexture: false,
-  },
-};
-
-function getMaskLayerOption(
-  mode: TLandSeaMaskMode,
-  useTexture: boolean
-): TMaskLayerOption {
-  if (mode === LAND_SEA_MASK_MODES.GLOBE) {
-    return useTexture
-      ? MASK_LAYER_OPTIONS.GLOBE
-      : MASK_LAYER_OPTIONS.GLOBE_SIMPLE;
-  }
-  if (mode === LAND_SEA_MASK_MODES.SEA) {
-    return useTexture ? MASK_LAYER_OPTIONS.SEA : MASK_LAYER_OPTIONS.SEA_SIMPLE;
-  }
-  return useTexture ? MASK_LAYER_OPTIONS.LAND : MASK_LAYER_OPTIONS.LAND_SIMPLE;
-}
-
-// While the mask is hidden, landSeaMaskUseTexture keeps its last value.
-const maskLayerOption = computed<TMaskLayerOption>({
-  get() {
-    return getMaskLayerOption(
-      landSeaMaskChoice.value === LAND_SEA_MASK_MODES.OFF
-        ? lastVisibleMaskMode.value
-        : landSeaMaskChoice.value,
-      landSeaMaskUseTexture.value
-    );
-  },
-  set(value) {
-    const config = MASK_LAYER_OPTION_CONFIG[value];
-    lastVisibleMaskMode.value = config.mode;
-    landSeaMaskChoice.value = config.mode;
-    landSeaMaskUseTexture.value = config.useTexture;
-  },
-});
-
-function toggleMaskLayerVisibility() {
-  if (landSeaMaskChoice.value === LAND_SEA_MASK_MODES.OFF) {
-    landSeaMaskChoice.value = lastVisibleMaskMode.value;
-    return;
-  }
-  lastVisibleMaskMode.value = landSeaMaskChoice.value;
-  landSeaMaskChoice.value = LAND_SEA_MASK_MODES.OFF;
-}
 
 const LAYER_PROPERTIES: Record<TLayerKind, TLayerProperties> = {
   [LAYER_KINDS.COASTLINES]: {
@@ -431,9 +338,6 @@ const LAYER_PROPERTIES: Record<TLayerKind, TLayerProperties> = {
   },
   [LAYER_KINDS.GRID]: {
     buttons: [LAYER_BUTTONS.OPACITY],
-  },
-  [LAYER_KINDS.MASK]: {
-    buttons: [LAYER_BUTTONS.OPACITY, LAYER_BUTTONS.REMOVE],
   },
   [LAYER_KINDS.STREAMLINES]: {
     buttons: [LAYER_BUTTONS.OPACITY, LAYER_BUTTONS.REMOVE],
@@ -609,9 +513,6 @@ function isLayerVisible(layer: TLayerEntry) {
   if (layer.kind === LAYER_KINDS.GRATICULES) {
     return showGraticules.value;
   }
-  if (layer.kind === LAYER_KINDS.MASK) {
-    return landSeaMaskChoice.value !== LAND_SEA_MASK_MODES.OFF;
-  }
   return layer.visible;
 }
 
@@ -645,13 +546,6 @@ const addLayerOptions = computed<TAddLayerOption[]>(() => {
       value: ADD_LAYER_ACTIONS.GRATICULES,
       label: BUILTIN_LAYER_NAMES[LAYER_KINDS.GRATICULES],
       icon: LAYER_ICONS[LAYER_KINDS.GRATICULES],
-    });
-  }
-  if (!hasDisplayedLayer(LAYER_KINDS.MASK)) {
-    options.push({
-      value: ADD_LAYER_ACTIONS.MASK,
-      label: BUILTIN_LAYER_NAMES[LAYER_KINDS.MASK],
-      icon: LAYER_ICONS[LAYER_KINDS.MASK],
     });
   }
   if (!hasDisplayedLayer(LAYER_KINDS.STREAMLINES)) {
@@ -708,11 +602,6 @@ function addLayer(action: TAddLayerAction) {
     if (!showGraticules.value) {
       store.toggleGraticules();
     }
-  } else if (action === ADD_LAYER_ACTIONS.MASK) {
-    store.restoreBuiltinLayer(LAYER_KINDS.MASK);
-    if (landSeaMaskChoice.value === LAND_SEA_MASK_MODES.OFF) {
-      landSeaMaskChoice.value = lastVisibleMaskMode.value;
-    }
   } else if (action === ADD_LAYER_ACTIONS.STREAMLINES) {
     store.restoreBuiltinLayer(LAYER_KINDS.STREAMLINES);
     store.setStreamlineLayerEnabled(true);
@@ -758,8 +647,6 @@ function toggleLayer(layer: TLayerEntry) {
     store.toggleCoastLines();
   } else if (layer.kind === LAYER_KINDS.GRATICULES) {
     store.toggleGraticules();
-  } else if (layer.kind === LAYER_KINDS.MASK) {
-    toggleMaskLayerVisibility();
   } else if (layer.kind === LAYER_KINDS.TEXTURE) {
     store.updateTextureLayer(layer.id, { visible: !layer.visible });
   } else {
@@ -875,28 +762,6 @@ function getLayerName(layer: TLayerEntry) {
                 </option>
                 <option :value="GRATICULE_SPACINGS.THIRTY_DEGREES">
                   30&deg;
-                </option>
-              </select>
-            </div>
-          </template>
-          <template v-if="layer.kind === LAYER_KINDS.MASK">
-            <div class="select is-small layer-select">
-              <select
-                id="land_sea_mask"
-                v-model="maskLayerOption"
-                :title="BUILTIN_LAYER_NAMES[LAYER_KINDS.MASK]"
-              >
-                <option :value="MASK_LAYER_OPTIONS.GLOBE">Globe</option>
-                <option :value="MASK_LAYER_OPTIONS.GLOBE_SIMPLE">
-                  Globe simple
-                </option>
-                <option :value="MASK_LAYER_OPTIONS.LAND">Land</option>
-                <option :value="MASK_LAYER_OPTIONS.LAND_SIMPLE">
-                  Land simple
-                </option>
-                <option :value="MASK_LAYER_OPTIONS.SEA">Sea</option>
-                <option :value="MASK_LAYER_OPTIONS.SEA_SIMPLE">
-                  Sea simple
                 </option>
               </select>
             </div>

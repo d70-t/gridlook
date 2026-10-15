@@ -14,20 +14,15 @@ import {
   applyLayerStackPosition,
   createEquirectLayerMesh,
   createImageLayerTexture,
-  disposeLayerMesh,
   updateEquirectLayerProjection,
   type TImageLayerTexture,
+  type TLandSeaMaskMode,
 } from "@/lib/layers/equirectLayer.ts";
 import { geojson2gpuLineSegmentsGeometry } from "@/lib/layers/geojson.ts";
 import {
   makeGpuProjectedLineMaterial,
   updateGpuProjectedLineMaterial,
 } from "@/lib/layers/gpuProjectedLines.ts";
-import {
-  getLandSeaMask,
-  LAND_SEA_MASK_MODES,
-  type TLandSeaMaskMode,
-} from "@/lib/layers/landSeaMask.ts";
 import { ResourceCache } from "@/lib/layers/ResourceCache.ts";
 import { getTexture } from "@/lib/layers/textureStore.ts";
 import type { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
@@ -47,8 +42,6 @@ type UseGridOverlaysOptions = {
   projectionHelper: ComputedRef<ProjectionHelper>;
   showCoastLines: Ref<boolean>;
   showGraticules: Ref<boolean>;
-  landSeaMaskChoice: Ref<TLandSeaMaskMode | undefined>;
-  landSeaMaskUseTexture: Ref<boolean>;
   getScene: () => THREE.Scene | undefined;
   getCamera: () => THREE.Camera | undefined;
   getRenderer: () => THREE.WebGLRenderer | undefined;
@@ -108,20 +101,12 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
     showGraticules,
   } = storeToRefs(store);
 
-  const {
-    projectionHelper,
-    landSeaMaskChoice,
-    landSeaMaskUseTexture,
-    getScene,
-    getCamera,
-    getRenderer,
-    redraw,
-  } = options;
+  const { projectionHelper, getScene, getCamera, getRenderer, redraw } =
+    options;
   const { logError } = useLog();
 
   let coast: THREE.LineSegments | undefined = undefined;
   let graticules: THREE.LineSegments | undefined = undefined;
-  let landSeaMask: THREE.Object3D | undefined = undefined;
   let coastlineUpdateId = 0;
   let graticuleUpdateId = 0;
   const textureLayerMeshes = new Map<string, THREE.Mesh>();
@@ -334,35 +319,6 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
     redraw();
   }
 
-  async function updateLandSeaMask() {
-    const choice = landSeaMaskChoice.value ?? LAND_SEA_MASK_MODES.OFF;
-    const scene = getScene();
-    if (landSeaMask) {
-      scene?.remove(landSeaMask);
-      if (landSeaMask instanceof THREE.Mesh) {
-        disposeLayerMesh(landSeaMask);
-      }
-      landSeaMask = undefined;
-    }
-    if (choice === LAND_SEA_MASK_MODES.OFF) {
-      redraw();
-      return;
-    }
-
-    store.restoreBuiltinLayer(LAYER_KINDS.MASK);
-    const mask = await getLandSeaMask(
-      landSeaMaskChoice.value!,
-      landSeaMaskUseTexture.value!,
-      projectionHelper.value
-    );
-    landSeaMask = mask;
-    if (landSeaMask) {
-      scene?.add(landSeaMask);
-    }
-    applyLayerOrders();
-    redraw();
-  }
-
   /**
    * Apply render order and blending to all layer meshes from their position
    * in the layer stack relative to the data grid (renderOrder 0).
@@ -395,9 +351,6 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
     }
     if (entry.kind === LAYER_KINDS.GRATICULES) {
       return graticules;
-    }
-    if (entry.kind === LAYER_KINDS.MASK) {
-      return landSeaMask;
     }
     if (entry.kind === LAYER_KINDS.TEXTURE) {
       return textureLayerMeshes.get(entry.id);
@@ -525,9 +478,6 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
   }
 
   function updateLayerProjectionUniforms() {
-    if (landSeaMask) {
-      updateEquirectLayerProjection(landSeaMask, projectionHelper.value);
-    }
     for (const mesh of textureLayerMeshes.values()) {
       updateEquirectLayerProjection(mesh, projectionHelper.value);
     }
@@ -657,7 +607,6 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
   return {
     updateCoastlines,
     updateGraticules,
-    updateLandSeaMask,
     updateTextureLayers,
     updateLayerProjectionUniforms,
     updateOverlayProjectionUniforms,
