@@ -11,6 +11,7 @@ import {
   getWindowTiles,
   latToMercatorY,
   lonToMercatorX,
+  mercatorYToLat,
   WEB_MERCATOR_LAT_LIMIT,
   type TGeoPoint,
 } from "@/lib/layers/basemapTiles.ts";
@@ -153,7 +154,17 @@ describe("getTileRequests", () => {
   it("loads each parent level once, coarsest first, then centre tiles", () => {
     // Columns 62, 63 and (wrapped) 0, 1 of zoom 6; parents two levels up.
     const window = { zoom: 6, x: 62, y: 20, width: 4, height: 1 };
-    expect(getTileRequests(window).map((request) => request.key)).toEqual([
+    // One sample at each tile centre, 256 px apart: one tile pixel per pixel.
+    const grid = [
+      [62.5, 63.5, 0.5, 1.5].map((x) => ({
+        lat: mercatorYToLat(20.5 / 64),
+        lon: (x / 64) * 360 - 180,
+      })),
+    ];
+    const keys = getTileRequests(window, grid, 256).map(
+      (request) => request.key
+    );
+    expect(keys).toEqual([
       "4/15/5",
       "4/0/5",
       "6/63/20",
@@ -161,6 +172,63 @@ describe("getTileRequests", () => {
       "6/62/20",
       "6/1/20",
     ]);
+  });
+});
+
+describe("getTileRequests per view", () => {
+  it("skips window tiles that no sample shows", () => {
+    const grid: (TGeoPoint | null)[][] = makeGrid(0, 170, 5, 3, 5);
+    grid[2][3] = null;
+    grid[2][4] = null;
+    grid[1][4] = null;
+    const window = chooseTileWindow(grid, 1000, maxWindowTiles)!;
+    const keys = new Set(
+      getTileRequests(window, grid, 1000).map((request) => request.key)
+    );
+    const tileKey = (lat: number, lon: number) =>
+      `8/${Math.floor(lonToMercatorX(lon) * 256)}/${Math.floor(latToMercatorY(lat) * 256)}`;
+    expect(keys.has(tileKey(0, 170))).toBe(true);
+    expect(keys.has(tileKey(10, -170))).toBe(false);
+  });
+
+  it("loads coarser tiles where the screen shows less detail", () => {
+    // 0.1° samples on the left and 2° samples on the right, 100 px apart:
+    // zoom 10 (capped to the window's 9), and 4.3 levels less on the right.
+    const grid = [0, 1, 2].map((row) => [
+      ...[0, 0.1, 0.2].map((lon) => ({ lat: row * 0.1, lon })),
+      ...[10, 12, 14].map((lon) => ({ lat: row * 2, lon })),
+    ]);
+    const window = chooseTileWindow(grid, 100, maxWindowTiles)!;
+    expect(window.zoom).toBe(9);
+    const requests = getTileRequests(window, grid, 100);
+    const zoomsAt = (lat: number, lon: number) =>
+      requests
+        .filter(
+          (request) =>
+            request.x === Math.floor(lonToMercatorX(lon) * 2 ** request.z) &&
+            request.y === Math.floor(latToMercatorY(lat) * 2 ** request.z)
+        )
+        .map((request) => request.z);
+    expect(zoomsAt(0.1, 0.1)).toContain(9);
+    expect(zoomsAt(2, 12)).toContain(6);
+    expect(zoomsAt(2, 12).every((zoom) => zoom <= 6)).toBe(true);
+    expect(requests.length).toBeLessThan(window.width * window.height);
+  });
+
+  it("keeps one zoom where the detail differs by less than a level", () => {
+    // 0.1° and 0.12° samples 106 px apart ask for zoom 10.55 and 10.29,
+    // which round differently.
+    const grid = [0, 1, 2].map((row) => [
+      ...[0, 0.1, 0.2].map((lon) => ({ lat: row * 0.1, lon })),
+      ...[0.4, 0.52, 0.64].map((lon) => ({ lat: row * 0.12, lon })),
+    ]);
+    const window = chooseTileWindow(grid, 106, maxWindowTiles)!;
+    expect(window.zoom).toBe(11);
+    const zooms = getTileRequests(window, grid, 106).map(
+      (request) => request.z
+    );
+    // Parents are at 9 and below.
+    expect(zooms).not.toContain(10);
   });
 });
 

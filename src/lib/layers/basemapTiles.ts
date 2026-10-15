@@ -87,6 +87,44 @@ function wrappedDelta(a: number, b: number) {
 }
 
 /**
+ * Mercator distance per screen pixel from a sample to its nearest
+ * neighbouring sample; Infinity without neighbours.
+ */
+function getLocalMercatorPerPixel(
+  grid: (TGeoPoint | null)[][],
+  row: number,
+  column: number,
+  pixelStep: number
+) {
+  const point = grid[row][column];
+  let finest = Infinity;
+  if (!point) {
+    return finest;
+  }
+  const neighbours = [
+    grid[row][column - 1],
+    grid[row][column + 1],
+    grid[row - 1]?.[column],
+    grid[row + 1]?.[column],
+  ];
+  for (const neighbour of neighbours) {
+    if (!neighbour) {
+      continue;
+    }
+    const dx = wrappedDelta(
+      lonToMercatorX(point.lon),
+      lonToMercatorX(neighbour.lon)
+    );
+    const dy = latToMercatorY(point.lat) - latToMercatorY(neighbour.lat);
+    const perPixel = Math.hypot(dx, dy) / pixelStep;
+    if (perPixel > 0 && perPixel < finest) {
+      finest = perPixel;
+    }
+  }
+  return finest;
+}
+
+/**
  * Smallest Mercator distance per screen pixel between neighbouring samples,
  * i.e. the finest detail anywhere in the view.
  */
@@ -94,28 +132,21 @@ function getMercatorPerPixel(grid: (TGeoPoint | null)[][], pixelStep: number) {
   let finest = Infinity;
   for (let row = 0; row < grid.length; row++) {
     for (let column = 0; column < grid[row].length; column++) {
-      const point = grid[row][column];
-      if (!point) {
-        continue;
-      }
-      const neighbours = [grid[row][column + 1], grid[row + 1]?.[column]];
-      for (const neighbour of neighbours) {
-        if (!neighbour) {
-          continue;
-        }
-        const dx = wrappedDelta(
-          lonToMercatorX(point.lon),
-          lonToMercatorX(neighbour.lon)
-        );
-        const dy = latToMercatorY(point.lat) - latToMercatorY(neighbour.lat);
-        const perPixel = Math.hypot(dx, dy) / pixelStep;
-        if (perPixel > 0 && perPixel < finest) {
-          finest = perPixel;
-        }
+      const perPixel = getLocalMercatorPerPixel(grid, row, column, pixelStep);
+      if (perPixel < finest) {
+        finest = perPixel;
       }
     }
   }
   return finest;
+}
+
+/**
+ * The zoom whose tile pixels come closest to the given screen pixel size,
+ * not capped at BasemapZoom.MAX.
+ */
+function getIdealZoom(mercatorPerPixel: number) {
+  return Math.round(Math.log2(1 / (mercatorPerPixel * TILE_SIZE)));
 }
 
 /**
@@ -189,10 +220,7 @@ export function chooseTileWindow(
   if (!Number.isFinite(mercatorPerPixel)) {
     return undefined;
   }
-  let zoom = Math.min(
-    Math.round(Math.log2(1 / (mercatorPerPixel * TILE_SIZE))),
-    BasemapZoom.MAX
-  );
+  let zoom = Math.min(getIdealZoom(mercatorPerPixel), BasemapZoom.MAX);
 
   const xs: number[] = [];
   let yMin = 1;
@@ -250,17 +278,121 @@ function getTileKey(z: number, x: number, y: number) {
 export type TTileRequest = { z: number; x: number; y: number; key: string };
 
 /**
- * Tiles to load for a window: parents every PARENT_LEVEL_STEP levels up,
- * coarsest first, then the window's tiles nearest its centre first.
+ * Mercator box around a sample reaching half the way to its farthest
+ * neighbour on each axis.
  */
-export function getTileRequests(window: TTileWindow): TTileRequest[] {
+function getSampleBox(
+  grid: (TGeoPoint | null)[][],
+  row: number,
+  column: number
+) {
+  const point = grid[row][column]!;
+  const x = lonToMercatorX(point.lon);
+  const y = latToMercatorY(point.lat);
+  let reachX = 0;
+  let reachY = 0;
+  for (let rowOffset = -1; rowOffset <= 1; rowOffset++) {
+    for (let columnOffset = -1; columnOffset <= 1; columnOffset++) {
+      const neighbour = grid[row + rowOffset]?.[column + columnOffset];
+      if (!neighbour) {
+        continue;
+      }
+      const dx = wrappedDelta(x, lonToMercatorX(neighbour.lon));
+      const dy = Math.abs(y - latToMercatorY(neighbour.lat));
+      reachX = Math.max(reachX, dx / 2);
+      reachY = Math.max(reachY, dy / 2);
+    }
+  }
+  return {
+    left: x - reachX,
+    right: x + reachX,
+    top: y - reachY,
+    bottom: y + reachY,
+  };
+}
+
+/**
+ * The zoom each window tile needs (0 where nothing visible needs it), indexed
+ * row by row: the ideal zoom of the finest detail in the view, one level less
+ * for each halving of the detail the samples on it show, at most the window
+ * zoom. Rounding each sample's own scale instead would split views of nearly
+ * uniform scale (e.g. by latitude) into two zooms. Each sample covers half
+ * the way to its neighbours, so tiles between samples are found too.
+ */
+function getNeededZooms(
+  window: TTileWindow,
+  grid: (TGeoPoint | null)[][],
+  pixelStep: number
+) {
+  const tiles = 2 ** window.zoom;
+  const finest = getMercatorPerPixel(grid, pixelStep);
+  const finestZoom = getIdealZoom(finest);
+  // Clamped below, as y can round to just outside [0, 1] at the poles.
+  const lastRow = window.y + window.height - 1;
+  const zooms = new Uint8Array(window.width * window.height);
+  for (let row = 0; row < grid.length; row++) {
+    for (let column = 0; column < grid[row].length; column++) {
+      const point = grid[row][column];
+      if (!point) {
+        continue;
+      }
+      const local = getLocalMercatorPerPixel(grid, row, column, pixelStep);
+      // Above the base: samples across the poles can't tell the scale.
+      const zoom = Math.min(
+        Math.max(
+          finestZoom - Math.floor(Math.log2(local / finest)),
+          BasemapZoom.BASE + 1
+        ),
+        window.zoom
+      );
+      const box = getSampleBox(grid, row, column);
+      const left = Math.floor(box.left * tiles);
+      const right = Math.floor(box.right * tiles);
+      const top = Math.max(Math.floor(box.top * tiles), window.y);
+      const bottom = Math.min(
+        Math.max(Math.floor(box.bottom * tiles), window.y),
+        lastRow
+      );
+      for (let tileY = top; tileY <= bottom; tileY++) {
+        // Covering the window width once is enough, however far it reaches.
+        for (
+          let tileX = left;
+          tileX <= right && tileX - left < window.width;
+          tileX++
+        ) {
+          const windowColumn = (((tileX - window.x) % tiles) + tiles) % tiles;
+          if (windowColumn < window.width) {
+            const index = (tileY - window.y) * window.width + windowColumn;
+            zooms[index] = Math.max(zooms[index], zoom);
+          }
+        }
+      }
+    }
+  }
+  return zooms;
+}
+
+/**
+ * Tiles to load for a window, from the screen samples it was chosen from:
+ * only tiles the view shows, each at the zoom it needs there. Parents every
+ * PARENT_LEVEL_STEP levels below the window zoom come first, coarsest first,
+ * then the tiles nearest the window centre first.
+ */
+export function getTileRequests(
+  window: TTileWindow,
+  grid: (TGeoPoint | null)[][],
+  pixelStep: number
+): TTileRequest[] {
+  const zooms = getNeededZooms(window, grid, pixelStep);
+  const neededZoom = (tile: TTile) =>
+    zooms[tile.row * window.width + tile.column];
   const centerColumn = (window.width - 1) / 2;
   const centerRow = (window.height - 1) / 2;
   const distance = (tile: TTile) =>
     (tile.column - centerColumn) ** 2 + (tile.row - centerRow) ** 2;
-  const tiles = getWindowTiles(window).sort(
-    (a, b) => distance(a) - distance(b)
-  );
+  const tiles = getWindowTiles(window)
+    .filter((tile) => neededZoom(tile) > 0)
+    .sort((a, b) => distance(a) - distance(b));
 
   const levelsUp: number[] = [];
   for (
@@ -273,9 +405,9 @@ export function getTileRequests(window: TTileWindow): TTileRequest[] {
   const requests = new Map<string, TTileRequest>();
   for (const up of [...levelsUp, 0]) {
     for (const tile of tiles) {
-      const z = tile.z - up;
-      const x = tile.x >> up;
-      const y = tile.y >> up;
+      const z = Math.min(tile.z - up, neededZoom(tile));
+      const x = tile.x >> (tile.z - z);
+      const y = tile.y >> (tile.z - z);
       const key = getTileKey(z, x, y);
       if (!requests.has(key)) {
         requests.set(key, { z, x, y, key });

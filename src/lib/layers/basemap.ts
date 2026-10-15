@@ -14,7 +14,6 @@ import {
   getAtlasLayout,
   EXPANSION_VIEW_RADIUS,
   getFlatMercatorExpansion,
-  getTileRequests,
   getWindowReference,
   getWindowTiles,
   isSameTileWindow,
@@ -279,6 +278,8 @@ export class BasemapLayer {
   private generation = 0;
   private reportedTileError = false;
   private window: TTileWindow | undefined;
+  // Tiles the window needs, in loading order.
+  private requests: TTileRequest[] = [];
 
   private atlas: THREE.DataTexture | undefined;
   private pageTable: THREE.DataTexture | undefined;
@@ -371,15 +372,26 @@ export class BasemapLayer {
     this.requestTiles();
   }
 
-  /** Shows the tiles of `window` as they arrive; undefined shows the base. */
-  setWindow(window: TTileWindow | undefined) {
-    if (isSameTileWindow(window, this.window)) {
+  /** Zoom of the current window; undefined while the base is shown. */
+  get windowZoom() {
+    return this.window?.zoom;
+  }
+
+  /**
+   * Shows the tiles of `window` as `requests` (from `getTileRequests`)
+   * arrive; undefined shows the base.
+   */
+  setWindow(window: TTileWindow | undefined, requests: TTileRequest[]) {
+    const wanted = new Set(requests.map((request) => request.key));
+    if (
+      isSameTileWindow(window, this.window) &&
+      wanted.size === this.requests.length &&
+      this.requests.every((request) => wanted.has(request.key))
+    ) {
       return;
     }
     this.window = window;
-    const wanted = new Set(
-      window ? getTileRequests(window).map((request) => request.key) : []
-    );
+    this.requests = requests;
     for (const [key, request] of this.downloads) {
       if (!wanted.has(key)) {
         request.abort();
@@ -567,7 +579,7 @@ export class BasemapLayer {
       return;
     }
     const now = Date.now();
-    this.queue = getTileRequests(window).filter((tile) => {
+    this.queue = this.requests.filter((tile) => {
       if (
         this.slots.has(tile.key) ||
         this.downloads.has(tile.key) ||
@@ -726,6 +738,7 @@ export class BasemapLayer {
     cancelAnimationFrame(this.uploadFrame);
     this.clearTiles();
     this.window = undefined;
+    this.requests = [];
     this.updatePageTable();
     this.setBase(EMPTY_TEXTURE);
     this.pageTable?.dispose();

@@ -4,7 +4,11 @@ import * as THREE from "three";
 import { onScopeDispose, watch, type ComputedRef, type Ref } from "vue";
 
 import { BasemapLayer, sampleViewGeoPoints } from "@/lib/layers/basemap.ts";
-import { chooseTileWindow, getAtlasLayout } from "@/lib/layers/basemapTiles.ts";
+import {
+  chooseTileWindow,
+  getAtlasLayout,
+  getTileRequests,
+} from "@/lib/layers/basemapTiles.ts";
 import {
   applyLayerStackPosition,
   createEquirectLayerMesh,
@@ -79,6 +83,9 @@ const GRATICULE_GEOJSON_PATHS: Record<TGraticuleSpacing, string> = {
 // and once more DELAY ms after the last frame.
 const BASEMAP_WINDOW_DELAY_MS = 50;
 const BASEMAP_WINDOW_MAX_WAIT_MS = 100;
+// A new tile zoom waits until zooming has paused this long, so the levels
+// passed on the way are never downloaded.
+const BASEMAP_ZOOM_DELAY_MS = 100;
 
 export function getLayerRenderOrder(
   stack: readonly TLayerEntry[],
@@ -576,8 +583,11 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
     redraw();
   }
 
-  /** Load the basemap tiles matching the current view. */
-  function updateBasemapWindow() {
+  /**
+   * Load the basemap tiles matching the current view. A changed tile zoom is
+   * only applied with `applyZoomChange`, once zooming has paused.
+   */
+  function updateBasemapWindow(applyZoomChange: boolean) {
     const camera = getCamera();
     const renderer = getRenderer();
     if (!basemap || !basemapMesh?.visible || !camera || !renderer) {
@@ -592,13 +602,26 @@ export function useGridOverlays(options: UseGridOverlaysOptions) {
     const { maxWindowTiles } = getAtlasLayout(
       renderer.capabilities.maxTextureSize
     );
-    basemap.setWindow(chooseTileWindow(grid, pixelStep, maxWindowTiles));
+    const window = chooseTileWindow(grid, pixelStep, maxWindowTiles);
+    if (!applyZoomChange && window?.zoom !== basemap.windowZoom) {
+      void debouncedZoomBasemapWindow();
+      return;
+    }
+    basemap.setWindow(
+      window,
+      window ? getTileRequests(window, grid, pixelStep) : []
+    );
   }
 
   const debouncedUpdateBasemapWindow = useDebounceFn(
-    updateBasemapWindow,
+    () => updateBasemapWindow(false),
     BASEMAP_WINDOW_DELAY_MS,
     { maxWait: BASEMAP_WINDOW_MAX_WAIT_MS }
+  );
+
+  const debouncedZoomBasemapWindow = useDebounceFn(
+    () => updateBasemapWindow(true),
+    BASEMAP_ZOOM_DELAY_MS
   );
 
   watch([() => store.selectedBasemap, () => store.basemaps], () =>
