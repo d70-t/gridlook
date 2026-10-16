@@ -182,7 +182,8 @@ void main() {
     vec2 labelTile = labelReferenceTile + offset * labelTiles;
     labelTile.x = mod(labelTile.x, labelTiles);
     if (labelTile.x < labelSize.x && labelTile.y >= 0.0 && labelTile.y < labelSize.y) {
-      vec4 label = texture2D(labelImage, vec2(labelTile.x, labelSize.y - labelTile.y) / labelSize);
+      // Stored without sRGB decoding, see createLabelTexture.
+      vec4 label = sRGBTransferEOTF(texture2D(labelImage, vec2(labelTile.x, labelSize.y - labelTile.y) / labelSize));
       // The label over the map.
       float alpha = label.a + color.a * (1.0 - label.a);
       if (alpha > 0.0) {

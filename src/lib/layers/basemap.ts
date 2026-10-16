@@ -267,8 +267,9 @@ async function drawTiles(
 }
 
 function createLabelTexture(canvas: HTMLCanvasElement) {
+  // No SRGBColorSpace: Chrome uploads canvases into sRGB textures on a slow
+  // path (about 20x slower for a 4096 px image). The shader decodes instead.
   const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
   texture.generateMipmaps = false;
   texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
