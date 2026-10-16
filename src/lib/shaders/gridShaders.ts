@@ -88,6 +88,7 @@ export function makeGpuProjectedTextureMaterial(
       posterizeLevels: { value: 0.0 },
       hideBelowValue: { value: -1e38 },
       hideAboveValue: { value: 1e38 },
+      opacity: { value: 1.0 },
       data: { value: texture },
       // The full-face UV rectangle the texture actually covers (identity
       // unless the texture only holds a sub-region, e.g. a regional dataset).
@@ -139,6 +140,7 @@ function makeGpuProjectedMeshMaterial(
       posterizeLevels: { value: 0.0 },
       hideBelowValue: { value: -1e38 },
       hideAboveValue: { value: 1e38 },
+      opacity: { value: 1.0 },
       // Projection uniforms
       projectionType: {
         value: PROJECTION_TYPE_BY_MODE[PROJECTION_TYPES.NEARSIDE_PERSPECTIVE],
@@ -192,6 +194,7 @@ export function makeGpuProjectedPointMaterial(
       posterizeLevels: { value: 0.0 },
       hideBelowValue: { value: -1e38 },
       hideAboveValue: { value: 1e38 },
+      opacity: { value: 1.0 },
       colormap: { value: availableColormaps[colormap] },
       // Projection uniforms
       projectionType: {

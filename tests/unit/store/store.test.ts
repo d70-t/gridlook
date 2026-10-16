@@ -31,21 +31,21 @@ it("starts with only coastlines and the active data grid", () => {
 
 it("defaults layer opacity to opaque and clamps updates", () => {
   const store = useGlobeControlStore();
-  store.restoreBuiltinLayer(LAYER_KINDS.MASK);
-  const maskLayer = store.layerStack.find(
-    (layer) => layer.id === BUILTIN_LAYER_IDS.MASK
+  store.restoreBuiltinLayer(LAYER_KINDS.BASEMAP);
+  const basemapLayer = store.layerStack.find(
+    (layer) => layer.id === BUILTIN_LAYER_IDS.BASEMAP
   );
 
-  expect(maskLayer?.opacity).toBe(LAYER_OPACITY.MAX);
+  expect(basemapLayer?.opacity).toBe(LAYER_OPACITY.MAX);
 
-  store.updateLayerOpacity(BUILTIN_LAYER_IDS.MASK, 0.35);
-  expect(maskLayer?.opacity).toBe(0.35);
+  store.updateLayerOpacity(BUILTIN_LAYER_IDS.BASEMAP, 0.35);
+  expect(basemapLayer?.opacity).toBe(0.35);
 
-  store.updateLayerOpacity(BUILTIN_LAYER_IDS.MASK, -0.25);
-  expect(maskLayer?.opacity).toBe(LAYER_OPACITY.MIN);
+  store.updateLayerOpacity(BUILTIN_LAYER_IDS.BASEMAP, -0.25);
+  expect(basemapLayer?.opacity).toBe(LAYER_OPACITY.MIN);
 
-  store.updateLayerOpacity(BUILTIN_LAYER_IDS.MASK, 1.25);
-  expect(maskLayer?.opacity).toBe(LAYER_OPACITY.MAX);
+  store.updateLayerOpacity(BUILTIN_LAYER_IDS.BASEMAP, 1.25);
+  expect(basemapLayer?.opacity).toBe(LAYER_OPACITY.MAX);
 
   store.addTextureLayer("texture-layer", "Texture layer");
   const textureLayer = store.layerStack.find(
@@ -156,18 +156,20 @@ it("removes and restores built-in layers", () => {
   const store = useGlobeControlStore();
 
   expect(
-    store.layerStack.some((layer) => layer.id === BUILTIN_LAYER_IDS.MASK)
+    store.layerStack.some((layer) => layer.id === BUILTIN_LAYER_IDS.BASEMAP)
   ).toBe(false);
 
-  store.restoreBuiltinLayer(LAYER_KINDS.MASK);
-  expect(store.layerStack[0]?.id).toBe(BUILTIN_LAYER_IDS.MASK);
-  expect(store.layerStack[0]?.name).toBe(BUILTIN_LAYER_NAMES[LAYER_KINDS.MASK]);
+  store.restoreBuiltinLayer(LAYER_KINDS.BASEMAP);
+  expect(store.layerStack[0]?.id).toBe(BUILTIN_LAYER_IDS.BASEMAP);
+  expect(store.layerStack[0]?.name).toBe(
+    BUILTIN_LAYER_NAMES[LAYER_KINDS.BASEMAP]
+  );
   expect(store.layerStack[0]?.visible).toBe(true);
   expect(store.layerStack[0]?.opacity).toBe(LAYER_OPACITY.MAX);
 
-  store.restoreBuiltinLayer(LAYER_KINDS.MASK);
+  store.restoreBuiltinLayer(LAYER_KINDS.BASEMAP);
   expect(
-    store.layerStack.filter((layer) => layer.id === BUILTIN_LAYER_IDS.MASK)
+    store.layerStack.filter((layer) => layer.id === BUILTIN_LAYER_IDS.BASEMAP)
   ).toHaveLength(1);
 });
 

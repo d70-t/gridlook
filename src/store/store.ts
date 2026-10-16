@@ -10,7 +10,7 @@ import type { TVectorMagnitudeInfo } from "@/lib/data/vectorMagnitude.ts";
 import {
   LAND_SEA_MASK_MODES,
   type TLandSeaMaskMode,
-} from "@/lib/layers/landSeaMask.ts";
+} from "@/lib/layers/equirectLayer.ts";
 import type { TDistanceScale } from "@/lib/projection/distanceScale.ts";
 import {
   PROJECTION_TYPES,
@@ -19,6 +19,12 @@ import {
 } from "@/lib/projection/projectionUtils.ts";
 import type { TColorMap } from "@/lib/shaders/colormapShaders.ts";
 import type { TVarInfo, TBounds } from "@/lib/types/GlobeTypes.ts";
+import {
+  DEFAULT_BASEMAP,
+  DEFAULT_BASEMAP_OPTIONS,
+  type TBasemapEntry,
+  type TBasemapOptions,
+} from "@/utils/basemap.ts";
 import type { TCatalog } from "@/utils/catalog.ts";
 import type { THistogramSummary } from "@/utils/histogram.ts";
 
@@ -43,10 +49,11 @@ export const LAYER_KINDS = {
   COASTLINES: "coastlines",
   GRATICULES: "graticules",
   GRID: "grid",
-  MASK: "mask",
   STREAMLINES: "streamlines",
   VOLUME: "volume",
   TEXTURE: "texture",
+  // "Maps and Masks"; it replaced the land/sea mask, hence its URL name.
+  BASEMAP: "mask",
 } as const;
 
 export type TLayerKind = (typeof LAYER_KINDS)[keyof typeof LAYER_KINDS];
@@ -71,9 +78,9 @@ export const BUILTIN_LAYER_IDS = {
   COASTLINES: "coastlines",
   GRATICULES: "graticules",
   GRID: "grid",
-  MASK: "mask",
   STREAMLINES: "streamlines",
   VOLUME: "volume",
+  BASEMAP: "basemap",
 } as const;
 
 export const LAYER_OPACITY = {
@@ -124,9 +131,9 @@ export const BUILTIN_LAYER_NAMES = {
   [LAYER_KINDS.COASTLINES]: "Coastlines",
   [LAYER_KINDS.GRATICULES]: "Lat/Lon grid",
   [LAYER_KINDS.GRID]: "Data grid",
-  [LAYER_KINDS.MASK]: "Land/sea mask",
   [LAYER_KINDS.STREAMLINES]: "Flow streamlines",
   [LAYER_KINDS.VOLUME]: "Volume",
+  [LAYER_KINDS.BASEMAP]: "Maps and Masks",
 } as const satisfies Record<
   Exclude<TLayerKind, typeof LAYER_KINDS.TEXTURE>,
   string
@@ -155,12 +162,6 @@ const BUILTIN_LAYER_DEFAULTS: Record<TBuiltinLayerKind, TBuiltinLayerDefaults> =
       opacity: LAYER_OPACITY.MAX,
       maskMode: LAND_SEA_MASK_MODES.OFF,
     },
-    [LAYER_KINDS.MASK]: {
-      id: BUILTIN_LAYER_IDS.MASK,
-      kind: LAYER_KINDS.MASK,
-      opacity: LAYER_OPACITY.MAX,
-      maskMode: LAND_SEA_MASK_MODES.OFF,
-    },
     [LAYER_KINDS.STREAMLINES]: {
       id: BUILTIN_LAYER_IDS.STREAMLINES,
       kind: LAYER_KINDS.STREAMLINES,
@@ -173,6 +174,12 @@ const BUILTIN_LAYER_DEFAULTS: Record<TBuiltinLayerKind, TBuiltinLayerDefaults> =
       opacity: LAYER_OPACITY.MAX,
       maskMode: LAND_SEA_MASK_MODES.OFF,
     },
+    [LAYER_KINDS.BASEMAP]: {
+      id: BUILTIN_LAYER_IDS.BASEMAP,
+      kind: LAYER_KINDS.BASEMAP,
+      opacity: LAYER_OPACITY.MAX,
+      maskMode: LAND_SEA_MASK_MODES.OFF,
+    },
   };
 
 const INITIAL_BUILTIN_LAYER_KINDS = [
@@ -180,7 +187,7 @@ const INITIAL_BUILTIN_LAYER_KINDS = [
   LAYER_KINDS.GRID,
 ] as const satisfies readonly TBuiltinLayerKind[];
 
-function createBuiltinLayer(kind: TBuiltinLayerKind): TLayerEntry {
+export function createBuiltinLayer(kind: TBuiltinLayerKind): TLayerEntry {
   return {
     ...BUILTIN_LAYER_DEFAULTS[kind],
     name: BUILTIN_LAYER_NAMES[kind],
@@ -202,9 +209,9 @@ export const useGlobeControlStore = defineStore("globeControl", {
       coastlineResolution:
         COASTLINE_RESOLUTIONS.FIFTY_M as TCoastlineResolution,
       graticuleSpacing: GRATICULE_SPACINGS.THIRTY_DEGREES as TGraticuleSpacing,
-      landSeaMaskChoice: LAND_SEA_MASK_MODES.OFF as TLandSeaMaskMode,
-      // when true, use the textured versions; when false, use the simple versions
-      landSeaMaskUseTexture: false,
+      basemaps: undefined as TBasemapEntry[] | undefined,
+      selectedBasemap: DEFAULT_BASEMAP as string,
+      basemapOptions: { ...DEFAULT_BASEMAP_OPTIONS } as TBasemapOptions,
       varnameSelector: "-", // the varname currently selected in the dropdown
       varnameDisplay: "-", // the varname currently shown on the globe (will be updated after loading)
       loading: false,
@@ -231,6 +238,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
       hoverEnabled: false,
       hoveredGridPoint: undefined as THoveredGridPoint | undefined,
       distanceScale: null as TDistanceScale | null,
+      basemapCatalogUrl: undefined as string | undefined,
       catalogUrl: undefined as string | undefined,
       catalogData: undefined as TCatalog | undefined,
       // ── Live datasets ──────────────────────────────────────────────
@@ -274,6 +282,18 @@ export const useGlobeControlStore = defineStore("globeControl", {
       volumeProgress: undefined as number | undefined,
       volumeAvailable: false,
     };
+  },
+  getters: {
+    // Tile providers require their attribution to be visible on the map.
+    basemapAttribution(state): string | undefined {
+      const visible = state.layerStack.some(
+        (layer) => layer.kind === LAYER_KINDS.BASEMAP && layer.visible
+      );
+      return visible
+        ? state.basemaps?.find((entry) => entry.id === state.selectedBasemap)
+            ?.attribution
+        : undefined;
+    },
   },
   actions: {
     signifyDatasetChange() {
@@ -393,6 +413,9 @@ export const useGlobeControlStore = defineStore("globeControl", {
     updateBounds(bounds: TBounds) {
       this.selection = bounds;
     },
+    updateBasemaps(basemaps: TBasemapEntry[]) {
+      this.basemaps = basemaps;
+    },
     updateHistogram(histogram: number[] | undefined) {
       this.histogram = histogram;
     },
@@ -427,6 +450,9 @@ export const useGlobeControlStore = defineStore("globeControl", {
         return;
       }
       this.layerStack.unshift(createBuiltinLayer(kind));
+      if (kind === LAYER_KINDS.BASEMAP) {
+        this.basemapOptions = { ...DEFAULT_BASEMAP_OPTIONS };
+      }
     },
     updateTextureLayer(
       id: string,
@@ -451,6 +477,17 @@ export const useGlobeControlStore = defineStore("globeControl", {
         } else {
           layer.visible = !layer.visible;
         }
+      }
+    },
+    setBasemapLayerEnabled(enabled: boolean) {
+      if (enabled) {
+        this.restoreBuiltinLayer(LAYER_KINDS.BASEMAP);
+      }
+      const layer = this.layerStack.find(
+        (entry) => entry.id === BUILTIN_LAYER_IDS.BASEMAP
+      );
+      if (layer) {
+        layer.visible = enabled;
       }
     },
     isStreamlineLayerEnabled() {

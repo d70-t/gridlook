@@ -18,10 +18,7 @@ import {
   getVariableGroup,
   levelAxesAreIdentical,
 } from "@/lib/data/vectorField.ts";
-import {
-  LAND_SEA_MASK_MODES,
-  type TLandSeaMaskMode,
-} from "@/lib/layers/landSeaMask.ts";
+import { LAND_SEA_MASK_MODES } from "@/lib/layers/equirectLayer.ts";
 import {
   isSupportedTextureLayerFile,
   TEXTURE_LAYER_UPLOAD_ACCEPT,
@@ -29,7 +26,6 @@ import {
 import {
   deleteTexture,
   getTexture,
-  loadTextures,
   saveTexture,
 } from "@/lib/layers/textureStore.ts";
 import type { TModelInfo } from "@/lib/types/GlobeTypes.ts";
@@ -46,6 +42,7 @@ import {
 } from "@/store/store.ts";
 import { useLog } from "@/ui/common/useLog.ts";
 import VolumeControls from "@/ui/overlays/controls/VolumeControls.vue";
+import { BasemapTileType, fetchBasemapCatalog } from "@/utils/basemap.ts";
 
 const props = defineProps<{
   modelInfo?: TModelInfo;
@@ -57,8 +54,7 @@ const {
   coastlineResolution,
   dimSlidersValues,
   graticuleSpacing,
-  landSeaMaskChoice,
-  landSeaMaskUseTexture,
+  selectedBasemap,
   layerStack,
   showCoastLines,
   showGraticules,
@@ -88,15 +84,21 @@ const fileInput = ref<HTMLInputElement>();
 const draggedId = ref<string | undefined>(undefined);
 const dropTargetIndex = ref<number | undefined>(undefined);
 const expandedLayerId = ref<string | undefined>(undefined);
+
+const isVectorBasemap = computed(
+  () =>
+    store.basemaps?.find((entry) => entry.id === store.selectedBasemap)
+      ?.type === BasemapTileType.VECTOR
+);
 const addLayerSelection = ref<TAddLayerAction | null>(null);
 const LAYER_ENTRY_SELECTOR = ".layer-entry";
 
 const ADD_LAYER_ACTIONS = {
   COASTLINES: LAYER_KINDS.COASTLINES,
   GRATICULES: LAYER_KINDS.GRATICULES,
-  MASK: LAYER_KINDS.MASK,
   STREAMLINES: LAYER_KINDS.STREAMLINES,
   VOLUME: LAYER_KINDS.VOLUME,
+  BASEMAP: LAYER_KINDS.BASEMAP,
   UPLOAD: "upload",
   VARIABLE_IMAGE: "variable-image",
 } as const;
@@ -321,109 +323,11 @@ const LAYER_ICONS: Record<TLayerKind, string> = {
   [LAYER_KINDS.COASTLINES]: "fa-earth-europe",
   [LAYER_KINDS.GRATICULES]: "fa-globe",
   [LAYER_KINDS.GRID]: "fa-border-all",
-  [LAYER_KINDS.MASK]: "fa-mask",
   [LAYER_KINDS.STREAMLINES]: "fa-wind",
   [LAYER_KINDS.VOLUME]: "fa-cloud",
   [LAYER_KINDS.TEXTURE]: "fa-image",
+  [LAYER_KINDS.BASEMAP]: "fa-mask",
 };
-
-const MASK_LAYER_OPTIONS = {
-  GLOBE: "globe",
-  GLOBE_SIMPLE: "globe_simple",
-  LAND: "land",
-  LAND_SIMPLE: "land_simple",
-  SEA: "sea",
-  SEA_SIMPLE: "sea_simple",
-} as const;
-
-type TMaskLayerOption =
-  (typeof MASK_LAYER_OPTIONS)[keyof typeof MASK_LAYER_OPTIONS];
-
-type TVisibleLandSeaMaskMode = Exclude<
-  TLandSeaMaskMode,
-  typeof LAND_SEA_MASK_MODES.OFF
->;
-
-const MASK_LAYER_OPTION_CONFIG: Record<
-  TMaskLayerOption,
-  { mode: TVisibleLandSeaMaskMode; useTexture: boolean }
-> = {
-  [MASK_LAYER_OPTIONS.GLOBE]: {
-    mode: LAND_SEA_MASK_MODES.GLOBE,
-    useTexture: true,
-  },
-  [MASK_LAYER_OPTIONS.GLOBE_SIMPLE]: {
-    mode: LAND_SEA_MASK_MODES.GLOBE,
-    useTexture: false,
-  },
-  [MASK_LAYER_OPTIONS.LAND]: {
-    mode: LAND_SEA_MASK_MODES.LAND,
-    useTexture: true,
-  },
-  [MASK_LAYER_OPTIONS.LAND_SIMPLE]: {
-    mode: LAND_SEA_MASK_MODES.LAND,
-    useTexture: false,
-  },
-  [MASK_LAYER_OPTIONS.SEA]: {
-    mode: LAND_SEA_MASK_MODES.SEA,
-    useTexture: true,
-  },
-  [MASK_LAYER_OPTIONS.SEA_SIMPLE]: {
-    mode: LAND_SEA_MASK_MODES.SEA,
-    useTexture: false,
-  },
-};
-
-function getMaskLayerOption(
-  mode: TLandSeaMaskMode,
-  useTexture: boolean
-): TMaskLayerOption {
-  if (mode === LAND_SEA_MASK_MODES.GLOBE) {
-    return useTexture
-      ? MASK_LAYER_OPTIONS.GLOBE
-      : MASK_LAYER_OPTIONS.GLOBE_SIMPLE;
-  }
-  if (mode === LAND_SEA_MASK_MODES.SEA) {
-    return useTexture ? MASK_LAYER_OPTIONS.SEA : MASK_LAYER_OPTIONS.SEA_SIMPLE;
-  }
-  return useTexture ? MASK_LAYER_OPTIONS.LAND : MASK_LAYER_OPTIONS.LAND_SIMPLE;
-}
-
-const lastVisibleMaskLayerOption = ref<TMaskLayerOption>(
-  getMaskLayerOption(landSeaMaskChoice.value, landSeaMaskUseTexture.value)
-);
-
-const maskLayerOption = computed<TMaskLayerOption>({
-  get() {
-    if (landSeaMaskChoice.value === LAND_SEA_MASK_MODES.OFF) {
-      return lastVisibleMaskLayerOption.value;
-    }
-    return getMaskLayerOption(
-      landSeaMaskChoice.value,
-      landSeaMaskUseTexture.value
-    );
-  },
-  set(value) {
-    const config = MASK_LAYER_OPTION_CONFIG[value];
-    lastVisibleMaskLayerOption.value = value;
-    landSeaMaskChoice.value = config.mode;
-    landSeaMaskUseTexture.value = config.useTexture;
-  },
-});
-
-function toggleMaskLayerVisibility() {
-  if (landSeaMaskChoice.value === LAND_SEA_MASK_MODES.OFF) {
-    const config = MASK_LAYER_OPTION_CONFIG[lastVisibleMaskLayerOption.value];
-    landSeaMaskChoice.value = config.mode;
-    landSeaMaskUseTexture.value = config.useTexture;
-    return;
-  }
-  lastVisibleMaskLayerOption.value = getMaskLayerOption(
-    landSeaMaskChoice.value,
-    landSeaMaskUseTexture.value
-  );
-  landSeaMaskChoice.value = LAND_SEA_MASK_MODES.OFF;
-}
 
 const LAYER_PROPERTIES: Record<TLayerKind, TLayerProperties> = {
   [LAYER_KINDS.COASTLINES]: {
@@ -433,10 +337,7 @@ const LAYER_PROPERTIES: Record<TLayerKind, TLayerProperties> = {
     buttons: [LAYER_BUTTONS.REMOVE],
   },
   [LAYER_KINDS.GRID]: {
-    buttons: [],
-  },
-  [LAYER_KINDS.MASK]: {
-    buttons: [LAYER_BUTTONS.OPACITY, LAYER_BUTTONS.REMOVE],
+    buttons: [LAYER_BUTTONS.OPACITY],
   },
   [LAYER_KINDS.STREAMLINES]: {
     buttons: [LAYER_BUTTONS.OPACITY, LAYER_BUTTONS.REMOVE],
@@ -451,18 +352,30 @@ const LAYER_PROPERTIES: Record<TLayerKind, TLayerProperties> = {
       LAYER_BUTTONS.REMOVE,
     ],
   },
+  [LAYER_KINDS.BASEMAP]: {
+    buttons: [LAYER_BUTTONS.OPACITY, LAYER_BUTTONS.REMOVE],
+  },
 };
 
 onMounted(async () => {
   try {
-    const stored = await loadTextures();
-    for (const texture of stored) {
-      if (!layerStack.value.some((layer) => layer.id === texture.id)) {
-        store.addTextureLayer(texture.id, texture.name, false);
-      }
+    if (store.basemapCatalogUrl === undefined) {
+      throw new Error("No basemap url found.");
     }
+    const catalog = await fetchBasemapCatalog(store.basemapCatalogUrl);
+
+    if (typeof catalog !== "object") {
+      throw new Error(
+        "failed to parse the catalog. Make sure it is available and valid JSON."
+      );
+    } else if (catalog === null) {
+      throw new Error("Failed to fetch the catalog.");
+    } else if (catalog.basemaps.length === 0) {
+      throw new Error("The fetched catalog does not contain any entries.");
+    }
+    store.updateBasemaps(catalog.basemaps);
   } catch (error) {
-    logError(error, "Couldn't load stored texture layers");
+    logError(error, "Couldn't load the list of basemaps");
   }
 });
 
@@ -600,9 +513,6 @@ function isLayerVisible(layer: TLayerEntry) {
   if (layer.kind === LAYER_KINDS.GRATICULES) {
     return showGraticules.value;
   }
-  if (layer.kind === LAYER_KINDS.MASK) {
-    return landSeaMaskChoice.value !== LAND_SEA_MASK_MODES.OFF;
-  }
   return layer.visible;
 }
 
@@ -638,13 +548,6 @@ const addLayerOptions = computed<TAddLayerOption[]>(() => {
       icon: LAYER_ICONS[LAYER_KINDS.GRATICULES],
     });
   }
-  if (!hasDisplayedLayer(LAYER_KINDS.MASK)) {
-    options.push({
-      value: ADD_LAYER_ACTIONS.MASK,
-      label: BUILTIN_LAYER_NAMES[LAYER_KINDS.MASK],
-      icon: LAYER_ICONS[LAYER_KINDS.MASK],
-    });
-  }
   if (!hasDisplayedLayer(LAYER_KINDS.STREAMLINES)) {
     options.push({
       value: ADD_LAYER_ACTIONS.STREAMLINES,
@@ -660,6 +563,13 @@ const addLayerOptions = computed<TAddLayerOption[]>(() => {
       icon: LAYER_ICONS[LAYER_KINDS.VOLUME],
       disabled: Boolean(volumeUnavailableReason.value),
       disabledReason: volumeUnavailableReason.value,
+    });
+  }
+  if (!hasDisplayedLayer(LAYER_KINDS.BASEMAP)) {
+    options.push({
+      value: ADD_LAYER_ACTIONS.BASEMAP,
+      label: BUILTIN_LAYER_NAMES[LAYER_KINDS.BASEMAP],
+      icon: LAYER_ICONS[LAYER_KINDS.BASEMAP],
     });
   }
   options.push(
@@ -692,19 +602,15 @@ function addLayer(action: TAddLayerAction) {
     if (!showGraticules.value) {
       store.toggleGraticules();
     }
-  } else if (action === ADD_LAYER_ACTIONS.MASK) {
-    store.restoreBuiltinLayer(LAYER_KINDS.MASK);
-    if (landSeaMaskChoice.value === LAND_SEA_MASK_MODES.OFF) {
-      const config = MASK_LAYER_OPTION_CONFIG[lastVisibleMaskLayerOption.value];
-      landSeaMaskChoice.value = config.mode;
-      landSeaMaskUseTexture.value = config.useTexture;
-    }
   } else if (action === ADD_LAYER_ACTIONS.STREAMLINES) {
     store.restoreBuiltinLayer(LAYER_KINDS.STREAMLINES);
     store.setStreamlineLayerEnabled(true);
   } else if (action === ADD_LAYER_ACTIONS.VOLUME) {
     store.restoreBuiltinLayer(LAYER_KINDS.VOLUME);
     store.setVolumeLayerEnabled(true);
+  } else if (action === ADD_LAYER_ACTIONS.BASEMAP) {
+    store.restoreBuiltinLayer(LAYER_KINDS.BASEMAP);
+    store.setBasemapLayerEnabled(true);
   } else if (action === ADD_LAYER_ACTIONS.UPLOAD) {
     fileInput.value?.click();
   } else if (
@@ -741,8 +647,6 @@ function toggleLayer(layer: TLayerEntry) {
     store.toggleCoastLines();
   } else if (layer.kind === LAYER_KINDS.GRATICULES) {
     store.toggleGraticules();
-  } else if (layer.kind === LAYER_KINDS.MASK) {
-    toggleMaskLayerVisibility();
   } else if (layer.kind === LAYER_KINDS.TEXTURE) {
     store.updateTextureLayer(layer.id, { visible: !layer.visible });
   } else {
@@ -862,28 +766,6 @@ function getLayerName(layer: TLayerEntry) {
               </select>
             </div>
           </template>
-          <template v-if="layer.kind === LAYER_KINDS.MASK">
-            <div class="select is-small layer-select">
-              <select
-                id="land_sea_mask"
-                v-model="maskLayerOption"
-                :title="BUILTIN_LAYER_NAMES[LAYER_KINDS.MASK]"
-              >
-                <option :value="MASK_LAYER_OPTIONS.GLOBE">Globe</option>
-                <option :value="MASK_LAYER_OPTIONS.GLOBE_SIMPLE">
-                  Globe simple
-                </option>
-                <option :value="MASK_LAYER_OPTIONS.LAND">Land</option>
-                <option :value="MASK_LAYER_OPTIONS.LAND_SIMPLE">
-                  Land simple
-                </option>
-                <option :value="MASK_LAYER_OPTIONS.SEA">Sea</option>
-                <option :value="MASK_LAYER_OPTIONS.SEA_SIMPLE">
-                  Sea simple
-                </option>
-              </select>
-            </div>
-          </template>
           <template v-if="layer.kind === LAYER_KINDS.TEXTURE">
             <div class="select is-small layer-select">
               <select
@@ -908,6 +790,19 @@ function getLayerName(layer: TLayerEntry) {
               :class="{ 'is-light': !store.hoverEnabled }"
               >Active data</span
             >
+          </template>
+          <template v-if="layer.kind === LAYER_KINDS.BASEMAP">
+            <div class="select is-small layer-select">
+              <select v-model="selectedBasemap" title="Basemap">
+                <option
+                  v-for="entry in store.basemaps"
+                  :key="entry.id"
+                  :value="entry.id"
+                >
+                  {{ entry.name }}
+                </option>
+              </select>
+            </div>
           </template>
           <button
             v-if="LAYER_PROPERTIES[layer.kind].buttons.length >= 1"
@@ -965,6 +860,20 @@ function getLayerName(layer: TLayerEntry) {
               @input="setLayerOpacity(layer, $event)"
             />
           </label>
+          <div v-if="layer.kind === LAYER_KINDS.BASEMAP" class="mt-2 is-size-7">
+            <label class="checkbox mr-3">
+              <input v-model="store.basemapOptions.water" type="checkbox" />
+              Water
+            </label>
+            <label class="checkbox mr-3">
+              <input v-model="store.basemapOptions.land" type="checkbox" />
+              Land
+            </label>
+            <label v-if="isVectorBasemap" class="checkbox">
+              <input v-model="store.basemapOptions.labels" type="checkbox" />
+              Labels
+            </label>
+          </div>
           <div
             v-if="
               LAYER_PROPERTIES[layer.kind].buttons.includes(

@@ -59,8 +59,6 @@ const {
   invertColormap,
   posterizeLevels,
   varnameSelector,
-  landSeaMaskChoice,
-  landSeaMaskUseTexture,
   varinfo,
   userBoundsLow,
   userBoundsHigh,
@@ -84,8 +82,6 @@ const {
   paramPosterizeLevels,
   paramHideLowerBound,
   paramHideUpperBound,
-  paramMaskMode,
-  paramMaskingUseTexture,
   paramProjection,
   paramLat,
   paramLon,
@@ -267,7 +263,6 @@ function initDatasetControls() {
   initFromParams();
 }
 
-// eslint-disable-next-line max-lines-per-function
 function initFromParams() {
   if (paramColormap.value) {
     colormap.value = paramColormap.value;
@@ -292,17 +287,6 @@ function initFromParams() {
   }
   if (paramHideUpperBound.value === "true") {
     store.hideUpperBound = true;
-  }
-  if (paramMaskingUseTexture.value) {
-    if (paramMaskingUseTexture.value === "false") {
-      landSeaMaskUseTexture.value = false;
-    } else if (paramMaskingUseTexture.value === "true") {
-      landSeaMaskUseTexture.value = true;
-    }
-  }
-  if (paramMaskMode.value) {
-    landSeaMaskChoice.value =
-      paramMaskMode.value as typeof landSeaMaskChoice.value;
   }
   if (paramProjection.value) {
     const projection = paramProjection.value as TProjectionType;
@@ -401,8 +385,7 @@ defineExpose({
           <DimensionControl />
         </CollapsibleCard>
 
-        <CollapsibleCard title="Appearance">
-          <div class="section-title">Colormap</div>
+        <CollapsibleCard title="Colormap">
           <BoundsControls
             :picked-bounds-mode="pickedBoundsMode"
             :data-bounds="dataBounds"
@@ -418,44 +401,44 @@ defineExpose({
             @colormap-user-selected="userHasSelectedColormap = true"
             @force-user-bounds="pickedBoundsMode = BOUND_MODES.USER"
           />
-          <div class="section-title mt-2">Projections</div>
+        </CollapsibleCard>
+        <CollapsibleCard title="Projections">
           <ProjectionControls />
-          <div class="section-title mt-2 is-flex is-align-items-center">
-            Layers and Masks
-            <div class="ml-2">
-              <PopupDialog dialog-class="layer-help-dialog">
-                <template #trigger="{ toggle, open }">
-                  <button
-                    class="button is-ghost p-0"
-                    type="button"
-                    title="Layer help"
-                    aria-label="Layer help"
-                    :aria-expanded="open"
-                    @click.stop="toggle"
-                  >
-                    <span class="icon is-small">
-                      <i
-                        class="fa-solid fa-circle-question"
-                        aria-hidden="true"
-                      ></i>
-                    </span>
-                  </button>
-                </template>
+        </CollapsibleCard>
+        <CollapsibleCard title="Layers and Masks">
+          <template #title>
+            <PopupDialog dialog-class="layer-help-dialog">
+              <template #trigger="{ toggle, open }">
+                <button
+                  class="button is-ghost p-0"
+                  type="button"
+                  title="Layer help"
+                  aria-label="Layer help"
+                  :aria-expanded="open"
+                  @click.stop="toggle"
+                >
+                  <span class="icon is-small">
+                    <i
+                      class="fa-solid fa-circle-question"
+                      aria-hidden="true"
+                    ></i>
+                  </span>
+                </button>
+              </template>
 
-                <template #default>
-                  <p class="dialog-section-label">Layers</p>
-                  <p class="is-size-7 mb-2">
-                    Drag layers up or down to change their drawing order.
-                  </p>
-                  <p class="has-text-danger is-light is-size-7 mb-0">
-                    <strong class="has-text-danger">Warning:</strong> Custom
-                    layers are stored only in this browser and cannot be shared
-                    via URL.
-                  </p>
-                </template>
-              </PopupDialog>
-            </div>
-          </div>
+              <template #default>
+                <p class="dialog-section-label">Layers</p>
+                <p class="is-size-7 mb-2">
+                  Drag layers up or down to change their drawing order.
+                </p>
+                <p class="has-text-danger is-light is-size-7 mb-0">
+                  <strong class="has-text-danger">Warning:</strong> Custom
+                  layers are stored only in this browser and cannot be shared
+                  via URL.
+                </p>
+              </template>
+            </PopupDialog>
+          </template>
           <LayerPanel :model-info="modelInfo" :grid-type="gridType" />
         </CollapsibleCard>
         <CollapsibleCard title="Actions">

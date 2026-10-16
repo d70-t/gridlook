@@ -1,0 +1,26 @@
+{
+  "type": "gridlook_basemaps",
+  "basemaps": [
+    {
+      "id": "osm",
+      "name": "OpenStreetMap",
+      "url": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+      "attribution": "© OpenStreetMap contributors"
+    },
+    {
+      "id": "versatiles-osm",
+      "name": "Simple",
+      "url": "https://tiles.versatiles.org/tiles/osm/{z}/{x}/{y}",
+      "type": "vector",
+      "maxZoom": 14,
+      "attribution": "© OpenStreetMap contributors | ESA WorldCover 2021 (CC BY 4.0) | Tiles: VersaTiles"
+    },
+    {
+      "id": "versatiles-satellite",
+      "name": "Satellite",
+      "url": "https://tiles.versatiles.org/tiles/satellite/{z}/{x}/{y}",
+      "tileSize": 512,
+      "attribution": "Tiles: VersaTiles | Imagery: Copernicus Sentinel-2, NASA Blue Marble and national orthophotos, see versatiles.org/sources"
+    }
+  ]
+}

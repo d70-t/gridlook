@@ -54,6 +54,7 @@ import {
   TextureExportVCoordinate,
 } from "@/lib/layers/gridExportMetadata.ts";
 import {
+  createTriangleWrapProjectionGeometry,
   createWrappedProjectionMesh,
   setupProjectionGeometryWrap,
   updateProjectionMeshes,
@@ -97,7 +98,6 @@ const {
   fitCameraToDataset,
   getDataVar,
   fetchDimensionDetails,
-  updateLandSeaMask,
   updateColormap,
   updateHistogram,
   projectionHelper,
@@ -178,7 +178,6 @@ const { datasourceUpdate } = useGridDataLoader({
     await getDims();
     await makeGeometry();
   },
-  updateLandSeaMask,
   updateColormap: () => updateColormap(meshes),
   refreshStreamlines: async (reuseCached) => {
     if (lastStreamlineIndices) {
@@ -534,11 +533,12 @@ function createBatchGeometry(
 
   const indices = generateGridIndices(batchLatCount, gridParams.geoLonCount);
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  const wrappedGeometry = createTriangleWrapProjectionGeometry(geometry);
   if (gridParams.textureExportMetadata) {
-    geometry.userData[GridTextureExportUserDataKey.METADATA] =
+    wrappedGeometry.userData[GridTextureExportUserDataKey.METADATA] =
       gridParams.textureExportMetadata;
   }
-  return geometry;
+  return wrappedGeometry;
 }
 
 function applyBatchGeometry(
@@ -663,12 +663,14 @@ function makeMaterial(rawData: Float32Array) {
     invertColormap.value
   );
 
-  return makeGpuProjectedTextureMaterial(
+  const material = makeGpuProjectedTextureMaterial(
     texture,
     colormap.value,
     addOffset,
     scaleFactor
   );
+  material.uniforms.useTriangleWrapCull.value = 1;
+  return material;
 }
 
 function buildHoverSamples(rawData: Float32Array): TGeoSampleIndex {

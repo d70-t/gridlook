@@ -26,16 +26,21 @@ import {
   indexFromZarr,
 } from "@/lib/data/sourceIndexing.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
+import { loadTextures } from "@/lib/layers/textureStore.ts";
 import { PROJECTION_TYPES, clamp } from "@/lib/projection/projectionUtils.ts";
 import {
   availableColormaps,
   type TColorMap,
 } from "@/lib/shaders/colormapShaders.ts";
 import { PresenterRole } from "@/lib/types/presenterSync.ts";
-import { decodeVolumeUrlState } from "@/lib/volume/volumeUrlState.ts";
+import {
+  parseLayersParam,
+  type TLayerUrlEntry,
+} from "@/store/layerUrlState.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import {
-  BUILTIN_LAYER_IDS,
+  createBuiltinLayer,
+  LAYER_KINDS,
   LAYER_OPACITY,
   useGlobeControlStore,
 } from "@/store/store.ts";
@@ -58,6 +63,7 @@ import GridIrregularDelaunay from "@/ui/grids/IrregularDelaunay.vue";
 import GridRegular from "@/ui/grids/Regular.vue";
 import GridTriangular from "@/ui/grids/Triangular.vue";
 import AboutView from "@/ui/overlays/AboutModal.vue";
+import BasemapAttribution from "@/ui/overlays/BasemapAttribution.vue";
 import {
   isAnimationPlaying,
   stopAnimation,
@@ -114,13 +120,7 @@ const {
   paramGridType,
   paramDistractionFree,
   paramLive,
-  paramStreamlines,
-  paramStreamlineU,
-  paramStreamlineV,
-  paramStreamlineMagnitude,
-  paramVolume,
-  paramVolumeState,
-  paramVolumeOpacity,
+  paramLayers,
 } = storeToRefs(urlParameterStore);
 
 type TGlobeHandle = {
@@ -294,6 +294,9 @@ function resetForSourceChange(resetStore: boolean) {
         "projectionCenter",
         "catalogData",
         "catalogUrl",
+        "basemaps",
+        "basemapCatalogUrl",
+        "selectedBasemap",
         "controlPanelVisible",
         "layerStack",
       ]);
@@ -301,8 +304,9 @@ function resetForSourceChange(resetStore: boolean) {
       store.resetExcept([
         "catalogData",
         "catalogUrl",
+        "basemaps",
+        "basemapCatalogUrl",
         "controlPanelVisible",
-        "layerStack",
       ]);
     }
   }
@@ -316,34 +320,90 @@ async function initControlsFromSource() {
   controls.value?.initForDataset();
 }
 
-function initStreamlinesFromParams() {
-  store.setStreamlineLayerEnabled(paramStreamlines.value === "true");
-  if (paramStreamlineU.value || paramStreamlineV.value) {
-    store.setStreamlineSelection({
-      automatic: false,
-      u: paramStreamlineU.value || undefined,
-      v: paramStreamlineV.value || undefined,
-    });
-  } else {
-    store.resetStreamlineSelection();
-  }
-  store.setStreamlineMagnitudeDisplayed(
-    store.isStreamlineLayerEnabled() &&
-      paramStreamlineMagnitude.value === "true"
-  );
+function findLayerParam<K extends TLayerUrlEntry["kind"]>(
+  entries: TLayerUrlEntry[],
+  kind: K
+) {
+  return entries.find((entry) => entry.kind === kind) as
+    Extract<TLayerUrlEntry, { kind: K }> | undefined;
 }
 
-function initVolumeFromParams() {
-  store.setVolumeSelections(decodeVolumeUrlState(paramVolumeState.value));
-  store.setVolumeLayerEnabled(paramVolume.value === "true");
-  const opacity =
-    paramVolumeOpacity.value === undefined || paramVolumeOpacity.value === ""
-      ? LAYER_OPACITY.MAX
-      : Number(paramVolumeOpacity.value);
-  store.updateLayerOpacity(
-    BUILTIN_LAYER_IDS.VOLUME,
-    Number.isFinite(opacity) ? opacity : LAYER_OPACITY.MAX
-  );
+// Built-in layers come from the `layers` parameter; texture layers already in
+// the stack stay on top.
+function initLayersFromParams() {
+  const entries = parseLayersParam(paramLayers.value);
+  store.layerStack = [
+    ...store.layerStack.filter((layer) => layer.kind === LAYER_KINDS.TEXTURE),
+    ...entries.map((entry) => ({
+      ...createBuiltinLayer(entry.kind),
+      visible: entry.visible,
+      opacity: "opacity" in entry ? entry.opacity : LAYER_OPACITY.MAX,
+    })),
+  ];
+
+  const coastlines = findLayerParam(entries, LAYER_KINDS.COASTLINES);
+  store.showCoastLines = coastlines?.visible ?? false;
+  if (coastlines) {
+    store.coastlineResolution = coastlines.resolution;
+  }
+
+  const graticules = findLayerParam(entries, LAYER_KINDS.GRATICULES);
+  store.showGraticules = graticules?.visible ?? false;
+  if (graticules) {
+    store.graticuleSpacing = graticules.spacing;
+  }
+
+  const basemap = findLayerParam(entries, LAYER_KINDS.BASEMAP);
+  if (basemap) {
+    store.selectedBasemap = basemap.provider;
+    store.basemapOptions = basemap.options;
+  }
+  initDatasetLayersFromParams(entries);
+}
+
+// Variables unknown to this dataset fall back to the automatic pair or are
+// dropped from the volume.
+function initDatasetLayersFromParams(entries: TLayerUrlEntry[]) {
+  const vars = modelInfo.value?.vars ?? {};
+  const streamlines = findLayerParam(entries, LAYER_KINDS.STREAMLINES);
+  if (streamlines) {
+    if (
+      streamlines.u &&
+      streamlines.v &&
+      streamlines.u in vars &&
+      streamlines.v in vars
+    ) {
+      store.setStreamlineSelection({
+        automatic: false,
+        u: streamlines.u,
+        v: streamlines.v,
+      });
+    }
+    store.setStreamlineMagnitudeDisplayed(
+      streamlines.visible && streamlines.magnitude
+    );
+  }
+
+  const volume = findLayerParam(entries, LAYER_KINDS.VOLUME);
+  if (volume) {
+    store.setVolumeSelections(
+      volume.selections.filter((selection) => selection.variable in vars)
+    );
+  }
+}
+
+// Stored texture layers are added on top of the stack, hidden.
+async function restoreStoredTextureLayers() {
+  try {
+    const stored = await loadTextures();
+    for (const texture of stored) {
+      if (!store.layerStack.some((layer) => layer.id === texture.id)) {
+        store.addTextureLayer(texture.id, texture.name, false);
+      }
+    }
+  } catch (error) {
+    logError(error, "Couldn't load stored texture layers");
+  }
 }
 
 async function loadCurrentSource(resetStore = true) {
@@ -353,8 +413,8 @@ async function loadCurrentSource(resetStore = true) {
   if (updateId !== sourceUpdateId) {
     return;
   }
-  initStreamlinesFromParams();
-  initVolumeFromParams();
+  initLayersFromParams();
+  void restoreStoredTextureLayers();
   await initControlsFromSource();
   isInitialized.value = true;
   await setGridType(true);
@@ -620,6 +680,7 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
       />
       <HoverReadout v-if="detectedGridType !== undefined" />
       <DistanceScale v-if="detectedGridType !== undefined" />
+      <BasemapAttribution v-if="detectedGridType !== undefined" />
     </div>
     <div
       v-if="!isDisplayMode"

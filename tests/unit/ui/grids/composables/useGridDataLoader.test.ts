@@ -54,7 +54,6 @@ it("retries the newest queued update when an older fetch fails", async () => {
       getDataVar: vi.fn().mockResolvedValue({}),
       fetchAndRenderData,
       clearHoverLookup: vi.fn(),
-      updateLandSeaMask: vi.fn(),
       updateColormap: vi.fn(),
     })
   )!;
@@ -81,7 +80,6 @@ it("reports a fetch failure when no newer update is queued", async () => {
       getDataVar: vi.fn().mockResolvedValue({}),
       fetchAndRenderData: vi.fn().mockRejectedValue(new Error("unavailable")),
       clearHoverLookup: vi.fn(),
-      updateLandSeaMask: vi.fn(),
       updateColormap: vi.fn(),
     })
   )!;
@@ -124,7 +122,6 @@ it("commits only the latest complete timestep and preserves its derived variable
         }
       },
       clearHoverLookup: vi.fn(),
-      updateLandSeaMask: vi.fn(),
       updateColormap: vi.fn(),
     })
   )!;
@@ -166,7 +163,6 @@ it("restores the selected scalar data when streamlines are disabled", async () =
       getDataVar: vi.fn().mockResolvedValue({}),
       fetchAndRenderData,
       clearHoverLookup: vi.fn(),
-      updateLandSeaMask: vi.fn(),
       updateColormap,
       refreshStreamlines,
       suspendStreamlines,
@@ -207,7 +203,6 @@ it("restarts an in-flight timestep when streamlines are disabled and enabled aga
       getDataVar: vi.fn().mockResolvedValue({}),
       fetchAndRenderData,
       clearHoverLookup: vi.fn(),
-      updateLandSeaMask: vi.fn(),
       updateColormap: vi.fn(),
       suspendStreamlines: vi.fn(),
       refreshStreamlines,
@@ -258,7 +253,6 @@ it("switches cached scalar backgrounds without reloading data or streamlines", a
       fetchAndRenderData,
       scalarCache,
       clearHoverLookup: vi.fn(),
-      updateLandSeaMask: vi.fn(),
       updateColormap: vi.fn(),
       refreshStreamlines,
     })

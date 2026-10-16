@@ -41,6 +41,7 @@ function postBatch(
   );
 }
 
+// eslint-disable-next-line max-lines-per-function
 async function buildGrid(request: THealpixWorkerRequest) {
   // Install the message handler before WASM initialization yields to the event loop.
   const { Grid } = await import("healpix-geo");
@@ -72,7 +73,13 @@ async function buildGrid(request: THealpixWorkerRequest) {
     buildHealpixTexture(data, faceIndex, grid.nside, request.cells);
   postBatch(requestId, {
     batchIndex: 0,
-    ...buildHealpixGeometry(textureGrid, BigInt(faceIndex), 65, projection),
+    ...buildHealpixGeometry(
+      textureGrid,
+      BigInt(faceIndex),
+      65,
+      projection,
+      dataRect
+    ),
     histogramSummary,
     width,
     height,
