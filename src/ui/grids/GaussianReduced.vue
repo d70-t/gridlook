@@ -29,6 +29,7 @@ import {
 import type { TGridGeometryBatch } from "@/lib/grids/gridWorkerTypes.ts";
 import { createSerializedGeoSampleIndex } from "@/lib/grids/serializedGeoSampleIndex.ts";
 import {
+  createTriangleWrapProjectionGeometry,
   createWrappedProjectionMesh,
   setupProjectionGeometryWrap,
   updateProjectionMeshes,
@@ -94,7 +95,12 @@ function updateMeshProjectionUniforms() {
 }
 
 const colormapMaterial = computed(() => {
-  return makeInvertableGpuMeshMaterial(colormap.value, invertColormap.value);
+  const material = makeInvertableGpuMeshMaterial(
+    colormap.value,
+    invertColormap.value
+  );
+  material.uniforms.useTriangleWrapCull.value = 1;
+  return material;
 });
 
 const scalarCache = useScalarFieldCache({
@@ -198,7 +204,7 @@ function createBatchGeometry(
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   geometry.computeBoundingSphere();
 
-  return geometry;
+  return createTriangleWrapProjectionGeometry(geometry);
 }
 
 const EPSILON = 0.002; // Small overlap in degrees to avoid z-fighting

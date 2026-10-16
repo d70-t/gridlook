@@ -37,6 +37,7 @@ import {
   terminateTriangularWorker,
 } from "@/lib/grids/triangularWorkerClient.ts";
 import {
+  createTriangleWrapProjectionGeometry,
   createWrappedProjectionMesh,
   updateProjectionMeshes,
 } from "@/lib/projection/projectionEdgeQuality.ts";
@@ -138,9 +139,14 @@ function updateMeshProjectionUniforms() {
   });
 }
 
-const colormapMaterial = computed(() =>
-  makeInvertableGpuMeshMaterial(colormap.value, invertColormap.value)
-);
+const colormapMaterial = computed(() => {
+  const material = makeInvertableGpuMeshMaterial(
+    colormap.value,
+    invertColormap.value
+  );
+  material.uniforms.useTriangleWrapCull.value = 1;
+  return material;
+});
 
 const gridsource = computed(() => props.datasources?.levels[0].grid);
 
@@ -179,7 +185,7 @@ function updateGeometryBatch(batch: TGridPositionBatch) {
   );
   geometry.computeBoundingSphere();
   const mesh = createWrappedProjectionMesh(
-    geometry,
+    createTriangleWrapProjectionGeometry(geometry),
     colormapMaterial.value,
     projectionHelper.value.type
   );

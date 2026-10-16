@@ -170,9 +170,11 @@ function expectRotatedCoordinates(geometry: THREE.BufferGeometry) {
     [60.203763369090005, -44.59386389190011],
     [66.68983654206978, 64.96437666717895],
   ];
+  // The non-indexed quad is laid out as (LL, TR, TL, LL, LR, TR).
+  const vertexByCorner = [0, 4, 2, 1];
   expected.forEach(([lat, lon], index) => {
-    expect(coordinates.getX(index)).toBeCloseTo(lat, 4);
-    expect(coordinates.getY(index)).toBeCloseTo(lon, 4);
+    expect(coordinates.getX(vertexByCorner[index])).toBeCloseTo(lat, 4);
+    expect(coordinates.getY(vertexByCorner[index])).toBeCloseTo(lon, 4);
     expect(hover.findNearest(lat, lon)?.value).toBe(98000 + index * 1000);
   });
 }
