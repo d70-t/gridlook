@@ -119,3 +119,25 @@ it("finds a coordinate out of order in the chunks a search reads", async () => {
   await expect(cells.lowerBound(200)).rejects.toThrow(/ascending/);
   expect(await cells.isAscending()).toBe(false);
 });
+
+it("searches a coordinate with more than 2**31 cells", async () => {
+  // 76 level-7 parent cells at level 20, one after the other with gaps
+  const parents = Array.from({ length: 76 }, (_, index) => 10943 + 2 * index);
+  const perParent = 4 ** 13;
+  const chunk = 262144;
+  const cells = createSortedCells(
+    parents.length * perParent,
+    chunk,
+    async (start, end) =>
+      Float64Array.from(
+        { length: end - start },
+        (_, offset) =>
+          parents[Math.floor((start + offset) / perParent)] * perParent +
+          ((start + offset) % perParent)
+      )
+  );
+  for (const parent of [0, 40, 75]) {
+    const target = parents[parent] * perParent + 12345;
+    expect(await cells.lowerBound(target)).toBe(parent * perParent + 12345);
+  }
+});

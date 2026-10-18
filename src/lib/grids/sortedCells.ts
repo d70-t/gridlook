@@ -66,7 +66,8 @@ export function createSortedCells(
     let lo = 0;
     let hi = length;
     while (lo < hi) {
-      const mid = (lo + hi) >> 1;
+      // not `>> 1`: a level of many cells has more than 2**31 of them
+      const mid = Math.floor((lo + hi) / 2);
       if ((await valueAt(mid)) < target) {
         lo = mid + 1;
       } else {
