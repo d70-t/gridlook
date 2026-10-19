@@ -17,6 +17,11 @@ import {
   splitIcechunkStoreAndGroup,
 } from "./icechunkStore.ts";
 import type { NetCDFArray } from "./netCDF.ts";
+import {
+  createReferenceStore,
+  isReferenceStorePath,
+  splitReferenceStoreAndGroup,
+} from "./referenceStore.ts";
 import { ZarrDataManager } from "./ZarrDataManager.ts";
 
 import trim from "@/utils/trim.ts";
@@ -403,7 +408,27 @@ async function indexFromIcechunk(src: string): Promise<TSources> {
   );
 }
 
+async function indexFromReference(src: string): Promise<TSources> {
+  const { storePath, groupPath } = splitReferenceStoreAndGroup(src);
+  const store = await createReferenceStore(storePath);
+  const format = store.zarrFormat === 2 ? ZARR_FORMAT.V2 : ZARR_FORMAT.V3;
+  const root = await zarr.open(store, { kind: "group" });
+  const group = groupPath
+    ? await zarr.open(root.resolve(groupPath), { kind: "group" })
+    : root;
+  const datasources = await processZarrVariables(
+    store,
+    root,
+    storePath,
+    groupPath
+  );
+  return createIndex(group.attrs, datasources, storePath, format, groupPath);
+}
+
 export async function indexFromZarr(src: string): Promise<TSources> {
+  if (isReferenceStorePath(src)) {
+    return indexFromReference(src);
+  }
   if (isIcechunkStorePath(src)) {
     return indexFromIcechunk(src);
   }
