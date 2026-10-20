@@ -5,7 +5,7 @@ export type TCatalogEntry = {
   title?: string;
   tags?: Record<string, string>;
   description?: string;
-  params?: Record<string, string> | string;
+  params?: Record<string, string>;
 };
 
 export type TCatalog = {
@@ -59,15 +59,12 @@ export function parseCatalog(data: unknown): TCatalog | null {
       description:
         typeof entry.description === "string" ? entry.description : undefined,
       tags,
+      // A string is a copied hash, e.g. "varname=tas::colormap=viridis", parsed
+      // like HashGlobeView parses the hash.
       params:
         typeof entry.params === "string"
           ? Object.fromEntries(
-              entry.params
-                .split("::")
-                .map((p) => [
-                  p.slice(0, p.indexOf("=")),
-                  p.slice(p.indexOf("=") + 1),
-                ])
+              new URLSearchParams(entry.params.split("::").join("&"))
             )
           : stringRecord(entry.params),
     });

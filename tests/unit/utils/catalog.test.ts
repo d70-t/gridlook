@@ -35,6 +35,20 @@ it("normalizes catalog entries", () => {
   expect(parseCatalog({ type: "other", datasets: [] })).toBeNull();
 });
 
+it("parses params given as a copied hash", () => {
+  const catalog = parseCatalog({
+    type: "gridlook_catalog",
+    datasets: [
+      { url: "a", params: "varname=tas::catalog=static%2Fcatalog.json" },
+    ],
+  });
+  const params = catalog?.datasets[0].params;
+  expect(params).toEqual({ varname: "tas", catalog: "static/catalog.json" });
+  expect(hashParams(params)).toBe(
+    "::varname=tas::catalog=static%2Fcatalog.json"
+  );
+});
+
 it("encodes params for the hash", () => {
   expect(hashParams({ varname: "tas", colormap: "a&b=c" })).toBe(
     "::varname=tas::colormap=a%26b%3Dc"
