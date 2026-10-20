@@ -7,9 +7,12 @@ const props = withDefaults(
     modelValue: boolean;
     title: string;
     footerClass?: string;
+    // Keeps the height constant when the content changes, e.g. between tabs.
+    fixedHeight?: boolean;
   }>(),
   {
     footerClass: "",
+    fixedHeight: false,
   }
 );
 
@@ -40,7 +43,7 @@ useEventListener(document, "keydown", (e: KeyboardEvent) => {
   <Teleport to="body">
     <div v-if="visible" class="modal is-active">
       <div class="modal-background" @click.self="close"></div>
-      <div class="modal-card">
+      <div class="modal-card" :class="{ 'is-fixed-height': fixedHeight }">
         <header class="modal-card-head">
           <p class="modal-card-title">{{ title }}</p>
           <button
@@ -64,3 +67,9 @@ useEventListener(document, "keydown", (e: KeyboardEvent) => {
     </div>
   </Teleport>
 </template>
+
+<style scoped>
+.modal-card.is-fixed-height {
+  height: min(80vh, 45rem);
+}
+</style>
