@@ -5,14 +5,14 @@ full-size cutout.
 
 | Grid type            | Description                                              | Automatically detected | Preview                                                                                                                                                      |
 | -------------------- | -------------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `regular`            | Rectilinear lat/lon, latitude-only, or Web Mercator grid | Yes                    | <a href="assets/regular_cutout.png"><img src="assets/regular_cutout.png" alt="Regular grid cells" width="220"></a>                                        |
+| `regular`            | Rectilinear lat/lon, latitude-only, or Web Mercator grid | Yes                    | <a href="assets/regular_cutout.png"><img src="assets/regular_cutout.png" alt="Regular grid cells" width="220"></a>                                           |
 | `regular_rotated`    | Rotated regular latitude/longitude grid                  | Yes                    | —                                                                                                                                                            |
-| `healpix`            | HEALPix discrete global grid                             | Yes                    | <a href="assets/healpix_cutout.png"><img src="assets/healpix_cutout.png" alt="HEALPix grid cells" width="220"></a>                                      |
-| `triangular`         | Unstructured triangular grid, such as ICON               | Yes                    | <a href="assets/triangular_cutout.png"><img src="assets/triangular_cutout.png" alt="Triangular grid cells" width="220"></a>                              |
-| `gaussian_reduced`   | Reduced Gaussian grid                                    | Yes                    | <a href="assets/gaussianreduced_cutout.png"><img src="assets/gaussianreduced_cutout.png" alt="Reduced Gaussian grid cells" width="220"></a>              |
-| `irregular`          | Unstructured grid represented by lat/lon pairs           | Yes                    | <a href="assets/irregular_cutout.png"><img src="assets/irregular_cutout.png" alt="Irregular grid points" width="220"></a>                                |
+| `healpix`            | HEALPix discrete global grid                             | Yes                    | <a href="assets/healpix_cutout.png"><img src="assets/healpix_cutout.png" alt="HEALPix grid cells" width="220"></a>                                           |
+| `triangular`         | Unstructured triangular grid, such as ICON               | Yes                    | <a href="assets/triangular_cutout.png"><img src="assets/triangular_cutout.png" alt="Triangular grid cells" width="220"></a>                                  |
+| `gaussian_reduced`   | Reduced Gaussian grid                                    | Yes                    | <a href="assets/gaussianreduced_cutout.png"><img src="assets/gaussianreduced_cutout.png" alt="Reduced Gaussian grid cells" width="220"></a>                  |
+| `irregular`          | Unstructured grid represented by lat/lon pairs           | Yes                    | <a href="assets/irregular_cutout.png"><img src="assets/irregular_cutout.png" alt="Irregular grid points" width="220"></a>                                    |
 | `irregular_delaunay` | Irregular grid rendered with Delaunay triangles          | No                     | <a href="assets/irregular_delaunay_cutout.png"><img src="assets/irregular_delaunay_cutout.png" alt="Delaunay-rendered irregular grid cells" width="220"></a> |
-| `curvilinear`        | Grid whose latitude and longitude are 2-D arrays         | Yes                    | <a href="assets/curvi_cutout.png"><img src="assets/curvi_cutout.png" alt="Curvilinear grid cells" width="220"></a>                                      |
+| `curvilinear`        | Grid whose latitude and longitude are 2-D arrays         | Yes                    | <a href="assets/curvi_cutout.png"><img src="assets/curvi_cutout.png" alt="Curvilinear grid cells" width="220"></a>                                           |
 
 `error` also exists internally, but it represents failed detection rather than a
 supported grid.
@@ -73,6 +73,10 @@ selected data variable in order:
      multiplied by the number of distinct longitudes differs from the product
      of the two coordinate-array lengths.
    - Any other readable latitude/longitude pairs are `irregular`.
+   - Without latitude/longitude variables, one-dimensional `x` and `y`
+     variables along one shared dimension of the variable (e.g. station data
+     with `x(index)`, `y(index)`) are reprojected point by point using the CRS
+     WKT and treated as `irregular`.
 
 6. **Projected x/y fallback**
 
@@ -80,8 +84,10 @@ selected data variable in order:
    both `x` and `y`, Gridlook reads CRS WKT from `crs_wkt`, `spatial_ref`, or
    `projection`:
 
-   - Web Mercator is `regular`.
-   - Any other available CRS WKT is `curvilinear`.
+   - Polar stereographic is `curvilinear`.
+   - Any other CRS WKT (e.g. Web Mercator, UTM, Lambert) is `regular`. The
+     regular renderer reprojects the x/y axes with proj4, so large regional
+     grids render from a subsampled mesh and a data texture.
    - Missing CRS WKT falls back to `regular`.
 
 If none of these checks succeeds, Gridlook reports `error`.

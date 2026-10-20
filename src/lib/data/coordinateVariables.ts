@@ -34,6 +34,14 @@ export function isWebMercatorCRS(crsWkt: string): boolean {
   }
 }
 
+export function isPolarStereographicCRS(crsWkt: string): boolean {
+  try {
+    return new proj4.Proj(crsWkt).names.includes("stere");
+  } catch {
+    return false;
+  }
+}
+
 export function isProjectedXName(name: string): boolean {
   return getVariableLocalName(name) === ProjectedCoordinateName.X;
 }
@@ -478,11 +486,101 @@ async function fetchLatLonVariables(
   return { latitudesVar, longitudesVar };
 }
 
+function projectXYPointsToLonLat(
+  x: Float32Array,
+  y: Float32Array,
+  crsWkt: string
+) {
+  const transformer = proj4(crsWkt, WGS84);
+  const latitudes = new Float32Array(x.length);
+  const longitudes = new Float32Array(x.length);
+  for (let i = 0; i < x.length; i++) {
+    const [lon, lat] = transformer.forward([x[i], y[i]]);
+    longitudes[i] = lon;
+    latitudes[i] = lat;
+  }
+  return { latitudes, longitudes };
+}
+
+// Point/station data: projected x/y variables along one shared dimension of
+// the data variable, e.g. x(index) and y(index), reprojected point by point.
+async function getProjectedPointLonLatData(
+  variable: string,
+  datasources: TSources
+) {
+  const [dataDimensions, xDimensions, yDimensions, crsWkt] = await Promise.all([
+    ZarrDataManager.getDimensionNames(datasources, variable),
+    ZarrDataManager.getDimensionNames(
+      datasources,
+      ZarrDataManager.resolveVariablePath(variable, ProjectedCoordinateName.X)
+    ),
+    ZarrDataManager.getDimensionNames(
+      datasources,
+      ZarrDataManager.resolveVariablePath(variable, ProjectedCoordinateName.Y)
+    ),
+    getCRSWkt(datasources, variable),
+  ]);
+  const pointDimension = xDimensions[0];
+  if (
+    !crsWkt ||
+    xDimensions.length !== 1 ||
+    yDimensions.length !== 1 ||
+    yDimensions[0] !== pointDimension ||
+    !dataDimensions.includes(pointDimension)
+  ) {
+    return null;
+  }
+
+  const { x, y } = await loadGridAxes(datasources, variable, [
+    ProjectedCoordinateName.Y,
+    ProjectedCoordinateName.X,
+  ]);
+  const { latitudes, longitudes } = projectXYPointsToLonLat(x, y, crsWkt);
+
+  return {
+    latitudesAttrs: {
+      dimensionNames: [pointDimension],
+      units: "degrees_north",
+    },
+    latitudes: createFloat32Chunk(latitudes, [x.length]),
+    longitudesAttrs: {
+      dimensionNames: [pointDimension],
+      units: "degrees_east",
+    },
+    longitudes: createFloat32Chunk(longitudes, [x.length]),
+  };
+}
+
 export async function getLatLonData(
   variable: string,
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   datasources: TSources | undefined,
   isRotated = false
+) {
+  try {
+    return await getGeographicLatLonData(
+      variable,
+      datavar,
+      datasources,
+      isRotated
+    );
+  } catch (error) {
+    const points = await getProjectedPointLonLatData(
+      variable,
+      datasources!
+    ).catch(() => null);
+    if (!points) {
+      throw error;
+    }
+    return points;
+  }
+}
+
+async function getGeographicLatLonData(
+  variable: string,
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
+  datasources: TSources | undefined,
+  isRotated: boolean
 ) {
   const { latitudeName, longitudeName } = findLatLonNames(
     datasources!,
