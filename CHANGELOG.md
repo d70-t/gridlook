@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.7.0](https://github.com/d70-t/gridlook/compare/v1.6.1...v1.7.0) (2026-10-21)
+
+
+### Features
+
+### Features
+
+* Added Basemaps (Versatiles and OpenStreetMaps) to replace old Land/Sea-Masks ([6370a99](https://github.com/d70-t/gridlook/commit/6370a990140b7dc9b8461e251cbd5781ce5bb50c))
+* **lib:** opacity-slider for the data layer ([4f83341](https://github.com/d70-t/gridlook/commit/4f83341946eb1661deaf62961ed2258e4e1d8721))
+* **ui:** convenience features for data input and catalogs  ([044220e](https://github.com/d70-t/gridlook/commit/044220e1acd68026c56d4d327dac4a9daa35791b)) (#239)
+* **ui:** split "Data Information"-Panel into two tabs for a better overview ([b33fe04](https://github.com/d70-t/gridlook/commit/b33fe0435c838d6e3895165216e61abfb8cd7765))
+
+
+### Bug Fixes
+
+* **lib:** fixed several visualization issues concerning the `as image layer`-Functionality ([3fede4e](https://github.com/d70-t/gridlook/commit/3fede4ea480b8e8f14a6eedd4282b7f911948e9a))
+* **lib:** URL has all layer options now ([016a364](https://github.com/d70-t/gridlook/commit/016a3646e7085234eb453002a504f752489e6f62)) (#218)
+* Snapshots no longer appear too bright ([9cdc927](https://github.com/d70-t/gridlook/commit/9cdc927b222b9bfe16577254c9323fb0b126e001))
+* **ui:** Info-panel does not refresh anymore when only dimension has been updated ([8060d75](https://github.com/d70-t/gridlook/commit/8060d753bc7051d81a957518e39ce04ea23638e4))
+
 ## [1.6.1](https://github.com/d70-t/gridlook/compare/v1.6.0...v1.6.1) (2026-09-21)
 
 
