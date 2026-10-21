@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.7.0](https://github.com/d70-t/gridlook/compare/v1.6.1...v1.7.0) (2026-10-21)
+
+
+### Features
+
+* basemaps ([6370a99](https://github.com/d70-t/gridlook/commit/6370a990140b7dc9b8461e251cbd5781ce5bb50c))
+* basemaps ([802d4f6](https://github.com/d70-t/gridlook/commit/802d4f671a2e8a7d255cb16f42b5c097208ed703))
+* **lib:** opacity-slider for the data layer ([4f83341](https://github.com/d70-t/gridlook/commit/4f83341946eb1661deaf62961ed2258e4e1d8721))
+* restore basemap layer from url ([f4fdbcb](https://github.com/d70-t/gridlook/commit/f4fdbcb60b74e34628ae5a90e6af1f3672ffa580))
+* **ui:** convenience features for data input and catalogs ([044220e](https://github.com/d70-t/gridlook/commit/044220e1acd68026c56d4d327dac4a9daa35791b))
+* **ui:** jump to coordinates from dimensions in the browse view ([b33fe04](https://github.com/d70-t/gridlook/commit/b33fe0435c838d6e3895165216e61abfb8cd7765))
+
+
+### Bug Fixes
+
+* **lib:** fixed several visualization issues concerning the `as image layer`-Button ([3fede4e](https://github.com/d70-t/gridlook/commit/3fede4ea480b8e8f14a6eedd4282b7f911948e9a))
+* **lib:** URL has all layer options now ([016a364](https://github.com/d70-t/gridlook/commit/016a3646e7085234eb453002a504f752489e6f62))
+* resolve the remaining rendering issues ([71dd1de](https://github.com/d70-t/gridlook/commit/71dd1deea858c92a98ec6d7d762395fa318bf000))
+* Snapshots no longer appear too bright ([9cdc927](https://github.com/d70-t/gridlook/commit/9cdc927b222b9bfe16577254c9323fb0b126e001))
+* **ui:** No info-panel refreshes when only dimension has been updated ([8060d75](https://github.com/d70-t/gridlook/commit/8060d753bc7051d81a957518e39ce04ea23638e4))
+
 ## [1.6.1](https://github.com/d70-t/gridlook/compare/v1.6.0...v1.6.1) (2026-09-21)
 
 
