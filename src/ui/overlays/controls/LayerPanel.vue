@@ -845,20 +845,20 @@ function getLayerName(layer: TLayerEntry) {
           >
             <span class="layer-opacity-header">
               <span>Opacity</span>
-              <span class="tag is-light layer-opacity-value">
+              <input
+                class="layer-opacity"
+                type="range"
+                :min="LAYER_OPACITY.MIN"
+                :max="LAYER_OPACITY.MAX"
+                :step="LAYER_OPACITY.STEP"
+                :value="getLayerOpacity(layer)"
+                :aria-label="`${layer.name} opacity`"
+                @input="setLayerOpacity(layer, $event)"
+              />
+              <span class="tag layer-opacity-value">
                 {{ formatLayerOpacity(layer) }}
               </span>
             </span>
-            <input
-              class="layer-opacity"
-              type="range"
-              :min="LAYER_OPACITY.MIN"
-              :max="LAYER_OPACITY.MAX"
-              :step="LAYER_OPACITY.STEP"
-              :value="getLayerOpacity(layer)"
-              :aria-label="`${layer.name} opacity`"
-              @input="setLayerOpacity(layer, $event)"
-            />
           </label>
           <div v-if="layer.kind === LAYER_KINDS.BASEMAP" class="mt-2 is-size-7">
             <label class="checkbox mr-3">
