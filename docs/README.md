@@ -79,6 +79,10 @@ model (ESM) output on native grids.
 
 - Use a publicly reachable Zarr or Icechunk URI that allows browser requests
   through CORS. Icechunk repositories can use an `icechunk+https://` URI.
+- Open a [Kerchunk reference file](https://fsspec.github.io/kerchunk/spec.html)
+  (JSON, version 0 or 1) with `reference+https://<file>.json`, followed by the
+  path of a group if needed. The whole file is loaded when the dataset is
+  opened, so keep it to a few hundred thousand references.
 - Open multiple related datasets through a [Gridlook catalog](catalogs.md).
 - Follow a changing dataset by adding `::live=true`; see
   [Live datasets](live-datasets.md).
