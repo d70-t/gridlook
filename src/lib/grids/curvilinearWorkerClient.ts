@@ -1,35 +1,20 @@
-import type {
-  TCurvilinearWorkerMetadata,
-  TCurvilinearWorkerRequest,
-} from "./curvilinearWorkerProtocol.ts";
+import type { TCurvilinearHoverIndexData } from "./curvilinearCalculations.ts";
+import type { TCurvilinearWorkerRequest } from "./curvilinearWorkerProtocol.ts";
 import {
   copyGridWorkerArray,
   createGridGeometryWorkerClient,
 } from "./gridGeometryWorkerClient.ts";
-import { GridGeometryWorkerMessageType } from "./gridGeometryWorkerProtocol.ts";
+import {
+  GridGeometryWorkerMessageType,
+  type TGridGeometryWorkerMetadata,
+} from "./gridGeometryWorkerProtocol.ts";
 import type { TGridGeometryBatch } from "./gridWorkerTypes.ts";
-
-import type {
-  TProjectionCenter,
-  TProjectionType,
-} from "@/lib/projection/projectionUtils.ts";
-
-type TCurvilinearBuildRequest = {
-  latitudes: Float32Array;
-  longitudes: Float32Array;
-  data: Float32Array;
-  nj: number;
-  ni: number;
-  batchSize: number;
-  missingValue: number;
-  fillValue: number;
-  projectionType: TProjectionType;
-  projectionCenter: TProjectionCenter;
-};
 
 const client = createGridGeometryWorkerClient<
   TCurvilinearWorkerRequest,
-  TCurvilinearWorkerMetadata
+  TGridGeometryWorkerMetadata,
+  TGridGeometryBatch,
+  TCurvilinearHoverIndexData
 >(
   () =>
     new Worker(new URL("./curvilinear.worker.ts", import.meta.url), {
@@ -37,33 +22,27 @@ const client = createGridGeometryWorkerClient<
     })
 );
 
-export function buildCurvilinearGrid(
-  request: TCurvilinearBuildRequest,
-  callbacks: {
-    onMetadata: (metadata: TCurvilinearWorkerMetadata) => void;
-    onBatch: (batch: TGridGeometryBatch) => void;
-  }
+export async function buildCurvilinearHoverIndex(
+  latitudes: Float32Array,
+  longitudes: Float32Array
 ) {
-  return client.build((requestId) => {
-    const latitudes = copyGridWorkerArray(request.latitudes);
-    const longitudes = copyGridWorkerArray(request.longitudes);
-    const data = copyGridWorkerArray(request.data);
-    return {
-      message: {
-        ...request,
-        requestId,
-        type: GridGeometryWorkerMessageType.BUILD,
-        latitudes,
-        longitudes,
-        data,
-        projectionCenter: {
-          lat: request.projectionCenter.lat,
-          lon: request.projectionCenter.lon,
+  const result = await client.build(
+    (requestId) => {
+      const latitudesCopy = copyGridWorkerArray(latitudes);
+      const longitudesCopy = copyGridWorkerArray(longitudes);
+      return {
+        message: {
+          requestId,
+          type: GridGeometryWorkerMessageType.BUILD,
+          latitudes: latitudesCopy,
+          longitudes: longitudesCopy,
         },
-      },
-      transfer: [latitudes.buffer, longitudes.buffer, data.buffer],
-    };
-  }, callbacks);
+        transfer: [latitudesCopy.buffer, longitudesCopy.buffer],
+      };
+    },
+    { onMetadata: () => {}, onBatch: () => {} }
+  );
+  return result.hoverIndexData;
 }
 
 export const terminateCurvilinearWorker = client.terminate;

@@ -108,7 +108,9 @@ function createGetData(
 
 function createDatasourceUpdate(
   options: TGridDataLoaderOptions,
-  getData: () => Promise<void>
+  store: TGlobeControlStore,
+  getData: () => Promise<void>,
+  logError: TLogError
 ) {
   return async function datasourceUpdate() {
     options.resetDataVars?.();
@@ -118,7 +120,15 @@ function createDatasourceUpdate(
       return;
     }
 
-    await options.prepareDatasource?.();
+    try {
+      await options.prepareDatasource?.();
+    } catch (error) {
+      // GlobeView started loading before the grid mounted; without this the
+      // spinner never stops when the grid cannot be prepared.
+      logError(error, "Could not prepare grid");
+      store.stopLoading(false);
+      return;
+    }
     await getData();
     options.updateColormap();
   };
@@ -221,7 +231,12 @@ export function useGridDataLoader(options: TGridDataLoaderOptions) {
     updatingData: ref(false),
   };
   const getData = createGetData(options, store, state, logError);
-  const datasourceUpdate = createDatasourceUpdate(options, getData);
+  const datasourceUpdate = createDatasourceUpdate(
+    options,
+    store,
+    getData,
+    logError
+  );
 
   registerGridDataLoaderWatches(options, store, state, getData, logError);
 

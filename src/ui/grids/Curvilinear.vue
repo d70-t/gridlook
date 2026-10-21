@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { storeToRefs } from "pinia";
 import * as THREE from "three";
-import { computed, onBeforeMount, onBeforeUnmount } from "vue";
+import { onBeforeMount, onBeforeUnmount } from "vue";
 import * as zarr from "zarrita";
 
 import { useGridHoverLookup } from "./composables/gridHoverUtils.ts";
@@ -17,6 +17,7 @@ import {
   isProjectedXName,
   isProjectedYName,
 } from "@/lib/data/coordinateVariables.ts";
+import { downsampleDataTexture } from "@/lib/data/dataTexture.ts";
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
 import {
   castDataVarToFloat32,
@@ -25,22 +26,31 @@ import {
 import type { TVectorMagnitudeData } from "@/lib/data/vectorMagnitude.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
-  buildCurvilinearGrid,
+  attachCurvilinearHoverValues,
+  buildCurvilinearMesh,
+  detectCurvilinearColumnPeriodicity,
+  detectCurvilinearLongitudeFlip,
+  type TCurvilinearGrid,
+  type TCurvilinearHoverIndexData,
+} from "@/lib/grids/curvilinearCalculations.ts";
+import {
+  buildCurvilinearHoverIndex,
   terminateCurvilinearWorker,
 } from "@/lib/grids/curvilinearWorkerClient.ts";
 import {
   getGridVariableData,
   terminateGridDataWorker,
 } from "@/lib/grids/gridDataWorkerClient.ts";
-import type { TGridGeometryBatch } from "@/lib/grids/gridWorkerTypes.ts";
 import { createSerializedGeoSampleIndex } from "@/lib/grids/serializedGeoSampleIndex.ts";
 import {
   createTriangleWrapProjectionGeometry,
   createWrappedProjectionMesh,
-  setupProjectionGeometryWrap,
   updateProjectionMeshes,
 } from "@/lib/projection/projectionEdgeQuality.ts";
-import { makeInvertableGpuMeshMaterial } from "@/lib/shaders/gridShaders.ts";
+import {
+  makeGpuProjectedTextureMaterial,
+  updateProjectionUniforms,
+} from "@/lib/shaders/gridShaders.ts";
 import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
 import { loadProjectedVolumeGrid } from "@/lib/volume/volumeData.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
@@ -51,19 +61,24 @@ const props = defineProps<{
 }>();
 
 const store = useGlobeControlStore();
-const { dimSlidersValues, colormap, varnameSelector, invertColormap, varinfo } =
+const { dimSlidersValues, colormap, varnameSelector, varinfo } =
   storeToRefs(store);
 const urlParameterStore = useUrlParameterStore();
 const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
   storeToRefs(urlParameterStore);
 
+type TCurvilinearGridState = {
+  grid: TCurvilinearGrid;
+  hoverIndexData: Promise<TCurvilinearHoverIndexData>;
+};
+
 let meshes: THREE.Mesh[] = [];
-let magnitudeContext:
-  | {
-      datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>;
-      dimensionNames: string[];
-    }
-  | undefined;
+// A grid instance shows one variable (variable changes remount it), so the
+// coordinates, mesh and hover index are built once and only the data texture
+// changes between time steps.
+let gridState: Promise<TCurvilinearGridState> | undefined;
+// Bumped on datasource changes so a superseded load cannot install its mesh.
+let gridRevision = 0;
 
 const {
   getScene,
@@ -103,15 +118,6 @@ function updateMeshProjectionUniforms() {
   });
 }
 
-const colormapMaterial = computed(() => {
-  const material = makeInvertableGpuMeshMaterial(
-    colormap.value,
-    invertColormap.value
-  );
-  material.uniforms.useTriangleWrapCull.value = 1;
-  return material;
-});
-
 const scalarCache = useScalarFieldCache({
   updateHistogram,
   updateColormap: () => updateColormap(meshes),
@@ -143,22 +149,17 @@ const streamlines = useIrregularStreamlines({
 });
 
 async function showMagnitude(scalar: TVectorMagnitudeData) {
-  const context = magnitudeContext;
-  if (!context) {
+  const state = gridState;
+  if (!state) {
     return;
   }
   await scalarCache.showMagnitude(scalar, async () => {
-    const { hoverIndexData, render } = await buildGridInWorker(
-      context.datavar,
-      scalar.data,
-      context.dimensionNames,
-      NaN,
-      NaN,
-      true
+    const { grid, hoverIndexData } = await state;
+    const hoverIndex = createSerializedGeoSampleIndex(
+      attachCurvilinearHoverValues(await hoverIndexData, scalar.data)
     );
-    const hoverIndex = createSerializedGeoSampleIndex(hoverIndexData);
     return () => {
-      render();
+      showData(scalar.data, grid);
       setHoverLookupFromIndex(hoverIndex, NaN, NaN);
     };
   });
@@ -170,12 +171,17 @@ const { datasourceUpdate } = useGridDataLoader({
   fetchAndRenderData,
   scalarCache,
   clearHoverLookup,
+  prepareDatasource: () => {
+    gridRevision++;
+    gridState = undefined;
+    disposeMeshes();
+  },
   updateColormap: () => updateColormap(meshes),
   refreshStreamlines: streamlines.refresh,
   suspendStreamlines: streamlines.suspend,
 });
 
-const BATCH_SIZE = 30;
+const MAX_GEO_RESOLUTION = 512;
 
 function hasTrailingProjectedXYDimensions(dimensionNames: string[]) {
   if (dimensionNames.length < 2) {
@@ -211,63 +217,91 @@ async function getCurvilinearCoordinates(
   }
 }
 
-function cleanupMeshes(totalBatches: number) {
-  if (meshes.length <= totalBatches) {
-    return;
-  }
-  for (const mesh of meshes) {
-    mesh.geometry.dispose();
-    getScene()?.remove(mesh);
-  }
-  meshes.length = 0;
+function disposeMaterial(material: THREE.Material | THREE.Material[]) {
+  const shaderMaterial = material as THREE.ShaderMaterial;
+  shaderMaterial.uniforms?.data?.value?.dispose?.();
+  shaderMaterial.dispose();
 }
 
-function createBatchGeometry(batch: TGridGeometryBatch) {
+function disposeMeshes() {
+  for (const mesh of meshes) {
+    mesh.geometry.dispose();
+    disposeMaterial(mesh.material);
+    getScene()?.remove(mesh);
+  }
+  meshes = [];
+}
+
+function createMesh(grid: TCurvilinearGrid) {
+  const { positionValues, latLonValues, uvValues, indices } =
+    buildCurvilinearMesh(grid, MAX_GEO_RESOLUTION, projectionHelper.value);
   const geometry = new THREE.InstancedBufferGeometry();
   geometry.setAttribute(
     "position",
-    new THREE.BufferAttribute(batch.positionValues, 3)
+    new THREE.BufferAttribute(positionValues, 3)
   );
-  geometry.setAttribute(
-    "data_value",
-    new THREE.BufferAttribute(batch.dataValues, 1)
-  );
-  geometry.setAttribute(
-    "latLon",
-    new THREE.BufferAttribute(batch.latLonValues, 2)
-  );
-  geometry.setIndex(new THREE.BufferAttribute(batch.indices, 1));
-  return createTriangleWrapProjectionGeometry(geometry);
-}
-
-function updateBatchMesh(batch: TGridGeometryBatch) {
-  const geometry = createBatchGeometry(batch);
-  setupProjectionGeometryWrap(geometry);
-  if (meshes[batch.batchIndex]) {
-    meshes[batch.batchIndex].geometry.dispose();
-    meshes[batch.batchIndex].geometry = geometry;
-    return;
-  }
+  geometry.setAttribute("uv", new THREE.BufferAttribute(uvValues, 2));
+  geometry.setAttribute("latLon", new THREE.BufferAttribute(latLonValues, 2));
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  // Staged without data; the first data material makes it visible.
   const mesh = createWrappedProjectionMesh(
-    geometry,
-    colormapMaterial.value,
+    createTriangleWrapProjectionGeometry(geometry),
+    new THREE.ShaderMaterial(),
     projectionHelper.value.type
   );
+  mesh.visible = false;
   mesh.frustumCulled = false;
-  meshes.push(mesh);
+  disposeMeshes();
+  meshes = [mesh];
   getScene()?.add(mesh);
 }
 
-// eslint-disable-next-line max-lines-per-function
-async function buildGridInWorker(
+function createDataTexture(rawData: Float32Array, grid: TCurvilinearGrid) {
+  const maxSize = getRenderer()?.capabilities.maxTextureSize ?? 4096;
+  const width = Math.min(grid.ni, maxSize);
+  const height = Math.min(grid.nj, maxSize);
+  const data =
+    width === grid.ni && height === grid.nj
+      ? rawData
+      : downsampleDataTexture(rawData, grid.ni, grid.nj, width, height);
+  const texture = new THREE.DataTexture(
+    data,
+    width,
+    height,
+    THREE.RedFormat,
+    THREE.FloatType
+  );
+  if (grid.isPeriodicI) {
+    texture.wrapS = THREE.RepeatWrapping;
+  }
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function showData(rawData: Float32Array, grid: TCurvilinearGrid) {
+  const material = makeGpuProjectedTextureMaterial(
+    createDataTexture(rawData, grid),
+    colormap.value,
+    0,
+    1
+  );
+  material.uniforms.useTriangleWrapCull.value = 1;
+  updateProjectionUniforms(material, projectionHelper.value);
+  for (const mesh of meshes) {
+    disposeMaterial(mesh.material);
+    mesh.material = material;
+  }
+  updateColormap(meshes);
+  updateMeshProjectionUniforms();
+}
+
+async function loadGrid(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
-  rawData: Float32Array,
   dimensionNames: string[],
   missingValue: number,
-  fillValue: number,
-  deferDisplay = false,
-  isCurrent = () => true
-) {
+  fillValue: number
+): Promise<TCurvilinearGridState> {
+  const revision = gridRevision;
   const { latitudes, longitudes } = await getCurvilinearCoordinates(
     datavar,
     dimensionNames
@@ -275,45 +309,47 @@ async function buildGridInWorker(
   const latitudesData = latitudes.data as Float32Array;
   const longitudesData = longitudes!.data as Float32Array;
   const [nj, ni] = latitudes.shape;
-  const helper = projectionHelper.value;
-  const batches: TGridGeometryBatch[] = [];
-  const result = await buildCurvilinearGrid(
-    {
-      latitudes: latitudesData,
-      longitudes: longitudesData,
-      data: rawData,
-      nj,
-      ni,
-      batchSize: BATCH_SIZE,
+  const grid: TCurvilinearGrid = {
+    latitudes: latitudesData,
+    longitudes: longitudesData,
+    nj,
+    ni,
+    shouldFlipLongitude: detectCurvilinearLongitudeFlip(
+      longitudesData,
+      latitudesData,
       missingValue,
       fillValue,
-      projectionType: helper.type,
-      projectionCenter: { lat: helper.center.lat, lon: helper.center.lon },
-    },
-    {
-      onMetadata: ({ totalBatches }) => {
-        if (!deferDisplay && isCurrent()) {
-          cleanupMeshes(totalBatches);
-        }
-      },
-      onBatch: (batch) => {
-        batches.push(batch);
-        if (!deferDisplay && isCurrent()) {
-          updateBatchMesh(batch);
-        }
-      },
-    }
-  );
-  return {
-    render: () => {
-      cleanupMeshes(batches.length);
-      batches.forEach(updateBatchMesh);
-      updateMeshProjectionUniforms();
-    },
-    hoverIndexData: result.hoverIndexData,
-    latitudesData,
-    longitudesData,
+      nj,
+      ni
+    ),
+    isPeriodicI: detectCurvilinearColumnPeriodicity(longitudesData, nj, ni),
   };
+  if (revision === gridRevision) {
+    createMesh(grid);
+  }
+  return {
+    grid,
+    hoverIndexData: buildCurvilinearHoverIndex(latitudesData, longitudesData),
+  };
+}
+
+function getGrid(
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
+  dimensionNames: string[],
+  missingValue: number,
+  fillValue: number
+) {
+  gridState ??= loadGrid(datavar, dimensionNames, missingValue, fillValue);
+  const state = gridState;
+  // A failed load or hover index must not stick: the next time step retries.
+  state
+    .then(({ hoverIndexData }) => hoverIndexData)
+    .catch(() => {
+      if (gridState === state) {
+        gridState = undefined;
+      }
+    });
+  return state;
 }
 
 async function getDimensionValues(
@@ -384,10 +420,8 @@ async function fetchAndRenderData(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   isCurrent: () => boolean
 ) {
-  const deferDisplay = store.isStreamlineLayerEnabled();
   const { dimensionNames, dimensionRanges, indices } =
     await buildDimensionConfig(datavar);
-  magnitudeContext = { datavar, dimensionNames };
 
   const rawData = castDataVarToFloat32(
     await fetchCurvilinearVariableData(indices)
@@ -399,17 +433,15 @@ async function fetchAndRenderData(
     datavar,
     rawData
   );
-  const { hoverIndexData, latitudesData, longitudesData, render } =
-    await buildGridInWorker(
-      datavar,
-      rawData,
-      dimensionNames,
-      missingValue,
-      fillValue,
-      deferDisplay,
-      isCurrent
-    );
-  const hoverIndex = createSerializedGeoSampleIndex(hoverIndexData);
+  const { grid, hoverIndexData } = await getGrid(
+    datavar,
+    dimensionNames,
+    missingValue,
+    fillValue
+  );
+  const hoverIndex = createSerializedGeoSampleIndex(
+    attachCurvilinearHoverValues(await hoverIndexData, rawData)
+  );
 
   if (!isCurrent()) {
     return;
@@ -422,7 +454,7 @@ async function fetchAndRenderData(
     dimRanges: dimensionRanges,
   };
   const renderScalar = () => {
-    render();
+    showData(rawData, grid);
     fitCameraToDataset(meshes);
     setHoverLookupFromIndex(hoverIndex, fillValue, missingValue);
   };
@@ -447,8 +479,8 @@ async function fetchAndRenderData(
     isCurrent,
   });
   await updateStreamlines(
-    latitudesData,
-    longitudesData,
+    grid.latitudes,
+    grid.longitudes,
     dimensionNames,
     indices
   );

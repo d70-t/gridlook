@@ -19,6 +19,7 @@ const ProjectedCoordinateName = {
 
 const CrsWktAttributeName = {
   CRS_WKT: "crs_wkt",
+  PROJ4_PARAMS: "proj4_params",
   SPATIAL_REF: "spatial_ref",
   PROJECTION: "projection",
 } as const;
@@ -108,6 +109,7 @@ function getStringAttribute(
 function getWktFromAttrs(attrs: zarr.Attributes) {
   return (
     getStringAttribute(attrs, CrsWktAttributeName.CRS_WKT) ??
+    getStringAttribute(attrs, CrsWktAttributeName.PROJ4_PARAMS) ??
     getStringAttribute(attrs, CrsWktAttributeName.SPATIAL_REF) ??
     getStringAttribute(attrs, CrsWktAttributeName.PROJECTION)
   );
