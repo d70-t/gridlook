@@ -94,6 +94,34 @@ it("reports a fetch failure when no newer update is queued", async () => {
   scope.stop();
 });
 
+it("stops loading and reports when the grid cannot be prepared", async () => {
+  const sources = {} as TSources;
+  const store = useGlobeControlStore();
+  store.startLoading();
+  const getDataVar = vi.fn();
+  const scope = effectScope();
+  const loader = scope.run(() =>
+    useGridDataLoader({
+      getDatasources: () => sources,
+      getDataVar,
+      fetchAndRenderData: vi.fn(),
+      prepareDatasource: vi.fn().mockRejectedValue(new Error("bad CRS")),
+      clearHoverLookup: vi.fn(),
+      updateColormap: vi.fn(),
+    })
+  )!;
+
+  await loader.datasourceUpdate();
+
+  expect(logError).toHaveBeenCalledWith(
+    expect.objectContaining({ message: "bad CRS" }),
+    "Could not prepare grid"
+  );
+  expect(getDataVar).not.toHaveBeenCalled();
+  expect(store.loading).toBe(false);
+  scope.stop();
+});
+
 // eslint-disable-next-line max-lines-per-function
 it("commits only the latest complete timestep and preserves its derived variable name", async () => {
   const sources = {} as TSources;

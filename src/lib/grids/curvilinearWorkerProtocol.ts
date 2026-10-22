@@ -1,29 +1,19 @@
-import type { TGridGeometryWorkerResponse } from "./gridGeometryWorkerProtocol.ts";
-
+import type { TCurvilinearHoverIndexData } from "./curvilinearCalculations.ts";
 import type {
-  TProjectionCenter,
-  TProjectionType,
-} from "@/lib/projection/projectionUtils.ts";
+  TGridGeometryWorkerMetadata,
+  TGridGeometryWorkerResponse,
+} from "./gridGeometryWorkerProtocol.ts";
+import type { TGridGeometryBatch } from "./gridWorkerTypes.ts";
 
 export type TCurvilinearWorkerRequest = {
   requestId: number;
   type: "build";
   latitudes: Float32Array;
   longitudes: Float32Array;
-  data: Float32Array;
-  nj: number;
-  ni: number;
-  batchSize: number;
-  missingValue: number;
-  fillValue: number;
-  projectionType: TProjectionType;
-  projectionCenter: TProjectionCenter;
 };
 
-export type TCurvilinearWorkerMetadata = {
-  totalBatches: number;
-  shouldFlipLongitude: boolean;
-};
-
-export type TCurvilinearWorkerResponse =
-  TGridGeometryWorkerResponse<TCurvilinearWorkerMetadata>;
+export type TCurvilinearWorkerResponse = TGridGeometryWorkerResponse<
+  TGridGeometryWorkerMetadata,
+  TGridGeometryBatch,
+  TCurvilinearHoverIndexData
+>;

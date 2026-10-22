@@ -22,6 +22,7 @@ import {
   isLongitudeName,
   isProjectedXName,
   isProjectedYName,
+  isWebMercatorCRS,
   loadGridAxes,
   projectedAxisCoordinatesToLonLat,
   projectXYGridToLonLat,
@@ -118,7 +119,8 @@ const longitudes = ref<Float32Array>(new Float32Array());
 const latitudes = ref<Float32Array>(new Float32Array());
 const isProjectedGrid = ref(false);
 let projectedGrid: TProjectedVolumeGrid | undefined;
-let rotatedProjection: TProjectionConverter | undefined;
+// Converts native axis coordinates (rotated pole or projected x/y) to lon/lat
+let nativeProjection: TProjectionConverter | undefined;
 const selectedDimensionNames = ref<string[]>([]);
 let lastStreamlineIndices: (number | null | zarr.Slice)[] | undefined;
 let streamlineRequestRevision = 0;
@@ -224,7 +226,7 @@ async function getDims() {
   isLatOnly.value = latOnlyCheck;
 
   projectedGrid = undefined;
-  rotatedProjection = undefined;
+  nativeProjection = undefined;
   const grid = props.datasources!.levels[0].grid;
   if (latOnlyCheck) {
     const latitudesData = await getDimensionData(grid, lastDim);
@@ -242,8 +244,8 @@ async function getDims() {
     }
     if (crs) {
       projectedGrid = { kind: VOLUME_GRID_TYPES.PROJECTED, x, y, crs };
-      if (props.isRotated) {
-        rotatedProjection = proj4(crs, "EPSG:4326");
+      if (props.isRotated || (isProjectedXY && !isWebMercatorCRS(crs))) {
+        nativeProjection = proj4(crs, "EPSG:4326");
       }
     }
     const coordinates = isProjectedXY
@@ -252,6 +254,11 @@ async function getDims() {
     longitudes.value = new Float32Array(new Set(coordinates.longitudes));
     latitudes.value = new Float32Array(new Set(coordinates.latitudes));
   }
+}
+
+// x/y axes in projection units (e.g. metres): must not be wrapped like degrees
+function hasProjectedNativeAxes() {
+  return isProjectedGrid.value && nativeProjection !== undefined;
 }
 
 function isLongitudeGlobal(longitudes: Float32Array): boolean {
@@ -404,7 +411,10 @@ function getRegularTextureExportMetadata(isRotated: boolean | undefined) {
 
 function getRegularGridParameters() {
   const isRotated = props.isRotated;
-  let longitudeValues = normalizeLongitudes(longitudes.value);
+  const hasProjectedAxes = hasProjectedNativeAxes();
+  let longitudeValues = hasProjectedAxes
+    ? longitudes.value
+    : normalizeLongitudes(longitudes.value);
   let latitudeValues = latitudes.value;
 
   // Check if latitudes are descending and reverse if necessary
@@ -414,7 +424,7 @@ function getRegularGridParameters() {
     latitudeValues = Float32Array.from(latitudeValues).reverse();
   }
 
-  const isGlobal = isLongitudeGlobal(longitudes.value);
+  const isGlobal = !hasProjectedAxes && isLongitudeGlobal(longitudes.value);
   const textureLonCount = longitudeValues.length;
   const originalLatCount = latitudeValues.length;
   const textureExportMetadata = getRegularTextureExportMetadata(isRotated);
@@ -446,7 +456,7 @@ function getRegularGridParameters() {
     originalLatCount,
     textureLonCount,
     isLatReversed,
-    transform: rotatedProjection,
+    transform: nativeProjection,
     geoLatCount: geoLatitudes.length,
     geoLonCount: geoLongitudes.length,
     textureExportMetadata,
@@ -653,7 +663,7 @@ function createRegularTexture(rawData: Float32Array, wrapRepeat: boolean) {
 function makeMaterial(rawData: Float32Array) {
   const texture = createRegularTexture(
     rawData,
-    isLongitudeGlobal(longitudes.value)
+    !hasProjectedNativeAxes() && isLongitudeGlobal(longitudes.value)
   );
   const low = store.selection?.low as number;
   const high = store.selection?.high as number;
@@ -674,7 +684,7 @@ function makeMaterial(rawData: Float32Array) {
 }
 
 function buildHoverSamples(rawData: Float32Array): TGeoSampleIndex {
-  const transform = rotatedProjection;
+  const transform = nativeProjection;
 
   const lats = latitudes.value;
   const lons = longitudes.value;
@@ -701,7 +711,9 @@ function buildHoverSamples(rawData: Float32Array): TGeoSampleIndex {
       }
 
       // Find nearest longitude index (accounting for wrapping)
-      const lonIdx = nearestLonIndex(lons, nativeLon);
+      const lonIdx = hasProjectedNativeAxes()
+        ? nearestIndex(lons, nativeLon)
+        : nearestLonIndex(lons, nativeLon);
 
       const rawLat = lats[latIdx];
       const rawLon = lons[lonIdx];
@@ -848,7 +860,7 @@ async function makeVectorField(
   vData: Float32Array,
   isCurrent: () => boolean
 ) {
-  if (!props.isRotated) {
+  if (!nativeProjection) {
     return new RegularVectorField(
       latitudes.value,
       longitudes.value,

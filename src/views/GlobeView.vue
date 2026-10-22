@@ -260,7 +260,7 @@ function prepareDefaults(src: string, index: TSources) {
     return !varinfo.hidden;
   });
   varnameSelector.value =
-    paramVarname.value ?? modelInfo.value!.defaultVar ?? validVars[0];
+    paramVarname.value ?? modelInfo.value!.defaultVar ?? validVars[0] ?? "-";
 
   if (
     datasources.value &&
@@ -406,11 +406,27 @@ async function restoreStoredTextureLayers() {
   }
 }
 
+function hasDisplayableVariable() {
+  return Object.values(modelInfo.value?.vars ?? {}).some(
+    (varinfo) => !varinfo.hidden
+  );
+}
+
 async function loadCurrentSource(resetStore = true) {
   const updateId = ++sourceUpdateId;
   resetForSourceChange(resetStore);
   await updateSrc(updateId);
   if (updateId !== sourceUpdateId) {
+    return;
+  }
+  if (sourceValid.value && !hasDisplayableVariable()) {
+    // Grid detection and the grid components need a selectable variable.
+    logError(
+      "The dataset only contains coordinates or variables without a spatial dimension.",
+      "No displayable variables"
+    );
+    detectedGridType.value = GRID_TYPES.ERROR;
+    store.stopLoading();
     return;
   }
   initLayersFromParams();
