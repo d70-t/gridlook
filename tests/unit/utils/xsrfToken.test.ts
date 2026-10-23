@@ -23,9 +23,12 @@ describe("withXsrfToken", () => {
     ).toBe(`/files/s.zarr?_xsrf=${TOKEN}`);
   });
 
-  it("appends to an existing query", () => {
+  it("appends to an existing query, before any fragment", () => {
     expect(withXsrfToken("/user/x/files/s.zarr?v=1", COOKIE, PAGE)).toBe(
       `/user/x/files/s.zarr?v=1&_xsrf=${TOKEN}`
+    );
+    expect(withXsrfToken("/user/x/files/s.zarr?v=1#f?g", COOKIE, PAGE)).toBe(
+      `/user/x/files/s.zarr?v=1&_xsrf=${TOKEN}#f?g`
     );
   });
 

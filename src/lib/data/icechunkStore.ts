@@ -80,20 +80,31 @@ export async function createListableIcechunkStore(storePath: string) {
 }
 
 export async function splitIcechunkStoreAndGroup(
-  src: string
+  src: string,
+  pageHref?: string
 ): Promise<{ storePath: string; groupPath: string }> {
   const rawUrl = src.startsWith(ICECHUNK_PREFIX)
     ? src.slice(ICECHUNK_PREFIX.length)
     : src;
   // Each parent is probed for a repo root, so a Jupyter `_xsrf` token is taken
-  // off first and put back on every candidate; on a hub, a probe without it is
-  // bounced into the OAuth flow.
+  // off first and put back on each candidate; on a hub, a probe without it is
+  // bounced into the OAuth flow. The walk climbs past the user's server to the
+  // hub and the origin root, so a candidate gets the token back only where
+  // `withXsrfToken` would add it, i.e. while it is under the page's Jupyter base.
   const { url, token } = splitXsrfToken(rawUrl);
   const withToken = (candidate: string) =>
     token
-      ? `${candidate}${candidate.includes("?") ? "&" : "?"}_xsrf=${token}`
+      ? withXsrfToken(
+          candidate,
+          `_xsrf=${decodeURIComponent(token)}`,
+          pageHref ?? location.href
+        )
       : candidate;
-  const normalizedUrl = normalizeStorePath(url);
+  // Walk the normalized URL, the one the base check sees: a raw `user/bob/..`
+  // would otherwise be probed as `user/bob`.
+  const normalizedUrl = normalizeStorePath(
+    URL.canParse(url) ? new URL(url).href : url
+  );
   const urlParts = normalizedUrl.split("/");
   let minSegments = urlParts.length;
 

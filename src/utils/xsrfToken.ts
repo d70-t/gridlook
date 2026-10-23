@@ -3,7 +3,7 @@
  *
  * Served by jupyter-gridlook on JupyterHub, the viewer's `fetch()` calls are
  * not cookie-authenticated unless they carry an XSRF token, so stores under
- * the user's own server (`/files/`, the S3 proxy) fail to load. The token is
+ * the user's own server (`/files/`, the store proxy) fail to load. The token is
  * in the `_xsrf` cookie; it is added as a query parameter rather than a header
  * because chunk reads run in web workers, which cannot read cookies, and
  * zarrita's FetchStore copies the query onto every key it requests.
@@ -45,7 +45,11 @@ export function withXsrfToken(
   }
   // The raw cookie value is the token the server compares against.
   const token = encodeURIComponent(match[1]);
-  return `${url}${url.includes("?") ? "&" : "?"}_xsrf=${token}`;
+  // Before any `#fragment`, which fetch drops.
+  const hashStart = url.indexOf("#");
+  const head = hashStart === -1 ? url : url.slice(0, hashStart);
+  const fragment = url.slice(head.length);
+  return `${head}${head.includes("?") ? "&" : "?"}_xsrf=${token}${fragment}`;
 }
 
 /**
