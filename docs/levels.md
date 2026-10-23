@@ -137,7 +137,13 @@ levels, so the varname in the URL says which level is shown, and a level
 switch rewrites it. A link opens on the level its varname names; with
 automatic selection on, that level stays unless the screen calls for
 another (outside the hysteresis above). Automatic selection that is off is
-written as `levelauto=false`, and such a link stays on its level.
+written as `levelauto=false`, and such a link stays on its level; it is
+honoured only when the varname names a level. A bare name from an older
+link (`pr`) opens on the level it is found in first.
+
+Automatic selection, and the level list, skip levels that lack the variable
+shown. A presenter display that picks its own level keeps doing so and shows
+the controller's variable on that level.
 
 The **Dataset Info** panel lists the attributes of every group from the
 opened one down to the level shown: the root, the group carrying
