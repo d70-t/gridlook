@@ -67,6 +67,56 @@ it("uses texture storage for exact nested-pixel hover values", () => {
   expect(getHealpixTextureIndex(8192 ** 2 - 1, 8192)).toBe(8192 ** 2 - 1);
 });
 
+it("crops a partially filled dense face to the extent of its finite values", () => {
+  const nside = 8;
+  const values = new Float32Array(nside * nside).fill(NaN);
+  // Face-local (x, y) = (2..4, 5..6); nested pixel = spread(x) + 2 * spread(y).
+  const pixelAt = (x: number, y: number) =>
+    [...Array(3).keys()].reduce(
+      (pixel, bit) =>
+        pixel +
+        (((x >> bit) & 1) << (2 * bit)) +
+        (((y >> bit) & 1) << (2 * bit + 1)),
+      0
+    );
+  for (let y = 5; y <= 6; y++) {
+    for (let x = 2; x <= 4; x++) {
+      values[pixelAt(x, y)] = 10 * y + x;
+    }
+  }
+  const full = buildHealpixTexture(values, 3, nside);
+  expect(full.dataRect).toEqual({ u: 0, v: 0, width: 1, height: 1 });
+
+  const cropped = buildHealpixTexture(values, 3, nside, undefined, {
+    cropDenseToData: true,
+  });
+  expect(cropped.dataRect).toEqual({
+    u: 2 / nside,
+    v: 5 / nside,
+    width: 3 / nside,
+    height: 2 / nside,
+  });
+  expect([cropped.width, cropped.height]).toEqual([3, 2]);
+  expect([...cropped.dataValues]).toEqual([52, 53, 54, 62, 63, 64]);
+  expect([cropped.histogramSummary.min, cropped.histogramSummary.max]).toEqual([
+    full.histogramSummary.min,
+    full.histogramSummary.max,
+  ]);
+});
+
+it("keeps the whole face for dense faces that are full or empty", () => {
+  const nside = 4;
+  const filled = Float32Array.from({ length: nside * nside }, (_, i) => i);
+  const empty = new Float32Array(nside * nside).fill(NaN);
+  for (const values of [filled, empty]) {
+    const texture = buildHealpixTexture(values, 0, nside, undefined, {
+      cropDenseToData: true,
+    });
+    expect(texture.dataRect).toEqual({ u: 0, v: 0, width: 1, height: 1 });
+    expect([texture.width, texture.height]).toEqual([nside, nside]);
+  }
+});
+
 it("builds histograms without copying values and preserves invalid-value handling", () => {
   const values = new Float32Array([NaN, Infinity, -999, -888, -1, 0, 1, 2, 3]);
   expect([...buildHistogramSummary(values, 0, 2, 2, -999, -888).bins]).toEqual([
