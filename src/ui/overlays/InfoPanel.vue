@@ -49,9 +49,9 @@ dayjs.extend(duration);
 const { logError } = useLog();
 
 const store = useGlobeControlStore();
-const { varnameDisplay, varinfo, loading } = storeToRefs(store);
+const { varnameDisplay, varnameSelector, varinfo } = storeToRefs(store);
 const sourceVariable = computed(
-  () => varinfo.value?.derivedFrom?.u ?? varnameDisplay.value
+  () => varinfo.value?.derivedFrom?.u ?? varnameSelector.value
 );
 const variableUnits = computed(
   () => (varinfo.value?.attrs.units as string) || null
@@ -87,7 +87,6 @@ const variableFillValue = ref<number | null>(null);
 const timeInfo = ref<TTimeInfo | null>(null);
 const noTimeCoordinate = ref(false);
 let infoRequestId = 0;
-let infoRefreshPending = true;
 const error = ref<string | null>(null);
 
 function isSourceDifferent(source?: TDatasetSource) {
@@ -386,9 +385,6 @@ async function loadGroupAttrsChain(
 
 async function fetchInfo(requestId: number) {
   const varname = sourceVariable.value;
-  if (!props.datasources || !varname || varname === "-") {
-    return;
-  }
   error.value = null;
   variableDtype.value = null;
   variableChunks.value = null;
@@ -396,6 +392,7 @@ async function fetchInfo(requestId: number) {
   variableFillValue.value = null;
   dimensions.value = [];
   timeInfo.value = null;
+  noTimeCoordinate.value = false;
   latSlice.value = null;
   latDimensions.value = [];
   latLength.value = null;
@@ -407,6 +404,10 @@ async function fetchInfo(requestId: number) {
   lonMin.value = null;
   lonMax.value = null;
   groupAttrsChain.value = [];
+  groupAttrs.value = null;
+  if (!props.datasources || !varname || varname === "-") {
+    return;
+  }
 
   try {
     const varSource = props.datasources.levels[0].datasources[varname];
@@ -433,19 +434,11 @@ async function fetchInfo(requestId: number) {
 }
 
 watch(
-  [() => props.datasources, sourceVariable, () => props.isOpen, loading],
-  (values, previous) => {
-    // Frame loading alone does not change dataset metadata.
-    if (values.slice(0, 3).some((value, index) => value !== previous[index])) {
-      ++infoRequestId;
-      infoRefreshPending = true;
-      variableDtype.value = null;
-      timeInfo.value = null;
-      noTimeCoordinate.value = false;
-    }
-    if (infoRefreshPending && props.isOpen && !loading.value) {
-      infoRefreshPending = false;
-      fetchInfo(infoRequestId);
+  [() => props.datasources, sourceVariable, () => props.isOpen],
+  () => {
+    const requestId = ++infoRequestId;
+    if (props.isOpen) {
+      fetchInfo(requestId);
     }
   },
   { immediate: true }
