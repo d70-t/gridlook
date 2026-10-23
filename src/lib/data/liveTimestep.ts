@@ -3,6 +3,7 @@ import axios from "axios";
 import { parseStorePath } from "./icechunkStore.ts";
 
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
+import { joinUrlPath } from "@/utils/xsrfToken.ts";
 
 /**
  * "Live" datasets expose only the currently-available timestep of an otherwise
@@ -37,9 +38,12 @@ export function liveStoreBaseUrl(datasources: TSources): string | undefined {
   return url.replace(/\/+$/, "");
 }
 
-/** Join the store base URL with a timestep endpoint name. */
+/**
+ * Join the store base URL with a timestep endpoint name, before any query (a
+ * Jupyter `_xsrf` token).
+ */
 export function timestepEndpointUrl(baseUrl: string, endpoint: string): string {
-  return `${baseUrl.replace(/\/+$/, "")}/${endpoint}`;
+  return joinUrlPath(baseUrl, endpoint);
 }
 
 type TTimestepResponse = { timestep?: unknown };

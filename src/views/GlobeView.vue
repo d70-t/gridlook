@@ -15,6 +15,7 @@ import {
   GRID_TYPES,
   type T_GRID_TYPES,
 } from "@/lib/data/gridTypeDetector.ts";
+import { withStoreXsrfToken } from "@/lib/data/icechunkStore.ts";
 import {
   fetchCurrentTimestep,
   liveStoreBaseUrl,
@@ -456,7 +457,16 @@ async function updateSrc(updateId: number) {
     // works. If both fail, we log the last error which is from the json-index.
     // This leads to confusing error messages if the zarr source is supposed to
     // work but fails for some reason.
-    indexPromises = [indexFromZarr(src), indexFromIndex(src)];
+    // On JupyterHub, stores on the user's own server need Jupyter's XSRF
+    // token; it is added here, not to `src`, so the hash and the data-path
+    // input stay clean. Stores named inside a JSON index get it the same way.
+    const tokenize = (store: string) =>
+      withStoreXsrfToken(store, document.cookie, location.href);
+    const fetchSrc = tokenize(src);
+    indexPromises = [
+      indexFromZarr(fetchSrc),
+      indexFromIndex(fetchSrc, tokenize),
+    ];
   }
   const indices = await Promise.allSettled(indexPromises);
   let lastError = null;
