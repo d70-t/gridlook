@@ -4,6 +4,7 @@ import type * as zarr from "zarrita";
 
 import { useStreamlineLayer } from "./useStreamlineLayer.ts";
 
+import { currentLevel } from "@/lib/data/levels.ts";
 import { loadVectorComponents } from "@/lib/data/streamlineData.ts";
 import {
   IrregularVectorField,
@@ -127,7 +128,9 @@ export function useIrregularStreamlines(options: TOptions) {
     const datasources = options.getDatasources();
     const context = currentContext;
     const pair = resolveVectorVariablePair(
-      Object.keys(datasources?.levels[0]?.datasources ?? {}),
+      Object.keys(
+        (datasources && currentLevel(datasources)?.datasources) ?? {}
+      ),
       options.getPreferredVariable(),
       store.streamlineSelection,
       store.isStreamlineLayerEnabled() ? store.streamlinePair : undefined

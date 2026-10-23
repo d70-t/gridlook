@@ -2,6 +2,7 @@ import type { Dayjs } from "dayjs";
 import type { IndexingScheme, EllipsoidInput } from "healpix-geo";
 import * as zarr from "zarrita";
 
+import type { TLevelRangeOrigin } from "@/lib/data/levels.ts";
 import type { TVectorVariablePair } from "@/lib/data/vectorField.ts";
 import type { TColorMap } from "@/lib/shaders/colormapShaders.ts";
 
@@ -41,6 +42,8 @@ export type TVarInfo = {
   dimRanges: TDimensionRange[];
   attrs: zarr.Attributes;
   derivedFrom?: Pick<TVectorVariablePair, "u" | "v">;
+  // a level of a pyramid whose range is not its whole own one
+  rangeOrigin?: TLevelRangeOrigin;
 };
 
 export type TZarrDggsMetadata = {
@@ -75,18 +78,32 @@ export type TModelInfo = {
   defaultVar: string;
   title: string;
   colormaps: TColorMap[];
+  levels?: TSourceLevel[];
+};
+
+export type TSourceLevel = {
+  name?: string;
+  // the level's group relative to the dataset group: its variables are keyed
+  // `<path>/<name>`. Unset when the levels share their keys (a JSON index).
+  path?: string;
+  grid: TDatasetSource;
+  time: TDatasetSource;
+  datasources: Record<string, TDataSource>;
+  // ground size of one cell in metres, when known (drives level selection)
+  resolution?: number;
+  // cells one horizontal slice of the level holds (the values one timestep
+  // of a variable fetches), when known; caps automatic selection
+  cellCount?: number;
 };
 
 export type TSources = {
   name?: string;
   zarr_format: TZarrFormat;
   default_var?: string;
-  levels: {
-    name?: string;
-    grid: TDatasetSource;
-    time: TDatasetSource;
-    datasources: Record<string, TDataSource>;
-  }[];
+  // finest first when discovered from `multiscales`; as listed otherwise
+  levels: TSourceLevel[];
+  // index into `levels` read by every consumer (see currentLevel); 0 if unset
+  selectedLevel?: number;
 };
 
 export const SnapshotBackgrounds = {

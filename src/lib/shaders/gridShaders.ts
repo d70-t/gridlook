@@ -326,3 +326,35 @@ export function createProjectionInstancedMesh(
   const mesh = new THREE.Mesh(geometry, material);
   return mesh;
 }
+
+// The stencil value a level of a pyramid writes wherever it draws a cell.
+const LEVEL_STENCIL_REF = 1;
+
+/**
+ * The coarsest level of a pyramid is drawn after the level it backs (0) and
+ * before anything above the grid (the flat crop surface at 5, the layers
+ * stacked above the grid from 11).
+ */
+export const BACKDROP_RENDER_ORDER = 0.5;
+
+/**
+ * A level marks the stencil wherever it draws a cell, so the backdrop drawn
+ * after it (see backdropMaterial) fills only the rest, and never shows
+ * through a translucent level. Every render target needs a stencil buffer.
+ */
+export function levelMaterial<T extends THREE.Material>(material: T) {
+  material.stencilWrite = true;
+  material.stencilRef = LEVEL_STENCIL_REF;
+  material.stencilFunc = THREE.AlwaysStencilFunc;
+  material.stencilZPass = THREE.ReplaceStencilOp;
+  return material;
+}
+
+/** The backdrop draws only where its level left the stencil unmarked. */
+export function backdropMaterial<T extends THREE.Material>(material: T) {
+  material.stencilWrite = true;
+  material.stencilWriteMask = 0;
+  material.stencilRef = LEVEL_STENCIL_REF;
+  material.stencilFunc = THREE.NotEqualStencilFunc;
+  return material;
+}

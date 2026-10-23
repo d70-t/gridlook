@@ -38,7 +38,10 @@ export const isPresenterActive = computed(
  * - "display":    listens for incoming state and patches the stores.
  */
 /* eslint-disable-next-line max-lines-per-function */
-export function usePresenterSync() {
+export function usePresenterSync(
+  // the local name of the controller's varname (the display's own level)
+  localVarname: (varname: string) => string = (varname) => varname
+) {
   const store = useGlobeControlStore();
   const urlParameterStore = useUrlParameterStore();
 
@@ -58,6 +61,8 @@ export function usePresenterSync() {
     graticuleSpacing,
     dimSlidersValues,
     selection,
+    levelWhole,
+    levelRangeShared,
   } = storeToRefs(store);
 
   const { paramCameraPx, paramCameraPy, paramCameraAlt, paramGridType } =
@@ -128,6 +133,8 @@ export function usePresenterSync() {
         selection.value && "low" in selection.value
           ? { low: selection.value.low, high: selection.value.high }
           : undefined,
+      levelWhole: levelWhole.value,
+      levelRangeShared: levelRangeShared.value ?? null,
       paramCameraPx: paramCameraPx.value ?? "",
       paramCameraPy: paramCameraPy.value ?? "",
       paramCameraAlt: paramCameraAlt.value ?? "",
@@ -159,7 +166,7 @@ export function usePresenterSync() {
   /** Apply incoming globe-control fields to the local store. */
   function applyGlobeState(payload: TPresenterStatePayload) {
     if (payload.varnameSelector !== undefined) {
-      varnameSelector.value = payload.varnameSelector;
+      varnameSelector.value = localVarname(payload.varnameSelector);
     }
     if (payload.colormap !== undefined) {
       colormap.value = payload.colormap as typeof colormap.value;
@@ -193,6 +200,12 @@ export function usePresenterSync() {
     }
     if (payload.selection !== undefined) {
       selection.value = payload.selection;
+    }
+    if (payload.levelWhole !== undefined) {
+      levelWhole.value = payload.levelWhole;
+    }
+    if (payload.levelRangeShared !== undefined) {
+      levelRangeShared.value = payload.levelRangeShared ?? undefined;
     }
   }
 
@@ -342,6 +355,8 @@ export function usePresenterSync() {
     () => coastlineResolution.value,
     () => graticuleSpacing.value,
     () => JSON.stringify(selection.value),
+    () => levelWhole.value,
+    () => levelRangeShared.value,
     () => paramCameraPx.value,
     () => paramCameraPy.value,
     () => paramCameraAlt.value,

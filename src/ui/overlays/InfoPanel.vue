@@ -26,6 +26,7 @@ import {
 
 import { getLatLonData } from "@/lib/data/coordinateVariables.ts";
 import { GRID_TYPES, type T_GRID_TYPES } from "@/lib/data/gridTypeDetector.ts";
+import { currentLevel } from "@/lib/data/levels.ts";
 import { decodeTime, isTimeCoordinate } from "@/lib/data/timeHandling.ts";
 import { getMissingValue, getFillValue } from "@/lib/data/variableDecoding.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
@@ -92,7 +93,8 @@ const error = ref<string | null>(null);
 
 function isSourceDifferent(source?: TDatasetSource) {
   const current =
-    props.datasources?.levels[0]?.datasources[sourceVariable.value ?? ""];
+    props.datasources &&
+    currentLevel(props.datasources).datasources[sourceVariable.value ?? ""];
   return (
     variableDtype.value !== null &&
     !!source &&
@@ -197,7 +199,10 @@ async function getTimeDimensionInfo(varname: string, requestId: number) {
 
   const timeDimIndex = arrayDims.findIndex((dim) => {
     const path = ZarrDataManager.resolveVariablePath(varname, dim);
-    const attrs = props.datasources?.levels[0].datasources[path]?.attrs ?? {};
+    const attrs =
+      (props.datasources &&
+        currentLevel(props.datasources).datasources[path]?.attrs) ??
+      {};
     return (
       timeDimNames.includes(dim.toLowerCase()) || isTimeCoordinate(dim, attrs)
     );
@@ -212,7 +217,7 @@ async function getTimeDimensionInfo(varname: string, requestId: number) {
   const timeDimName = arrayDims[timeDimIndex];
 
   try {
-    const varSource = props.datasources.levels[0].time;
+    const varSource = currentLevel(props.datasources).time;
     const info = varSource
       ? await fetchTimeData(varSource, timeDimName, varname)
       : null;
@@ -409,7 +414,7 @@ async function fetchInfo(requestId: number) {
   groupAttrsChain.value = [];
 
   try {
-    const varSource = props.datasources.levels[0].datasources[varname];
+    const varSource = currentLevel(props.datasources).datasources[varname];
     const groupChain = await loadGroupAttrsChain(varSource, varname);
     if (requestId !== infoRequestId || varname !== sourceVariable.value) {
       return;
@@ -511,7 +516,10 @@ watch(
           />
           <DimensionsSection :dimensions="dimensions" />
           <p
-            v-if="timeInfo && isSourceDifferent(datasources?.levels[0]?.time)"
+            v-if="
+              timeInfo &&
+              isSourceDifferent(datasources && currentLevel(datasources).time)
+            "
             class="is-size-7 has-text-danger mb-2"
           >
             Time variable is from a different file and may not be correctly
@@ -522,7 +530,9 @@ watch(
             :no-time-coordinate="noTimeCoordinate"
           />
           <p
-            v-if="isSourceDifferent(datasources?.levels[0]?.grid)"
+            v-if="
+              isSourceDifferent(datasources && currentLevel(datasources).grid)
+            "
             class="is-size-7 has-text-danger mb-2"
           >
             Grid related dimensions are from a different file and may not be

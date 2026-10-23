@@ -20,10 +20,10 @@ const { showVectorMagnitudeScalarInfo } =
 
 beforeEach(() => setActivePinia(createPinia()));
 
-function setupControls() {
+function setupControls(varname = "rlds", levels?: TModelInfo["levels"]) {
   const store = useGlobeControlStore();
-  store.varnameSelector = "rlds";
-  store.varnameDisplay = "rlds";
+  store.varnameSelector = varname;
+  store.varnameDisplay = varname;
   store.varinfo = {
     attrs: { units: "W m-2" },
     bounds: { low: 100, high: 500 },
@@ -39,7 +39,8 @@ function setupControls() {
     Controls.setup!(
       {
         modelInfo: {
-          vars: { rlds: { ["default_range"]: { low: 0, high: 600 } } },
+          vars: { [varname]: { ["default_range"]: { low: 0, high: 600 } } },
+          levels,
         } as unknown as TModelInfo,
         gridType: GRID_TYPES.TRIANGULAR,
         currentSource: "triangular",
@@ -80,6 +81,24 @@ it("uses magnitude bounds and restores the scalar's custom bounds", async () => 
     store.varinfo!.bounds = { low: 100, high: 500 };
     await nextTick();
     expect(store.selection).toEqual({ low: 0, high: 600 });
+  } finally {
+    scope.stop();
+  }
+});
+
+it("keeps the bounds when a level switch renames the variable", async () => {
+  const { store, scope } = setupControls("0/rlds", [
+    { path: "0" },
+    { path: "1" },
+  ] as TModelInfo["levels"]);
+  try {
+    await nextTick();
+    store.signifyVariableChange();
+    store.userBoundsLow = 10;
+    store.userBoundsHigh = 20;
+    store.varnameSelector = "1/rlds";
+    await nextTick();
+    expect([store.userBoundsLow, store.userBoundsHigh]).toEqual([10, 20]);
   } finally {
     scope.stop();
   }

@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
 
+import { sumsOverCells } from "@/lib/data/levels.ts";
 import {
   levelAxesAreIdentical,
   type TStreamlineLevelInfo,
@@ -17,6 +18,7 @@ import {
   type TProjectionCenter,
   type TProjectionType,
 } from "@/lib/projection/projectionUtils.ts";
+import type { TViewFootprint } from "@/lib/projection/viewFootprint.ts";
 import type { TColorMap } from "@/lib/shaders/colormapShaders.ts";
 import type { TVarInfo, TBounds } from "@/lib/types/GlobeTypes.ts";
 import {
@@ -238,9 +240,29 @@ export const useGlobeControlStore = defineStore("globeControl", {
       hoverEnabled: false,
       hoveredGridPoint: undefined as THoveredGridPoint | undefined,
       distanceScale: null as TDistanceScale | null,
+      // ground metres one screen pixel covers below the camera, as rendered
+      metersPerPixel: undefined as number | undefined,
+      // lat/lon box of what the camera sees, refreshed while it moves
+      viewFootprint: null as TViewFootprint | null,
+      // the mounted grid loads only the part of a large level that is in
+      // view, except the levels it found it has to load whole
+      viewLoading: false,
+      wholeLevels: [] as number[],
       basemapCatalogUrl: undefined as string | undefined,
       catalogUrl: undefined as string | undefined,
       catalogData: undefined as TCatalog | undefined,
+      // multi-resolution datasets: the level every consumer reads, and
+      // whether the camera picks it (a manual pick turns that off)
+      selectedLevel: 0 as number,
+      levelAuto: true,
+      // load the selected level whole rather than the part in view
+      levelWhole: false,
+      // whether every level shares the coarsest level's colour range and
+      // histogram (right for a mean, e.g. elevation) or each level takes its
+      // own (right for a sum, e.g. a count, which grows 4x per level): the
+      // user's choice, kept across variables until another dataset opens;
+      // undefined follows the variable shown (see sharesLevelRange)
+      levelRangeShared: undefined as boolean | undefined,
       // ── Live datasets ──────────────────────────────────────────────
       // A live dataset exposes only the currently-available timestep and is
       // followed automatically by polling the store's timestep endpoints.
@@ -321,6 +343,32 @@ export const useGlobeControlStore = defineStore("globeControl", {
       this.startLoading();
       this.varnameSelector = varname;
       this.signifyVariableChange();
+    },
+    selectLevel(index: number, manual = true) {
+      if (manual) {
+        this.levelAuto = false;
+      }
+      if (this.selectedLevel !== index) {
+        this.selectedLevel = index;
+      }
+    },
+    setLevelAuto(auto: boolean) {
+      this.levelAuto = auto;
+    },
+    setLevelWhole(whole: boolean) {
+      this.levelWhole = whole;
+    },
+    // Whether the levels share one colour range: as the user chose, else
+    // unless the variable on screen sums over its cells.
+    sharesLevelRange(attrs?: Record<string, unknown>) {
+      return (
+        this.levelRangeShared ?? !sumsOverCells(attrs ?? this.varinfo?.attrs)
+      );
+    },
+    // A choice equal to the variable's default is left to the default.
+    setLevelRangeShared(shared: boolean) {
+      this.levelRangeShared =
+        shared === !sumsOverCells(this.varinfo?.attrs) ? undefined : shared;
     },
     isNewDataset(): boolean {
       return this.newDatasetSignifier % 2 === 0;
@@ -510,6 +558,17 @@ export const useGlobeControlStore = defineStore("globeControl", {
           this.setStreamlineMagnitudeDisplayed(false);
         }
       }
+    },
+    // Whether a large level is loaded as the part in view rather than whole.
+    // Streamlines, volumes and "Load whole level" read the whole level.
+    loadsLevelByView(level: number) {
+      return (
+        this.viewLoading &&
+        !this.levelWhole &&
+        !this.wholeLevels.includes(level) &&
+        !this.isStreamlineLayerEnabled() &&
+        !this.isVolumeLayerEnabled()
+      );
     },
     isVolumeLayerEnabled() {
       return Boolean(

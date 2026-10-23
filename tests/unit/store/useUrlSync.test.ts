@@ -59,3 +59,49 @@ it("writes the layer stack and drops the legacy mask parameters", async () => {
     vi.useRealTimers();
   }
 });
+
+it("writes the level toggles only when they are not at their default", async () => {
+  setActivePinia(createPinia());
+  const location = { pathname: "/", hash: "#https://example.test/p.zarr" };
+  vi.stubGlobal("location", location);
+  vi.stubGlobal("document", { location });
+  vi.stubGlobal("history", {
+    replaceState: (_state: unknown, _title: string, url: string) => {
+      location.hash = url.slice(url.indexOf("#"));
+    },
+  });
+  const store = useGlobeControlStore();
+  const scope = effectScope();
+  scope.run(useUrlSync);
+  try {
+    store.setLevelWhole(true);
+    store.setLevelRangeShared(false);
+    await nextTick();
+    expect(location.hash).toContain("::levelwhole=true");
+    expect(location.hash).toContain("::levelshared=false");
+
+    store.setLevelWhole(false);
+    store.setLevelRangeShared(true);
+    await nextTick();
+    expect(location.hash).not.toContain("levelwhole");
+    expect(location.hash).not.toContain("levelshared");
+
+    // a variable that sums over cells has its levels' ranges apart by default
+    store.updateVarInfo(
+      {
+        dimInfo: [],
+        bounds: {},
+        dimRanges: [],
+        attrs: { cell_methods: "area: sum" }, // eslint-disable-line camelcase
+      },
+      []
+    );
+    store.setLevelRangeShared(true);
+    await nextTick();
+    expect(location.hash).toContain("::levelshared=true");
+  } finally {
+    scope.stop();
+    vi.unstubAllGlobals();
+    vi.stubGlobal("localStorage", { getItem: () => null });
+  }
+});

@@ -11,12 +11,14 @@ import ColormapControls from "./controls/ColormapControls.vue";
 import DataInput from "./controls/DataInput.vue";
 import DimensionControl from "./controls/DimensionControl.vue";
 import LayerPanel from "./controls/LayerPanel.vue";
+import LevelSelector from "./controls/LevelSelector.vue";
 import PopupDialog from "./controls/PopupDialog.vue";
 import ProjectionControls from "./controls/ProjectionControls.vue";
 import VariableSelector from "./controls/VariableSelector.vue";
 
 // Import control components
 import type { T_GRID_TYPES } from "@/lib/data/gridTypeDetector.ts";
+import { isSameVariable } from "@/lib/data/levels.ts";
 import {
   clamp,
   PROJECTION_TYPES,
@@ -172,7 +174,14 @@ watch(
       store.streamlineMagnitudeDisplayed && store.streamlineMagnitudeDerivable,
   ],
   ([variable, magnitudeDisplayed], [previousVariable]) => {
-    if (variable === previousVariable) {
+    // A level switch renames the variable, but keeps it.
+    if (
+      isSameVariable(
+        props.modelInfo?.levels ?? [],
+        previousVariable as string,
+        variable as string
+      )
+    ) {
       updateMagnitudeBounds(magnitudeDisplayed);
       return;
     }
@@ -382,6 +391,10 @@ defineExpose({
             v-model="varnameSelector"
             :model-info="modelInfo"
           />
+          <LevelSelector
+            v-if="modelInfo?.levels && modelInfo.levels.length > 1"
+            :levels="modelInfo.levels"
+          />
           <DimensionControl />
         </CollapsibleCard>
 
@@ -394,6 +407,12 @@ defineExpose({
               onPickedBoundsModeChange($event as TBoundModes)
             "
           />
+          <p
+            v-if="pickedBoundsMode === BOUND_MODES.DATA && varinfo?.rangeOrigin"
+            class="is-size-7 has-text-grey mb-2"
+          >
+            Range and histogram: {{ varinfo.rangeOrigin }}
+          </p>
           <ColormapControls
             v-if="modelInfo"
             :model-info="modelInfo"

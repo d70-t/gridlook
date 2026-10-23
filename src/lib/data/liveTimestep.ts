@@ -1,6 +1,7 @@
 import axios from "axios";
 
 import { parseStorePath } from "./icechunkStore.ts";
+import { currentLevel } from "./levels.ts";
 
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
 
@@ -25,7 +26,7 @@ const NEXT_TIMESTEP_ENDPOINT = "next-timestep";
  * returns `undefined` for icechunk stores.
  */
 export function liveStoreBaseUrl(datasources: TSources): string | undefined {
-  const level = datasources.levels[0];
+  const level = currentLevel(datasources);
   const store = level?.time?.store ?? level?.grid?.store;
   if (!store) {
     return undefined;

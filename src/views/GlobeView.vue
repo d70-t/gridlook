@@ -16,6 +16,12 @@ import {
   type T_GRID_TYPES,
 } from "@/lib/data/gridTypeDetector.ts";
 import {
+  currentLevel,
+  followVariable,
+  isSameVariable,
+  levelOfVariable,
+} from "@/lib/data/levels.ts";
+import {
   fetchCurrentTimestep,
   liveStoreBaseUrl,
 } from "@/lib/data/liveTimestep.ts";
@@ -44,6 +50,7 @@ import {
   LAYER_OPACITY,
   useGlobeControlStore,
 } from "@/store/store.ts";
+import { useLevelSelection } from "@/store/useLevelSelection.ts";
 import { useLiveTimestep } from "@/store/useLiveTimestep.ts";
 import {
   usePresenterSync,
@@ -82,8 +89,17 @@ const store = useGlobeControlStore();
 const urlParameterStore = useUrlParameterStore();
 
 // ── Presenter Mode ──────────────────────────────────────────────────────
+// A display picking its own level takes the controller's variable onto it.
 const { openDisplayWindow, toggleDisplayWindow, enterDisplayMode } =
-  usePresenterSync();
+  usePresenterSync((varname) =>
+    store.levelAuto && datasources.value
+      ? followVariable(
+          datasources.value.levels,
+          varname,
+          datasources.value.selectedLevel ?? 0
+        )
+      : varname
+  );
 
 // Detect ?mode=display in the URL and activate display mode
 const urlParams = new URLSearchParams(window.location.search);
@@ -121,6 +137,9 @@ const {
   paramDistractionFree,
   paramLive,
   paramLayers,
+  paramLevelAuto,
+  paramLevelWhole,
+  paramLevelShared,
 } = storeToRefs(urlParameterStore);
 
 type TGlobeHandle = {
@@ -150,9 +169,27 @@ const sourceValid = ref(false);
 const datasources: Ref<TSources | undefined> = ref(undefined);
 const detectedGridType: Ref<T_GRID_TYPES | undefined> = ref(undefined);
 const infoPanelOpen = ref(false);
+const canvasWrapper: Ref<HTMLDivElement | undefined> = ref(undefined);
 
 // Auto-follow the newest timestep of a live dataset (see useLiveTimestep).
 useLiveTimestep(datasources);
+// Pick the level of a multi-resolution dataset from the camera (see useLevelSelection).
+// A level switch swaps the datasource the grid reads. The grid stays mounted
+// and reloads the level in place (see useGridDataLoader), so the camera keeps
+// moving and the previous level stays on screen until the next one is ready.
+// Only a level on another grid type remounts.
+const { pickLevel, selectVariableLevel } = useLevelSelection(
+  datasources,
+  () => ({
+    width: canvasWrapper.value?.clientWidth || window.innerWidth,
+    height: canvasWrapper.value?.clientHeight || window.innerHeight,
+  }),
+  async () => {
+    if (isInitialized.value) {
+      await setGridType();
+    }
+  }
+);
 
 const distractionFreeFromUrl = paramDistractionFree.value === "true";
 
@@ -179,9 +216,10 @@ const modelInfo = computed(() => {
   } else {
     return {
       title: datasources.value.name,
-      vars: datasources.value.levels[0].datasources,
+      vars: currentLevel(datasources.value).datasources,
       defaultVar: datasources.value.default_var,
       colormaps: Object.keys(availableColormaps) as TColorMap[],
+      levels: datasources.value.levels,
     } as TModelInfo;
   }
 });
@@ -210,7 +248,8 @@ async function setGridType(forceRerender = false) {
   const localGridType = await getGridType(
     sourceValid.value,
     varnameSelector.value,
-    datasources.value,
+    // the level the varname is on, should another be picked meanwhile
+    datasources.value && { ...datasources.value },
     logError
   );
   if (updateId !== gridTypeUpdateId) {
@@ -243,6 +282,15 @@ watch(
     ) {
       return;
     }
+    // A varname from the presenter may name another level.
+    selectVariableLevel(varname);
+    if (
+      datasources.value &&
+      isSameVariable(datasources.value.levels, oldVarname, varname)
+    ) {
+      // the same variable on another level: the grid reloads it in place
+      return;
+    }
     store.startLoading();
     detectedGridType.value = undefined;
     await setGridType(true);
@@ -259,15 +307,37 @@ function prepareDefaults(src: string, index: TSources) {
     const varinfo = modelInfo.value!.vars[varname];
     return !varinfo.hidden;
   });
+  // a bare name from an older link of a pyramid: the variable on its level
+  const levelPath = currentLevel(index).path;
+  const linked =
+    levelPath !== undefined &&
+    paramVarname.value !== undefined &&
+    !(paramVarname.value in modelInfo.value!.vars) &&
+    `${levelPath}/${paramVarname.value}` in modelInfo.value!.vars
+      ? `${levelPath}/${paramVarname.value}`
+      : paramVarname.value;
   varnameSelector.value =
-    paramVarname.value ?? modelInfo.value!.defaultVar ?? validVars[0] ?? "-";
+    linked ?? modelInfo.value!.defaultVar ?? validVars[0] ?? "-";
+  // A level-prefixed varname opens on its level; picking stays as the link
+  // says, but only a varname that names its level can keep one.
+  store.levelAuto =
+    paramLevelAuto.value !== "false" ||
+    levelOfVariable(index.levels, varnameSelector.value) === undefined;
+  selectVariableLevel(varnameSelector.value);
+  store.levelWhole = paramLevelWhole.value === "true";
+  // a value other than true or false leaves it to the default
+  store.levelRangeShared =
+    paramLevelShared.value === "true" || paramLevelShared.value === "false"
+      ? paramLevelShared.value === "true"
+      : undefined;
 
   if (
     datasources.value &&
-    varnameSelector.value in datasources.value.levels[0].datasources
+    varnameSelector.value in currentLevel(datasources.value).datasources
   ) {
-    const variableDefaults =
-      datasources.value.levels[0].datasources[varnameSelector.value];
+    const variableDefaults = currentLevel(datasources.value).datasources[
+      varnameSelector.value
+    ];
     if (variableDefaults.default_colormap) {
       colormap.value = variableDefaults.default_colormap.name;
       if (Object.hasOwn(variableDefaults.default_colormap, "inverted")) {
@@ -429,6 +499,7 @@ async function loadCurrentSource(resetStore = true) {
     store.stopLoading();
     return;
   }
+  pickLevel();
   initLayersFromParams();
   void restoreStoredTextureLayers();
   await initControlsFromSource();
@@ -686,7 +757,7 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
         </div>
       </div>
     </section>
-    <div v-else class="grid-canvas-wrapper">
+    <div v-else ref="canvasWrapper" class="grid-canvas-wrapper">
       <currentGlobeComponent
         v-if="detectedGridType !== undefined"
         ref="globe"

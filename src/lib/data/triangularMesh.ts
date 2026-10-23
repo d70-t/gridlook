@@ -1,6 +1,7 @@
 import type * as zarr from "zarrita";
 
 import { isLatitudeName, isLongitudeName } from "./coordinateVariables.ts";
+import { currentLevel } from "./levels.ts";
 import { decodeVariableChunkInPlace } from "./variableDecoding.ts";
 import { ZarrDataManager } from "./ZarrDataManager.ts";
 
@@ -65,7 +66,7 @@ export async function getTriangularMesh(
   let context = variable;
   const read = (name: string) =>
     ZarrDataManager.getVariableInfo(
-      sources.levels[0].grid,
+      currentLevel(sources).grid,
       ZarrDataManager.resolveVariablePath(context, name),
       sources.zarr_format
     );

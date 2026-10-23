@@ -1,7 +1,10 @@
 import { PerspectiveCamera, Vector3 } from "three";
 import { expect, it } from "vitest";
 
-import { getDistanceScale } from "@/lib/projection/distanceScale.ts";
+import {
+  getDistanceScale,
+  metersPerPixelAt,
+} from "@/lib/projection/distanceScale.ts";
 import {
   ProjectionHelper,
   PROJECTION_TYPES,
@@ -129,4 +132,25 @@ it("inverts the hybrid projection throughout its blend windows and near the anti
     expect(sample(makeCamera(), helper, 5, lon)).not.toBeNull();
   }
   expect(sample(makeCamera(), helper, 0, -15)).toBeNull();
+});
+
+it("measures the vertical scale apart from the horizontal one", () => {
+  // equirectangular squeezes east-west distances by cos(lat), not north-south
+  const helper = new ProjectionHelper(PROJECTION_TYPES.EQUIRECTANGULAR, {
+    lat: 0,
+    lon: 0,
+  });
+  const camera = makeCamera();
+  const point = new Vector3(...helper.project(60, 0)).project(camera);
+  const at = (vertical: boolean) =>
+    metersPerPixelAt(
+      camera,
+      helper,
+      rect,
+      rect.left + ((point.x + 1) * rect.width) / 2,
+      rect.top + ((1 - point.y) * rect.height) / 2,
+      radius,
+      vertical
+    )!;
+  expect(at(true) / at(false)).toBeCloseTo(2, 2);
 });
