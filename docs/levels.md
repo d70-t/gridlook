@@ -119,3 +119,7 @@ switch rewrites it. A link opens on the level its varname names; with
 automatic selection on, that level stays unless the screen calls for
 another (outside the hysteresis above). Automatic selection that is off is
 written as `levelauto=false`, and such a link stays on its level.
+
+The **Dataset Info** panel lists the attributes of every group from the
+opened one down to the level shown: the root, the group carrying
+`multiscales` (with the attribute itself) and the level group.

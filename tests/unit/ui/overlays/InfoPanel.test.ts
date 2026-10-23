@@ -139,3 +139,35 @@ it.each([
     }
   }
 );
+
+it("shows the attributes of every group from the root to the level", async () => {
+  const store = useGlobeControlStore();
+  store.varnameSelector = "multiscales/zoom_0/pr";
+  store.varnameDisplay = "multiscales/zoom_0/pr";
+  const pyramid: TSources = {
+    ["zarr_format"]: ZARR_FORMAT.V2,
+    levels: [
+      {
+        path: "multiscales/zoom_0",
+        grid: source,
+        time: source,
+        datasources: { "multiscales/zoom_0/pr": source },
+      },
+    ],
+  };
+  const render = () =>
+    renderToString(
+      createSSRApp(InfoPanel, {
+        datasources: pyramid,
+        gridType: GRID_TYPES.HEALPIX,
+        isOpen: true,
+      })
+    );
+  await render();
+  await vi.waitFor(() =>
+    expect(ZarrDataManager.getGroup).toHaveBeenCalledTimes(3)
+  );
+  expect(
+    vi.mocked(ZarrDataManager.getGroup).mock.calls.map(([, path]) => path)
+  ).toEqual(["", "multiscales", "multiscales/zoom_0"]);
+});
