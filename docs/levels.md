@@ -106,8 +106,9 @@ nothing is marked, so it never shows through a translucent grid. A cell
 that is not drawn (no value, or hidden at or beyond a bound of the colour
 range) marks nothing either, so the coarsest level shows through it: along
 a coastline or at a threshold, coarse cells fill the gaps of the finer
-level. The colour range and histogram are taken from the coarsest level, so
-colours do not shift as the view moves or the level changes. A pyramid
+level. By default the colour range and histogram are taken from the
+coarsest level, so colours do not shift as the view moves or the level
+changes (see the toggles below). A pyramid
 whose levels do not state their resolution has no known coarsest level, and
 loads every level whole.
 
@@ -129,6 +130,36 @@ the manual picker.
 Choosing a level in the **Variable** card turns automatic selection off; the
 "Pick the level from the zoom" checkbox turns it back on.
 
+## Whole levels and the colour range
+
+Two checkboxes under the level list, independent of each other:
+
+- **Load whole level** (off by default) loads the selected level whole
+  instead of the part in view, and reloads it in place when toggled.
+  Automatic selection keeps the 12 · 4^10 cap above, so it picks a coarser
+  level where the view would need a larger one; a level over the cap can
+  still be picked by hand, marked as having too many cells.
+- **Keep one colour range across levels** (on by default) takes the range
+  and histogram of every level from the coarsest level. Off, each level
+  takes its own: the whole level's when it is loaded whole, else the loaded
+  window's, which changes when the window reloads (the same view always
+  gives the same colours). The Custom bounds fix a range by hand.
+
+The range checkbox defaults to off for a variable whose CF `cell_methods`
+sum over its cells (`area: sum` or `cell: sum`, also among other entries,
+as in `time: mean area: sum`): such a sum grows about 4× per HEALPix level,
+so a range shared from the coarsest level squeezes every finer one. The
+attribute is read from the level on screen. Once the checkbox is changed,
+that choice holds for every variable of the dataset until another dataset
+is opened; set back to the default of the variable shown, it follows each
+variable's default again.
+
+Below the colour bounds, a hint says where the range and histogram come
+from: "coarsest level" when it was taken from the coarsest level, "loaded
+area" for a level loaded by view with its own range. There is none when
+the range is the whole level's own, on the coarsest level itself, or for a
+dataset or variable without levels.
+
 ## Levels in the URL
 
 Variables are named by their path from the opened group, level group
@@ -138,7 +169,11 @@ switch rewrites it. A link opens on the level its varname names; with
 automatic selection on, that level stays unless the screen calls for
 another (outside the hysteresis above). Automatic selection that is off is
 written as `levelauto=false`, and such a link stays on its level; it is
-honoured only when the varname names a level. A bare name from an older
+honoured only when the varname names a level. "Load whole level" is
+written as `levelwhole=true` when on, and the range checkbox as
+`levelshared=true` or `levelshared=false` when it differs from the default
+of the variable shown; both are read back when a link opens. A bare name
+from an older
 link (`pr`) opens on the level it is found in first.
 
 Automatic selection, and the level list, skip levels that lack the variable
