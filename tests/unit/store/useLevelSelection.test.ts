@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { effectScope, nextTick, ref } from "vue";
+import { effectScope, nextTick, ref, watch } from "vue";
 
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
 
@@ -348,6 +348,47 @@ it("picks only the levels that hold the variable, and keeps its name off them", 
     store.selectLevel(2);
     await nextTick();
     expect(store.varnameSelector).toBe("1/foo");
+  } finally {
+    scope.stop();
+  }
+});
+
+it("keeps an automatic pick when the view follows the varname to its level", async () => {
+  const store = useGlobeControlStore();
+  const sources = keyedPyramid([10, 8, 6]);
+  for (const level of sources.value.levels) {
+    level.datasources["root_only"] = { store: "s", dataset: "" };
+  }
+  const scope = effectScope();
+  const picks: number[] = [];
+  scope.run(() => {
+    const { selectVariableLevel } = useLevelSelection(sources, () => {
+      picks.push(store.selectedLevel);
+      return VIEWPORT;
+    });
+    // as GlobeView does for a varname from a link or the presenter
+    watch(() => store.varnameSelector, selectVariableLevel);
+  });
+  try {
+    store.varnameSelector = "root_only";
+    store.metersPerPixel = scaleFor(6);
+    await nextPick();
+    expect(store.selectedLevel).toBe(0);
+
+    store.varnameSelector = "0/tas";
+    await nextTick();
+    await nextTick();
+    expect([
+      store.selectedLevel,
+      sources.value.selectedLevel,
+      store.varnameSelector,
+    ]).toEqual([2, 2, "2/tas"]);
+
+    // another variable with levels does not pick again
+    picks.length = 0;
+    store.varnameSelector = "2/root_only";
+    await nextTick();
+    expect(picks).toEqual([]);
   } finally {
     scope.stop();
   }

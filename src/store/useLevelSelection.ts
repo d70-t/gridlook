@@ -111,7 +111,8 @@ function selectVariableLevel(
   varname: string
 ) {
   const level = sources && levelOfVariable(sources.levels, varname);
-  if (level === undefined) {
+  // on the level shown already: keep a pick the store has not applied yet
+  if (level === undefined || level === (sources!.selectedLevel ?? 0)) {
     return;
   }
   sources!.selectedLevel = level;
@@ -160,14 +161,15 @@ export function useLevelSelection(
     throttle: LEVEL_PICK_INTERVAL_MS,
   });
   watch(
-    () => [
-      store.levelAuto,
-      // back on a variable with levels after one without
-      hasLevels(datasources.value?.levels ?? [], store.varnameSelector),
-      ...(datasources.value?.levels ?? []).map((_, index) =>
-        store.loadsLevelByView(index)
-      ),
-    ],
+    () =>
+      [
+        store.levelAuto,
+        // back on a variable with levels after one without
+        hasLevels(datasources.value?.levels ?? [], store.varnameSelector),
+        ...(datasources.value?.levels ?? []).map((_, index) =>
+          store.loadsLevelByView(index)
+        ),
+      ].join(),
     pickLevel
   );
   watch(
