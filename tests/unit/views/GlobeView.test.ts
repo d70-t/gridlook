@@ -80,10 +80,17 @@ function pyramid(): TSources {
 
 const scopes: ReturnType<typeof effectScope>[] = [];
 
-async function openGlobe(params: { varname?: string; levelauto?: string }) {
+async function openGlobe(params: {
+  varname?: string;
+  levelauto?: string;
+  levelwhole?: string;
+  levelshared?: string;
+}) {
   const urlParameters = useUrlParameterStore();
   urlParameters.paramVarname = params.varname;
   urlParameters.paramLevelAuto = params.levelauto;
+  urlParameters.paramLevelWhole = params.levelwhole;
+  urlParameters.paramLevelShared = params.levelshared;
   const sources = pyramid();
   indexFromZarr.mockResolvedValue(sources);
   const scope = effectScope();
@@ -130,6 +137,16 @@ it("picks the level when the link's varname cannot name one", async () => {
     levelauto: "false",
   });
   expect(store.levelAuto).toBe(true);
+});
+
+it("opens with the level toggles the link sets", async () => {
+  const { store } = await openGlobe({
+    varname: "1/tas",
+    levelwhole: "true",
+    levelshared: "false",
+  });
+  expect(store.levelWhole).toBe(true);
+  expect(store.levelRangeShared).toBe(false);
 });
 
 it("reloads a level switch in place, detecting the grid on the level it read", async () => {
