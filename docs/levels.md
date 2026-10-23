@@ -108,13 +108,16 @@ range) marks nothing either, so the coarsest level shows through it: along
 a coastline or at a threshold, coarse cells fill the gaps of the finer
 level. By default the colour range and histogram are taken from the
 coarsest level, so colours do not shift as the view moves or the level
-changes (see the toggles below). A pyramid
+changes (see the toggles below). When the levels do not share one range,
+the coarsest level is not drawn beneath, as its colours would be off the
+level's scale. A pyramid
 whose levels do not state their resolution has no known coarsest level, and
 loads every level whole.
 
 A level that is loaded by view can be of any size, so automatic selection has
-no cap for it. Streamlines and the volume layer read the whole level: while
-either is on, the cap below applies and levels up to it are loaded whole.
+no cap for it. Streamlines, the volume layer and "Load whole level" read the
+whole level: while any is on, the cap below applies and levels up to it are
+loaded whole; a larger level picked by hand is still loaded by view.
 
 HEALPix levels in ring order or with an unsorted `cell` coordinate, rotated
 and projected regular grids, and the other grid types load every level whole.
@@ -134,16 +137,18 @@ Choosing a level in the **Variable** card turns automatic selection off; the
 
 Two checkboxes under the level list, independent of each other:
 
-- **Load whole level** (off by default) loads the selected level whole
-  instead of the part in view, and reloads it in place when toggled.
-  Automatic selection keeps the 12 · 4^10 cap above, so it picks a coarser
-  level where the view would need a larger one; a level over the cap can
-  still be picked by hand, marked as having too many cells.
+- **Load whole level** (off by default) loads the selected level whole, up
+  to the 12 · 4^10 cap above, instead of the part in view, and reloads it in
+  place when toggled. Automatic selection keeps the cap, so it picks a
+  coarser level where the view would need a larger one; a level over the cap
+  can still be picked by hand, marked as having too many cells, and is then
+  loaded by view.
 - **Keep one colour range across levels** (on by default) takes the range
   and histogram of every level from the coarsest level. Off, each level
   takes its own: the whole level's when it is loaded whole, else the loaded
   window's, which changes when the window reloads (the same view always
-  gives the same colours). The Custom bounds fix a range by hand.
+  gives the same colours), and no coarsest level is drawn beneath. The
+  Custom bounds fix a range by hand.
 
 The range checkbox defaults to off for a variable whose CF `cell_methods`
 sum over its cells (`area: sum` or `cell: sum`, also among other entries,
@@ -154,7 +159,7 @@ that choice holds for every variable of the dataset until another dataset
 is opened; set back to the default of the variable shown, it follows each
 variable's default again.
 
-Below the colour bounds, a hint says where the range and histogram come
+Below the colour bounds, while they come from the data, a hint says where the range and histogram come
 from: "coarsest level" when it was taken from the coarsest level, "loaded
 area" for a level loaded by view with its own range. There is none when
 the range is the whole level's own, on the coarsest level itself, or for a
@@ -171,14 +176,16 @@ another (outside the hysteresis above). Automatic selection that is off is
 written as `levelauto=false`, and such a link stays on its level; it is
 honoured only when the varname names a level. "Load whole level" is
 written as `levelwhole=true` when on, and the range checkbox as
-`levelshared=true` or `levelshared=false` when it differs from the default
-of the variable shown; both are read back when a link opens. A bare name
+`levelshared=true` or `levelshared=false` while a choice is stored (see
+above: one set back to the default of the variable shown at the time is
+cleared); both are read back when a link opens. A bare name
 from an older
 link (`pr`) opens on the level it is found in first.
 
 Automatic selection, and the level list, skip levels that lack the variable
 shown. A presenter display that picks its own level keeps doing so and shows
-the controller's variable on that level.
+the controller's variable on that level; it follows the controller's two
+checkboxes.
 
 The **Dataset Info** panel lists the attributes of every group from the
 opened one down to the level shown: the root, the group carrying
