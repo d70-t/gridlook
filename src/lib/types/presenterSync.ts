@@ -24,6 +24,9 @@ export type TPresenterStatePayload = {
   graticuleSpacing?: number;
   dimSlidersValues?: (number | null)[];
   selection?: { low: number; high: number };
+  levelWhole?: boolean;
+  // null: the variable's default
+  levelRangeShared?: boolean | null;
   // url-parameter store fields
   paramCameraPx?: string;
   paramCameraPy?: string;

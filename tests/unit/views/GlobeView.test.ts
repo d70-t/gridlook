@@ -174,3 +174,26 @@ it("takes the controller's variable onto the display's own level", async () => {
     controller.close();
   }
 });
+
+it("takes the controller's level toggles, null as the variable's default", async () => {
+  location.search = "?mode=display";
+  const { store } = await openGlobe({ varname: "0/tas" });
+  store.stopLoading();
+  const controller = new BroadcastChannel("gridlook-presenter");
+  try {
+    controller.postMessage({
+      type: "state-update",
+      payload: { levelWhole: true, levelRangeShared: false },
+    });
+    await vi.waitFor(() => expect(store.levelRangeShared).toBe(false));
+    expect(store.levelWhole).toBe(true);
+    controller.postMessage({
+      type: "state-update",
+      payload: { levelRangeShared: null },
+    });
+    await vi.waitFor(() => expect(store.levelRangeShared).toBeUndefined());
+    expect(store.levelWhole).toBe(true);
+  } finally {
+    controller.close();
+  }
+});
