@@ -533,6 +533,10 @@ async function indexFromReference(src: string): Promise<TSources> {
   const store = await createReferenceStore(storePath);
   const format = store.zarrFormat === 2 ? ZARR_FORMAT.V2 : ZARR_FORMAT.V3;
   const root = await zarr.open(store, { kind: "group" });
+  const levels = await indexLevels(store, root, storePath, format, groupPath);
+  if (levels) {
+    return levels;
+  }
   const group = groupPath
     ? await zarr.open(root.resolve(groupPath), { kind: "group" })
     : root;

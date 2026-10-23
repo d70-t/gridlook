@@ -398,3 +398,26 @@ describe("indexing levels from other sources", () => {
     ]);
   });
 });
+
+describe("indexing a Kerchunk reference file", () => {
+  it("reads the levels of a pyramid", async () => {
+    const REFS = "https://example.test/refs.json";
+    const levels = LEVELS.slice(0, 2);
+    const { metadata } = pyramidMetadata(levels, omeAttrs(["0", "1"]));
+    const refs: Record<string, string> = {};
+    for (const [key, value] of Object.entries(metadata)) {
+      refs[key] = JSON.stringify(value);
+    }
+    for (const { path, nlon } of levels) {
+      refs[`${path}/lon/0`] =
+        "base64:" + Buffer.from(longitudes(nlon).buffer).toString("base64");
+    }
+    serve({ [REFS]: { version: 1, refs } });
+    const index = await indexFromZarr(`reference+${REFS}`);
+    expect(index.levels.map(({ grid }) => grid.dataset)).toEqual(["0", "1"]);
+    expect(index.levels.map(({ cellCount }) => cellCount)).toEqual([
+      180 * 360,
+      90 * 180,
+    ]);
+  });
+});
