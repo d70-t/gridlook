@@ -149,6 +149,11 @@ it("opens with the level toggles the link sets", async () => {
   expect(store.levelRangeShared).toBe(false);
 });
 
+it("leaves a link's unknown levelshared to the default", async () => {
+  const { store } = await openGlobe({ varname: "1/tas", levelshared: "yes" });
+  expect(store.levelRangeShared).toBeUndefined();
+});
+
 it("reloads a level switch in place, detecting the grid on the level it read", async () => {
   const { bindings, store } = await openGlobe({ varname: "0/tas" });
   await nextTick();

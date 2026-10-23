@@ -325,10 +325,11 @@ function prepareDefaults(src: string, index: TSources) {
     levelOfVariable(index.levels, varnameSelector.value) === undefined;
   selectVariableLevel(varnameSelector.value);
   store.levelWhole = paramLevelWhole.value === "true";
+  // a value other than true or false leaves it to the default
   store.levelRangeShared =
-    paramLevelShared.value === undefined
-      ? undefined
-      : paramLevelShared.value === "true";
+    paramLevelShared.value === "true" || paramLevelShared.value === "false"
+      ? paramLevelShared.value === "true"
+      : undefined;
 
   if (
     datasources.value &&
