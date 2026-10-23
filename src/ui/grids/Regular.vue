@@ -35,6 +35,7 @@ import {
   DEFAULT_MAX_LEVEL_CELLS,
   DEFAULT_MAX_VIEW_CELLS,
   STREAMLINES_NEED_WHOLE_LEVEL,
+  variableOnLevel,
 } from "@/lib/data/levels.ts";
 import { loadVectorComponents } from "@/lib/data/streamlineData.ts";
 import {
@@ -1060,7 +1061,11 @@ async function loadBackdrop(indices: (number | null | zarr.Slice)[]) {
   ) {
     return undefined;
   }
-  const variable = varnameSelector.value;
+  const variable = variableOnLevel(
+    sources.levels,
+    varnameSelector.value,
+    level
+  );
   const key = JSON.stringify([level, variable, indices]);
   if (backdropFrame?.key === key) {
     return backdropFrame;

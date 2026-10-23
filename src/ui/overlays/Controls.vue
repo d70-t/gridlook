@@ -18,6 +18,7 @@ import VariableSelector from "./controls/VariableSelector.vue";
 
 // Import control components
 import type { T_GRID_TYPES } from "@/lib/data/gridTypeDetector.ts";
+import { isSameVariable } from "@/lib/data/levels.ts";
 import {
   clamp,
   PROJECTION_TYPES,
@@ -173,7 +174,14 @@ watch(
       store.streamlineMagnitudeDisplayed && store.streamlineMagnitudeDerivable,
   ],
   ([variable, magnitudeDisplayed], [previousVariable]) => {
-    if (variable === previousVariable) {
+    // A level switch renames the variable, but keeps it.
+    if (
+      isSameVariable(
+        props.modelInfo?.levels ?? [],
+        previousVariable as string,
+        variable as string
+      )
+    ) {
       updateMagnitudeBounds(magnitudeDisplayed);
       return;
     }

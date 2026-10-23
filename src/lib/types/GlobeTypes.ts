@@ -80,6 +80,9 @@ export type TModelInfo = {
 
 export type TSourceLevel = {
   name?: string;
+  // the level's group relative to the dataset group: its variables are keyed
+  // `<path>/<name>`. Unset when the levels share their keys (a JSON index).
+  path?: string;
   grid: TDatasetSource;
   time: TDatasetSource;
   datasources: Record<string, TDataSource>;

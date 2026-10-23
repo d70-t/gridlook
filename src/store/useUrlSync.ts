@@ -53,6 +53,11 @@ const GLOBE_URL_SYNC_MAP: TUrlSyncEntry[] = [
     transform: String,
   },
   { key: "projectionMode", param: URL_PARAMETERS.PROJECTION },
+  {
+    key: "levelAuto",
+    param: URL_PARAMETERS.LEVEL_AUTO,
+    transform: (v) => (v ? "" : "false"),
+  },
 ];
 
 const URL_PARAM_SYNC_MAP: TUrlSyncEntry[] = [

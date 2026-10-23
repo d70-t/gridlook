@@ -9,7 +9,11 @@ import {
   EARTH_RADIUS_METERS,
   getGlobeFitCameraDistance,
 } from "@/lib/camera/cameraSettings.ts";
-import { selectLevel } from "@/lib/data/levels.ts";
+import {
+  levelOfVariable,
+  selectLevel,
+  variableOnLevel,
+} from "@/lib/data/levels.ts";
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
 
 /**
@@ -21,6 +25,87 @@ export const LEVEL_PICK_INTERVAL_MS = 200;
 export type TViewportSize = { width: number; height: number };
 
 /**
+ * Point the dataset and the variables shown at `level`. Variables are keyed
+ * by their full path, so the varname (and with it the URL), a hand-picked
+ * streamline pair and the volume's variables move to the level's group.
+ */
+function followLevel(
+  store: ReturnType<typeof useGlobeControlStore>,
+  sources: TSources | undefined,
+  level: number
+) {
+  if (!sources) {
+    return;
+  }
+  sources.selectedLevel = level;
+  const move = (name: string) => variableOnLevel(sources.levels, name, level);
+  store.varnameSelector = move(store.varnameSelector);
+  const selection = store.streamlineSelection;
+  if (selection.u && selection.v && move(selection.u) !== selection.u) {
+    // set as is: the grid rebuilds its streamlines with the level
+    store.streamlineSelection = {
+      ...selection,
+      u: move(selection.u),
+      v: move(selection.v),
+    };
+  }
+  if (
+    store.volumeSelections.some(({ variable }) => move(variable) !== variable)
+  ) {
+    store.volumeSelections = store.volumeSelections.map((selection) => ({
+      ...selection,
+      variable: move(selection.variable),
+    }));
+  }
+}
+
+/**
+ * The level whose cells fit the screen: from the scale the scene measured,
+ * or before the first frame from the URL camera, else the globe's fitted
+ * one.
+ */
+function fittingLevel(
+  store: ReturnType<typeof useGlobeControlStore>,
+  levels: TSources["levels"],
+  viewport: TViewportSize,
+  cameraAlt: string | undefined
+) {
+  const altitude = Number(cameraAlt);
+  const aspect = viewport.width / Math.max(viewport.height, 1);
+  return selectLevel(
+    store.metersPerPixel ?? {
+      altitudeMeters: Number.isFinite(altitude)
+        ? altitude
+        : (getGlobeFitCameraDistance(aspect) - 1) * EARTH_RADIUS_METERS,
+      viewportHeightPx: viewport.height,
+    },
+    // no level is too large where the grid loads only the view of it
+    levels.map((level, index) =>
+      store.loadsLevelByView(index) ? { ...level, cellCount: 0 } : level
+    ),
+    store.selectedLevel
+  );
+}
+
+/**
+ * Select the level a full-path varname names (from a link or the presenter),
+ * without turning automatic selection off. The dataset reads the level at
+ * once, before the switch reaches the watchers.
+ */
+function selectVariableLevel(
+  store: ReturnType<typeof useGlobeControlStore>,
+  sources: TSources | undefined,
+  varname: string
+) {
+  const level = sources && levelOfVariable(sources.levels, varname);
+  if (level === undefined) {
+    return;
+  }
+  sources!.selectedLevel = level;
+  store.selectLevel(level, false);
+}
+
+/**
  * Camera-driven level selection for multi-resolution datasets.
  *
  * The scene writes the ground metres one pixel covers below the camera into
@@ -30,41 +115,28 @@ export type TViewportSize = { width: number; height: number };
  * choice on demand — before the first render, from the URL camera or else
  * the globe's fitted one — so a pyramid never opens on a level the renderer
  * cannot hold.
+ *
+ * A level switch moves the variables shown onto the new level (see
+ * followLevel) and then runs `onLevelChange`; `selectVariableLevel` goes the
+ * other way, selecting the level a full-path varname names.
  */
 export function useLevelSelection(
   datasources: Ref<TSources | undefined>,
-  getViewport: () => TViewportSize
+  getViewport: () => TViewportSize,
+  onLevelChange?: () => void
 ) {
   const store = useGlobeControlStore();
   const { paramCameraAlt } = storeToRefs(useUrlParameterStore());
-
-  function altitudeMeters(viewport: TViewportSize) {
-    const altitude = Number(paramCameraAlt.value);
-    if (Number.isFinite(altitude)) {
-      return altitude;
-    }
-    const aspect = viewport.width / Math.max(viewport.height, 1);
-    return (getGlobeFitCameraDistance(aspect) - 1) * EARTH_RADIUS_METERS;
-  }
 
   function pickLevel() {
     const levels = datasources.value?.levels;
     if (!levels || levels.length < 2 || !store.levelAuto) {
       return;
     }
-    const viewport = getViewport();
-    const next = selectLevel(
-      store.metersPerPixel ?? {
-        altitudeMeters: altitudeMeters(viewport),
-        viewportHeightPx: viewport.height,
-      },
-      // no level is too large where the grid loads only the view of it
-      levels.map((level, index) =>
-        store.loadsLevelByView(index) ? { ...level, cellCount: 0 } : level
-      ),
-      store.selectedLevel
+    store.selectLevel(
+      fittingLevel(store, levels, getViewport(), paramCameraAlt.value),
+      false
     );
-    store.selectLevel(next, false);
   }
 
   watchThrottled(() => store.metersPerPixel, pickLevel, {
@@ -79,6 +151,17 @@ export function useLevelSelection(
     ],
     pickLevel
   );
+  watch(
+    () => store.selectedLevel,
+    (level) => {
+      followLevel(store, datasources.value, level);
+      onLevelChange?.();
+    }
+  );
 
-  return { pickLevel };
+  return {
+    pickLevel,
+    selectVariableLevel: (varname: string) =>
+      selectVariableLevel(store, datasources.value, varname),
+  };
 }

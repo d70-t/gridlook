@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { effectScope, nextTick, ref } from "vue";
 
+import type { TSources } from "@/lib/types/GlobeTypes.ts";
+
 vi.stubGlobal("localStorage", { getItem: () => null });
 
 const { createPinia, setActivePinia } = await import("pinia");
@@ -14,6 +16,7 @@ const { useUrlParameterStore } = await import("@/store/paramStore.ts");
 const { useGlobeControlStore } = await import("@/store/store.ts");
 const { LEVEL_PICK_INTERVAL_MS, useLevelSelection } =
   await import("@/store/useLevelSelection.ts");
+const { useUrlSync } = await import("@/store/useUrlSync.ts");
 
 const VIEWPORT = { width: 1000, height: 1000 };
 
@@ -30,7 +33,7 @@ function altitudeFor(order: number) {
 }
 
 function pyramid(orders: number[]) {
-  return ref({
+  return ref<TSources>({
     zarr_format: ZARR_FORMAT.V3, // eslint-disable-line camelcase
     levels: orders.map((order) => ({
       name: String(order),
@@ -201,5 +204,105 @@ it("lifts the cap for levels loaded by view, not for one that is loaded whole", 
     expect(store.selectedLevel).toBe(1);
   } finally {
     scope.stop();
+  }
+});
+
+/** A pyramid whose level groups `0`, `1`, … each hold `tas`. */
+function keyedPyramid(orders: number[]) {
+  const sources = pyramid(orders);
+  sources.value.levels.forEach((level, index) =>
+    Object.assign(level, {
+      path: String(index),
+      datasources: { [`${index}/tas`]: { store: "s", dataset: "" } },
+    })
+  );
+  return sources;
+}
+
+it("opens the level a varname names, and keeps picking from the zoom", async () => {
+  const store = useGlobeControlStore();
+  const sources = keyedPyramid([10, 8, 6]);
+  const scope = effectScope();
+  const { selectVariableLevel } = scope.run(() =>
+    useLevelSelection(sources, () => VIEWPORT)
+  )!;
+  try {
+    store.varnameSelector = "1/tas";
+    selectVariableLevel("1/tas");
+    expect(sources.value.selectedLevel).toBe(1);
+    expect(store.selectedLevel).toBe(1);
+    expect(store.levelAuto).toBe(true);
+
+    // within the hysteresis the named level stays
+    store.metersPerPixel = scaleFor(6.9);
+    await nextPick();
+    expect(store.selectedLevel).toBe(1);
+    store.metersPerPixel = scaleFor(6);
+    await nextPick();
+    expect(store.selectedLevel).toBe(2);
+    expect(store.varnameSelector).toBe("2/tas");
+  } finally {
+    scope.stop();
+  }
+});
+
+it("stays on the level a varname names with picking off", async () => {
+  const store = useGlobeControlStore();
+  const sources = keyedPyramid([10, 8, 6]);
+  const scope = effectScope();
+  const { selectVariableLevel } = scope.run(() =>
+    useLevelSelection(sources, () => VIEWPORT)
+  )!;
+  try {
+    store.setLevelAuto(false);
+    store.varnameSelector = "1/tas";
+    selectVariableLevel("1/tas");
+    store.metersPerPixel = scaleFor(6);
+    await nextPick();
+    expect(store.selectedLevel).toBe(1);
+    expect(store.varnameSelector).toBe("1/tas");
+  } finally {
+    scope.stop();
+  }
+});
+
+it("writes an automatic pick and picking off into the URL", async () => {
+  const location = {
+    pathname: "/",
+    hash: "#https://example.test/pyramid.zarr::varname=0/tas",
+  };
+  vi.stubGlobal("location", location);
+  vi.stubGlobal("document", { location });
+  vi.stubGlobal("history", {
+    replaceState: (_state: unknown, _title: string, url: string) => {
+      location.hash = url.slice(url.indexOf("#"));
+    },
+  });
+  const store = useGlobeControlStore();
+  store.varnameSelector = "0/tas";
+  const sources = keyedPyramid([10, 8, 6]);
+  const scope = effectScope();
+  scope.run(() => {
+    useUrlSync();
+    useLevelSelection(sources, () => VIEWPORT);
+  });
+  try {
+    store.metersPerPixel = scaleFor(6);
+    await nextPick();
+    expect(location.hash).toContain("::varname=2/tas");
+    expect(location.hash).not.toContain("levelauto");
+
+    store.selectLevel(1);
+    await nextTick();
+    expect(location.hash).toContain("::varname=1/tas");
+    expect(location.hash).toContain("::levelauto=false");
+
+    store.setLevelAuto(true);
+    await nextTick();
+    expect(location.hash).not.toContain("levelauto");
+  } finally {
+    scope.stop();
+    vi.unstubAllGlobals();
+    vi.stubGlobal("localStorage", { getItem: () => null });
   }
 });

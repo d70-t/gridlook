@@ -13,6 +13,44 @@ export function currentLevel(datasources: TSources): TSourceLevel {
   return datasources.levels[datasources.selectedLevel ?? 0];
 }
 
+type TLevelPaths = readonly Pick<TSourceLevel, "path">[];
+
+/**
+ * The level whose group holds `varname` (keyed `<level path>/<name>`), so a
+ * full-path varname from a link names its level. Undefined for a variable
+ * outside every level, and for levels that share their keys.
+ */
+export function levelOfVariable(levels: TLevelPaths, varname: string) {
+  const index = levels.findIndex(
+    ({ path }) => path !== undefined && varname.startsWith(`${path}/`)
+  );
+  return index === -1 ? undefined : index;
+}
+
+/**
+ * `varname` on level `index`: the same name inside that level's group.
+ * Unchanged for a variable outside every level, and for levels that share
+ * their keys.
+ */
+export function variableOnLevel(
+  levels: TLevelPaths,
+  varname: string,
+  index: number
+) {
+  const from = levelOfVariable(levels, varname);
+  const to = levels[index]?.path;
+  if (from === undefined || to === undefined) {
+    return varname;
+  }
+  return `${to}${varname.slice(levels[from].path!.length)}`;
+}
+
+/** Whether `a` and `b` name the same variable, on any levels. */
+export function isSameVariable(levels: TLevelPaths, a: string, b: string) {
+  const level = levelOfVariable(levels, b);
+  return (level === undefined ? a : variableOnLevel(levels, a, level)) === b;
+}
+
 /**
  * Index of the level with the largest cells. Grids that load only the view
  * draw it whole under a finer level and take the colour range from it, so

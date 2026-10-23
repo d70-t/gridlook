@@ -24,6 +24,7 @@ import {
   DEFAULT_MAX_LEVEL_CELLS,
   DEFAULT_MAX_VIEW_CELLS,
   STREAMLINES_NEED_WHOLE_LEVEL,
+  variableOnLevel,
 } from "@/lib/data/levels.ts";
 import { loadVectorComponents } from "@/lib/data/streamlineData.ts";
 import {
@@ -295,7 +296,7 @@ async function gridFromEasygemsConvention(
   try {
     const crs = await ZarrDataManager.getCRSInfo(
       sources,
-      varnameSelector.value
+      levelVariable(sources)
     );
     const nside = coerceInteger(crs.attrs["healpix_nside"]);
     const scheme = coerceOrder(crs.attrs["healpix_order"]);
@@ -317,7 +318,7 @@ async function gridFromDggsConvention(
 ): Promise<healpixGeo.Grid | null> {
   const metadata = await ZarrDataManager.getDggsMetadata(
     sources,
-    varnameSelector.value
+    levelVariable(sources)
   );
   if (metadata !== null) {
     const level = coerceInteger(metadata["refinement_level"]);
@@ -372,8 +373,8 @@ async function getHealpixGridParameters(
 
   // last resort: assume nested / spherical and infer level from a global grid's cell count (12 * 4^level)
   const datavar = await ZarrDataManager.getVariableInfo(
-    ZarrDataManager.getDatasetSource(sources, varnameSelector.value),
-    varnameSelector.value
+    ZarrDataManager.getDatasetSource(sources, levelVariable(sources)),
+    levelVariable(sources)
   );
   const fromShape = await inferGridFromCellCount(datavar);
   if (fromShape !== null) {
@@ -384,6 +385,18 @@ async function getHealpixGridParameters(
     "Could not determine HEALPix grid parameters: no valid convention metadata on the grid mapping variable" +
       " or in the group metadata (tried the Easygems and dggs zarr conventions), and " +
       "the cell-dimension length is not 12 * nside^2."
+  );
+}
+
+/**
+ * The variable shown, on the level `sources` reads: the backdrop reads the
+ * coarsest level, and a cell reader keeps reading the level it was made for.
+ */
+function levelVariable(sources: TSources) {
+  return variableOnLevel(
+    sources.levels,
+    varnameSelector.value,
+    sources.selectedLevel ?? 0
   );
 }
 
@@ -399,7 +412,7 @@ async function getCellCoordinateName(sources = props.datasources!) {
   let cellCoord = "cell";
   const dggsMetadata = await ZarrDataManager.getDggsMetadata(
     sources,
-    varnameSelector.value
+    levelVariable(sources)
   );
   if (dggsMetadata !== null) {
     const coordinate = dggsMetadata["coordinate"];
@@ -418,7 +431,7 @@ async function getCells(sources = props.datasources!) {
   try {
     const rawCells = await fetchHealpixVariableData(
       [],
-      ZarrDataManager.resolveVariablePath(varnameSelector.value, cellCoord),
+      ZarrDataManager.resolveVariablePath(levelVariable(sources), cellCoord),
       sources
     );
 
@@ -591,12 +604,12 @@ async function fetchFaceBlocks(
 
 function fetchHealpixVariableData(
   selection: (number | zarr.Slice | null)[],
-  variable = varnameSelector.value,
+  variable?: string,
   sources = props.datasources!
 ) {
   return getGridVariableData({
-    source: ZarrDataManager.getDatasetSource(sources, varnameSelector.value),
-    variable,
+    source: ZarrDataManager.getDatasetSource(sources, levelVariable(sources)),
+    variable: variable ?? levelVariable(sources),
     format: sources.zarr_format,
     selection,
   });
@@ -1094,12 +1107,13 @@ async function loadBackdrop(
   if (level === undefined || level === (sources.selectedLevel ?? 0)) {
     return undefined;
   }
-  const key = JSON.stringify([level, varnameSelector.value, indices]);
+  const coarse = { ...sources, selectedLevel: level };
+  const variable = levelVariable(coarse);
+  const key = JSON.stringify([level, variable, indices]);
   if (backdropFrame?.key === key) {
     return backdropFrame;
   }
-  const coarse = { ...sources, selectedLevel: level };
-  const datavar = await getDataVar(varnameSelector.value, coarse);
+  const datavar = await getDataVar(variable, coarse);
   if (!datavar) {
     return undefined;
   }

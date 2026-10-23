@@ -298,14 +298,16 @@ describe("indexing a multiscales pyramid", () => {
     index.levels.forEach((level, position) => {
       const path = String(position);
       expect(level.name).toBe(path);
-      expect(level.grid).toEqual({ store: SRC, dataset: path });
-      expect(level.time).toEqual({ store: SRC, dataset: path });
+      expect(level.path).toBe(path);
+      expect(level.grid).toEqual({ store: SRC, dataset: "" });
+      expect(level.time).toEqual({ store: SRC, dataset: "" });
+      // keyed by the full path, as without levels
       expect(Object.keys(level.datasources).sort()).toEqual([
-        "lat",
-        "lon",
-        "tas",
+        `${path}/lat`,
+        `${path}/lon`,
+        `${path}/tas`,
       ]);
-      expect(level.datasources.tas.hidden).toBe(false);
+      expect(level.datasources[`${path}/tas`].hidden).toBe(false);
     });
     const degree = (Math.PI / 180) * EARTH_RADIUS_METERS;
     expect(index.levels[0].resolution).toBeCloseTo(degree, 6);
@@ -405,8 +407,11 @@ describe("indexing a pyramid declared on a group below the opened one", () => {
     expect(index.levels.map(({ name }) => name)).toEqual(
       [9, 8, 7, 6, 5, 4, 3, 2, 1, 0].map((zoom) => `zoom_${zoom}`)
     );
-    expect(index.levels.map(({ grid }) => grid.dataset)).toEqual(
+    expect(index.levels.map(({ path }) => path)).toEqual(
       [9, 8, 7, 6, 5, 4, 3, 2, 1, 0].map((zoom) => `multiscales/zoom_${zoom}`)
+    );
+    expect(Object.keys(index.levels[9].datasources)).toContain(
+      "multiscales/zoom_0/pr"
     );
     index.levels.forEach((level, position) => {
       const nside = 2 ** (9 - position);
@@ -431,10 +436,7 @@ describe("indexing a pyramid declared on a group below the opened one", () => {
     serve(files);
     const info = vi.spyOn(console, "info").mockImplementation(() => {});
     const index = await indexFromZarr(SRC);
-    expect(index.levels.map(({ grid }) => grid.dataset)).toEqual([
-      "c/1",
-      "c/2",
-    ]);
+    expect(index.levels.map(({ path }) => path)).toEqual(["c/1", "c/2"]);
     expect(info).toHaveBeenCalledWith(expect.stringContaining('"c"'));
   });
 });
@@ -473,10 +475,11 @@ describe("indexing levels from other sources", () => {
     const index = await indexFromZarr(`${REPO}/pyramid/`);
     expect(index.name).toBe("Pyramid");
     expect(index.levels.map(({ grid }) => grid)).toEqual([
-      { store: `icechunk+${REPO}`, dataset: "pyramid/0" },
-      { store: `icechunk+${REPO}`, dataset: "pyramid/1" },
+      { store: `icechunk+${REPO}`, dataset: "pyramid" },
+      { store: `icechunk+${REPO}`, dataset: "pyramid" },
     ]);
-    expect(Object.keys(index.levels[1].datasources)).toEqual(["tas"]);
+    expect(index.levels.map(({ path }) => path)).toEqual(["0", "1"]);
+    expect(Object.keys(index.levels[1].datasources)).toEqual(["1/tas"]);
     expect(index.levels.map(({ cellCount }) => cellCount)).toEqual([
       180 * 360,
       90 * 180,
@@ -521,7 +524,7 @@ describe("indexing a Kerchunk reference file", () => {
     }
     serve({ [REFS]: { version: 1, refs } });
     const index = await indexFromZarr(`reference+${REFS}`);
-    expect(index.levels.map(({ grid }) => grid.dataset)).toEqual(["0", "1"]);
+    expect(index.levels.map(({ path }) => path)).toEqual(["0", "1"]);
     expect(index.levels.map(({ cellCount }) => cellCount)).toEqual([
       180 * 360,
       90 * 180,

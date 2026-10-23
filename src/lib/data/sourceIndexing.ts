@@ -236,13 +236,19 @@ async function collectVariables(
   store: zarr.Listable<zarr.AsyncReadable>,
   root: zarr.Group<zarr.AsyncReadable>,
   src: string,
-  datasetPath = ""
+  datasetPath = "",
+  within = datasetPath
 ): Promise<{
   candidates: PromiseSettledResult<Record<string, TDataSource>>[];
   dimensions: Set<string>;
 }> {
   const dimensions = new Set<string>();
-  const contents = store.contents().filter(({ kind }) => kind === "array");
+  const contents = store
+    .contents()
+    .filter(
+      ({ kind, path }) =>
+        kind === "array" && (!within || path.startsWith(`/${within}/`))
+    );
   const candidates: PromiseSettledResult<Record<string, TDataSource>>[] = [];
 
   const batchSize = 200;
@@ -264,17 +270,23 @@ async function collectVariables(
   return { candidates, dimensions };
 }
 
+/**
+ * The variables of the arrays below `within` (by default the dataset
+ * group), keyed by their path relative to the dataset group.
+ */
 async function processZarrVariables(
   store: zarr.Listable<zarr.AsyncReadable>,
   root: zarr.Group<zarr.AsyncReadable>,
   src: string,
-  datasetPath = ""
+  datasetPath = "",
+  within = datasetPath
 ): Promise<Record<string, TDataSource>> {
   const { candidates, dimensions } = await collectVariables(
     store,
     root,
     src,
-    datasetPath
+    datasetPath,
+    within
   );
 
   // Filter and merge datasources
@@ -349,18 +361,37 @@ async function readAxisStart(
   return chunk.data as ArrayLike<number>;
 }
 
+/**
+ * One level of a pyramid: the arrays of the level group at `path`, keyed by
+ * their path relative to the dataset group (`groupPath`), as for a dataset
+ * without levels, so a variable's name says which level it is on.
+ */
 async function indexLevel(
   store: zarr.Listable<zarr.AsyncReadable>,
   root: zarr.Group<zarr.AsyncReadable>,
   src: string,
   groupAttrs: zarr.Attributes,
   entry: TMultiscaleEntry,
-  path: string
+  path: string,
+  groupPath: string
 ): Promise<TSourceLevel | null> {
-  const datasources = await processZarrVariables(store, root, src, path);
+  const datasources = await processZarrVariables(
+    store,
+    root,
+    src,
+    groupPath,
+    path
+  );
   if (Object.keys(datasources).length === 0) {
     return null;
   }
+  const levelPath = getVariablePathInGroup(path, groupPath)!;
+  const levelVariables = Object.fromEntries(
+    Object.entries(datasources).map(([name, source]) => [
+      name.slice(levelPath.length + 1),
+      source,
+    ])
+  );
   // The level group may describe its grid (the DGGS convention).
   const levelAttrs = await zarr
     .open(root.resolve(`/${path}`), { kind: "group" })
@@ -370,15 +401,16 @@ async function indexLevel(
     );
   // The grid only has to be read when the attributes give no resolution.
   const geometry = await levelGeometryFromGrid(
-    datasources,
+    levelVariables,
     entry.resolution === undefined
       ? (name) => readAxisStart(root, `${path}/${name}`)
       : undefined,
     levelAttrs
   );
   return {
-    ...createLevel(groupAttrs, datasources, src, path),
+    ...createLevel(groupAttrs, datasources, src, groupPath),
     name: entry.path,
+    path: levelPath,
     resolution: entry.resolution ?? geometry.resolution,
     cellCount: geometry.cellCount,
   };
@@ -496,7 +528,8 @@ async function indexLevels(
       src,
       group.attrs,
       entry,
-      path
+      path,
+      groupPath
     ).catch(() => null);
     if (level) {
       levels.push(level);

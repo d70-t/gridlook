@@ -15,7 +15,7 @@ import {
   GRID_TYPES,
   type T_GRID_TYPES,
 } from "@/lib/data/gridTypeDetector.ts";
-import { currentLevel } from "@/lib/data/levels.ts";
+import { currentLevel, isSameVariable } from "@/lib/data/levels.ts";
 import {
   fetchCurrentTimestep,
   liveStoreBaseUrl,
@@ -123,6 +123,7 @@ const {
   paramDistractionFree,
   paramLive,
   paramLayers,
+  paramLevelAuto,
 } = storeToRefs(urlParameterStore);
 
 type TGlobeHandle = {
@@ -157,10 +158,22 @@ const canvasWrapper: Ref<HTMLDivElement | undefined> = ref(undefined);
 // Auto-follow the newest timestep of a live dataset (see useLiveTimestep).
 useLiveTimestep(datasources);
 // Pick the level of a multi-resolution dataset from the camera (see useLevelSelection).
-const { pickLevel } = useLevelSelection(datasources, () => ({
-  width: canvasWrapper.value?.clientWidth || window.innerWidth,
-  height: canvasWrapper.value?.clientHeight || window.innerHeight,
-}));
+// A level switch swaps the datasource the grid reads. The grid stays mounted
+// and reloads the level in place (see useGridDataLoader), so the camera keeps
+// moving and the previous level stays on screen until the next one is ready.
+// Only a level on another grid type remounts.
+const { pickLevel, selectVariableLevel } = useLevelSelection(
+  datasources,
+  () => ({
+    width: canvasWrapper.value?.clientWidth || window.innerWidth,
+    height: canvasWrapper.value?.clientHeight || window.innerHeight,
+  }),
+  async () => {
+    if (isInitialized.value) {
+      await setGridType();
+    }
+  }
+);
 
 const distractionFreeFromUrl = paramDistractionFree.value === "true";
 
@@ -219,7 +232,8 @@ async function setGridType(forceRerender = false) {
   const localGridType = await getGridType(
     sourceValid.value,
     varnameSelector.value,
-    datasources.value,
+    // the level the varname is on, should another be picked meanwhile
+    datasources.value && { ...datasources.value },
     logError
   );
   if (updateId !== gridTypeUpdateId) {
@@ -252,26 +266,18 @@ watch(
     ) {
       return;
     }
+    // A varname from the presenter may name another level.
+    selectVariableLevel(varname);
+    if (
+      datasources.value &&
+      isSameVariable(datasources.value.levels, oldVarname, varname)
+    ) {
+      // the same variable on another level: the grid reloads it in place
+      return;
+    }
     store.startLoading();
     detectedGridType.value = undefined;
     await setGridType(true);
-  }
-);
-
-// A level switch swaps the datasource the grid reads. The grid stays mounted
-// and reloads the level in place (see useGridDataLoader), so the camera keeps
-// moving and the previous level stays on screen until the next one is ready.
-// Only a level on another grid type remounts.
-watch(
-  () => store.selectedLevel,
-  async (level) => {
-    if (datasources.value) {
-      datasources.value.selectedLevel = level;
-    }
-    if (!isInitialized.value) {
-      return;
-    }
-    await setGridType();
   }
 );
 
@@ -287,6 +293,9 @@ function prepareDefaults(src: string, index: TSources) {
   });
   varnameSelector.value =
     paramVarname.value ?? modelInfo.value!.defaultVar ?? validVars[0] ?? "-";
+  // A level-prefixed varname opens on its level; picking stays as the link says.
+  store.levelAuto = paramLevelAuto.value !== "false";
+  selectVariableLevel(varnameSelector.value);
 
   if (
     datasources.value &&

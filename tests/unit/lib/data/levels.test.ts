@@ -12,8 +12,11 @@ import {
   DEFAULT_PIXELS_PER_CELL,
   exceedsCellCap,
   groundMetersPerPixel,
+  isSameVariable,
+  levelOfVariable,
   selectLevel,
   type TLevelSelectionCamera,
+  variableOnLevel,
 } from "@/lib/data/levels.ts";
 import { ZARR_FORMAT, type TSources } from "@/lib/types/GlobeTypes.ts";
 
@@ -232,4 +235,39 @@ it("names the coarsest level, when every level states its resolution", () => {
   ).toBe(1);
   expect(coarsestLevel([{ resolution: 100 }])).toBeUndefined();
   expect(coarsestLevel([{ resolution: 100 }, {}])).toBeUndefined();
+});
+
+describe("full-path varnames of a pyramid", () => {
+  const levels = [
+    { path: "multiscales/zoom_1" },
+    { path: "multiscales/zoom_0" },
+  ];
+
+  it("name their level", () => {
+    expect(levelOfVariable(levels, "multiscales/zoom_0/pr")).toBe(1);
+    expect(levelOfVariable(levels, "multiscales/zoom_10/pr")).toBeUndefined();
+    expect(levelOfVariable(levels, "quality/mask")).toBeUndefined();
+  });
+
+  it("move between levels, and stay put outside them", () => {
+    expect(variableOnLevel(levels, "multiscales/zoom_0/pr", 0)).toBe(
+      "multiscales/zoom_1/pr"
+    );
+    expect(variableOnLevel(levels, "root_only", 0)).toBe("root_only");
+    // levels of a JSON index share their keys
+    expect(variableOnLevel([{}, {}], "pr", 1)).toBe("pr");
+  });
+
+  it("tell the same variable on another level from another variable", () => {
+    expect(
+      isSameVariable(levels, "multiscales/zoom_1/pr", "multiscales/zoom_0/pr")
+    ).toBe(true);
+    expect(
+      isSameVariable(levels, "multiscales/zoom_1/pr", "multiscales/zoom_0/ts")
+    ).toBe(false);
+    expect(isSameVariable(levels, "multiscales/zoom_1/pr", "root_only")).toBe(
+      false
+    );
+    expect(isSameVariable(levels, "root_only", "root_only")).toBe(true);
+  });
 });

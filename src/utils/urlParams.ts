@@ -25,6 +25,8 @@ const URL_PARAMETERS = {
   DIM_MIN_BOUNDS: "dimMinBounds",
   DIM_MAX_BOUNDS: "dimMaxBounds",
   LIVE: "live",
+  // "false" when the level is not picked from the zoom; absent otherwise
+  LEVEL_AUTO: "levelauto",
 } as const;
 
 type TURLParameterValues = (typeof URL_PARAMETERS)[keyof typeof URL_PARAMETERS];
