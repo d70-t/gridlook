@@ -484,6 +484,33 @@ function viewWindowStale() {
   return viewBlocks(0).some((block) => !loaded.has(block));
 }
 
+/** A reader of the selected level's sorted `cell` coordinate, kept per level. */
+function readCells(
+  coordinate: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
+  cellPath: string
+) {
+  const sources = props.datasources!;
+  const key = `${sources.selectedLevel ?? 0}:${cellPath}`;
+  if (cellsReader?.key !== key) {
+    // the reader keeps reading this level, whatever is selected later
+    const level = { ...sources };
+    cellsReader = {
+      key,
+      cells: createSortedCells(
+        coordinate.shape[0],
+        coordinate.chunks[0],
+        async (start, end) =>
+          (await fetchHealpixVariableData(
+            [zarr.slice(start, end)],
+            cellPath,
+            level
+          )) as ArrayLike<number | bigint>
+      ),
+    };
+  }
+  return cellsReader.cells;
+}
+
 /**
  * Read what the stored level allows: its grid, its size, and whether it can
  * be loaded by view (nested, in a pyramid with a coarsest level to draw
@@ -511,26 +538,9 @@ async function prepareLevel() {
       cellPath
     ).catch(() => undefined);
     if (coordinate) {
-      const key = `${sources.selectedLevel ?? 0}:${cellPath}`;
-      if (cellsReader?.key !== key) {
-        // the reader keeps reading this level, whatever is selected later
-        const level = { ...sources };
-        cellsReader = {
-          key,
-          cells: createSortedCells(
-            coordinate.shape[0],
-            coordinate.chunks[0],
-            async (start, end) =>
-              (await fetchHealpixVariableData(
-                [zarr.slice(start, end)],
-                cellPath,
-                level
-              )) as ArrayLike<number | bigint>
-          ),
-        };
-      }
-      windowable = await cellsReader.cells.isAscending();
-      cells = windowable ? cellsReader.cells : undefined;
+      const reader = readCells(coordinate, cellPath);
+      windowable = await reader.isAscending();
+      cells = windowable ? reader : undefined;
     } else {
       windowable = cellCount === 12 * grid.nside ** 2;
     }
