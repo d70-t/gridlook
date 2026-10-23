@@ -329,3 +329,26 @@ it("does not pick for a variable without levels, and picks again after it", asyn
     scope.stop();
   }
 });
+
+it("picks only the levels that hold the variable, and keeps its name off them", async () => {
+  const store = useGlobeControlStore();
+  const sources = keyedPyramid([10, 8, 6]);
+  sources.value.levels[0].datasources["0/foo"] = { store: "s", dataset: "" };
+  sources.value.levels[1].datasources["1/foo"] = { store: "s", dataset: "" };
+  const scope = effectScope();
+  scope.run(() => useLevelSelection(sources, () => VIEWPORT));
+  try {
+    store.varnameSelector = "0/foo";
+    store.metersPerPixel = scaleFor(6);
+    await nextPick();
+    expect(store.selectedLevel).toBe(1);
+    expect(store.varnameSelector).toBe("1/foo");
+
+    // a manual pick of a level without it does not write a missing key
+    store.selectLevel(2);
+    await nextTick();
+    expect(store.varnameSelector).toBe("1/foo");
+  } finally {
+    scope.stop();
+  }
+});

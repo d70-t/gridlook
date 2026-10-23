@@ -46,6 +46,21 @@ export function variableOnLevel(
 }
 
 /**
+ * Whether level `index` holds `varname`, moved onto it. Levels that share
+ * their keys (a JSON index) are taken to hold every variable.
+ */
+export function levelHoldsVariable(
+  levels: readonly Pick<TSourceLevel, "path" | "datasources">[],
+  varname: string,
+  index: number
+) {
+  return (
+    levels[index].path === undefined ||
+    variableOnLevel(levels, varname, index) in levels[index].datasources
+  );
+}
+
+/**
  * Whether `varname` has levels to choose from: it is in a level group, or
  * the levels share their keys (a JSON index). An array of a pyramid outside
  * its levels has none, and is shown like a single-level dataset.

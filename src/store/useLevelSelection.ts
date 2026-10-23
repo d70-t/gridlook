@@ -11,6 +11,7 @@ import {
 } from "@/lib/camera/cameraSettings.ts";
 import {
   hasLevels,
+  levelHoldsVariable,
   levelOfVariable,
   selectLevel,
   variableOnLevel,
@@ -39,7 +40,11 @@ function followLevel(
     return;
   }
   sources.selectedLevel = level;
-  const move = (name: string) => variableOnLevel(sources.levels, name, level);
+  // a variable the level lacks keeps its name rather than a missing key
+  const move = (name: string) =>
+    levelHoldsVariable(sources.levels, name, level)
+      ? variableOnLevel(sources.levels, name, level)
+      : name;
   store.varnameSelector = move(store.varnameSelector);
   const selection = store.streamlineSelection;
   if (selection.u && selection.v && move(selection.u) !== selection.u) {
@@ -73,7 +78,11 @@ function fittingLevel(
 ) {
   const altitude = Number(cameraAlt);
   const aspect = viewport.width / Math.max(viewport.height, 1);
-  return selectLevel(
+  // only the levels that hold the variable shown can be picked
+  const held = [...levels.keys()].filter((index) =>
+    levelHoldsVariable(levels, store.varnameSelector, index)
+  );
+  const picked = selectLevel(
     store.metersPerPixel ?? {
       altitudeMeters: Number.isFinite(altitude)
         ? altitude
@@ -81,11 +90,14 @@ function fittingLevel(
       viewportHeightPx: viewport.height,
     },
     // no level is too large where the grid loads only the view of it
-    levels.map((level, index) =>
-      store.loadsLevelByView(index) ? { ...level, cellCount: 0 } : level
+    held.map((index) =>
+      store.loadsLevelByView(index)
+        ? { ...levels[index], cellCount: 0 }
+        : levels[index]
     ),
-    store.selectedLevel
+    held.indexOf(store.selectedLevel)
   );
+  return held[picked] ?? store.selectedLevel;
 }
 
 /**
