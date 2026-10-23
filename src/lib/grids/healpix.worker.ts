@@ -78,7 +78,7 @@ async function buildGrid(request: THealpixWorkerRequest) {
       BigInt(faceIndex),
       65,
       projection,
-      width > 0 && height > 0 ? dataRect : undefined
+      dataRect
     ),
     histogramSummary,
     width,

@@ -7,14 +7,20 @@ export type TDataBounds = {
   missingValue: number;
 };
 
+// `null` (e.g. xarray's `_FillValue: None`) means "not set". Number(null)
+// would turn it into 0 and mask every exact zero, such as longitude 0.
+function hasNonNullAttribute(attributes: zarr.Attributes, key: string) {
+  return Object.hasOwn(attributes, key) && attributes[key] !== null;
+}
+
 export function getMissingValue(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
   const attributes = datavar.attrs;
-  if (Object.hasOwn(attributes, "missingValue")) {
+  if (hasNonNullAttribute(attributes, "missingValue")) {
     return new Float32Array([Number(attributes.missingValue)])[0];
   }
-  if (Object.hasOwn(attributes, "missing_value")) {
+  if (hasNonNullAttribute(attributes, "missing_value")) {
     return new Float32Array([Number(attributes.missing_value)])[0];
   }
   return NaN;
@@ -33,16 +39,16 @@ export function getFillValue(
     return datavar.fillValue as number;
   }
   const attributes = datavar.attrs;
-  if (Object.hasOwn(attributes, "fillValue")) {
+  if (hasNonNullAttribute(attributes, "fillValue")) {
     return new Float32Array([Number(attributes.fillValue)])[0];
   }
-  if (Object.hasOwn(attributes, "fill_value")) {
+  if (hasNonNullAttribute(attributes, "fill_value")) {
     return new Float32Array([Number(attributes.fill_value)])[0];
   }
-  if (Object.hasOwn(attributes, "_FillValue")) {
+  if (hasNonNullAttribute(attributes, "_FillValue")) {
     return new Float32Array([Number(attributes._FillValue)])[0];
   }
-  if (Object.hasOwn(attributes, "_fillvalue")) {
+  if (hasNonNullAttribute(attributes, "_fillvalue")) {
     return new Float32Array([Number(attributes._fillvalue)])[0];
   }
   return NaN;

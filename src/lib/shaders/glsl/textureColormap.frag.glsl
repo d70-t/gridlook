@@ -9,6 +9,7 @@ uniform int colormap;
 uniform float posterizeLevels;
 uniform float hideBelowValue;
 uniform float hideAboveValue;
+uniform float opacity;
 uniform sampler2D data;
 uniform vec2 dataUvOffset;
 uniform vec2 dataUvScale;
@@ -34,7 +35,7 @@ void main() {
     || is_nan(v_value) || v_value <= hideBelowValue || v_value >= hideAboveValue) {
         discard;
     }
-    gl_FragColor.a = 1.0;
+    gl_FragColor.a = opacity;
     float normalized_value = clamp(addOffset + scaleFactor * v_value, 0.0, 1.0);
     normalized_value = posterize(normalized_value, posterizeLevels);
 

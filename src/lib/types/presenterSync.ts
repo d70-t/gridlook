@@ -15,8 +15,6 @@ export type TPresenterStatePayload = {
   posterizeLevels?: number;
   userBoundsLow?: number;
   userBoundsHigh?: number;
-  landSeaMaskChoice?: string;
-  landSeaMaskUseTexture?: boolean;
   projectionMode?: string;
   projectionCenter?: { lat: number; lon: number };
   isRotating?: boolean;

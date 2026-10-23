@@ -1,7 +1,7 @@
 // Generic equirectangular texture layer rendering.
 // Renders an equirectangular texture either onto the globe (GPU-projected
 // sphere) or onto flat projections (quad with inverse-projection shader).
-// Used by the built-in land/sea mask and by user-uploaded texture layers.
+// Used by user-uploaded texture layers; the basemap reuses its land cutout.
 
 import * as d3 from "d3-geo";
 import { fromBlob, type TypedArrayWithDimensions } from "geotiff";
@@ -9,8 +9,8 @@ import * as THREE from "three";
 
 import flatInverseFragmentShader from "./glsl/flatInverse.frag.glsl";
 import flatInverseVertexShader from "./glsl/flatInverse.vert.glsl";
-import gpuProjectedMaskFragmentShader from "./glsl/gpuProjectedMask.frag.glsl";
-import gpuProjectedMaskVertexShader from "./glsl/gpuProjectedMask.vert.glsl";
+import gpuProjectedImageFragmentShader from "./glsl/gpuProjectedImage.frag.glsl";
+import gpuProjectedImageVertexShader from "./glsl/gpuProjectedImage.vert.glsl";
 import { ResourceCache } from "./ResourceCache.ts";
 import { isGeoTiffLayerSource } from "./textureLayerFormats.ts";
 
@@ -21,7 +21,6 @@ export const LAND_SEA_MASK_MODES = {
   OFF: "off",
   SEA: "sea",
   LAND: "land",
-  GLOBE: "globe",
 } as const;
 
 export type TLandSeaMaskMode =
@@ -491,7 +490,7 @@ export function createEquirectLayerMesh(
     geometry = createFlatQuadGeometry();
     material = new THREE.ShaderMaterial({
       uniforms: {
-        maskTexture: { value: texture },
+        imageTexture: { value: texture },
         textureBounds: { value: textureBounds },
         opacity: { value: 1.0 },
         projectionType: {
@@ -510,13 +509,13 @@ export function createEquirectLayerMesh(
     geometry = createGlobeGeometry();
     material = new THREE.ShaderMaterial({
       uniforms: {
-        maskTexture: { value: texture },
+        imageTexture: { value: texture },
         textureBounds: { value: textureBounds },
         projectionRadius: { value: GLOBE_LAYER_RADIUS },
         opacity: { value: 1.0 },
       },
-      vertexShader: gpuProjectedMaskVertexShader,
-      fragmentShader: gpuProjectedMaskFragmentShader,
+      vertexShader: gpuProjectedImageVertexShader,
+      fragmentShader: gpuProjectedImageFragmentShader,
       side: THREE.FrontSide,
       depthWrite: false,
       depthTest: false,
@@ -586,14 +585,4 @@ export function updateEquirectLayerProjection(
     material.uniforms.centerLat.value = projectionHelper.center.lat;
   }
   material.needsUpdate = true;
-}
-
-/** Dispose a layer mesh including its geometry and texture. */
-export function disposeLayerMesh(mesh: THREE.Mesh): void {
-  mesh.geometry?.dispose();
-  const material = mesh.material as THREE.ShaderMaterial;
-  const texture = material.uniforms?.maskTexture?.value as
-    THREE.Texture | undefined;
-  texture?.dispose();
-  material?.dispose();
 }

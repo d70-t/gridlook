@@ -19,7 +19,11 @@ const isCollapsed = ref(false);
       class="is-flex is-align-items-center is-justify-content-space-between"
       :class="isCollapsed ? '' : 'mb-2'"
     >
-      <div class="section-title">{{ props.title }}</div>
+      <div class="is-flex is-align-items-center">
+        <div class="section-title">{{ props.title }}</div>
+        <!-- Extras next to the title, e.g. a help button. -->
+        <slot name="title" />
+      </div>
       <button
         class="button borderless-btn"
         type="button"

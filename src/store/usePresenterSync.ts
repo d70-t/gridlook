@@ -49,8 +49,6 @@ export function usePresenterSync() {
     posterizeLevels,
     userBoundsLow,
     userBoundsHigh,
-    landSeaMaskChoice,
-    landSeaMaskUseTexture,
     projectionMode,
     projectionCenter,
     isRotating,
@@ -114,8 +112,6 @@ export function usePresenterSync() {
       posterizeLevels: posterizeLevels.value,
       userBoundsLow: userBoundsLow.value,
       userBoundsHigh: userBoundsHigh.value,
-      landSeaMaskChoice: landSeaMaskChoice.value,
-      landSeaMaskUseTexture: landSeaMaskUseTexture.value,
       projectionMode: projectionMode.value,
       projectionCenter: opts?.includeProjectionCenter
         ? gatherProjectionCenter()
@@ -201,13 +197,6 @@ export function usePresenterSync() {
   }
 
   function applyLayerState(payload: TPresenterStatePayload) {
-    if (payload.landSeaMaskChoice !== undefined) {
-      landSeaMaskChoice.value =
-        payload.landSeaMaskChoice as typeof landSeaMaskChoice.value;
-    }
-    if (payload.landSeaMaskUseTexture !== undefined) {
-      landSeaMaskUseTexture.value = payload.landSeaMaskUseTexture;
-    }
     if (payload.showCoastLines !== undefined) {
       showCoastLines.value = payload.showCoastLines;
     }
@@ -346,8 +335,6 @@ export function usePresenterSync() {
     () => posterizeLevels.value,
     () => userBoundsLow.value,
     () => userBoundsHigh.value,
-    () => landSeaMaskChoice.value,
-    () => landSeaMaskUseTexture.value,
     () => projectionMode.value,
     () => isRotating.value,
     () => showCoastLines.value,

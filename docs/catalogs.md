@@ -16,8 +16,11 @@ Each dataset entry currently supports:
 
 - `url`: required dataset URL
 - `title`: optional display name
-- `tag`: optional short label shown in the catalog list
+- `tags`: optional object of arbitrary `"key": "value"` string pairs
 - `description`: optional longer text used in the catalog list and search
+- `params`: optional Gridlook settings applied when the dataset is opened, as
+  an object or as a string copied from the address bar, see
+  [Params](#params) and [URL parameters](url-parameters.md).
 
 Example:
 
@@ -29,17 +32,47 @@ Example:
     {
       "title": "ICON Daily Mean",
       "url": "https://example.org/icon/daily_mean.zarr",
-      "tag": "healpix",
-      "description": "Daily mean atmosphere output on the native grid."
+      "tags": { "grid": "healpix", "realm": "atmosphere" },
+      "description": "Daily mean atmosphere output on the native grid.",
+      "params": { "varname": "tas", "colormap": "viridis" }
     },
     {
       "title": "AWI Ocean",
       "url": "https://example.org/awi/ocean.zarr",
-      "tag": "irregular"
+      "tags": { "grid": "irregular", "realm": "ocean" },
+      "params": "varname=tos::dimIndices_time=12"
     }
   ]
 }
 ```
+
+### Tags
+
+Every tag key gets its own filter dropdown in the catalog panel, labelled with
+the key with its first letter capitalized (`grid` becomes "Grid"). Each value in
+a dropdown shows how many datasets remain when picking it. Clicking a tag in the
+list toggles that filter, and the catalog can also be sorted by any tag key.
+
+Every tag key gets its own color, assigned in the order the keys first appear in
+the catalog, so the same catalog always shows the same colors.
+
+The older single `"tag": "healpix"` property is still accepted and treated as
+`"tags": { "tag": "healpix" }`.
+
+### Params
+
+Gridlook settings like the variable, colormap or time step can be stored in the
+URL hash (see [URL parameters](url-parameters.md)). Put them into `params`
+instead of appending them to `url`: Gridlook adds them to the hash when the
+dataset is opened, while `url` stays a plain dataset URL that the copy button
+in the catalog panel can copy for use in other tools.
+
+`params` can also be a string copied from the address bar, i.e. everything
+after the dataset URL without the leading `::`, for example
+`"varname=tas::colormap=viridis"`.
+
+If "Keep view settings" is checked in the dialog, the kept settings take
+precedence over `params`.
 
 ## Hosting Requirements
 
@@ -77,6 +110,12 @@ You can also host the catalog anywhere else and paste its URL into the "Open dat
 
 Gridlook will detect that the URL is a catalog, load it, and show its dataset entries in the dialog.
 
+### 3. Open a Local Catalog
+
+Use **Local Catalog** in the "Open" tab of the "Open dataset" dialog to
+open a catalog JSON file from your computer. A local catalog is not part of
+shared links, so they fall back to the default catalog.
+
 ## Sharing Links with a Catalog
 
 When a dataset is opened from a catalog, Gridlook keeps the catalog URL in the hash using the `catalog` parameter. This allows shared links to reopen the same dataset while preserving the catalog context.
@@ -89,7 +128,11 @@ Example:
 
 ## Notes
 
-- `tag` is only used for display and sorting in the catalog panel.
+- `tags` are only used for display, filtering and sorting in the catalog panel.
+- The dataset that is currently open is marked in the catalog list.
+- The "Recently opened" list in the "Open" tab lists the last 20 datasets opened
+  from the dialog. It is stored per browser in `localStorage`. Local NetCDF and
+  Zarr datasets are not listed, because they cannot be reopened from a URL.
 - `description` is shown in the catalog panel and is also included in search.
 - Use dataset URLs that Gridlook can already open directly.
 - Absolute HTTPS URLs are the safest choice for catalog entries.

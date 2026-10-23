@@ -9,6 +9,10 @@ import {
 } from "../types/GlobeTypes.ts";
 
 import {
+  isLatitudeVariable,
+  isLongitudeVariable,
+} from "./coordinateVariables.ts";
+import {
   createListableIcechunkStore,
   isIcechunkStorePath,
   splitIcechunkStoreAndGroup,
@@ -18,6 +22,12 @@ import {
   parseMultiscales,
   type TMultiscaleEntry,
 } from "./multiscales.ts";
+import type { NetCDFArray } from "./netCDF.ts";
+import {
+  createReferenceStore,
+  isReferenceStorePath,
+  splitReferenceStoreAndGroup,
+} from "./referenceStore.ts";
 import { ZarrDataManager } from "./ZarrDataManager.ts";
 
 import trim from "@/utils/trim.ts";
@@ -83,8 +93,7 @@ export function hideFormulaTermVariablesWithoutStandardName(
 
 function isValidVariable(
   varname: string,
-  shape: number[],
-  dimensions?: string[]
+  variable: zarr.Array<zarr.DataType, zarr.AsyncReadable> | NetCDFArray
 ) {
   const EXCLUDED_VAR_PATTERNS = [
     "bnds",
@@ -95,7 +104,14 @@ function isValidVariable(
     "cell_ids",
   ] as const;
 
+  const shape = variable.shape;
+  const dimensions = variable.dimensionNames as string[] | undefined;
+
   if (!Array.isArray(dimensions)) {
+    return false;
+  }
+
+  if (variable.dtype === "string") {
     return false;
   }
 
@@ -105,7 +121,9 @@ function isValidVariable(
   const hasExcludedName = EXCLUDED_VAR_PATTERNS.some((pattern) =>
     varname.includes(pattern)
   );
-  const isLatLon = varname === "lat" || varname === "lon";
+  const isLatLon =
+    isLatitudeVariable(varname, variable.attrs) ||
+    isLongitudeVariable(varname, variable.attrs);
 
   return shapeValid && !hasExcludedName && !isLatLon;
 }
@@ -203,11 +221,7 @@ async function collectVariable(
     [varname]: {
       store: src,
       dataset: datasetPath,
-      hidden: !isValidVariable(
-        varname,
-        variable.shape,
-        variable.dimensionNames as string[]
-      ),
+      hidden: !isValidVariable(varname, variable),
       attrs: {
         ...variable.attrs,
         dimensionNames: variable.dimensionNames,
@@ -457,9 +471,7 @@ export async function indexFromNetCDF(
       store: src,
       dataset: "",
       file,
-      hidden:
-        dimensions.has(varname) ||
-        !isValidVariable(varname, array.shape, array.dimensionNames),
+      hidden: dimensions.has(varname) || !isValidVariable(varname, array),
       attrs: {
         ...array.attrs,
         dimensionNames: array.dimensionNames,
@@ -516,7 +528,27 @@ async function indexFromIcechunk(src: string): Promise<TSources> {
   );
 }
 
+async function indexFromReference(src: string): Promise<TSources> {
+  const { storePath, groupPath } = splitReferenceStoreAndGroup(src);
+  const store = await createReferenceStore(storePath);
+  const format = store.zarrFormat === 2 ? ZARR_FORMAT.V2 : ZARR_FORMAT.V3;
+  const root = await zarr.open(store, { kind: "group" });
+  const group = groupPath
+    ? await zarr.open(root.resolve(groupPath), { kind: "group" })
+    : root;
+  const datasources = await processZarrVariables(
+    store,
+    root,
+    storePath,
+    groupPath
+  );
+  return createIndex(group.attrs, datasources, storePath, format, groupPath);
+}
+
 export async function indexFromZarr(src: string): Promise<TSources> {
+  if (isReferenceStorePath(src)) {
+    return indexFromReference(src);
+  }
   if (isIcechunkStorePath(src)) {
     return indexFromIcechunk(src);
   }

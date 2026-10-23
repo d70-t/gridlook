@@ -11,6 +11,10 @@ import {
 import { currentLevel } from "./levels.ts";
 import { getLocalZarrStore, isLocalZarrSource } from "./localZarr.ts";
 import type { NetCDFArray, NetCDFGroup, TNetCDFBackend } from "./netCDF.ts";
+import {
+  createReferenceStore,
+  isReferenceStorePath,
+} from "./referenceStore.ts";
 
 import {
   ZARR_FORMAT,
@@ -80,7 +84,9 @@ export class ZarrDataManager {
 
     const parsed = parseStorePath(storePath);
     let store: zarr.AsyncReadable | undefined = undefined;
-    if (
+    if (isReferenceStorePath(storePath)) {
+      store = await createReferenceStore(storePath);
+    } else if (
       isIcechunk ||
       parsed.backend === "icechunk" ||
       isIcechunkStorePath(storePath)

@@ -10,6 +10,7 @@ uniform int colormap;
 uniform float posterizeLevels;
 uniform float hideBelowValue;
 uniform float hideAboveValue;
+uniform float opacity;
 uniform int projectionType;
 uniform float projectionRadius;
 uniform int edgeQuality;
@@ -28,5 +29,5 @@ void main() {
     float normalized_value = clamp(addOffset + scaleFactor * v_value, 0.0, 1.0);
     normalized_value = posterize(normalized_value, posterizeLevels);
     #include "./applyColormap.glsl"
-    gl_FragColor.a = 1.0;
+    gl_FragColor.a = opacity;
 }

@@ -7,14 +7,14 @@ import {
   type TURLParameterValues,
 } from "../utils/urlParams.ts";
 
+import { formatLayersParam, type TLayerUrlEntry } from "./layerUrlState.ts";
 import { useUrlParameterStore } from "./paramStore.ts";
 import {
-  BUILTIN_LAYER_IDS,
+  LAYER_KINDS,
   useGlobeControlStore,
   type TGlobeControlStoreKeys,
+  type TLayerEntry,
 } from "./store.ts";
-
-import { encodeVolumeUrlState } from "@/lib/volume/volumeUrlState.ts";
 
 type TUrlSyncEntry = {
   key:
@@ -52,18 +52,7 @@ const GLOBE_URL_SYNC_MAP: TUrlSyncEntry[] = [
     param: URL_PARAMETERS.HIDE_UPPER_BOUND,
     transform: String,
   },
-  { key: "landSeaMaskChoice", param: URL_PARAMETERS.MASK_MODE },
-  {
-    key: "landSeaMaskUseTexture",
-    param: URL_PARAMETERS.MASK_USE_TEXTURE,
-    transform: String,
-  },
   { key: "projectionMode", param: URL_PARAMETERS.PROJECTION },
-  {
-    key: "streamlineMagnitudeRequested",
-    param: URL_PARAMETERS.STREAMLINE_MAGNITUDE,
-    transform: (requested) => (requested ? "true" : ""),
-  },
 ];
 
 const URL_PARAM_SYNC_MAP: TUrlSyncEntry[] = [
@@ -85,6 +74,58 @@ const URL_PARAM_SYNC_MAP: TUrlSyncEntry[] = [
     transform: (v) => (v === undefined ? "" : String(v)),
   },
 ];
+
+function getLayerUrlEntry(
+  store: ReturnType<typeof useGlobeControlStore>,
+  layer: TLayerEntry
+): TLayerUrlEntry | undefined {
+  const { visible, opacity } = layer;
+  switch (layer.kind) {
+    case LAYER_KINDS.COASTLINES:
+      return {
+        kind: LAYER_KINDS.COASTLINES,
+        visible: store.showCoastLines,
+        resolution: store.coastlineResolution,
+      };
+    case LAYER_KINDS.GRATICULES:
+      return {
+        kind: LAYER_KINDS.GRATICULES,
+        visible: store.showGraticules,
+        spacing: store.graticuleSpacing,
+      };
+    case LAYER_KINDS.GRID:
+      return { kind: LAYER_KINDS.GRID, visible, opacity };
+    case LAYER_KINDS.STREAMLINES: {
+      const selection = store.streamlineSelection;
+      return {
+        kind: LAYER_KINDS.STREAMLINES,
+        visible,
+        opacity,
+        u: selection.automatic ? undefined : selection.u,
+        v: selection.automatic ? undefined : selection.v,
+        magnitude: store.streamlineMagnitudeRequested,
+      };
+    }
+    case LAYER_KINDS.VOLUME:
+      return {
+        kind: LAYER_KINDS.VOLUME,
+        visible,
+        opacity,
+        selections: store.volumeSelections,
+      };
+    case LAYER_KINDS.BASEMAP:
+      return {
+        kind: LAYER_KINDS.BASEMAP,
+        visible,
+        opacity,
+        provider: store.selectedBasemap,
+        options: store.basemapOptions,
+      };
+    default:
+      // texture layers are stored locally and never written to the URL
+      return undefined;
+  }
+}
 
 /* eslint-disable-next-line max-lines-per-function */
 export function useUrlSync() {
@@ -152,61 +193,26 @@ export function useUrlSync() {
     );
   }
 
-  watch(
-    () => store.isStreamlineLayerEnabled(),
-    (enabled) => {
-      changeURLHash({
-        [URL_PARAMETERS.STREAMLINES]: enabled ? "true" : "",
-      });
-    }
-  );
-
-  watch(
-    () => store.isVolumeLayerEnabled(),
-    (enabled) => {
-      changeURLHash({
-        [URL_PARAMETERS.VOLUME]: enabled ? "true" : "",
-      });
-    }
-  );
-
+  // Writing `layers` also drops the legacy mask parameters it replaces.
   watchDebounced(
-    () => encodeVolumeUrlState(store.volumeSelections),
-    (state) => {
-      changeURLHash({ [URL_PARAMETERS.VOLUME_STATE]: state });
+    () => {
+      const entries: TLayerUrlEntry[] = [];
+      for (const layer of store.layerStack) {
+        const entry = getLayerUrlEntry(store, layer);
+        if (entry) {
+          entries.push(entry);
+        }
+      }
+      return formatLayersParam(entries);
+    },
+    (layers) => {
+      changeURLHash({
+        [URL_PARAMETERS.LAYERS]: layers,
+        [URL_PARAMETERS.MASK_MODE]: "",
+        [URL_PARAMETERS.MASK_USE_TEXTURE]: "",
+      });
     },
     { debounce: 100 }
-  );
-
-  watch(
-    () =>
-      store.layerStack.find((layer) => layer.id === BUILTIN_LAYER_IDS.VOLUME)
-        ?.opacity,
-    (opacity) => {
-      changeURLHash({
-        [URL_PARAMETERS.VOLUME_OPACITY]:
-          typeof opacity === "number" && opacity < 1 ? opacity : "",
-      });
-    }
-  );
-
-  watch(
-    () => [
-      store.streamlineSelection.automatic,
-      store.streamlineSelection.u,
-      store.streamlineSelection.v,
-    ],
-    () => {
-      const selection = store.streamlineSelection;
-      changeURLHash({
-        [URL_PARAMETERS.STREAMLINE_U]: selection.automatic
-          ? ""
-          : (selection.u ?? ""),
-        [URL_PARAMETERS.STREAMLINE_V]: selection.automatic
-          ? ""
-          : (selection.v ?? ""),
-      });
-    }
   );
 
   // Debounced: user bounds

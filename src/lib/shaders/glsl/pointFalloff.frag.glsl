@@ -9,6 +9,7 @@ uniform int colormap;
 uniform float posterizeLevels;
 uniform float hideBelowValue;
 uniform float hideAboveValue;
+uniform float opacity;
 
 void main() {
     vec2 uv = gl_PointCoord * 2.0 - 1.0;
@@ -26,5 +27,5 @@ void main() {
     normalized_value = posterize(normalized_value, posterizeLevels);
 
     #include "./applyColormap.glsl"
-    gl_FragColor.a = falloff;
+    gl_FragColor.a = falloff * opacity;
 }

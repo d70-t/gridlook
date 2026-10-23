@@ -35,7 +35,6 @@ type TGridDataLoaderOptions = {
     stageDisplay: boolean
   ) => Promise<void>;
   clearHoverLookup: () => void;
-  updateLandSeaMask: () => void | Promise<void>;
   updateColormap: () => void;
   prepareDatasource?: () => void | Promise<void>;
   // Grids that load only the view of a large level: whether the level just
@@ -156,7 +155,8 @@ function noteViewLoading(
 function createDatasourceUpdate(
   options: TGridDataLoaderOptions,
   store: TGlobeControlStore,
-  getData: () => Promise<void>
+  getData: () => Promise<void>,
+  logError: TLogError
 ) {
   return async function datasourceUpdate() {
     options.resetDataVars?.();
@@ -166,12 +166,19 @@ function createDatasourceUpdate(
       return;
     }
 
-    await options.prepareDatasource?.();
+    try {
+      await options.prepareDatasource?.();
+    } catch (error) {
+      // GlobeView started loading before the grid mounted; without this the
+      // spinner never stops when the grid cannot be prepared.
+      logError(error, "Could not prepare grid");
+      store.stopLoading(false);
+      return;
+    }
     store.viewLoading = false;
     store.wholeLevels = [];
     noteViewLoading(options, store);
     await getData();
-    await options.updateLandSeaMask();
     options.updateColormap();
   };
 }
@@ -311,7 +318,12 @@ export function useGridDataLoader(options: TGridDataLoaderOptions) {
     windowStale: false,
   };
   const getData = createGetData(options, store, state, logError);
-  const datasourceUpdate = createDatasourceUpdate(options, store, getData);
+  const datasourceUpdate = createDatasourceUpdate(
+    options,
+    store,
+    getData,
+    logError
+  );
 
   registerGridDataLoaderWatches(options, store, state, getData, logError);
 

@@ -5,9 +5,9 @@ import {
   getLatLonData,
   isLatitudeName,
   isLongitudeName,
+  isPolarStereographicCRS,
   isProjectedXName,
   isProjectedYName,
-  isWebMercatorCRS,
 } from "./coordinateVariables.ts";
 import { currentLevel } from "./levels.ts";
 import { getTriangularMesh } from "./triangularMesh.ts";
@@ -155,8 +155,11 @@ async function determineProjectedXYGridType(
     return GRID_TYPES.REGULAR;
   }
 
+  // Other projections reuse the regular renderer's coarse mesh + data texture
+  // and are reprojected with proj4 there. Polar stereographic stays
+  // curvilinear because a subsampled mesh cell must not span the pole.
   const crsWkt = await getCRSWkt(datasources, variable);
-  if (crsWkt && !isWebMercatorCRS(crsWkt)) {
+  if (crsWkt && isPolarStereographicCRS(crsWkt)) {
     return GRID_TYPES.CURVILINEAR;
   }
   return GRID_TYPES.REGULAR;
@@ -176,8 +179,6 @@ async function determineGridTypeFromCRS(
     if (checkRegularRotatedGrid(crs)) {
       return GRID_TYPES.REGULAR_ROTATED;
     }
-    // Polar stereographic datasets are routed to CURVILINEAR so that
-    // computePolarStereoLatLon2D can produce proper 2-D lat/lon arrays.
     if (crs.attrs?.grid_mapping_name === "polar_stereographic") {
       return GRID_TYPES.CURVILINEAR;
     }

@@ -5,9 +5,9 @@ import {
   getLatLonData,
   isLatitudeName,
   isLongitudeName,
+  isPolarStereographicCRS,
   isProjectedXName,
   isProjectedYName,
-  isWebMercatorCRS,
 } from "@/lib/data/coordinateVariables.ts";
 import { getGridType, GRID_TYPES } from "@/lib/data/gridTypeDetector.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
@@ -19,8 +19,8 @@ vi.mock("@/lib/data/coordinateVariables.ts", () => ({
   isLatitudeName: vi.fn(),
   isLongitudeName: vi.fn(),
   isProjectedXName: vi.fn(),
+  isPolarStereographicCRS: vi.fn(),
   isProjectedYName: vi.fn(),
-  isWebMercatorCRS: vi.fn(),
 }));
 
 vi.mock("@/lib/data/ZarrDataManager.ts", () => ({
@@ -159,10 +159,8 @@ beforeEach(() => {
   vi.mocked(isProjectedYName).mockImplementation(
     (name) => getLocalName(name) === "y"
   );
-  vi.mocked(isWebMercatorCRS).mockImplementation(
-    (crsWkt) =>
-      crsWkt.includes('AUTHORITY["EPSG","3857"]') ||
-      crsWkt.toLowerCase().includes("pseudo-mercator")
+  vi.mocked(isPolarStereographicCRS).mockImplementation((crsWkt) =>
+    crsWkt.toLowerCase().includes("polar stereographic")
   );
 });
 
@@ -275,6 +273,7 @@ it.each([
     'PROJCS[WGS 84 / Pseudo-Mercator, AUTHORITY["EPSG","3857"]]',
     GRID_TYPES.REGULAR,
   ],
+  ["PROJCRS[ETRS89 / UTM zone 31N (N-E)]", GRID_TYPES.REGULAR],
 ])("returns %s projected x/y fallback", async (crsWkt, expectedGridType) => {
   const sources = createSources(["y", "x"]);
   mockDataVariable();

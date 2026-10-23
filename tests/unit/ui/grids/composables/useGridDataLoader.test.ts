@@ -54,7 +54,6 @@ it("retries the newest queued update when an older fetch fails", async () => {
       getDataVar: vi.fn().mockResolvedValue({}),
       fetchAndRenderData,
       clearHoverLookup: vi.fn(),
-      updateLandSeaMask: vi.fn(),
       updateColormap: vi.fn(),
     })
   )!;
@@ -81,7 +80,6 @@ it("reports a fetch failure when no newer update is queued", async () => {
       getDataVar: vi.fn().mockResolvedValue({}),
       fetchAndRenderData: vi.fn().mockRejectedValue(new Error("unavailable")),
       clearHoverLookup: vi.fn(),
-      updateLandSeaMask: vi.fn(),
       updateColormap: vi.fn(),
     })
   )!;
@@ -108,7 +106,6 @@ it("reloads a swapped level in place and stages its display", async () => {
       fetchAndRenderData,
       clearHoverLookup: vi.fn(),
       prepareDatasource,
-      updateLandSeaMask: vi.fn(),
       updateColormap: vi.fn(),
     })
   )!;
@@ -141,7 +138,6 @@ it("reloads the view window once it no longer covers the view", async () => {
       prepareDatasource,
       canLoadByView: () => true,
       viewWindowStale,
-      updateLandSeaMask: vi.fn(),
       updateColormap: vi.fn(),
     })
   )!;
@@ -193,7 +189,6 @@ it("lets a window in flight land before reloading for a newer view", async () =>
       clearHoverLookup: vi.fn(),
       prepareDatasource: vi.fn(),
       viewWindowStale: () => true,
-      updateLandSeaMask: vi.fn(),
       updateColormap: vi.fn(),
     })
   )!;
@@ -230,7 +225,6 @@ it("prepares again for a level that supersedes one still loading", async () => {
       fetchAndRenderData,
       clearHoverLookup: vi.fn(),
       prepareDatasource,
-      updateLandSeaMask: vi.fn(),
       updateColormap: vi.fn(),
     })
   )!;
@@ -269,7 +263,6 @@ it("reloads a view window as a whole level when streamlines are switched on", as
       prepareDatasource,
       viewWindowStale: () => windowed && store.isStreamlineLayerEnabled(),
       refreshStreamlines,
-      updateLandSeaMask: vi.fn(),
       updateColormap: vi.fn(),
     })
   )!;
@@ -298,7 +291,6 @@ it("remembers a level that has to be loaded whole", async () => {
       prepareDatasource: vi.fn(),
       // level 1 cannot be loaded by view, the others can
       canLoadByView: () => sources.selectedLevel !== 1,
-      updateLandSeaMask: vi.fn(),
       updateColormap: vi.fn(),
     })
   )!;
@@ -311,6 +303,34 @@ it("remembers a level that has to be loaded whole", async () => {
   expect(store.viewLoading).toBe(true);
   expect(store.loadsLevelByView(0)).toBe(true);
   expect(store.loadsLevelByView(1)).toBe(false);
+  scope.stop();
+});
+
+it("stops loading and reports when the grid cannot be prepared", async () => {
+  const sources = {} as TSources;
+  const store = useGlobeControlStore();
+  store.startLoading();
+  const getDataVar = vi.fn();
+  const scope = effectScope();
+  const loader = scope.run(() =>
+    useGridDataLoader({
+      getDatasources: () => sources,
+      getDataVar,
+      fetchAndRenderData: vi.fn(),
+      prepareDatasource: vi.fn().mockRejectedValue(new Error("bad CRS")),
+      clearHoverLookup: vi.fn(),
+      updateColormap: vi.fn(),
+    })
+  )!;
+
+  await loader.datasourceUpdate();
+
+  expect(logError).toHaveBeenCalledWith(
+    expect.objectContaining({ message: "bad CRS" }),
+    "Could not prepare grid"
+  );
+  expect(getDataVar).not.toHaveBeenCalled();
+  expect(store.loading).toBe(false);
   scope.stop();
 });
 
@@ -342,7 +362,6 @@ it("commits only the latest complete timestep and preserves its derived variable
         }
       },
       clearHoverLookup: vi.fn(),
-      updateLandSeaMask: vi.fn(),
       updateColormap: vi.fn(),
     })
   )!;
@@ -384,7 +403,6 @@ it("restores the selected scalar data when streamlines are disabled", async () =
       getDataVar: vi.fn().mockResolvedValue({}),
       fetchAndRenderData,
       clearHoverLookup: vi.fn(),
-      updateLandSeaMask: vi.fn(),
       updateColormap,
       refreshStreamlines,
       suspendStreamlines,
@@ -425,7 +443,6 @@ it("restarts an in-flight timestep when streamlines are disabled and enabled aga
       getDataVar: vi.fn().mockResolvedValue({}),
       fetchAndRenderData,
       clearHoverLookup: vi.fn(),
-      updateLandSeaMask: vi.fn(),
       updateColormap: vi.fn(),
       suspendStreamlines: vi.fn(),
       refreshStreamlines,
@@ -476,7 +493,6 @@ it("switches cached scalar backgrounds without reloading data or streamlines", a
       fetchAndRenderData,
       scalarCache,
       clearHoverLookup: vi.fn(),
-      updateLandSeaMask: vi.fn(),
       updateColormap: vi.fn(),
       refreshStreamlines,
     })

@@ -39,7 +39,7 @@ watch(
     <h4
       class="title is-6 is-flex is-justify-content-space-between is-align-items-center"
     >
-      <span>Current Variable</span>
+      <span style="text-wrap: nowrap">Current Variable</span>
       <code>{{ varname }}</code>
     </h4>
     <div class="content">

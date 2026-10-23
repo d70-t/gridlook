@@ -81,18 +81,24 @@ model (ESM) output on native grids.
 
 - Use a publicly reachable Zarr or Icechunk URI that allows browser requests
   through CORS. Icechunk repositories can use an `icechunk+https://` URI.
+- Open a [Kerchunk reference file](https://fsspec.github.io/kerchunk/spec.html)
+  (JSON, version 0 or 1) with `reference+https://<file>.json`, followed by the
+  path of a group if needed. The whole file is loaded when the dataset is
+  opened, so keep it to a few hundred thousand references.
 - Open multiple related datasets through a [Gridlook catalog](catalogs.md).
 - Follow a changing dataset by adding `::live=true`; see
   [Live datasets](live-datasets.md).
+- Store view settings like variable, colormap or time step in the URL; see
+  [URL parameters](url-parameters.md).
 - Use the [controls guide](Controls.md) for keyboard, mouse, touch, streamline,
   and presenter controls.
 
 ### Local Zarr and NetCDF files
 
-- In the "Open dataset" dialog, use **Local Zarr** to select a local Zarr
-  dataset directory, or **Local NetCDF** to select a local `.nc`/`.nc4`/`.cdf`
-  file. Both are read directly in the browser; nothing is uploaded to a
-  server.
+- In the "Open" tab of the "Open dataset" dialog, use **Local Zarr** to
+  select a local Zarr dataset directory, or **Local NetCDF** to select a local
+  `.nc`/`.nc4`/`.cdf` file. Both are read directly in the browser; nothing is
+  uploaded to a server.
 - Only one local dataset can be open at a time — opening another local file
   or directory replaces the previous one.
 - **Local datasets cannot be shared or restored through a URL.** Gridlook's

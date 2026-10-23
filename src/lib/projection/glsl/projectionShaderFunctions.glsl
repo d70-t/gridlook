@@ -1,5 +1,9 @@
 #include "./projectionDomain.glsl"
 
+float makeNaN() {
+  return uintBitsToFloat(0x7FC00000u);
+}
+
 // Apply rotation to coordinates (for projection center)
 // This rotates the sphere so that (centerLon, centerLat) becomes (0, 0)
 vec2 rotateCoords(float lat, float lon, float centerLon, float centerLat) {
@@ -153,7 +157,7 @@ vec3 projectAzimuthalHybridRotated(vec2 rotated) {
   float c = acos(cosC);
 
   if (c > AZIMUTHAL_CLIP_ANGLE_RAD) {
-    float nan = sqrt(-1.0);
+    float nan = makeNaN();
     return vec3(nan, nan, nan);
   }
   if (c < 0.0001) {
@@ -162,7 +166,7 @@ vec3 projectAzimuthalHybridRotated(vec2 rotated) {
 
   float sinC = sin(c);
   if (abs(sinC) < 0.0001) {
-    float nan = sqrt(-1.0);
+    float nan = makeNaN();
     return vec3(nan, nan, nan);
   }
 
@@ -190,7 +194,7 @@ vec3 projectAzimuthalEquidistantRotated(vec2 rotated) {
   float c = acos(clamp(cosC, -1.0, 1.0));
 
   if (c > AZIMUTHAL_CLIP_ANGLE_RAD) {
-    float nan = sqrt(-1.0);
+    float nan = makeNaN();
     return vec3(nan, nan, nan);
   }
   if (c < 0.0001) {

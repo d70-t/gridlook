@@ -33,6 +33,7 @@ import {
 } from "@/lib/grids/irregularDelaunayWorkerClient.ts";
 import { createSerializedGeoSampleIndex } from "@/lib/grids/serializedGeoSampleIndex.ts";
 import {
+  createTriangleWrapProjectionGeometry,
   createWrappedProjectionMesh,
   updateProjectionMeshes,
 } from "@/lib/projection/projectionEdgeQuality.ts";
@@ -69,7 +70,6 @@ const {
   fitCameraToDataset,
   getDataVar,
   fetchDimensionDetails,
-  updateLandSeaMask,
   updateColormap,
   projectionHelper,
   isSceneInMotion,
@@ -99,9 +99,14 @@ function updateMeshProjectionUniforms() {
   });
 }
 
-const colormapMaterial = computed(() =>
-  makeInvertableGpuMeshMaterial(colormap.value, invertColormap.value)
-);
+const colormapMaterial = computed(() => {
+  const material = makeInvertableGpuMeshMaterial(
+    colormap.value,
+    invertColormap.value
+  );
+  material.uniforms.useTriangleWrapCull.value = 1;
+  return material;
+});
 
 const scalarCache = useScalarFieldCache({
   updateHistogram,
@@ -159,7 +164,6 @@ const { datasourceUpdate } = useGridDataLoader({
   fetchAndRenderData,
   scalarCache,
   clearHoverLookup,
-  updateLandSeaMask,
   updateColormap: () => updateColormap(meshes),
   refreshStreamlines: streamlines.refresh,
   suspendStreamlines: streamlines.suspend,
@@ -190,7 +194,7 @@ function updateGeometryBatch(batch: TGridPointBatch) {
   );
   geometry.computeBoundingSphere();
   const mesh = createWrappedProjectionMesh(
-    geometry,
+    createTriangleWrapProjectionGeometry(geometry),
     colormapMaterial.value,
     projectionHelper.value.type
   );

@@ -125,7 +125,6 @@ const {
   fitCameraToDataset,
   getDataVar,
   fetchDimensionDetails,
-  updateLandSeaMask,
   updateColormap,
   updateHistogram,
   projectionHelper,
@@ -248,7 +247,6 @@ const { datasourceUpdate } = useGridDataLoader({
   prepareDatasource: prepareLevel,
   canLoadByView: () => levelWindowable,
   viewWindowStale,
-  updateLandSeaMask,
   updateColormap: () => updateColormap(drawnMeshes()),
   refreshStreamlines: async (reuseCached) => {
     if (lastStreamlineContext) {

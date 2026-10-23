@@ -1,25 +1,13 @@
 /// <reference lib="webworker" />
 
-import {
-  buildCurvilinearBatch,
-  buildCurvilinearHoverIndexData,
-  detectCurvilinearColumnPeriodicity,
-  detectCurvilinearLongitudeFlip,
-  getCurvilinearBatchCount,
-  type TCurvilinearGrid,
-} from "./curvilinearCalculations.ts";
+import { buildCurvilinearHoverIndexData } from "./curvilinearCalculations.ts";
 import type {
   TCurvilinearWorkerRequest,
   TCurvilinearWorkerResponse,
 } from "./curvilinearWorkerProtocol.ts";
 
 import { GridGeometryWorkerMessageType } from "@/lib/grids/gridGeometryWorkerProtocol.ts";
-import {
-  postGridGeometryBatch,
-  postGridGeometryHoverIndex,
-  postGridGeometryResponse,
-} from "@/lib/grids/gridGeometryWorkerUtils.ts";
-import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
+import { postGridGeometryResponse } from "@/lib/grids/gridGeometryWorkerUtils.ts";
 
 const workerScope = self as unknown as DedicatedWorkerGlobalScope;
 
@@ -30,70 +18,31 @@ function postResponse(
   postGridGeometryResponse(workerScope, response, transfer);
 }
 
-function createGrid(request: TCurvilinearWorkerRequest): TCurvilinearGrid {
-  return {
-    latitudes: request.latitudes,
-    longitudes: request.longitudes,
-    data: request.data,
-    nj: request.nj,
-    ni: request.ni,
-    shouldFlipLongitude: detectCurvilinearLongitudeFlip(
-      request.longitudes,
-      request.latitudes,
-      request.missingValue,
-      request.fillValue,
-      request.nj,
-      request.ni
-    ),
-    isPeriodicI: detectCurvilinearColumnPeriodicity(
-      request.longitudes,
-      request.nj,
-      request.ni
-    ),
-  };
-}
-
-function postHoverIndex(requestId: number, grid: TCurvilinearGrid) {
-  postGridGeometryHoverIndex(
-    workerScope,
-    requestId,
-    buildCurvilinearHoverIndexData(grid)
-  );
-}
-
-function postBatches(
-  request: TCurvilinearWorkerRequest,
-  grid: TCurvilinearGrid,
-  totalBatches: number
-) {
-  const projection = new ProjectionHelper(
-    request.projectionType,
-    request.projectionCenter
-  );
-  for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
-    const batch = buildCurvilinearBatch(
-      grid,
-      batchIndex,
-      request.batchSize,
-      projection
-    );
-    postGridGeometryBatch(workerScope, request.requestId, batch);
-  }
-}
-
-function buildGrid(request: TCurvilinearWorkerRequest) {
-  const grid = createGrid(request);
-  const totalBatches = getCurvilinearBatchCount(grid, request.batchSize);
+// The mesh is built on the main thread from a small subsample; only the hover
+// index over every grid point is expensive enough for the worker.
+function buildHoverIndex(request: TCurvilinearWorkerRequest) {
   postResponse({
     requestId: request.requestId,
     type: GridGeometryWorkerMessageType.METADATA,
-    metadata: {
-      totalBatches,
-      shouldFlipLongitude: grid.shouldFlipLongitude,
-    },
+    metadata: { totalBatches: 0 },
   });
-  postHoverIndex(request.requestId, grid);
-  postBatches(request, grid, totalBatches);
+  const hoverIndexData = buildCurvilinearHoverIndexData(
+    request.latitudes,
+    request.longitudes
+  );
+  postResponse(
+    {
+      requestId: request.requestId,
+      type: GridGeometryWorkerMessageType.HOVER_INDEX,
+      hoverIndexData,
+    },
+    [
+      hoverIndexData.indexData,
+      hoverIndexData.latitudes.buffer,
+      hoverIndexData.longitudes.buffer,
+      hoverIndexData.sampleIds.buffer,
+    ]
+  );
   postResponse({
     requestId: request.requestId,
     type: GridGeometryWorkerMessageType.DONE,
@@ -102,7 +51,7 @@ function buildGrid(request: TCurvilinearWorkerRequest) {
 
 workerScope.onmessage = (event: MessageEvent<TCurvilinearWorkerRequest>) => {
   try {
-    buildGrid(event.data);
+    buildHoverIndex(event.data);
   } catch (error) {
     postResponse({
       requestId: event.data.requestId,

@@ -1,3 +1,4 @@
+import "@/utils/disposablePolyfill.ts";
 import type { Grid } from "healpix-geo";
 
 import type { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
@@ -52,44 +53,50 @@ function generateHealpixIndices(positionValues: Float32Array, steps: number) {
   return indices;
 }
 
+const FULL_FACE: THealpixDataRect = { u: 0, v: 0, width: 1, height: 1 };
+
+/**
+ * The texture is interpolated linearly between vertices, but the face-to-
+ * lat/lon mapping is curved: over a whole face (~110 km quads) that misplaces
+ * data by up to ~1 km. Meshing only the data rect shrinks that quadratically.
+ */
 export function buildHealpixGeometry(
   grid: Grid,
   ipix: bigint,
   steps: number,
   helper: ProjectionHelper,
-  rect: THealpixDataRect = { u: 0, v: 0, width: 1, height: 1 }
+  dataRect: THealpixDataRect = FULL_FACE
 ) {
+  const rect = dataRect.width > 0 ? dataRect : FULL_FACE;
   const vertexCount = steps * steps;
   const positionValues = new Float32Array(vertexCount * 3);
   const uv = new Float32Array(vertexCount * 2);
   const latLonValues = new Float32Array(vertexCount * 2);
-  const wholeFace = rect.width === 1 && rect.height === 1;
-  // A face showing only part of itself is tessellated over that part, so a
-  // deep level's cells sit where they belong and not on a face-wide mesh.
-  const coords = wholeFace ? grid.vertices(ipix, steps) : undefined;
+  let vertexIndex = 0;
 
-  for (let index = 0; index < vertexCount; ++index) {
-    const u = rect.u + (rect.width * Math.floor(index / steps)) / (steps - 1);
-    const v = rect.v + (rect.height * (index % steps)) / (steps - 1);
-    let lon: number;
-    let lat: number;
-    if (coords) {
-      lon = coords[2 * index];
-      lat = coords[2 * index + 1];
-    } else {
-      using point = grid.vertex(ipix, Math.min(u, 1), Math.min(v, 1));
-      ({ lon, lat } = point);
+  for (let i = 0; i < steps; ++i) {
+    for (let j = 0; j < steps; ++j) {
+      // UVs stay face-global; the shader maps them into the data rect.
+      const u = rect.u + (rect.width * i) / (steps - 1);
+      const v = rect.v + (rect.height * j) / (steps - 1);
+      using coordinate = grid.vertex(ipix, u, v);
+
+      const positionOffset = vertexIndex * 3;
+      helper.projectLatLonToArrays(
+        coordinate.lat,
+        coordinate.lon,
+        positionValues,
+        positionOffset,
+        latLonValues,
+        vertexIndex * 2
+      );
+
+      const uvIndex = vertexIndex * 2;
+      uv[uvIndex] = u;
+      uv[uvIndex + 1] = v;
+
+      vertexIndex++;
     }
-    helper.projectLatLonToArrays(
-      lat,
-      lon,
-      positionValues,
-      index * 3,
-      latLonValues,
-      index * 2
-    );
-    uv[index * 2] = u;
-    uv[index * 2 + 1] = v;
   }
 
   const indices = generateHealpixIndices(positionValues, steps);

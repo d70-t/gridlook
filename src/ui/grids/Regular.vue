@@ -22,6 +22,7 @@ import {
   isLongitudeName,
   isProjectedXName,
   isProjectedYName,
+  isWebMercatorCRS,
   loadGridAxes,
   projectedAxisCoordinatesToLonLat,
   projectXYGridToLonLat,
@@ -62,9 +63,11 @@ import {
 import {
   GridTextureExportUserDataKey,
   getRegularLatLonGridBounds,
+  isUniformlySpaced,
   TextureExportVCoordinate,
 } from "@/lib/layers/gridExportMetadata.ts";
 import {
+  createTriangleWrapProjectionGeometry,
   createWrappedProjectionMesh,
   setupProjectionGeometryWrap,
   updateProjectionMeshes,
@@ -108,7 +111,6 @@ const {
   fitCameraToDataset,
   getDataVar,
   fetchDimensionDetails,
-  updateLandSeaMask,
   updateColormap,
   updateHistogram,
   projectionHelper,
@@ -135,7 +137,8 @@ let levelLatitudes: Float32Array = new Float32Array();
 let gridWindow: TRegularWindow | null | undefined;
 const isProjectedGrid = ref(false);
 let projectedGrid: TProjectedVolumeGrid | undefined;
-let rotatedProjection: TProjectionConverter | undefined;
+// Converts native axis coordinates (rotated pole or projected x/y) to lon/lat
+let nativeProjection: TProjectionConverter | undefined;
 const selectedDimensionNames = ref<string[]>([]);
 let lastStreamlineIndices: (number | null | zarr.Slice)[] | undefined;
 let streamlineRequestRevision = 0;
@@ -224,7 +227,6 @@ const { datasourceUpdate } = useGridDataLoader({
   },
   canLoadByView,
   viewWindowStale,
-  updateLandSeaMask,
   updateColormap: () => updateColormap(drawnMeshes()),
   refreshStreamlines: async (reuseCached) => {
     if (lastStreamlineIndices) {
@@ -355,7 +357,7 @@ async function getDims() {
   isLatOnly.value = latOnlyCheck;
 
   projectedGrid = undefined;
-  rotatedProjection = undefined;
+  nativeProjection = undefined;
   const grid = currentLevel(props.datasources!).grid;
   if (latOnlyCheck) {
     const latitudesData = await getDimensionData(grid, lastDim);
@@ -373,8 +375,8 @@ async function getDims() {
     }
     if (crs) {
       projectedGrid = { kind: VOLUME_GRID_TYPES.PROJECTED, x, y, crs };
-      if (props.isRotated) {
-        rotatedProjection = proj4(crs, "EPSG:4326");
+      if (props.isRotated || (isProjectedXY && !isWebMercatorCRS(crs))) {
+        nativeProjection = proj4(crs, "EPSG:4326");
       }
     }
     const coordinates = isProjectedXY
@@ -383,6 +385,11 @@ async function getDims() {
     longitudes.value = new Float32Array(new Set(coordinates.longitudes));
     latitudes.value = new Float32Array(new Set(coordinates.latitudes));
   }
+}
+
+// x/y axes in projection units (e.g. metres): must not be wrapped like degrees
+function hasProjectedNativeAxes() {
+  return isProjectedGrid.value && nativeProjection !== undefined;
 }
 
 function isLongitudeGlobal(longitudes: Float32Array): boolean {
@@ -514,7 +521,12 @@ function getRegularTextureExportMetadata(
   lats: Float32Array,
   lons: Float32Array
 ) {
-  if (isRotated || isProjectedGrid.value) {
+  if (
+    isRotated ||
+    isProjectedGrid.value ||
+    !isUniformlySpaced(lats) ||
+    !isUniformlySpaced(lons)
+  ) {
     return undefined;
   }
 
@@ -532,11 +544,13 @@ function getRegularTextureExportMetadata(
   };
 }
 
+// eslint-disable-next-line max-lines-per-function
 function getRegularGridParameters(
   lats = latitudes.value,
   lons = longitudes.value
 ) {
-  let longitudeValues = normalizeLongitudes(lons);
+  const hasProjectedAxes = hasProjectedNativeAxes();
+  let longitudeValues = hasProjectedAxes ? lons : normalizeLongitudes(lons);
   let latitudeValues = lats;
 
   // Check if latitudes are descending and reverse if necessary
@@ -546,7 +560,7 @@ function getRegularGridParameters(
     latitudeValues = Float32Array.from(latitudeValues).reverse();
   }
 
-  const isGlobal = isLongitudeGlobal(lons);
+  const isGlobal = !hasProjectedAxes && isLongitudeGlobal(lons);
   const textureLonCount = longitudeValues.length;
   const originalLatCount = latitudeValues.length;
   const textureExportMetadata = getRegularTextureExportMetadata(
@@ -582,7 +596,7 @@ function getRegularGridParameters(
     originalLatCount,
     textureLonCount,
     isLatReversed,
-    transform: rotatedProjection,
+    transform: nativeProjection,
     geoLatCount: geoLatitudes.length,
     geoLonCount: geoLongitudes.length,
     textureExportMetadata,
@@ -669,11 +683,12 @@ function createBatchGeometry(
 
   const indices = generateGridIndices(batchLatCount, gridParams.geoLonCount);
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  const wrappedGeometry = createTriangleWrapProjectionGeometry(geometry);
   if (gridParams.textureExportMetadata) {
-    geometry.userData[GridTextureExportUserDataKey.METADATA] =
+    wrappedGeometry.userData[GridTextureExportUserDataKey.METADATA] =
       gridParams.textureExportMetadata;
   }
-  return geometry;
+  return wrappedGeometry;
 }
 
 function applyBatchGeometry(
@@ -795,7 +810,7 @@ function makeMaterial(
 ) {
   const texture = createRegularTexture(
     rawData,
-    isLongitudeGlobal(lons),
+    !hasProjectedNativeAxes() && isLongitudeGlobal(lons),
     lats.length,
     lons.length
   );
@@ -807,16 +822,18 @@ function makeMaterial(
     invertColormap.value
   );
 
-  return makeGpuProjectedTextureMaterial(
+  const material = makeGpuProjectedTextureMaterial(
     texture,
     colormap.value,
     addOffset,
     scaleFactor
   );
+  material.uniforms.useTriangleWrapCull.value = 1;
+  return material;
 }
 
 function buildHoverSamples(rawData: Float32Array): TGeoSampleIndex {
-  const transform = rotatedProjection;
+  const transform = nativeProjection;
 
   const lats = latitudes.value;
   const lons = longitudes.value;
@@ -848,7 +865,9 @@ function buildHoverSamples(rawData: Float32Array): TGeoSampleIndex {
       }
 
       // Find nearest longitude index (accounting for wrapping)
-      const lonIdx = nearestLonIndex(lons, nativeLon);
+      const lonIdx = hasProjectedNativeAxes()
+        ? nearestIndex(lons, nativeLon)
+        : nearestLonIndex(lons, nativeLon);
       if (
         windowed &&
         (Math.abs(lats[latIdx] - nativeLat) > latReach ||
@@ -1126,7 +1145,7 @@ async function makeVectorField(
   vData: Float32Array,
   isCurrent: () => boolean
 ) {
-  if (!props.isRotated) {
+  if (!nativeProjection) {
     return new RegularVectorField(
       latitudes.value,
       longitudes.value,
