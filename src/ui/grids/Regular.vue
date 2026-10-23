@@ -35,6 +35,7 @@ import {
   currentLevel,
   DEFAULT_MAX_LEVEL_CELLS,
   DEFAULT_MAX_VIEW_CELLS,
+  levelRangeOrigin,
   STREAMLINES_NEED_WHOLE_LEVEL,
   variableOnLevel,
 } from "@/lib/data/levels.ts";
@@ -1359,6 +1360,10 @@ async function fetchAndRenderData(
     dimInfo,
     bounds: { low: rangeSource?.min ?? min, high: rangeSource?.max ?? max },
     dimRanges: dimensionRanges,
+    rangeOrigin: levelRangeOrigin(
+      Boolean(rangeSource),
+      gridWindow !== undefined
+    ),
   };
   const renderScalar = () => {
     if (geometryPending) {

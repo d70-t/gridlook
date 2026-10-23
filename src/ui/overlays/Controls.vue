@@ -407,6 +407,9 @@ defineExpose({
               onPickedBoundsModeChange($event as TBoundModes)
             "
           />
+          <p v-if="varinfo?.rangeOrigin" class="is-size-7 has-text-grey mb-2">
+            Range and histogram: {{ varinfo.rangeOrigin }}
+          </p>
           <ColormapControls
             v-if="modelInfo"
             :model-info="modelInfo"

@@ -24,6 +24,7 @@ import {
   currentLevel,
   DEFAULT_MAX_LEVEL_CELLS,
   DEFAULT_MAX_VIEW_CELLS,
+  levelRangeOrigin,
   STREAMLINES_NEED_WHOLE_LEVEL,
   variableOnLevel,
 } from "@/lib/data/levels.ts";
@@ -1300,6 +1301,10 @@ async function fetchAndRenderData(
       high: rangeSource?.max ?? dataMax,
     },
     dimRanges: dimensionRanges,
+    rangeOrigin: levelRangeOrigin(
+      Boolean(rangeSource),
+      loadedBlocks !== undefined
+    ),
   };
   let geometryPending = deferDisplay;
   const renderScalar = () => {

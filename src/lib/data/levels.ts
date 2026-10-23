@@ -149,6 +149,26 @@ export function sumsOverCells(attrs: Record<string, unknown> | undefined) {
   );
 }
 
+/** Where the colour range and histogram of a level not shown whole come from. */
+export const LEVEL_RANGE_ORIGINS = {
+  COARSEST: "coarsest level",
+  LOADED_AREA: "loaded area",
+} as const;
+
+export type TLevelRangeOrigin =
+  (typeof LEVEL_RANGE_ORIGINS)[keyof typeof LEVEL_RANGE_ORIGINS];
+
+/**
+ * The coarsest level when the range was taken from it, else the loaded
+ * window of a level loaded by view; none for a range of the whole level.
+ */
+export function levelRangeOrigin(fromCoarsest: boolean, loadedByView: boolean) {
+  if (fromCoarsest) {
+    return LEVEL_RANGE_ORIGINS.COARSEST;
+  }
+  return loadedByView ? LEVEL_RANGE_ORIGINS.LOADED_AREA : undefined;
+}
+
 /** Shown in place of streamlines on a level that cannot be loaded whole. */
 export const STREAMLINES_NEED_WHOLE_LEVEL =
   "Streamlines read a whole level, and this one is too large to load whole. Pick a coarser level.";

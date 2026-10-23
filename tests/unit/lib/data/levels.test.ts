@@ -13,7 +13,9 @@ import {
   exceedsCellCap,
   groundMetersPerPixel,
   isSameVariable,
+  LEVEL_RANGE_ORIGINS,
   levelOfVariable,
+  levelRangeOrigin,
   selectLevel,
   sumsOverCells,
   type TLevelSelectionCamera,
@@ -293,4 +295,11 @@ it("finds a sum over cells among the CF cell methods", () => {
     expect(sumsOverCells({ cell_methods: methods })).toBe(false); // eslint-disable-line camelcase
   }
   expect(sumsOverCells(undefined)).toBe(false);
+});
+
+it("names where a level's range comes from unless it is the whole level's", () => {
+  expect(levelRangeOrigin(true, true)).toBe(LEVEL_RANGE_ORIGINS.COARSEST);
+  expect(levelRangeOrigin(true, false)).toBe(LEVEL_RANGE_ORIGINS.COARSEST);
+  expect(levelRangeOrigin(false, true)).toBe(LEVEL_RANGE_ORIGINS.LOADED_AREA);
+  expect(levelRangeOrigin(false, false)).toBeUndefined();
 });

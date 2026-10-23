@@ -2,6 +2,7 @@ import type { Dayjs } from "dayjs";
 import type { IndexingScheme, EllipsoidInput } from "healpix-geo";
 import * as zarr from "zarrita";
 
+import type { TLevelRangeOrigin } from "@/lib/data/levels.ts";
 import type { TVectorVariablePair } from "@/lib/data/vectorField.ts";
 import type { TColorMap } from "@/lib/shaders/colormapShaders.ts";
 
@@ -41,6 +42,8 @@ export type TVarInfo = {
   dimRanges: TDimensionRange[];
   attrs: zarr.Attributes;
   derivedFrom?: Pick<TVectorVariablePair, "u" | "v">;
+  // a level of a pyramid whose range is not its whole own one
+  rangeOrigin?: TLevelRangeOrigin;
 };
 
 export type TZarrDggsMetadata = {
