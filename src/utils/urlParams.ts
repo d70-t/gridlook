@@ -27,6 +27,11 @@ const URL_PARAMETERS = {
   LIVE: "live",
   // "false" when the level is not picked from the zoom; absent otherwise
   LEVEL_AUTO: "levelauto",
+  // "true" when the selected level is loaded whole; absent otherwise
+  LEVEL_WHOLE: "levelwhole",
+  // "true" or "false" when the levels' colour range is not the variable's
+  // default (shared, unless it sums over cells); absent otherwise
+  LEVEL_SHARED: "levelshared",
 } as const;
 
 type TURLParameterValues = (typeof URL_PARAMETERS)[keyof typeof URL_PARAMETERS];

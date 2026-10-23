@@ -37,6 +37,8 @@ export const useUrlParameterStore = defineStore("urlParams", {
       paramCatalog: undefined as string | undefined,
       paramLive: undefined as string | undefined,
       paramLevelAuto: undefined as string | undefined,
+      paramLevelWhole: undefined as string | undefined,
+      paramLevelShared: undefined as string | undefined,
     };
   },
   actions: {
@@ -89,4 +91,6 @@ export const STORE_PARAM_MAPPING = {
   catalog: "paramCatalog",
   live: "paramLive",
   levelauto: "paramLevelAuto",
+  levelwhole: "paramLevelWhole",
+  levelshared: "paramLevelShared",
 } as const;

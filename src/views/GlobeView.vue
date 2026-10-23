@@ -138,6 +138,8 @@ const {
   paramLive,
   paramLayers,
   paramLevelAuto,
+  paramLevelWhole,
+  paramLevelShared,
 } = storeToRefs(urlParameterStore);
 
 type TGlobeHandle = {
@@ -322,6 +324,11 @@ function prepareDefaults(src: string, index: TSources) {
     paramLevelAuto.value !== "false" ||
     levelOfVariable(index.levels, varnameSelector.value) === undefined;
   selectVariableLevel(varnameSelector.value);
+  store.levelWhole = paramLevelWhole.value === "true";
+  store.levelRangeShared =
+    paramLevelShared.value === undefined
+      ? undefined
+      : paramLevelShared.value === "true";
 
   if (
     datasources.value &&
