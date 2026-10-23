@@ -435,10 +435,12 @@ async function consolidatedV2Metadata(
  * group, else the shallowest group below it that carries one. The search
  * reads the store's listing and group attributes, which every caller holds
  * in memory (consolidated metadata, an Icechunk snapshot or a reference
- * file), so it fetches nothing: a v2 group without attributes is looked up
- * in `.zmetadata`, as opening it would request its missing `.zattrs`.
- * Groups inside a pyramid found are not searched; of several pyramids the
- * first is read, and the console says which.
+ * file), so it fetches nothing: a v2 group is checked in `.zmetadata` and
+ * opened only when its attributes declare a pyramid, as opening a group
+ * without attributes would request its missing `.zattrs`. Groups inside a
+ * pyramid found are not searched. Every group is checked so that, of several
+ * pyramids, the console lists them all and says which (the shallowest) is
+ * read.
  */
 async function findMultiscalesGroup(
   store: zarr.Listable<zarr.AsyncReadable>,
@@ -466,7 +468,10 @@ async function findMultiscalesGroup(
   for (const path of paths) {
     if (
       found.some((pyramid) => path.startsWith(`${pyramid.path}/`)) ||
-      (consolidated && !consolidated[`${path}/.zattrs`])
+      (consolidated &&
+        parseMultiscales(
+          (consolidated[`${path}/.zattrs`] ?? {}) as Record<string, unknown>
+        ).length === 0)
     ) {
       continue;
     }
