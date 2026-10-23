@@ -25,6 +25,7 @@ vi.mock("@vueuse/core", async (importOriginal) => ({
 vi.mock("three", async (importOriginal) => ({
   ...(await importOriginal<typeof import("three")>()),
   WebGLRenderer: class {
+    constructor(readonly parameters: object) {}
     domElement = Object.assign(new EventTarget(), {
       ownerDocument: new EventTarget(),
       style: { touchAction: "" },
@@ -129,6 +130,12 @@ it("fits a fresh dataset after its default camera was saved during loading", asy
   camera.position.setLength(5);
   grid.fitCameraToDataset([mesh]);
   expect(camera.position.length()).toBeCloseTo(5);
+  scope.stop();
+});
+
+it("asks the renderer for the stencil buffer that masks a pyramid's backdrop", () => {
+  const { grid, scope } = setupRegionalScene();
+  expect(grid.getRenderer()).toMatchObject({ parameters: { stencil: true } });
   scope.stop();
 });
 
