@@ -121,7 +121,8 @@ it.each([
       await vi.waitFor(() =>
         expect(ZarrDataManager.getVariableInfo).toHaveBeenCalledWith(
           source,
-          "u"
+          "u",
+          ZARR_FORMAT.V3
         )
       );
       expect(ZarrDataManager.getVariableInfo).toHaveBeenCalledOnce();

@@ -15,6 +15,7 @@ import {
   createReferenceStore,
   isReferenceStorePath,
 } from "./referenceStore.ts";
+import { markZarrV2Array } from "./variableDecoding.ts";
 
 import {
   ZARR_FORMAT,
@@ -203,7 +204,11 @@ export class ZarrDataManager {
     }
     const fetchPromise = (async () => {
       if (format === ZARR_FORMAT.V2) {
-        return await zarr.open.v2(store.resolve(variable), { kind: "array" });
+        const array = await zarr.open.v2(store.resolve(variable), {
+          kind: "array",
+        });
+        markZarrV2Array(array);
+        return array;
       } else if (format === ZARR_FORMAT.V3) {
         return await zarr.open.v3(store.resolve(variable), { kind: "array" });
       }

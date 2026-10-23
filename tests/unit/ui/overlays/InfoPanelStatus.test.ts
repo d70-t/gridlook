@@ -213,7 +213,8 @@ it("keeps metadata and source notices stable during animation frame loads", asyn
     await vi.waitFor(() =>
       expect(ZarrDataManager.getVariableInfo).toHaveBeenCalledWith(
         source,
-        "other"
+        "other",
+        ZARR_FORMAT.V3
       )
     );
   } finally {
