@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { computed } from "vue";
 
-import { exceedsCellCap } from "@/lib/data/levels.ts";
+import { exceedsCellCap, hasLevels } from "@/lib/data/levels.ts";
 import type { TSourceLevel } from "@/lib/types/GlobeTypes.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 
@@ -23,6 +23,11 @@ function formatResolution(resolution?: number) {
     ? ` · ${resolutionFormat.format(resolution / 1000)} km`
     : ` · ${resolutionFormat.format(resolution)} m`;
 }
+
+// a variable outside the level groups has a single resolution
+const disabled = computed(
+  () => !hasLevels(props.levels, store.varnameSelector)
+);
 
 const options = computed(() =>
   props.levels.map((level, index) => ({
@@ -52,6 +57,7 @@ function onAutoChange(event: Event) {
       >
         <select
           :value="store.selectedLevel"
+          :disabled="disabled"
           class="form-control"
           @change="onLevelChange"
         >
@@ -69,7 +75,10 @@ function onAutoChange(event: Event) {
           </option>
         </select>
       </div>
-      <label class="checkbox is-size-7">
+      <p v-if="disabled" class="is-size-7 has-text-grey">
+        This variable has no levels.
+      </p>
+      <label v-else class="checkbox is-size-7">
         <input
           :checked="store.levelAuto"
           type="checkbox"

@@ -31,6 +31,7 @@ import { downsampleDataTexture } from "@/lib/data/dataTexture.ts";
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
 import {
   coarsestLevel,
+  coarsestLevelOf,
   currentLevel,
   DEFAULT_MAX_LEVEL_CELLS,
   DEFAULT_MAX_VIEW_CELLS,
@@ -249,7 +250,8 @@ const isLatOnly = ref(false);
  */
 function canLoadByView() {
   return (
-    coarsestLevel(props.datasources!.levels) !== undefined &&
+    coarsestLevelOf(props.datasources!.levels, varnameSelector.value) !==
+      undefined &&
     !isLatOnly.value &&
     !isProjectedGrid.value &&
     !props.isRotated

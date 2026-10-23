@@ -10,6 +10,7 @@ import {
   getGlobeFitCameraDistance,
 } from "@/lib/camera/cameraSettings.ts";
 import {
+  hasLevels,
   levelOfVariable,
   selectLevel,
   variableOnLevel,
@@ -130,7 +131,11 @@ export function useLevelSelection(
 
   function pickLevel() {
     const levels = datasources.value?.levels;
-    if (!levels || levels.length < 2 || !store.levelAuto) {
+    if (
+      !levels ||
+      !hasLevels(levels, store.varnameSelector) ||
+      !store.levelAuto
+    ) {
       return;
     }
     store.selectLevel(
@@ -145,6 +150,8 @@ export function useLevelSelection(
   watch(
     () => [
       store.levelAuto,
+      // back on a variable with levels after one without
+      hasLevels(datasources.value?.levels ?? [], store.varnameSelector),
       ...(datasources.value?.levels ?? []).map((_, index) =>
         store.loadsLevelByView(index)
       ),

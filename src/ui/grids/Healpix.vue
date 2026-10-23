@@ -20,6 +20,7 @@ import { useVolume } from "./composables/useVolume.ts";
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
 import {
   coarsestLevel,
+  coarsestLevelOf,
   currentLevel,
   DEFAULT_MAX_LEVEL_CELLS,
   DEFAULT_MAX_VIEW_CELLS,
@@ -528,7 +529,10 @@ async function prepareLevel() {
   const cellCount = datavar.shape[datavar.shape.length - 1];
   let windowable = false;
   let cells: ReturnType<typeof createSortedCells> | undefined;
-  if (coarsestLevel(sources.levels) !== undefined && grid.scheme === "nested") {
+  if (
+    coarsestLevelOf(sources.levels, variable) !== undefined &&
+    grid.scheme === "nested"
+  ) {
     const cellPath = ZarrDataManager.resolveVariablePath(
       variable,
       await getCellCoordinateName()
@@ -1113,7 +1117,7 @@ async function loadBackdrop(
   isCurrent: () => boolean
 ) {
   const sources = props.datasources!;
-  const level = coarsestLevel(sources.levels);
+  const level = coarsestLevelOf(sources.levels, varnameSelector.value);
   if (level === undefined || level === (sources.selectedLevel ?? 0)) {
     return undefined;
   }

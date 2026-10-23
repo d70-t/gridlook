@@ -150,12 +150,16 @@ const { default: Regular } = await import("@/ui/grids/Regular.vue");
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const centre = { centreLat: 0, centreLon: 0 };
 
-async function mount(footprint: {
-  latMin: number;
-  latMax: number;
-  lonStart: number;
-  lonSpan: number;
-}) {
+async function mount(
+  footprint: {
+    latMin: number;
+    latMax: number;
+    lonStart: number;
+    lonSpan: number;
+  },
+  // level groups that do not hold the variable: it has no levels
+  levelPaths = false
+) {
   beforeMount.length = 0;
   fetches.length = 0;
   setHoverLookupFromIndex.mockClear();
@@ -173,6 +177,7 @@ async function mount(footprint: {
       time: source(name),
       datasources: { t: source(name) },
       resolution: name === "fine" ? 22_000 : 2_200_000,
+      ...(levelPaths ? { path: name } : {}),
     })),
   }) as unknown as TSources;
   const scope = effectScope();
@@ -274,5 +279,18 @@ it("stitches a window across the seam of the longitude axis", async () => {
   const row = 450;
   expect(hover().findNearest(0.1, 359)!.value).toBe(row * 10000 + 1795 + 1);
   expect(hover().findNearest(0.1, 1)!.value).toBe(row * 10000 + 5 + 1);
+  scope.stop();
+});
+
+it("loads a variable outside the level groups whole, without a backdrop", async () => {
+  const { store, scope } = await mount(
+    { latMin: 10, latMax: 20, lonStart: 30, lonSpan: 10 },
+    true
+  );
+  expect(fetched("fine")).toHaveLength(1);
+  expect(fetched("fine")[0].selection.slice(-2)).toEqual([null, null]);
+  expect(fetched("coarse")).toHaveLength(0);
+  expect(meshes().every((mesh) => mesh.renderOrder === 0)).toBe(true);
+  expect(store.viewLoading).toBe(false);
   scope.stop();
 });

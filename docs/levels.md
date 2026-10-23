@@ -42,6 +42,11 @@ behave as before.
   `datasources`, and may state `resolution` (metres per cell) and `cellCount`
   per level.
 
+Arrays outside the level groups (next to them, or in groups that are not
+levels) stay listed as variables without levels. Such a variable is shown
+like a single-level dataset: the level list is disabled, nothing is loaded
+by view or drawn beneath it, and the camera picks no level for it.
+
 Once every level has a resolution, the levels are sorted finest first,
 whatever order the attribute or the JSON index lists them in. Levels
 without a resolution are still selectable by hand, but the camera

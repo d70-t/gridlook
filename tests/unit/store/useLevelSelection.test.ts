@@ -306,3 +306,26 @@ it("writes an automatic pick and picking off into the URL", async () => {
     vi.stubGlobal("localStorage", { getItem: () => null });
   }
 });
+
+it("does not pick for a variable without levels, and picks again after it", async () => {
+  const store = useGlobeControlStore();
+  const sources = keyedPyramid([10, 8, 6]);
+  for (const level of sources.value.levels) {
+    level.datasources["root_only"] = { store: "s", dataset: "" };
+  }
+  const scope = effectScope();
+  scope.run(() => useLevelSelection(sources, () => VIEWPORT));
+  try {
+    store.varnameSelector = "root_only";
+    store.metersPerPixel = scaleFor(6);
+    await nextPick();
+    expect(store.selectedLevel).toBe(0);
+
+    store.varnameSelector = "0/tas";
+    await nextTick();
+    expect(store.selectedLevel).toBe(2);
+    expect(store.varnameSelector).toBe("2/tas");
+  } finally {
+    scope.stop();
+  }
+});

@@ -45,6 +45,31 @@ export function variableOnLevel(
   return `${to}${varname.slice(levels[from].path!.length)}`;
 }
 
+/**
+ * Whether `varname` has levels to choose from: it is in a level group, or
+ * the levels share their keys (a JSON index). An array of a pyramid outside
+ * its levels has none, and is shown like a single-level dataset.
+ */
+export function hasLevels(levels: TLevelPaths, varname: string) {
+  return (
+    levels.length > 1 &&
+    (levels.every(({ path }) => path === undefined) ||
+      levelOfVariable(levels, varname) !== undefined)
+  );
+}
+
+/**
+ * The coarsest level of a variable's pyramid (see coarsestLevel): none for a
+ * variable without levels, which is neither loaded by view nor drawn over a
+ * backdrop.
+ */
+export function coarsestLevelOf(
+  levels: readonly Pick<TSourceLevel, "path" | "resolution">[],
+  varname: string
+) {
+  return hasLevels(levels, varname) ? coarsestLevel(levels) : undefined;
+}
+
 /** Whether `a` and `b` name the same variable, on any levels. */
 export function isSameVariable(levels: TLevelPaths, a: string, b: string) {
   const level = levelOfVariable(levels, b);

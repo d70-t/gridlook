@@ -238,7 +238,7 @@ async function collectVariables(
   root: zarr.Group<zarr.AsyncReadable>,
   src: string,
   datasetPath = "",
-  within = datasetPath
+  include: (path: string) => boolean = () => true
 ): Promise<{
   candidates: PromiseSettledResult<Record<string, TDataSource>>[];
   dimensions: Set<string>;
@@ -246,10 +246,7 @@ async function collectVariables(
   const dimensions = new Set<string>();
   const contents = store
     .contents()
-    .filter(
-      ({ kind, path }) =>
-        kind === "array" && (!within || path.startsWith(`/${within}/`))
-    );
+    .filter(({ kind, path }) => kind === "array" && include(path));
   const candidates: PromiseSettledResult<Record<string, TDataSource>>[] = [];
 
   const batchSize = 200;
@@ -272,22 +269,22 @@ async function collectVariables(
 }
 
 /**
- * The variables of the arrays below `within` (by default the dataset
- * group), keyed by their path relative to the dataset group.
+ * The variables of the dataset group's arrays (those whose absolute path
+ * passes `include`), keyed by their path relative to the dataset group.
  */
 async function processZarrVariables(
   store: zarr.Listable<zarr.AsyncReadable>,
   root: zarr.Group<zarr.AsyncReadable>,
   src: string,
   datasetPath = "",
-  within = datasetPath
+  include?: (path: string) => boolean
 ): Promise<Record<string, TDataSource>> {
   const { candidates, dimensions } = await collectVariables(
     store,
     root,
     src,
     datasetPath,
-    within
+    include
   );
 
   // Filter and merge datasources
@@ -381,7 +378,7 @@ async function indexLevel(
     root,
     src,
     groupPath,
-    path
+    (arrayPath) => arrayPath.startsWith(`/${path}/`)
   );
   if (Object.keys(datasources).length === 0) {
     return null;
@@ -488,6 +485,51 @@ async function findMultiscalesGroup(
   return found[0];
 }
 
+/** The group of a declared level, from the store root. */
+function levelGroupPath(pyramidPath: string, entry: TMultiscaleEntry) {
+  return [pyramidPath, entry.path]
+    .map((part) => trim(part, "/"))
+    .filter(Boolean)
+    .join("/");
+}
+
+/**
+ * Keep the arrays of the dataset outside every declared level group (next
+ * to the levels, or in groups that are not levels) as variables without
+ * levels, in every level's variables, so they stay listed whichever level
+ * is selected.
+ */
+async function addVariablesWithoutLevels(
+  store: zarr.Listable<zarr.AsyncReadable>,
+  root: zarr.Group<zarr.AsyncReadable>,
+  src: string,
+  groupPath: string,
+  opened: zarr.Group<zarr.AsyncReadable>,
+  pyramid: {
+    path: string;
+    group: zarr.Group<zarr.AsyncReadable>;
+    levels: TSourceLevel[];
+  }
+) {
+  const levelPaths = parseMultiscales(pyramid.group.attrs).map((entry) =>
+    levelGroupPath(pyramid.path, entry)
+  );
+  const others = await processZarrVariables(
+    store,
+    root,
+    src,
+    groupPath,
+    (path) => !levelPaths.some((level) => path.startsWith(`/${level}/`))
+  );
+  for (const source of Object.values(others)) {
+    source.groupAttrs = opened.attrs;
+  }
+  hideFormulaTermVariablesWithoutStandardName(others);
+  for (const level of pyramid.levels) {
+    Object.assign(level.datasources, others);
+  }
+}
+
 /**
  * Index a group whose `multiscales` attribute declares a pyramid: one level
  * per declared child group that holds arrays, finest first. The attribute
@@ -516,20 +558,15 @@ async function indexLevels(
   if (!pyramid) {
     return null;
   }
-  const { group } = pyramid;
   const levels: TSourceLevel[] = [];
-  for (const entry of parseMultiscales(group.attrs)) {
-    const path = [pyramid.path, entry.path]
-      .map((part) => trim(part, "/"))
-      .filter(Boolean)
-      .join("/");
+  for (const entry of parseMultiscales(pyramid.group.attrs)) {
     const level = await indexLevel(
       store,
       root,
       src,
-      group.attrs,
+      pyramid.group.attrs,
       entry,
-      path,
+      levelGroupPath(pyramid.path, entry),
       groupPath
     ).catch(() => null);
     if (level) {
@@ -539,8 +576,12 @@ async function indexLevels(
   if (levels.length < 2) {
     return null;
   }
+  await addVariablesWithoutLevels(store, root, src, groupPath, opened!, {
+    ...pyramid,
+    levels,
+  });
   return {
-    name: (opened!.attrs.title ?? group.attrs.title) as string,
+    name: (opened!.attrs.title ?? pyramid.group.attrs.title) as string,
     zarr_format: zarrFormat, // eslint-disable-line camelcase
     levels: sortFinestFirst(levels),
   };

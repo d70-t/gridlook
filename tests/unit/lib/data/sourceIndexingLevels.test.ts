@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { EARTH_RADIUS_METERS } from "@/lib/camera/cameraSettings.ts";
+import { coarsestLevelOf, hasLevels } from "@/lib/data/levels.ts";
 import { indexFromIndex, indexFromZarr } from "@/lib/data/sourceIndexing.ts";
 
 const REPO = "https://example.test/repo.icechunk";
@@ -359,6 +360,34 @@ describe("indexing an ndpyramid pyramid", () => {
       (2 * Math.PI * 6378137) / 256,
       6
     );
+  });
+});
+
+describe("indexing what a multiscales group holds besides its levels", () => {
+  it("keeps root arrays and sibling groups as variables without levels", async () => {
+    const files = pyramidFiles(LEVELS.slice(0, 2), omeAttrs(["0", "1"]));
+    const { metadata } = files[`${SRC}/.zmetadata`] as {
+      metadata: Record<string, unknown>;
+    };
+    metadata["root_only/.zarray"] = zarray([180, 360]);
+    metadata["root_only/.zattrs"] = { _ARRAY_DIMENSIONS: ["lat", "lon"] };
+    metadata["quality/.zgroup"] = { zarr_format: 2 };
+    metadata["quality/mask/.zarray"] = zarray([180, 360]);
+    metadata["quality/mask/.zattrs"] = { _ARRAY_DIMENSIONS: ["lat", "lon"] };
+    serve(files);
+    const index = await indexFromZarr(SRC);
+    expect(index.levels.map(({ path }) => path)).toEqual(["0", "1"]);
+    for (const [position, level] of index.levels.entries()) {
+      const visible = Object.entries(level.datasources)
+        .filter(([, source]) => !source.hidden)
+        .map(([name]) => name)
+        .sort();
+      expect(visible).toEqual([`${position}/tas`, "quality/mask", "root_only"]);
+    }
+    const { levels } = index;
+    expect(hasLevels(levels, "0/tas")).toBe(true);
+    expect(hasLevels(levels, "root_only")).toBe(false);
+    expect(coarsestLevelOf(levels, "root_only")).toBeUndefined();
   });
 });
 
