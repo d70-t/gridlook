@@ -1287,12 +1287,15 @@ async function fetchAndRenderData(
   }
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
 
+  // the backdrop (the coarsest level) sets the range of every level, unless
+  // each level is to take its own
+  const rangeSource = store.levelRangeShared ? backdropData : undefined;
   const scalarInfo = {
     attrs: datavar.attrs,
     dimInfo,
     bounds: {
-      low: backdropData?.min ?? dataMin,
-      high: backdropData?.max ?? dataMax,
+      low: rangeSource?.min ?? dataMin,
+      high: rangeSource?.max ?? dataMax,
     },
     dimRanges: dimensionRanges,
   };
@@ -1315,7 +1318,7 @@ async function fetchAndRenderData(
     render: renderScalar,
     info: scalarInfo,
     indices: indices as number[],
-    data: backdropData?.histogramSummaries ?? histogramSummaries,
+    data: rangeSource?.histogramSummaries ?? histogramSummaries,
     isCurrent,
   });
   await updateStreamlines(lastStreamlineContext);

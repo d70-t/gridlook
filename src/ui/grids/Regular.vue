@@ -1349,10 +1349,13 @@ async function fetchAndRenderData(
     indices
   );
 
+  // the backdrop (the coarsest level) sets the range of every level, unless
+  // each level is to take its own
+  const rangeSource = store.levelRangeShared ? backdropData : undefined;
   const scalarInfo = {
     attrs: datavar.attrs,
     dimInfo,
-    bounds: { low: backdropData?.min ?? min, high: backdropData?.max ?? max },
+    bounds: { low: rangeSource?.min ?? min, high: rangeSource?.max ?? max },
     dimRanges: dimensionRanges,
   };
   const renderScalar = () => {
@@ -1392,7 +1395,7 @@ async function fetchAndRenderData(
     render: renderScalar,
     info: scalarInfo,
     indices: indices as number[],
-    data: backdropData?.data ?? rawData,
+    data: rangeSource?.data ?? rawData,
     missingValue,
     fillValue,
     isCurrent,

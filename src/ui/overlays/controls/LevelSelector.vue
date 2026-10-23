@@ -59,6 +59,10 @@ function onAutoChange(event: Event) {
 function onWholeChange(event: Event) {
   store.setLevelWhole((event.target as HTMLInputElement).checked);
 }
+
+function onRangeSharedChange(event: Event) {
+  store.setLevelRangeShared((event.target as HTMLInputElement).checked);
+}
 </script>
 
 <template>
@@ -112,6 +116,17 @@ function onWholeChange(event: Event) {
             @change="onWholeChange"
           />
           Load whole level
+        </label>
+        <label
+          class="checkbox is-size-7 is-block"
+          title="Off: each level takes its own data range (sums such as counts grow with the cell size)"
+        >
+          <input
+            :checked="store.levelRangeShared"
+            type="checkbox"
+            @change="onRangeSharedChange"
+          />
+          Keep one colour range across levels
         </label>
       </template>
     </div>

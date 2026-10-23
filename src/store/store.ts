@@ -256,6 +256,10 @@ export const useGlobeControlStore = defineStore("globeControl", {
       levelAuto: true,
       // load the selected level whole rather than the part in view
       levelWhole: false,
+      // whether every level shares the coarsest level's colour range and
+      // histogram (right for a mean, e.g. elevation) or each level takes its
+      // own (right for a sum, e.g. a count, which grows 4x per level)
+      levelRangeShared: true,
       // ── Live datasets ──────────────────────────────────────────────
       // A live dataset exposes only the currently-available timestep and is
       // followed automatically by polling the store's timestep endpoints.
@@ -350,6 +354,9 @@ export const useGlobeControlStore = defineStore("globeControl", {
     },
     setLevelWhole(whole: boolean) {
       this.levelWhole = whole;
+    },
+    setLevelRangeShared(shared: boolean) {
+      this.levelRangeShared = shared;
     },
     isNewDataset(): boolean {
       return this.newDatasetSignifier % 2 === 0;
