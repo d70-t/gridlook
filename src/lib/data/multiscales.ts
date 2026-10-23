@@ -93,6 +93,11 @@ function omeResolution(
   return count > 0 ? sum / count : undefined;
 }
 
+/** A zoom written as a number or a string of digits. */
+function zoomOf(value: unknown) {
+  return /^\d+$/.test(String(value)) ? Number(value) : undefined;
+}
+
 /**
  * ndpyramid: a web-mercator dataset of zoom `n` (its `level`, else its
  * numeric path) with `pixels_per_tile` p has cells of 2πR / (p · 2ⁿ) at the
@@ -102,21 +107,15 @@ function ndpyramidResolution(
   dataset: Record<string, unknown>
 ): number | undefined {
   const pixels = Number(dataset.pixels_per_tile);
-  const zoom =
-    dataset.level ??
-    (/^\d+$/.test(String(dataset.path)) ? Number(dataset.path) : undefined);
+  const zoom = zoomOf(dataset.level) ?? zoomOf(dataset.path);
   if (
     String(dataset.crs).toUpperCase() !== "EPSG:3857" ||
     !(pixels > 0) ||
-    !Number.isInteger(zoom) ||
-    (zoom as number) < 0
+    zoom === undefined
   ) {
     return undefined;
   }
-  return (
-    (WEB_MERCATOR_ZOOM0_METERS_PER_PIXEL * 256) /
-    (pixels * 2 ** (zoom as number))
-  );
+  return (WEB_MERCATOR_ZOOM0_METERS_PER_PIXEL * 256) / (pixels * 2 ** zoom);
 }
 
 function omeEntries(multiscale: Record<string, unknown>): TMultiscaleEntry[] {

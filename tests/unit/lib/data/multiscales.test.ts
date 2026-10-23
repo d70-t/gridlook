@@ -83,6 +83,8 @@ describe("parseMultiscales for ndpyramid", () => {
             { path: "0", crs: "EPSG:3857", pixels_per_tile: 128 },
             { path: "1", level: 1, crs: "EPSG:3857", pixels_per_tile: 128 },
             { path: "a", crs: "EPSG:3857", pixels_per_tile: 128 },
+            { path: "b", level: "3", crs: "EPSG:3857", pixels_per_tile: 128 },
+            { path: "4", level: "x", crs: "EPSG:3857", pixels_per_tile: 128 },
           ],
         },
       ],
@@ -90,6 +92,8 @@ describe("parseMultiscales for ndpyramid", () => {
     expect(entries[0].resolution).toBeCloseTo(equator / 128, 6);
     expect(entries[1].resolution).toBeCloseTo(equator / 256, 6);
     expect(entries[2].resolution).toBeUndefined();
+    expect(entries[3].resolution).toBeCloseTo(equator / 1024, 6);
+    expect(entries[4].resolution).toBeCloseTo(equator / 2048, 6);
   });
 });
 
