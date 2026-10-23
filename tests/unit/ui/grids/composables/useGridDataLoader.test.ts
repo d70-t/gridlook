@@ -277,6 +277,55 @@ it("reloads a view window as a whole level when streamlines are switched on", as
   scope.stop();
 });
 
+it("reloads the level when the colour range toggle flips", async () => {
+  const sources = {} as TSources;
+  const store = useGlobeControlStore();
+  const prepareDatasource = vi.fn();
+  const fetchAndRenderData = vi.fn().mockResolvedValue(undefined);
+  const scope = effectScope();
+  const loader = scope.run(() =>
+    useGridDataLoader({
+      getDatasources: () => sources,
+      getDataVar: vi.fn().mockResolvedValue({}),
+      fetchAndRenderData,
+      clearHoverLookup: vi.fn(),
+      prepareDatasource,
+      updateColormap: vi.fn(),
+    })
+  )!;
+  await loader.datasourceUpdate();
+
+  store.setLevelRangeShared(false);
+  await vi.waitFor(() => expect(fetchAndRenderData).toHaveBeenCalledTimes(2));
+  expect(prepareDatasource).toHaveBeenCalledTimes(2);
+  scope.stop();
+});
+
+it("reloads a view window as a whole level when Load whole level is ticked", async () => {
+  const sources = {} as TSources;
+  const store = useGlobeControlStore();
+  const prepareDatasource = vi.fn();
+  const fetchAndRenderData = vi.fn().mockResolvedValue(undefined);
+  const scope = effectScope();
+  const loader = scope.run(() =>
+    useGridDataLoader({
+      getDatasources: () => sources,
+      getDataVar: vi.fn().mockResolvedValue({}),
+      fetchAndRenderData,
+      clearHoverLookup: vi.fn(),
+      prepareDatasource,
+      viewWindowStale: () => store.levelWhole,
+      updateColormap: vi.fn(),
+    })
+  )!;
+  await loader.datasourceUpdate();
+
+  store.setLevelWhole(true);
+  await vi.waitFor(() => expect(fetchAndRenderData).toHaveBeenCalledTimes(2));
+  expect(prepareDatasource).toHaveBeenCalledTimes(2);
+  scope.stop();
+});
+
 it("remembers a level that has to be loaded whole", async () => {
   const sources = reactive({ selectedLevel: 0 }) as TSources;
   const store = useGlobeControlStore();

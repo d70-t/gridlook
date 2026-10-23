@@ -267,6 +267,63 @@ it("loads the view window of a large level over the whole coarsest level", async
   scope.stop();
 });
 
+it("draws no backdrop while each level takes its own range", async () => {
+  const { store, scope } = await mount({
+    latMin: 10,
+    latMax: 20,
+    lonStart: 30,
+    lonSpan: 10,
+  });
+  const backdrop = () => meshes().filter((mesh) => mesh.renderOrder > 0);
+  expect(backdrop()).toHaveLength(1);
+
+  store.setLevelRangeShared(false);
+  await wait(40);
+  expect(backdrop()).toHaveLength(0);
+  expect(store.varinfo!.bounds.high).toBeGreaterThan(0);
+
+  store.setLevelRangeShared(true);
+  await wait(40);
+  expect(backdrop()).toHaveLength(1);
+  expect(store.varinfo!.bounds.high).toBeLessThan(0);
+  scope.stop();
+});
+
+it("loads a level under the whole-level cap whole when asked", async () => {
+  const { store, scope } = await mount({
+    latMin: 10,
+    latMax: 20,
+    lonStart: 30,
+    lonSpan: 10,
+  });
+  store.setLevelWhole(true);
+  await wait(40);
+  expect(fetched("fine")).toHaveLength(2);
+  expect(fetched("fine")[1].selection.slice(-2)).toEqual([null, null]);
+  scope.stop();
+});
+
+it("still loads a level over the whole-level cap by view", async () => {
+  const fine = axes.fine;
+  // 3000 x 6000 cells (0.06 degrees), over the whole-level cap
+  axes.fine = {
+    latitude: Float32Array.from({ length: 3000 }, (_, i) => -89.97 + 0.06 * i),
+    longitude: Float32Array.from({ length: 6000 }, (_, i) => 0.06 * i),
+  };
+  const { store, scope } = await mount({
+    latMin: 10,
+    latMax: 11,
+    lonStart: 30,
+    lonSpan: 1,
+  });
+  store.setLevelWhole(true);
+  await wait(40);
+  const columns = fetched("fine").at(-1)!.selection.at(-1);
+  axes.fine = fine;
+  scope.stop();
+  expect(columns).not.toBeNull();
+});
+
 it("stitches a window across the seam of the longitude axis", async () => {
   const { scope } = await mount({
     latMin: 0,
