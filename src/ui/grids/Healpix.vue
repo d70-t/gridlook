@@ -1239,10 +1239,12 @@ async function fetchAndRenderData(
   const cellCoord = loadedBlocks ? undefined : await getCells();
   fitCameraToCells(grid, cellCoord);
   const { dimensionRanges, indices } = await prepareDimensionData(datavar);
-  // One after the other: the face worker runs a single build at a time.
-  const backdropData = await loadBackdrop(indices, isCurrent).catch(
-    () => undefined
-  );
+  // The backdrop (the coarsest level) is drawn and sets the range of every
+  // level, unless each level is to take its own. One after the other: the
+  // face worker runs a single build at a time.
+  const rangeSource = store.sharesLevelRange(datavar.attrs)
+    ? await loadBackdrop(indices, isCurrent).catch(() => undefined)
+    : undefined;
   const result = await processHealpixChunks(
     datavar,
     cellCoord,
@@ -1288,11 +1290,6 @@ async function fetchAndRenderData(
   }
   const dimInfo = await getDimensionValues(dimensionRanges, indices);
 
-  // the backdrop (the coarsest level) sets the range of every level, unless
-  // each level is to take its own
-  const rangeSource = store.sharesLevelRange(datavar.attrs)
-    ? backdropData
-    : undefined;
   const scalarInfo = {
     attrs: datavar.attrs,
     dimInfo,
@@ -1308,7 +1305,7 @@ async function fetchAndRenderData(
   };
   let geometryPending = deferDisplay;
   const renderScalar = () => {
-    showBackdrop(backdropData);
+    showBackdrop(rangeSource);
     if (geometryPending) {
       batches.forEach((batch) => updateHealpixBatch(batch));
       batches.length = 0;

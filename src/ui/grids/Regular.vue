@@ -1323,9 +1323,13 @@ async function fetchAndRenderData(
 ) {
   const { dimensionRanges, indices } = await buildDimensionConfig(datavar);
 
-  const [rawData, backdropData] = await Promise.all([
+  // The backdrop (the coarsest level) is drawn and sets the range of every
+  // level, unless each level is to take its own.
+  const [rawData, rangeSource] = await Promise.all([
     fetchLoadedData(indices),
-    loadBackdrop(indices).catch(() => undefined),
+    store.sharesLevelRange(datavar.attrs)
+      ? loadBackdrop(indices).catch(() => undefined)
+      : undefined,
   ]);
 
   if (!isCurrent()) {
@@ -1350,11 +1354,6 @@ async function fetchAndRenderData(
     indices
   );
 
-  // the backdrop (the coarsest level) sets the range of every level, unless
-  // each level is to take its own
-  const rangeSource = store.sharesLevelRange(datavar.attrs)
-    ? backdropData
-    : undefined;
   const scalarInfo = {
     attrs: datavar.attrs,
     dimInfo,
@@ -1370,7 +1369,7 @@ async function fetchAndRenderData(
       makeGeometry();
       geometryPending = false;
     }
-    showBackdrop(backdropData);
+    showBackdrop(rangeSource);
     updateMeshMaterials(rawData);
     setHoverLookupFromIndex(hoverIndex, fillValue, missingValue);
   };
