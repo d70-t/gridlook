@@ -10,11 +10,11 @@ import {
   getGlobeFitCameraDistance,
 } from "@/lib/camera/cameraSettings.ts";
 import {
+  followVariable,
   hasLevels,
   levelHoldsVariable,
   levelOfVariable,
   selectLevel,
-  variableOnLevel,
 } from "@/lib/data/levels.ts";
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
 
@@ -41,10 +41,7 @@ function followLevel(
   }
   sources.selectedLevel = level;
   // a variable the level lacks keeps its name rather than a missing key
-  const move = (name: string) =>
-    levelHoldsVariable(sources.levels, name, level)
-      ? variableOnLevel(sources.levels, name, level)
-      : name;
+  const move = (name: string) => followVariable(sources.levels, name, level);
   store.varnameSelector = move(store.varnameSelector);
   const selection = store.streamlineSelection;
   if (selection.u && selection.v && move(selection.u) !== selection.u) {

@@ -17,6 +17,7 @@ import {
 } from "@/lib/data/gridTypeDetector.ts";
 import {
   currentLevel,
+  followVariable,
   isSameVariable,
   levelOfVariable,
 } from "@/lib/data/levels.ts";
@@ -88,8 +89,17 @@ const store = useGlobeControlStore();
 const urlParameterStore = useUrlParameterStore();
 
 // ── Presenter Mode ──────────────────────────────────────────────────────
+// A display picking its own level takes the controller's variable onto it.
 const { openDisplayWindow, toggleDisplayWindow, enterDisplayMode } =
-  usePresenterSync();
+  usePresenterSync((varname) =>
+    store.levelAuto && datasources.value
+      ? followVariable(
+          datasources.value.levels,
+          varname,
+          datasources.value.selectedLevel ?? 0
+        )
+      : varname
+  );
 
 // Detect ?mode=display in the URL and activate display mode
 const urlParams = new URLSearchParams(window.location.search);

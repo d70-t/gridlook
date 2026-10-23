@@ -60,6 +60,17 @@ export function levelHoldsVariable(
   );
 }
 
+/** `varname` moved onto level `index`, or unchanged where that level lacks it. */
+export function followVariable(
+  levels: readonly Pick<TSourceLevel, "path" | "datasources">[],
+  varname: string,
+  index: number
+) {
+  return levelHoldsVariable(levels, varname, index)
+    ? variableOnLevel(levels, varname, index)
+    : varname;
+}
+
 /**
  * Whether `varname` has levels to choose from: it is in a level group, or
  * the levels share their keys (a JSON index). An array of a pyramid outside

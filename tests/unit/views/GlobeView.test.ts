@@ -100,6 +100,7 @@ async function openGlobe(params: { varname?: string; levelauto?: string }) {
 
 beforeEach(() => {
   setActivePinia(createPinia());
+  location.search = "";
   getGridType.mockReset().mockResolvedValue(GRID_TYPES.REGULAR);
 });
 
@@ -155,4 +156,21 @@ it("reloads a level switch in place, detecting the grid on the level it read", a
   await vi.waitFor(() => expect(getGridType).toHaveBeenCalledTimes(2));
   await nextTick();
   expect(bindings.globeKey.value).toBe(key);
+});
+
+it("takes the controller's variable onto the display's own level", async () => {
+  location.search = "?mode=display";
+  const { store } = await openGlobe({ varname: "0/tas" });
+  store.stopLoading();
+  const controller = new BroadcastChannel("gridlook-presenter");
+  try {
+    controller.postMessage({
+      type: "state-update",
+      payload: { varnameSelector: "2/pr" },
+    });
+    await vi.waitFor(() => expect(store.varnameSelector).toBe("0/pr"));
+    expect(store.selectedLevel).toBe(0);
+  } finally {
+    controller.close();
+  }
 });
