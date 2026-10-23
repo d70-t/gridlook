@@ -1289,7 +1289,9 @@ async function fetchAndRenderData(
 
   // the backdrop (the coarsest level) sets the range of every level, unless
   // each level is to take its own
-  const rangeSource = store.levelRangeShared ? backdropData : undefined;
+  const rangeSource = store.sharesLevelRange(datavar.attrs)
+    ? backdropData
+    : undefined;
   const scalarInfo = {
     attrs: datavar.attrs,
     dimInfo,

@@ -15,6 +15,7 @@ import {
   isSameVariable,
   levelOfVariable,
   selectLevel,
+  sumsOverCells,
   type TLevelSelectionCamera,
   variableOnLevel,
 } from "@/lib/data/levels.ts";
@@ -270,4 +271,26 @@ describe("full-path varnames of a pyramid", () => {
     );
     expect(isSameVariable(levels, "root_only", "root_only")).toBe(true);
   });
+});
+
+it("finds a sum over cells among the CF cell methods", () => {
+  for (const methods of [
+    "area: sum",
+    "cell: sum",
+    "time: mean area: sum",
+    "area: time: sum",
+    "cell: sum where land",
+  ]) {
+    expect(sumsOverCells({ cell_methods: methods })).toBe(true); // eslint-disable-line camelcase
+  }
+  for (const methods of [
+    "cell: mean",
+    "area: mean time: sum",
+    "time: sum",
+    "area: summed",
+    "",
+  ]) {
+    expect(sumsOverCells({ cell_methods: methods })).toBe(false); // eslint-disable-line camelcase
+  }
+  expect(sumsOverCells(undefined)).toBe(false);
 });

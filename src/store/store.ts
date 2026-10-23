@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
 
+import { sumsOverCells } from "@/lib/data/levels.ts";
 import {
   levelAxesAreIdentical,
   type TStreamlineLevelInfo,
@@ -258,8 +259,10 @@ export const useGlobeControlStore = defineStore("globeControl", {
       levelWhole: false,
       // whether every level shares the coarsest level's colour range and
       // histogram (right for a mean, e.g. elevation) or each level takes its
-      // own (right for a sum, e.g. a count, which grows 4x per level)
-      levelRangeShared: true,
+      // own (right for a sum, e.g. a count, which grows 4x per level): the
+      // user's choice, kept across variables until another dataset opens;
+      // undefined follows the variable shown (see sharesLevelRange)
+      levelRangeShared: undefined as boolean | undefined,
       // ── Live datasets ──────────────────────────────────────────────
       // A live dataset exposes only the currently-available timestep and is
       // followed automatically by polling the store's timestep endpoints.
@@ -355,8 +358,17 @@ export const useGlobeControlStore = defineStore("globeControl", {
     setLevelWhole(whole: boolean) {
       this.levelWhole = whole;
     },
+    // Whether the levels share one colour range: as the user chose, else
+    // unless the variable on screen sums over its cells.
+    sharesLevelRange(attrs?: Record<string, unknown>) {
+      return (
+        this.levelRangeShared ?? !sumsOverCells(attrs ?? this.varinfo?.attrs)
+      );
+    },
+    // A choice equal to the variable's default is left to the default.
     setLevelRangeShared(shared: boolean) {
-      this.levelRangeShared = shared;
+      this.levelRangeShared =
+        shared === !sumsOverCells(this.varinfo?.attrs) ? undefined : shared;
     },
     isNewDataset(): boolean {
       return this.newDatasetSignifier % 2 === 0;

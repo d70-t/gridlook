@@ -134,6 +134,21 @@ export function coarsestLevel(
   return coarsest;
 }
 
+/**
+ * Whether a variable's CF `cell_methods` sum over its cells: `area: sum` or
+ * `cell: sum`, also among other entries (`time: mean area: sum`) or with
+ * other names sharing the method (`area: time: sum`). A sum grows about 4x
+ * per HEALPix level, so a range shared from the coarsest level squeezes
+ * every finer one: the levels of such a variable take their own by default.
+ */
+export function sumsOverCells(attrs: Record<string, unknown> | undefined) {
+  const methods = attrs?.cell_methods;
+  return (
+    typeof methods === "string" &&
+    /(?:^|\s)(?:area|cell):\s*(?:\w+:\s*)*sum\b/.test(methods)
+  );
+}
+
 /** Shown in place of streamlines on a level that cannot be loaded whole. */
 export const STREAMLINES_NEED_WHOLE_LEVEL =
   "Streamlines read a whole level, and this one is too large to load whole. Pick a coarser level.";

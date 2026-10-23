@@ -205,3 +205,31 @@ it("turns automatic level selection off on a manual pick", () => {
   store.setLevelAuto(true);
   expect(store.levelAuto).toBe(true);
 });
+
+it("shares the colour range across levels unless the variable sums over cells", () => {
+  const store = useGlobeControlStore();
+  const varinfo = (cellMethods: string) => ({
+    dimInfo: [],
+    bounds: {},
+    dimRanges: [],
+    attrs: { cell_methods: cellMethods }, // eslint-disable-line camelcase
+  });
+
+  store.updateVarInfo(varinfo("cell: mean"), []);
+  expect(store.sharesLevelRange()).toBe(true);
+  store.updateVarInfo(varinfo("time: mean area: sum"), []);
+  expect(store.sharesLevelRange()).toBe(false);
+
+  // the user's choice wins, also on a variable with another default
+  store.setLevelRangeShared(true);
+  expect(store.levelRangeShared).toBe(true);
+  store.updateVarInfo(varinfo("cell: mean"), []);
+  expect(store.sharesLevelRange()).toBe(true);
+  store.setLevelRangeShared(false);
+  expect(store.sharesLevelRange()).toBe(false);
+
+  // back to the default: no choice left
+  store.setLevelRangeShared(true);
+  expect(store.levelRangeShared).toBeUndefined();
+  expect(store.sharesLevelRange({ cell_methods: "area: sum" })).toBe(false); // eslint-disable-line camelcase
+});

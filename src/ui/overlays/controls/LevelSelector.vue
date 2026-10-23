@@ -122,7 +122,7 @@ function onRangeSharedChange(event: Event) {
           title="Off: each level takes its own data range (sums such as counts grow with the cell size)"
         >
           <input
-            :checked="store.levelRangeShared"
+            :checked="store.sharesLevelRange()"
             type="checkbox"
             @change="onRangeSharedChange"
           />
