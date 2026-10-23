@@ -195,7 +195,12 @@ const { default: Healpix } = await import("@/ui/grids/Healpix.vue");
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function mount(lat: number, lon: number) {
+async function mount(
+  lat: number,
+  lon: number,
+  // level groups that do not hold the variable: it has no levels
+  levelPaths = false
+) {
   beforeMount.length = 0;
   fetches.length = 0;
   hover.lookup = null;
@@ -220,6 +225,7 @@ async function mount(lat: number, lon: number) {
       time: from(name),
       datasources: { t: from(name) },
       resolution: 6_500_000 / 2 ** stored[name].level,
+      ...(levelPaths ? { path: name } : {}),
     })),
   }) as unknown as TSources;
   const scope = effectScope();
@@ -349,5 +355,25 @@ it("loads a level with an unsorted cell coordinate whole", async () => {
 
   expect(store.wholeLevels).toEqual([0]);
   expect(fetchedCells("t")).toBe(4 ** 10);
+  scope.stop();
+});
+
+it("loads a variable outside the level groups whole, without a backdrop", async () => {
+  // a sorted cell coordinate, over the view budget, that could be searched
+  stored.fine = {
+    level: 12,
+    cells: Array.from({ length: 4 ** 10 }, (_, index) => 2 * 4 ** 10 + index),
+  };
+  stored.coarse = { level: 3 };
+  const { store, scope } = await mount(0, 45, true);
+
+  expect(fetchedCells("t")).toBe(4 ** 10);
+  expect(fetches.some(({ dataset }) => dataset === "coarse")).toBe(false);
+  expect(
+    (scene.current!.children as THREE.Mesh[]).every(
+      (mesh) => mesh.renderOrder === 0
+    )
+  ).toBe(true);
+  expect(store.viewLoading).toBe(false);
   scope.stop();
 });
