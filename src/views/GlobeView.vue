@@ -50,6 +50,7 @@ import {
   usePresenterSync,
   isDisplayMode,
   isPresenterActive,
+  waitForLocalSource,
 } from "@/store/usePresenterSync.ts";
 import { useUrlSync } from "@/store/useUrlSync.ts";
 import Toast from "@/ui/common/Toast.vue";
@@ -442,6 +443,7 @@ async function updateSrc(updateId: number) {
   ZarrDataManager.invalidateCache();
   sourceValid.value = false;
   store.isInitializingVariable = true;
+  await waitForLocalSource(src);
   let indexPromises: Promise<TSources>[];
   if (isLocalNetCDFSource(src)) {
     const file = getLocalNetCDF(src);

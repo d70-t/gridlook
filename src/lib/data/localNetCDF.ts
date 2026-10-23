@@ -16,8 +16,11 @@ export function isNetCDFFile(file: File) {
   );
 }
 
-export function registerLocalNetCDF(file: File) {
-  const source = `${LOCAL_NETCDF_PREFIX}${++nextFileId}/${encodeURIComponent(file.name)}`;
+export function registerLocalNetCDF(
+  file: File,
+  // The presenter display reuses the controller's source key.
+  source = `${LOCAL_NETCDF_PREFIX}${++nextFileId}/${encodeURIComponent(file.name)}`
+) {
   // Gridlook keeps one local dataset alive; stop clearing old entries if
   // browser-history navigation between multiple local files is supported.
   files.clear();

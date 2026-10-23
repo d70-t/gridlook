@@ -3,10 +3,21 @@ import {
   useEventListener,
   useIntervalFn,
   useTimeoutFn,
+  until,
 } from "@vueuse/core";
 import { storeToRefs } from "pinia";
-import { ref, watch, computed, type Ref } from "vue";
+import { ref, watch, computed, onMounted, type Ref } from "vue";
 
+import {
+  getLocalNetCDF,
+  isLocalNetCDFSource,
+  registerLocalNetCDF,
+} from "@/lib/data/localNetCDF.ts";
+import {
+  getLocalZarrFiles,
+  isLocalZarrSource,
+  setLocalZarrFiles,
+} from "@/lib/data/localZarr.ts";
 import {
   PRESENTER_CHANNEL,
   PresenterRole,
@@ -20,6 +31,28 @@ import { useGlobeControlStore } from "@/store/store.ts";
 const presenterRole: Ref<TPresenterRole | null> = ref(null);
 const presenterWindowOpen = ref(false);
 let presenterWindow: Window | null = null;
+
+// The controller answers "display-ready" right away, so this only runs out
+// when the display was reloaded after the controller window was closed.
+const LOCAL_DATA_TIMEOUT_MS = 5000;
+const receivedLocalSource = ref<string | null>(null);
+
+function getHashSource(hash: string) {
+  return hash.substring(1).split("::")[0];
+}
+
+/** In display mode, wait until the controller has sent the files of a local source. */
+export async function waitForLocalSource(source: string) {
+  if (
+    !isDisplayMode.value ||
+    (!isLocalNetCDFSource(source) && !isLocalZarrSource(source))
+  ) {
+    return;
+  }
+  await until(receivedLocalSource).toBe(source, {
+    timeout: LOCAL_DATA_TIMEOUT_MS,
+  });
+}
 
 /** Whether the current window is in "display" mode (no controls, receives state). */
 export const isDisplayMode = computed(
@@ -145,8 +178,30 @@ export function usePresenterSync() {
     return [...dimSlidersValues.value];
   }
 
+  /** Broadcast the current hash, plus the File(s) if it is a local source. */
+  function postNavigate() {
+    const source = getHashSource(location.hash);
+    const localData = isLocalNetCDFSource(source)
+      ? getLocalNetCDF(source)
+      : getLocalZarrFiles(source);
+    post({ type: "navigate", hash: location.hash, localData });
+  }
+
+  function registerLocalData(
+    hash: string,
+    localData: File | Map<string, File>
+  ) {
+    const source = getHashSource(hash);
+    if (localData instanceof File) {
+      registerLocalNetCDF(localData, source);
+    } else {
+      setLocalZarrFiles(source, localData);
+    }
+    receivedLocalSource.value = source;
+  }
+
   function sendFullState() {
-    post({ type: "navigate", hash: location.hash });
+    postNavigate();
     post({
       type: "full-state",
       payload: gatherState({
@@ -260,10 +315,20 @@ export function usePresenterSync() {
   );
 
   watch(data, (msg) => {
+    if (msg?.type === "display-ready") {
+      if (presenterRole.value === PresenterRole.CONTROLLER) {
+        postNavigate();
+      }
+      return;
+    }
     if (!msg || presenterRole.value !== PresenterRole.DISPLAY) {
       return;
     }
     if (msg.type === "navigate") {
+      // Register before changing the hash so the new source finds its files.
+      if (msg.localData) {
+        registerLocalData(msg.hash, msg.localData);
+      }
       // Only set the navigation guard if the hash actually differs.
       // If the hash is the same (e.g. initial open), no hashchange fires
       // and loading never cycles, so we must not block state updates.
@@ -288,7 +353,15 @@ export function usePresenterSync() {
     if (presenterRole.value !== PresenterRole.CONTROLLER) {
       return;
     }
-    post({ type: "navigate", hash: location.hash });
+    postNavigate();
+  });
+
+  // ── Display side: ask the controller for local files on (re)load ──────
+  // Registered after useBroadcastChannel's own onMounted, so the channel exists.
+  onMounted(() => {
+    if (presenterRole.value === PresenterRole.DISPLAY) {
+      post({ type: "display-ready" });
+    }
   });
 
   // ── Controller side: broadcast on store changes ───────────────────────
