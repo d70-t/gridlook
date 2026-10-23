@@ -16,12 +16,13 @@ behave as before.
   console names it. Paths in the attribute are relative to the group that
   carries it. Three layouts are understood:
   - OME-NGFF: `multiscales[0].datasets[].path` (0.4), or the same under
-    `ome.multiscales` (0.5), listed finest first. A `scale` coordinate
-    transformation together with `axes` that carry a length unit (`degree`,
-    `metre`, `km`) gives the level's ground resolution.
+    `ome.multiscales` (0.5). A `scale` coordinate transformation together
+    with `axes` that carry a length unit (`degree`, `metre`, `km`) gives the
+    level's ground resolution. An ndpyramid dataset (`crs: "EPSG:3857"` and
+    `pixels_per_tile` p) of zoom n (its `level`, else its numeric `path`)
+    has cells of 2πR / (p · 2ⁿ) at the equator.
   - [zarr-conventions `multiscales`](https://github.com/zarr-conventions/multiscales):
-    `multiscales.layout[].asset`, taken in the order declared, which has to be
-    finest first. The `transform.scale` of a layout entry is relative to
+    `multiscales.layout[].asset`. The `transform.scale` of a layout entry is relative to
     another level, so the resolution comes from the level's grid (below). An
     asset that is an array and not a group is not a level.
   - GeoZarr: `multiscales[0].tile_matrix_limits` keyed by tile matrix (child
@@ -33,14 +34,17 @@ behave as before.
   one from its grid where possible: the HEALPix `nside` (from the CRS
   variable's `healpix_nside`, the level group's DGGS `refinement_level`, or a
   `cell` dimension of length `12 nside²`) or the spacing of a one-dimensional
-  `lon` coordinate on a regular grid. Every level also records how many cells it holds: the length of its spatial
+  `lon` coordinate on a regular grid, else of a projected `x` coordinate in
+  a length unit. Every level also records how many cells it holds: the length of its spatial
   dimensions (`cell` for HEALPix, sparse or not; `lat · lon` or `y · x` on a
   regular grid).
 - **JSON index.** An index file may list several `levels`, each with its own
   `datasources`, and may state `resolution` (metres per cell) and `cellCount`
   per level.
 
-Levels without a resolution are still selectable by hand, but the camera
+Once every level has a resolution, the levels are sorted finest first,
+whatever order the attribute or the JSON index lists them in. Levels
+without a resolution are still selectable by hand, but the camera
 cannot choose between them. A group whose `multiscales` attribute yields fewer
 than two usable levels is opened as a single-level dataset.
 

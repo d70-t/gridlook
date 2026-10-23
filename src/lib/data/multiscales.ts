@@ -1,4 +1,8 @@
-import { isLatitudeName, isLongitudeName } from "./coordinateVariables.ts";
+import {
+  isLatitudeName,
+  isLongitudeName,
+  isProjectedXName,
+} from "./coordinateVariables.ts";
 
 import { EARTH_RADIUS_METERS } from "@/lib/camera/cameraSettings.ts";
 import type { TDataSource } from "@/lib/types/GlobeTypes.ts";
@@ -89,6 +93,32 @@ function omeResolution(
   return count > 0 ? sum / count : undefined;
 }
 
+/**
+ * ndpyramid: a web-mercator dataset of zoom `n` (its `level`, else its
+ * numeric path) with `pixels_per_tile` p has cells of 2πR / (p · 2ⁿ) at the
+ * equator.
+ */
+function ndpyramidResolution(
+  dataset: Record<string, unknown>
+): number | undefined {
+  const pixels = Number(dataset.pixels_per_tile);
+  const zoom =
+    dataset.level ??
+    (/^\d+$/.test(String(dataset.path)) ? Number(dataset.path) : undefined);
+  if (
+    String(dataset.crs).toUpperCase() !== "EPSG:3857" ||
+    !(pixels > 0) ||
+    !Number.isInteger(zoom) ||
+    (zoom as number) < 0
+  ) {
+    return undefined;
+  }
+  return (
+    (WEB_MERCATOR_ZOOM0_METERS_PER_PIXEL * 256) /
+    (pixels * 2 ** (zoom as number))
+  );
+}
+
 function omeEntries(multiscale: Record<string, unknown>): TMultiscaleEntry[] {
   const datasets = multiscale.datasets;
   if (!Array.isArray(datasets)) {
@@ -101,7 +131,8 @@ function omeEntries(multiscale: Record<string, unknown>): TMultiscaleEntry[] {
     )
     .map((dataset) => ({
       path: dataset.path as string,
-      resolution: omeResolution(dataset, multiscale.axes),
+      resolution:
+        omeResolution(dataset, multiscale.axes) ?? ndpyramidResolution(dataset),
     }));
 }
 
@@ -314,7 +345,8 @@ function findAxis(
  * dimensions (see `spatialCellCount`). The size comes from the HEALPix nside
  * (the CRS variable, the level group's DGGS `refinement_level`, or a
  * `12 nside²` cell dimension) or the spacing of a
- * one-dimensional longitude coordinate on a regular grid; `readAxis` fetches
+ * one-dimensional longitude coordinate on a regular grid, else of a
+ * projected `x` coordinate in a length unit; `readAxis` fetches
  * the first values of a coordinate variable of the level, and without it only
  * the count is read.
  */
@@ -334,6 +366,14 @@ export async function levelGeometryFromGrid(
   }
   const longitudeName = findAxis(datasources, isLongitudeName);
   const latitudeName = findAxis(datasources, isLatitudeName);
+  // Without longitudes, a projected `x` axis in a length unit.
+  const xName = longitudeName
+    ? undefined
+    : findAxis(datasources, isProjectedXName);
+  const xFactor = xName
+    ? metersPerUnit(datasources[xName].attrs?.units)
+    : undefined;
+  const axisName = longitudeName ?? (xFactor === undefined ? undefined : xName);
   const longitudeCount = longitudeName
     ? datasources[longitudeName].shape?.[0]
     : undefined;
@@ -346,13 +386,16 @@ export async function levelGeometryFromGrid(
       ? latitudeCount * longitudeCount
       : undefined);
   const counted = count === undefined ? {} : { cellCount: count };
-  if (!longitudeName || !readAxis) {
+  if (!axisName || !readAxis) {
     return counted;
   }
-  const longitudes = await readAxis(longitudeName);
-  const step = Math.abs(Number(longitudes[1]) - Number(longitudes[0]));
-  if (longitudes.length < 2 || !(step > 0)) {
+  const values = await readAxis(axisName);
+  const step = Math.abs(Number(values[1]) - Number(values[0]));
+  if (values.length < 2 || !(step > 0)) {
     return counted;
   }
-  return { resolution: step * METERS_PER_DEGREE, ...counted };
+  return {
+    resolution: step * (longitudeName ? METERS_PER_DEGREE : xFactor!),
+    ...counted,
+  };
 }

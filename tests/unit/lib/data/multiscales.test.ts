@@ -72,6 +72,27 @@ describe("parseMultiscales", () => {
   });
 });
 
+describe("parseMultiscales for ndpyramid", () => {
+  it("reads web-mercator resolutions from the zoom and tile size", () => {
+    // 2πR at the equator of Web Mercator's sphere
+    const equator = 2 * Math.PI * 6378137;
+    const entries = parseMultiscales({
+      multiscales: [
+        {
+          datasets: [
+            { path: "0", crs: "EPSG:3857", pixels_per_tile: 128 },
+            { path: "1", level: 1, crs: "EPSG:3857", pixels_per_tile: 128 },
+            { path: "a", crs: "EPSG:3857", pixels_per_tile: 128 },
+          ],
+        },
+      ],
+    });
+    expect(entries[0].resolution).toBeCloseTo(equator / 128, 6);
+    expect(entries[1].resolution).toBeCloseTo(equator / 256, 6);
+    expect(entries[2].resolution).toBeUndefined();
+  });
+});
+
 describe("parseMultiscales for OME-NGFF 0.5", () => {
   it("reads the multiscales nested under `ome`", () => {
     const levels = parseMultiscales({
@@ -306,7 +327,6 @@ describe("levelGeometryFromGrid on regular grids", () => {
     expect(geometry).toEqual({ cellCount: 500 * 500 });
     expect(readAxis).not.toHaveBeenCalled();
   });
-
   it("knows nothing about grids without spatial dimensions", async () => {
     const geometry = await levelGeometryFromGrid(
       {
@@ -318,5 +338,21 @@ describe("levelGeometryFromGrid on regular grids", () => {
       readAxis
     );
     expect(geometry).toEqual({});
+  });
+});
+
+describe("levelGeometryFromGrid on projected grids", () => {
+  it("reads the spacing of a projected x coordinate in metres", async () => {
+    const geometry = await levelGeometryFromGrid(
+      {
+        x: source({ shape: [128], attrs: { units: "metre" } }),
+        tas: source({
+          shape: [128, 128],
+          attrs: { dimensionNames: ["y", "x"] },
+        }),
+      },
+      async () => [0, 312.5]
+    );
+    expect(geometry).toEqual({ resolution: 312.5, cellCount: 128 * 128 });
   });
 });

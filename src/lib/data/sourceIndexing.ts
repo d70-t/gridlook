@@ -17,6 +17,7 @@ import {
   isIcechunkStorePath,
   splitIcechunkStoreAndGroup,
 } from "./icechunkStore.ts";
+import { sortFinestFirst } from "./levels.ts";
 import {
   levelGeometryFromGrid,
   parseMultiscales,
@@ -541,7 +542,7 @@ async function indexLevels(
   return {
     name: (opened!.attrs.title ?? group.attrs.title) as string,
     zarr_format: zarrFormat, // eslint-disable-line camelcase
-    levels,
+    levels: sortFinestFirst(levels),
   };
 }
 
@@ -793,9 +794,9 @@ export async function indexFromIndex(src: string): Promise<TSources> {
       )
     )
   );
-  sources.levels = [
+  sources.levels = sortFinestFirst([
     base,
     ...enriched.filter((level): level is TSourceLevel => level !== null),
-  ];
+  ]);
   return sources;
 }

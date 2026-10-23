@@ -51,6 +51,14 @@ export function isSameVariable(levels: TLevelPaths, a: string, b: string) {
   return (level === undefined ? a : variableOnLevel(levels, a, level)) === b;
 }
 
+/** Sort levels finest first when every one states its resolution. */
+export function sortFinestFirst(levels: TSourceLevel[]) {
+  if (levels.every(({ resolution }) => resolution! > 0)) {
+    levels.sort((a, b) => a.resolution! - b.resolution!);
+  }
+  return levels;
+}
+
 /**
  * Index of the level with the largest cells. Grids that load only the view
  * draw it whole under a finer level and take the colour range from it, so

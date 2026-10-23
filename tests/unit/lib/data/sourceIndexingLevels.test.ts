@@ -334,6 +334,34 @@ describe("indexing a multiscales pyramid", () => {
   });
 });
 
+describe("indexing an ndpyramid pyramid", () => {
+  it("orders the levels, listed coarsest first, finest first", async () => {
+    const levels = [
+      { path: "0", nlat: 45, nlon: 90 },
+      { path: "1", nlat: 90, nlon: 180 },
+    ];
+    serve(
+      pyramidFiles(levels, {
+        multiscales: [
+          {
+            datasets: levels.map(({ path }) => ({
+              path,
+              crs: "EPSG:3857",
+              pixels_per_tile: 128,
+            })),
+          },
+        ],
+      })
+    );
+    const index = await indexFromZarr(SRC);
+    expect(index.levels.map(({ path }) => path)).toEqual(["1", "0"]);
+    expect(index.levels[0].resolution).toBeCloseTo(
+      (2 * Math.PI * 6378137) / 256,
+      6
+    );
+  });
+});
+
 /**
  * The waterpark layout: zarr v2 whose root holds only the group
  * `multiscales/`, carrying a zarr-conventions layout of `zoom_9 … zoom_0`.
