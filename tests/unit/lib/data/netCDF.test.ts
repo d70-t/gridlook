@@ -23,6 +23,7 @@ vi.mock("@earthyscience/netcdf4-wasm", async (importOriginal) => ({
 
 const NetCDFAttribute = {
   FILL_VALUE: "_FillValue",
+  NAME: "name",
   SCALE_FACTOR: "scale_factor",
 } as const;
 
@@ -35,6 +36,8 @@ const metadata = {
     attributes: {
       [NetCDFAttribute.SCALE_FACTOR]: new Float32Array([0.5]),
       [NetCDFAttribute.FILL_VALUE]: new Float32Array([-999]),
+      // Must not replace the variable name in the index.
+      [NetCDFAttribute.NAME]: "Air temperature",
     },
     chunks: [1, 3],
   },

@@ -213,19 +213,22 @@ export async function resolveNetCDFGroup(group: NetCDFGroup, path: string) {
 async function getVariableNames(context: TNetCDFContext, groupPath: string) {
   let names = context.variableNames.get(groupPath);
   if (!names) {
-    names = context.dataset.getFullMetadata(groupPath).then((variables) => {
+    names = (async () => {
+      const ncid = await context.dataset.getGroupNCID(groupPath);
       const result = new Set<string>();
-      for (const value of variables) {
+      for (const varid of await context.dataset.getVarIDs(ncid)) {
+        const value = await context.dataset.getVariableInfo(varid, groupPath);
         const name = (value as Partial<TNetCDFVariableMetadata>).name;
         if (typeof name === "string") {
           result.add(name);
         }
       }
       return result;
-    });
+    })();
+
     context.variableNames.set(groupPath, names);
   }
-  return await names;
+  return names;
 }
 
 export async function openNetCDFArray(
