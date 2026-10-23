@@ -282,6 +282,7 @@ it("finds a sum over cells among the CF cell methods", () => {
     "time: mean area: sum",
     "area: time: sum",
     "cell: sum where land",
+    "area: sum (comment: x)",
   ]) {
     expect(sumsOverCells({ cell_methods: methods })).toBe(true); // eslint-disable-line camelcase
   }
@@ -290,6 +291,7 @@ it("finds a sum over cells among the CF cell methods", () => {
     "area: mean time: sum",
     "time: sum",
     "area: summed",
+    "time: mean (comment: area: sum not applied)",
     "",
   ]) {
     expect(sumsOverCells({ cell_methods: methods })).toBe(false); // eslint-disable-line camelcase
