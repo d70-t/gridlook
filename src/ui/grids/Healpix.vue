@@ -448,13 +448,15 @@ async function getCells(sources = props.datasources!) {
 /**
  * Whether the selected level is loaded by view: a large level other than the
  * coarsest, which is the backdrop of the others and is always loaded whole.
- * Streamlines and volumes read the whole level, up to the whole-level cap.
+ * Streamlines and volumes read the whole level, up to the whole-level cap;
+ * "Load whole level" reads it whole at any size.
  */
 function loadsByView() {
   const sources = props.datasources!;
   const wholeLevelLayers =
     store.isStreamlineLayerEnabled() || store.isVolumeLayerEnabled();
   return (
+    !store.levelWhole &&
     levelWindowable &&
     (sources.selectedLevel ?? 0) !== coarsestLevel(sources.levels) &&
     levelCellCount >

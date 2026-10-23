@@ -55,6 +55,10 @@ function onLevelChange(event: Event) {
 function onAutoChange(event: Event) {
   store.setLevelAuto((event.target as HTMLInputElement).checked);
 }
+
+function onWholeChange(event: Event) {
+  store.setLevelWhole((event.target as HTMLInputElement).checked);
+}
 </script>
 
 <template>
@@ -89,14 +93,27 @@ function onAutoChange(event: Event) {
       <p v-if="disabled" class="is-size-7 has-text-grey">
         This variable has no levels.
       </p>
-      <label v-else class="checkbox is-size-7">
-        <input
-          :checked="store.levelAuto"
-          type="checkbox"
-          @change="onAutoChange"
-        />
-        Pick the level from the zoom
-      </label>
+      <template v-else>
+        <label class="checkbox is-size-7 is-block">
+          <input
+            :checked="store.levelAuto"
+            type="checkbox"
+            @change="onAutoChange"
+          />
+          Pick the level from the zoom
+        </label>
+        <label
+          class="checkbox is-size-7 is-block"
+          title="Off: a large level loads only the part in view"
+        >
+          <input
+            :checked="store.levelWhole"
+            type="checkbox"
+            @change="onWholeChange"
+          />
+          Load whole level
+        </label>
+      </template>
     </div>
   </div>
 </template>

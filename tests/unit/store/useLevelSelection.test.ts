@@ -207,6 +207,29 @@ it("lifts the cap for levels loaded by view, not for one that is loaded whole", 
   }
 });
 
+it("keeps the whole-level cap with Load whole level on", async () => {
+  const store = useGlobeControlStore();
+  const scope = effectScope();
+  scope.run(() => useLevelSelection(pyramid([12, 10, 8]), () => VIEWPORT));
+  try {
+    store.viewLoading = true;
+    store.metersPerPixel = scaleFor(12);
+    await nextPick();
+    expect(store.selectedLevel).toBe(0);
+
+    store.setLevelWhole(true);
+    await nextTick();
+    expect(store.loadsLevelByView(0)).toBe(false);
+    expect(store.selectedLevel).toBe(1);
+
+    store.setLevelWhole(false);
+    await nextTick();
+    expect(store.selectedLevel).toBe(0);
+  } finally {
+    scope.stop();
+  }
+});
+
 /** A pyramid whose level groups `0`, `1`, … each hold `tas`. */
 function keyedPyramid(orders: number[]) {
   const sources = pyramid(orders);

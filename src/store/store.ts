@@ -254,6 +254,8 @@ export const useGlobeControlStore = defineStore("globeControl", {
       // whether the camera picks it (a manual pick turns that off)
       selectedLevel: 0 as number,
       levelAuto: true,
+      // load the selected level whole rather than the part in view
+      levelWhole: false,
       // ── Live datasets ──────────────────────────────────────────────
       // A live dataset exposes only the currently-available timestep and is
       // followed automatically by polling the store's timestep endpoints.
@@ -345,6 +347,9 @@ export const useGlobeControlStore = defineStore("globeControl", {
     },
     setLevelAuto(auto: boolean) {
       this.levelAuto = auto;
+    },
+    setLevelWhole(whole: boolean) {
+      this.levelWhole = whole;
     },
     isNewDataset(): boolean {
       return this.newDatasetSignifier % 2 === 0;
@@ -536,10 +541,11 @@ export const useGlobeControlStore = defineStore("globeControl", {
       }
     },
     // Whether a large level is loaded as the part in view rather than whole.
-    // Streamlines and volumes read the whole level.
+    // Streamlines, volumes and "Load whole level" read the whole level.
     loadsLevelByView(level: number) {
       return (
         this.viewLoading &&
+        !this.levelWhole &&
         !this.wholeLevels.includes(level) &&
         !this.isStreamlineLayerEnabled() &&
         !this.isVolumeLayerEnabled()

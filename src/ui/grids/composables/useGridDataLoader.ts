@@ -229,7 +229,11 @@ function registerGridDataLoaderWatches(
     }
   };
   watch(
-    [() => store.viewFootprint, () => store.isVolumeLayerEnabled()],
+    [
+      () => store.viewFootprint,
+      () => store.isVolumeLayerEnabled(),
+      () => store.levelWhole,
+    ],
     reloadWindow
   );
   watch(
