@@ -15,7 +15,11 @@ import {
   GRID_TYPES,
   type T_GRID_TYPES,
 } from "@/lib/data/gridTypeDetector.ts";
-import { currentLevel, isSameVariable } from "@/lib/data/levels.ts";
+import {
+  currentLevel,
+  isSameVariable,
+  levelOfVariable,
+} from "@/lib/data/levels.ts";
 import {
   fetchCurrentTimestep,
   liveStoreBaseUrl,
@@ -291,10 +295,22 @@ function prepareDefaults(src: string, index: TSources) {
     const varinfo = modelInfo.value!.vars[varname];
     return !varinfo.hidden;
   });
+  // a bare name from an older link of a pyramid: the variable on its level
+  const levelPath = currentLevel(index).path;
+  const linked =
+    levelPath !== undefined &&
+    paramVarname.value !== undefined &&
+    !(paramVarname.value in modelInfo.value!.vars) &&
+    `${levelPath}/${paramVarname.value}` in modelInfo.value!.vars
+      ? `${levelPath}/${paramVarname.value}`
+      : paramVarname.value;
   varnameSelector.value =
-    paramVarname.value ?? modelInfo.value!.defaultVar ?? validVars[0] ?? "-";
-  // A level-prefixed varname opens on its level; picking stays as the link says.
-  store.levelAuto = paramLevelAuto.value !== "false";
+    linked ?? modelInfo.value!.defaultVar ?? validVars[0] ?? "-";
+  // A level-prefixed varname opens on its level; picking stays as the link
+  // says, but only a varname that names its level can keep one.
+  store.levelAuto =
+    paramLevelAuto.value !== "false" ||
+    levelOfVariable(index.levels, varnameSelector.value) === undefined;
   selectVariableLevel(varnameSelector.value);
 
   if (
