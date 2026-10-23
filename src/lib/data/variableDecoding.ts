@@ -1,5 +1,7 @@
 import * as zarr from "zarrita";
 
+import type { TBounds, TDataSource } from "../types/GlobeTypes.ts";
+
 export type TDataBounds = {
   min: number;
   max: number;
@@ -63,6 +65,58 @@ function getAttributeNumber(
     return Number(attributes[key]);
   }
   return fallback;
+}
+
+function getAttributePair(
+  attributes: zarr.Attributes,
+  key: string
+): [number, number] | undefined {
+  const value = attributes[key];
+  if (!Array.isArray(value) && !ArrayBuffer.isView(value)) {
+    return undefined;
+  }
+  const pair = Array.from(value as ArrayLike<unknown>, Number);
+  return pair.length === 2 ? [pair[0], pair[1]] : undefined;
+}
+
+function toBounds(
+  low: number,
+  high: number
+): { low: number; high: number } | undefined {
+  if (!Number.isFinite(low) || !Number.isFinite(high) || low === high) {
+    return undefined;
+  }
+  return { low: Math.min(low, high), high: Math.max(low, high) };
+}
+
+/**
+ * Colour range a variable's CF `actual_range` suggests. CF gives it in
+ * unpacked units, so it is used as is. `valid_range` / `valid_min` and
+ * `valid_max` are not used: they often hold the limits of the dtype rather
+ * than a range worth looking at.
+ */
+export function getDefaultRangeFromAttributes(
+  attributes?: zarr.Attributes
+): { low: number; high: number } | undefined {
+  if (!attributes) {
+    return undefined;
+  }
+  const actualRange = getAttributePair(attributes, "actual_range");
+  return actualRange ? toBounds(...actualRange) : undefined;
+}
+
+/**
+ * Initial colour range of a variable: `default_range` from a JSON index, else
+ * its CF `actual_range`. Read where the range is used, so it
+ * works however the index was built (one level or several).
+ */
+export function getDefaultRange(
+  datasource?: Pick<TDataSource, "default_range" | "attrs">
+): TBounds | undefined {
+  return (
+    datasource?.default_range ??
+    getDefaultRangeFromAttributes(datasource?.attrs)
+  );
 }
 
 function getValidRanges(attributes?: zarr.Attributes): [number, number][] {
