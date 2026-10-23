@@ -332,6 +332,113 @@ describe("indexing a multiscales pyramid", () => {
   });
 });
 
+/**
+ * The waterpark layout: zarr v2 whose root holds only the group
+ * `multiscales/`, carrying a zarr-conventions layout of `zoom_9 … zoom_0`.
+ */
+function waterparkMetadata() {
+  const layout = [9, 8, 7, 6, 5, 4, 3, 2, 1, 0].map((zoom) => ({
+    asset: `zoom_${zoom}`,
+    ...(zoom < 9
+      ? { derived_from: `zoom_${zoom + 1}`, transform: { scale: [2.0] } }
+      : {}),
+  }));
+  const metadata: Record<string, unknown> = {
+    ".zgroup": { zarr_format: 2 },
+    ".zattrs": { dataset_id: "eerie" },
+    "multiscales/.zgroup": { zarr_format: 2 },
+    "multiscales/.zattrs": { multiscales: { layout } },
+  };
+  for (let zoom = 0; zoom <= 9; zoom++) {
+    const group = `multiscales/zoom_${zoom}`;
+    metadata[`${group}/.zgroup`] = { zarr_format: 2 };
+    metadata[`${group}/.zattrs`] = { healpix_nside: 2 ** zoom };
+    metadata[`${group}/crs/.zarray`] = zarray([1]);
+    metadata[`${group}/crs/.zattrs`] = {
+      _ARRAY_DIMENSIONS: ["crs"],
+      grid_mapping_name: "healpix",
+      healpix_nside: 2 ** zoom,
+    };
+    metadata[`${group}/pr/.zarray`] = zarray([2, 12 * 4 ** zoom]);
+    metadata[`${group}/pr/.zattrs`] = {
+      _ARRAY_DIMENSIONS: ["time", "cell"],
+      grid_mapping: "crs",
+    };
+  }
+  return metadata;
+}
+
+/** Pyramids on `a/b` and on `c`, which is shallower. */
+function twoPyramidsMetadata() {
+  const metadata: Record<string, unknown> = {
+    ".zgroup": { zarr_format: 2 },
+    ".zattrs": {},
+    "a/.zgroup": { zarr_format: 2 },
+    "a/b/.zgroup": { zarr_format: 2 },
+  };
+  for (const [group, levels] of [
+    ["a/b", LEVELS.slice(0, 2)],
+    ["c", LEVELS.slice(1)],
+  ] as const) {
+    const pyramid = pyramidMetadata(
+      levels.map((level) => ({ ...level, path: `${group}/${level.path}` })),
+      {}
+    ).metadata;
+    delete pyramid[".zgroup"];
+    delete pyramid[".zattrs"];
+    Object.assign(metadata, pyramid);
+    metadata[`${group}/.zgroup`] = { zarr_format: 2 };
+    metadata[`${group}/.zattrs`] = omeAttrs(levels.map(({ path }) => path));
+  }
+  return metadata;
+}
+
+describe("indexing a pyramid declared on a group below the opened one", () => {
+  it("reads the waterpark layout as ten levels", async () => {
+    serve({
+      [`${SRC}/.zmetadata`]: {
+        zarr_consolidated_format: 1,
+        metadata: waterparkMetadata(),
+      },
+    });
+    const index = await indexFromZarr(SRC);
+    expect(index.levels.map(({ name }) => name)).toEqual(
+      [9, 8, 7, 6, 5, 4, 3, 2, 1, 0].map((zoom) => `zoom_${zoom}`)
+    );
+    expect(index.levels.map(({ grid }) => grid.dataset)).toEqual(
+      [9, 8, 7, 6, 5, 4, 3, 2, 1, 0].map((zoom) => `multiscales/zoom_${zoom}`)
+    );
+    index.levels.forEach((level, position) => {
+      const nside = 2 ** (9 - position);
+      expect(level.resolution).toBeCloseTo(
+        (EARTH_RADIUS_METERS * Math.sqrt(Math.PI / 3)) / nside,
+        6
+      );
+      expect(level.cellCount).toBe(12 * nside * nside);
+    });
+  });
+
+  it("reads the shallowest of several pyramids and says so", async () => {
+    const files: Record<string, unknown> = {
+      [`${SRC}/.zmetadata`]: {
+        zarr_consolidated_format: 1,
+        metadata: twoPyramidsMetadata(),
+      },
+    };
+    for (const { path, nlon } of LEVELS) {
+      files[`${SRC}/c/${path}/lon/0`] = longitudes(nlon);
+    }
+    serve(files);
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const index = await indexFromZarr(SRC);
+    expect(index.levels.map(({ grid }) => grid.dataset)).toEqual([
+      "c/1",
+      "c/2",
+    ]);
+    expect(info).toHaveBeenCalledWith(expect.stringContaining('"c"'));
+  });
+});
+
 function writeIcechunkPyramid() {
   icechunk.files.clear();
   icechunk.files.set("zarr.json", {

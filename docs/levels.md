@@ -9,7 +9,12 @@ behave as before.
 
 - **`multiscales` attribute.** When the root group (or the group a URL points
   at) carries a `multiscales` attribute, each entry it declares becomes one
-  level, read from the named child group. Three layouts are understood:
+  level, read from the named child group. Without one there, the shallowest
+  group below it that carries the attribute is used (the store's listing is
+  in memory for consolidated metadata, Icechunk and reference files, so this
+  costs no requests); when several do, the first is read and the browser
+  console names it. Paths in the attribute are relative to the group that
+  carries it. Three layouts are understood:
   - OME-NGFF: `multiscales[0].datasets[].path` (0.4), or the same under
     `ome.multiscales` (0.5), listed finest first. A `scale` coordinate
     transformation together with `axes` that carry a length unit (`degree`,

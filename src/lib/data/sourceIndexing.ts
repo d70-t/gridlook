@@ -385,10 +385,84 @@ async function indexLevel(
 }
 
 /**
+ * The metadata in a v2 store's `.zmetadata`, which zarrita has read already
+ * (the store's byte cache answers), or undefined without one.
+ */
+async function consolidatedV2Metadata(
+  store: zarr.Listable<zarr.AsyncReadable>
+) {
+  const bytes = await store.get("/.zmetadata").catch(() => undefined);
+  return bytes
+    ? (JSON.parse(new TextDecoder().decode(bytes)).metadata as Record<
+        string,
+        unknown
+      >)
+    : undefined;
+}
+
+/**
+ * The group whose `multiscales` attribute declares the pyramid: the opened
+ * group, else the shallowest group below it that carries one. The search
+ * reads the store's listing and group attributes, which every caller holds
+ * in memory (consolidated metadata, an Icechunk snapshot or a reference
+ * file), so it fetches nothing: a v2 group without attributes is looked up
+ * in `.zmetadata`, as opening it would request its missing `.zattrs`.
+ * Groups inside a pyramid found are not searched; of several pyramids the
+ * first is read, and the console says which.
+ */
+async function findMultiscalesGroup(
+  store: zarr.Listable<zarr.AsyncReadable>,
+  root: zarr.Group<zarr.AsyncReadable>,
+  opened: zarr.Group<zarr.AsyncReadable>,
+  groupPath: string,
+  zarrFormat: TZarrFormat
+) {
+  if (parseMultiscales(opened.attrs).length > 0) {
+    return { path: groupPath, group: opened };
+  }
+  const prefix = groupPath ? `${groupPath}/` : "";
+  const depth = (path: string) => path.split("/").length;
+  const paths = store
+    .contents()
+    .filter(({ kind }) => kind === "group")
+    .map(({ path }) => trim(path, "/"))
+    .filter((path) => path !== "" && path.startsWith(prefix))
+    .sort((a, b) => depth(a) - depth(b));
+  const consolidated =
+    zarrFormat === ZARR_FORMAT.V2
+      ? await consolidatedV2Metadata(store)
+      : undefined;
+  const found: { path: string; group: zarr.Group<zarr.AsyncReadable> }[] = [];
+  for (const path of paths) {
+    if (
+      found.some((pyramid) => path.startsWith(`${pyramid.path}/`)) ||
+      (consolidated && !consolidated[`${path}/.zattrs`])
+    ) {
+      continue;
+    }
+    const group = await zarr
+      .open(root.resolve(`/${path}`), { kind: "group" })
+      .catch(() => null);
+    if (group && parseMultiscales(group.attrs).length > 0) {
+      found.push({ path, group });
+    }
+  }
+  if (found.length > 1) {
+    console.info(
+      `Several groups declare multiscales (${found.map(({ path }) => path).join(", ")}); reading the levels of "${found[0].path}".`
+    );
+  }
+  return found[0];
+}
+
+/**
  * Index a group whose `multiscales` attribute declares a pyramid: one level
- * per declared child group that holds arrays, finest first. A level that
- * fails to index is left out, and a group left with fewer than two levels is
- * indexed as a single level by the caller, as it was before levels existed.
+ * per declared child group that holds arrays, finest first. The attribute
+ * may sit on the opened group or on a group below it (see
+ * findMultiscalesGroup); its paths are relative to the group carrying it. A
+ * level that fails to index is left out, and a group left with fewer than
+ * two levels is indexed as a single level by the caller, as it was before
+ * levels existed.
  */
 async function indexLevels(
   store: zarr.Listable<zarr.AsyncReadable>,
@@ -397,18 +471,22 @@ async function indexLevels(
   zarrFormat: TZarrFormat,
   groupPath = ""
 ): Promise<TSources | null> {
-  let group = root;
-  try {
-    if (groupPath) {
-      group = await zarr.open(root.resolve(`/${groupPath}`), { kind: "group" });
-    }
-  } catch {
-    // The single-level path opens the group again and reports the error.
+  // On failure the single-level path opens the group again and reports it.
+  const opened = groupPath
+    ? await zarr
+        .open(root.resolve(`/${groupPath}`), { kind: "group" })
+        .catch(() => null)
+    : root;
+  const pyramid =
+    opened &&
+    (await findMultiscalesGroup(store, root, opened, groupPath, zarrFormat));
+  if (!pyramid) {
     return null;
   }
+  const { group } = pyramid;
   const levels: TSourceLevel[] = [];
   for (const entry of parseMultiscales(group.attrs)) {
-    const path = [groupPath, entry.path]
+    const path = [pyramid.path, entry.path]
       .map((part) => trim(part, "/"))
       .filter(Boolean)
       .join("/");
@@ -428,7 +506,7 @@ async function indexLevels(
     return null;
   }
   return {
-    name: group.attrs.title as string,
+    name: (opened!.attrs.title ?? group.attrs.title) as string,
     zarr_format: zarrFormat, // eslint-disable-line camelcase
     levels,
   };
