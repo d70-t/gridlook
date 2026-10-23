@@ -89,7 +89,17 @@ async def test_spa_assets_need_no_login_but_document_and_data_routes_do(
     anonymous = {"Authorization": ""}
     resp = await jp_fetch("gridlook", "app.js", headers=anonymous, follow_redirects=False)
     assert resp.code == 200
-    for path in (("gridlook/",), ("gridlook", "index.html"), ("gridlook", "api", "health")):
+    # Aliases that StaticFileHandler resolves to the index need login too (Tornado
+    # decodes `%2e` to `.` before the handler sees it).
+    (static_root / "assets").mkdir()
+    for path in (
+        ("gridlook/",),
+        ("gridlook", "index.html"),
+        ("gridlook/./",),
+        ("gridlook/index.html/",),
+        ("gridlook/assets/../",),
+        ("gridlook", "api", "health"),
+    ):
         with pytest.raises(HTTPClientError) as e:
             await jp_fetch(*path, headers=anonymous, follow_redirects=False)
         assert e.value.code in (302, 403)

@@ -141,6 +141,19 @@ async def test_store_factory_failure_502_get(jp_fetch, failing_factory):
     assert failing_factory == [f"s3://{ALLOWED_BUCKET}"] * 2  # the failure is not cached
 
 
+async def test_any_store_factory_failure_is_a_502_with_the_reason(jp_fetch, proxy):
+    from botocore.exceptions import ProfileNotFound
+
+    def factory(url, region):
+        raise ProfileNotFound(profile="typo")
+
+    proxy.store_factory = factory
+    with pytest.raises(HTTPClientError) as e:
+        await jp_fetch("gridlook", "s3", ALLOWED_BUCKET, "any/key")
+    assert e.value.code == 502
+    assert b"typo" in e.value.response.body
+
+
 async def test_store_factory_failure_502_head(jp_fetch, failing_factory):
     with pytest.raises(HTTPClientError) as e:
         await jp_fetch("gridlook", "s3", ALLOWED_BUCKET, "any/key", method="HEAD")

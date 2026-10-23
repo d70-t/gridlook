@@ -8,6 +8,8 @@ from traitlets.config import Configurable
 
 #: Bounded per-process cache of store URL -> store (entries come from the allowlist,
 #: so this stays tiny; the bound is belt-and-braces).
+# ponytail: eviction clears the whole cache; an allowlist over 64 stores would rebuild
+# stores (and re-resolve credentials) every 64 misses. An LRU is the upgrade path.
 _MAX_CACHED_STORES = 64
 
 #: URL schemes the proxy routes, spelled as obstore's ``from_url`` takes them.

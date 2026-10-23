@@ -8,13 +8,13 @@
  */
 
 /** The slice of a Lumino widget the registry needs. */
-export interface ViewerTab {
+export interface TViewerTab {
   readonly isDisposed: boolean;
   /** False once the widget left the DOM (a closed tab that was not disposed). */
   readonly isAttached?: boolean;
 }
 
-export class ViewerTabs<T extends ViewerTab> {
+export class ViewerTabs<T extends TViewerTab> {
   private readonly byPath = new Map<string, T>();
 
   /** The live tab already showing `path`, if any. */

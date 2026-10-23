@@ -80,6 +80,7 @@ def test_gcs_store_from_url(captured_store):
 
     store = cfg.default_store_factory("gs://gcs-bucket/pre", None)
     assert isinstance(store, GCSStore)
+    assert store.prefix == "pre"  # confines the proxy to the allowlisted prefix
     assert captured_store == []
 
 
@@ -90,4 +91,6 @@ def test_azure_needs_the_account_name(monkeypatch, captured_store):
     with pytest.raises(RuntimeError, match="AZURE_STORAGE_ACCOUNT_NAME"):
         cfg.default_store_factory("az://container", None)
     monkeypatch.setenv("AZURE_STORAGE_ACCOUNT_NAME", "acct")
-    assert isinstance(cfg.default_store_factory("az://container/pub", None), AzureStore)
+    store = cfg.default_store_factory("az://container/pub", None)
+    assert isinstance(store, AzureStore)
+    assert store.prefix == "pub"

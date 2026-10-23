@@ -1,5 +1,6 @@
 """Wires the gridlook routes into a running jupyter-server."""
 
+import os
 import re
 from pathlib import Path
 
@@ -44,9 +45,17 @@ class SpaFileHandler(JupyterHandler, web.StaticFileHandler):
 
     @allow_unauthenticated
     def get(self, path, include_body=True):
-        if path in ("", "index.html"):
+        if self._is_document(path):
             return self._get_document(path, include_body)
         return super().get(path, include_body)
+
+    def _is_document(self, path):
+        """Whether *path* resolves to the index, including aliases (``./``, ``index.html/``)."""
+        target = self.get_absolute_path(self.root, self.parse_url_path(path))
+        if os.path.isdir(target):
+            target = os.path.join(target, self.default_filename)
+        index = os.path.join(self.root, "index.html")
+        return os.path.isfile(target) and os.path.samefile(target, index)
 
     @web.authenticated
     def _get_document(self, path, include_body):

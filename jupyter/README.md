@@ -117,7 +117,7 @@ The Lab tab embeds the SPA at `<base>/gridlook/`, **not** a copy under the labex
 static directory or a page under `/files/`, for three reasons:
 
 - **one build** — the wheel carries the viewer once, as the server extension's package data;
-  the same `/gridlook/` also serves the S3 proxy the app fetches from.
+  the same `/gridlook/` also serves the store proxy the app fetches from.
 - **the server extension's own policy** — `extension.py` serves the SPA through
   `SpaFileHandler`: the page needs login like any Lab page (and sets the `_xsrf` cookie), its
   assets don't, like Lab's own `/static/` (under JupyterHub, the page's CORS-mode module
@@ -125,7 +125,7 @@ static directory or a page under `/files/`, for three reasons:
   content-security policy (`frame-ancestors 'self'`; JupyterHub's default `'none'` is
   relaxed to that so the Lab tab can embed it). A copy under `/files/` would not work: jupyter serves user files
   with `sandbox allow-scripts`, which gives the document an opaque origin, so the app's own
-  module scripts and every same-origin fetch (the `/files/` store, the S3 proxy) fail CORS
+  module scripts and every same-origin fetch (the `/files/` store, the store proxy) fail CORS
   with `Origin: null`, and IndexedDB is denied.
 - **one URL everywhere** — `<base>/gridlook/#<dataset-url>` works the same outside Lab
   (Jupyter Server alone, notebook 7, a bookmark).

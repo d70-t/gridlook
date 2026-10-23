@@ -72,7 +72,7 @@ def _content_type(key: str, attributes=None) -> str:
 
 
 class HealthHandler(JupyterHandler):
-    """Tiny probe endpoint; the SPA uses it to detect extension-served context."""
+    """Tiny probe endpoint for operators: extension version, proxy and labextension state."""
 
     @web.authenticated
     async def get(self):
@@ -130,9 +130,10 @@ class StoreProxyHandler(PlainTextErrorMixin, JupyterHandler):
             raise web.HTTPError(400, f"invalid key: {url}")
         try:
             return proxy.get_store(entry), key, url
-        except RuntimeError as e:
-            # The store factory could not sign for an allowlisted store (no credentials):
-            # an upstream-auth fault like the other store errors, so 502 with the message.
+        except Exception as e:
+            # The store factory could not build or sign for an allowlisted store (no
+            # credentials, an unknown AWS_PROFILE, a bad GCS/Azure key): an upstream-auth
+            # fault like the other store errors, so 502 with the message.
             raise web.HTTPError(502, str(e)) from e
 
     async def _send_range_not_satisfiable(self, store, key):

@@ -51,7 +51,10 @@ class FrontendBuildHook(BuildHookInterface):
     def _build_spa(self, pkg_root: Path) -> None:
         static = pkg_root / "gridlook_jupyter" / "static"
         if (static / "index.html").exists():
-            self.app.display_info(f"jupyter-gridlook: packaging pre-built SPA from {static}")
+            self.app.display_warning(
+                f"jupyter-gridlook: packaging pre-built SPA from {static} without rebuilding "
+                "it; delete that directory to build the SPA from the current sources"
+            )
             return
 
         repo_root = pkg_root.parent
