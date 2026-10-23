@@ -8,8 +8,8 @@ from jupyter_server.base.handlers import JupyterHandler
 from jupyter_server.utils import url_path_join
 from tornado import web
 
-from .config import GridlookProxy
-from .handlers import HealthHandler, S3ProxyHandler
+from .config import SCHEMES, GridlookProxy
+from .handlers import HealthHandler, StoreProxyHandler
 
 # jupyterhub/singleuser/extension.py sets "frame-ancestors 'none'"; the legacy
 # singleuser mixin (JUPYTERHUB_SINGLEUSER_EXTENSION=0) appends ";report-uri <hub>".
@@ -24,8 +24,8 @@ class SpaFileHandler(JupyterHandler, web.StaticFileHandler):
     ``crossorigin`` stylesheets are CORS-mode requests, and the hub ignores the
     session cookie on those unless they carry an XSRF token, so behind an
     authenticated handler every asset is bounced into the OAuth flow. The
-    bundle is the extension's public code; the data routes (``/files/``, the S3
-    proxy) stay authenticated.
+    bundle is the extension's public code; the data routes (``/files/``, the
+    store proxy) stay authenticated.
 
     The document itself does need login, like any Lab page: an anonymous
     visitor goes to the login, and serving it sets the ``_xsrf`` cookie the
@@ -79,7 +79,7 @@ def load_extension(serverapp):
     static_dir = proxy.static_dir
     if not (Path(static_dir) / "index.html").exists():
         serverapp.log.warning(
-            "gridlook-jupyter: no built SPA at %s — /gridlook/ will 404. "
+            "jupyter-gridlook: no built SPA at %s — /gridlook/ will 404. "
             "Install from a wheel, or set GridlookProxy.static_dir to a gridlook dist/.",
             static_dir,
         )
@@ -88,7 +88,7 @@ def load_extension(serverapp):
     escaped = re.escape(base)
     handlers = [
         (escaped + r"/api/health", HealthHandler),
-        (escaped + r"/s3/([^/]+)/(.+)", S3ProxyHandler),
+        (escaped + "/(" + "|".join(SCHEMES) + ")/(.+)", StoreProxyHandler),
         (escaped + r"$", web.RedirectHandler, {"url": base + "/"}),
         (
             escaped + r"/(.*)",
@@ -99,7 +99,7 @@ def load_extension(serverapp):
     serverapp.web_app.settings["gridlook_proxy"] = proxy
     serverapp.web_app.add_handlers(".*$", handlers)
     serverapp.log.info(
-        "gridlook-jupyter loaded: app at %s/, proxy %s",
+        "jupyter-gridlook loaded: app at %s/, proxy %s",
         base,
-        f"enabled for buckets {proxy.allowed_buckets}" if proxy.enabled else "disabled",
+        f"enabled for {proxy.allowed_buckets}" if proxy.enabled else "disabled",
     )

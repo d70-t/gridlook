@@ -1,4 +1,4 @@
-"""gridlook-jupyter: serve the gridlook viewer and an S3 byte-range proxy from jupyter-server."""
+"""jupyter-gridlook: serve the gridlook viewer and an object-store byte-range proxy from jupyter-server."""
 
 __version__ = "0.1.0"
 

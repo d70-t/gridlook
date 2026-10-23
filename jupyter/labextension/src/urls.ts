@@ -2,7 +2,7 @@
  * URL construction for the viewer tab, kept free of JupyterLab imports so it
  * can be unit-tested on its own.
  *
- * The viewer is the SPA served by the gridlook-jupyter server extension at
+ * The viewer is the SPA served by the jupyter-gridlook server extension at
  * `<baseUrl>/gridlook/`; a dataset is handed to it in the hash as the URL the
  * SPA should fetch it from — here jupyter's own `/files/` handler, which
  * serves the user's files with their session.

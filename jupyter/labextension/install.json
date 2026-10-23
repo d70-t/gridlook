@@ -1,5 +1,5 @@
 {
   "packageManager": "python",
-  "packageName": "gridlook-jupyter",
-  "uninstallInstructions": "Use your Python package manager (pip, conda, etc.) to uninstall the package gridlook-jupyter"
+  "packageName": "jupyter-gridlook",
+  "uninstallInstructions": "Use your Python package manager (pip, conda, etc.) to uninstall the package jupyter-gridlook"
 }

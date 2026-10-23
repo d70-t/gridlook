@@ -2,7 +2,7 @@
  * jupyterlab-gridlook: "Open with Gridlook" for the JupyterLab file browser.
  *
  * Ported from the index.ts attached to d70-t/gridlook#214. The one change:
- * the viewer is the SPA served by the gridlook-jupyter server extension at
+ * the viewer is the SPA served by the jupyter-gridlook server extension at
  * `<base>/gridlook/`, not a copy in this extension's static dir — one wheel
  * carries one build of the viewer, served under the server extension's own
  * handler and CSP next to the routes it fetches from, and the same URL works

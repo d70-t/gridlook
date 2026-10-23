@@ -46,8 +46,9 @@ def proxy(jp_serverapp, bucket_root):
     """The live GridlookProxy, with its store factory pointed at a LocalStore tree."""
     p = jp_serverapp.web_app.settings["gridlook_proxy"]
 
-    def local_factory(bucket, region):
-        return LocalStore(prefix=str(bucket_root / bucket))
+    def local_factory(url, region):
+        # `scheme://bucket[/prefix]` -> buckets/<bucket>/<prefix>
+        return LocalStore(prefix=str(bucket_root / url.partition("://")[2]))
 
     p.store_factory = local_factory
     p._stores.clear()

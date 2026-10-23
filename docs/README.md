@@ -19,7 +19,7 @@ model (ESM) output on native grids.
   controls.
 - [Supported grid types](grid-types.md) — grid families, automatic detection,
   and alternative renderers.
-- [JupyterLab / JupyterHub](../jupyter/README.md) — `pip install gridlook-jupyter`
+- [JupyterLab / JupyterHub](../jupyter/README.md) — `pip install jupyter-gridlook`
   serves the viewer inside a Jupyter server, adds a **Gridlook** launcher card
   and an **Open with Gridlook** entry to the file browser's context menu (a
   consolidated zarr store under your home opens in a Lab tab, read with your

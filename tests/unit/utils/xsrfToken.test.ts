@@ -38,7 +38,7 @@ describe("withXsrfToken", () => {
     expect(withXsrfToken(otherUser, COOKIE, PAGE)).toBe(otherUser);
   });
 
-  it("does nothing on a page not served by gridlook-jupyter", () => {
+  it("does nothing on a page not served by jupyter-gridlook", () => {
     // cookies ignore the port: a dev server sees a local JupyterLab's _xsrf
     const url = "/public/s.zarr";
     expect(withXsrfToken(url, COOKIE, "http://localhost:5173/")).toBe(url);

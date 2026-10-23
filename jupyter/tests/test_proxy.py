@@ -124,9 +124,9 @@ def failing_factory(proxy):
     """A store factory that cannot resolve credentials, as default_store_factory raises."""
     calls = []
 
-    def factory(bucket, region):
-        calls.append(bucket)
-        raise RuntimeError(f"no AWS credentials resolved for bucket {bucket!r}")
+    def factory(url, region):
+        calls.append(url)
+        raise RuntimeError(f"no AWS credentials resolved for bucket {url!r}")
 
     proxy.store_factory = factory
     return calls
@@ -137,15 +137,60 @@ async def test_store_factory_failure_502_get(jp_fetch, failing_factory):
         with pytest.raises(HTTPClientError) as e:
             await jp_fetch("gridlook", "s3", ALLOWED_BUCKET, "any/key")
         assert e.value.code == 502
-        assert b"no AWS credentials resolved for bucket 'test-bucket'" in e.value.response.body
-    assert failing_factory == [ALLOWED_BUCKET] * 2  # the failure is not cached
+        assert b"no AWS credentials resolved for bucket 's3://test-bucket'" in e.value.response.body
+    assert failing_factory == [f"s3://{ALLOWED_BUCKET}"] * 2  # the failure is not cached
 
 
 async def test_store_factory_failure_502_head(jp_fetch, failing_factory):
     with pytest.raises(HTTPClientError) as e:
         await jp_fetch("gridlook", "s3", ALLOWED_BUCKET, "any/key", method="HEAD")
     assert e.value.code == 502
-    assert failing_factory == [ALLOWED_BUCKET]
+    assert failing_factory == [f"s3://{ALLOWED_BUCKET}"]
+
+
+class TestStoreUrls:
+    """Allowlist entries are `scheme://bucket[/prefix]` URLs; a bare name is an S3 bucket."""
+
+    @pytest.fixture
+    def allowed_buckets(self):
+        return [ALLOWED_BUCKET, "gs://gcs-bucket", "az://container/pub", "s3://other/data/"]
+
+    @pytest.mark.parametrize(
+        "route, bucket, key",
+        [
+            (("s3", ALLOWED_BUCKET), ALLOWED_BUCKET, "data/chunk.bin"),
+            (("gs", "gcs-bucket"), "gcs-bucket", "data/chunk.bin"),
+            (("az", "container", "pub"), "container/pub", "chunk.bin"),
+            (("s3", "other", "data"), "other/data", "chunk.bin"),
+        ],
+    )
+    async def test_each_scheme_and_prefix_is_served(
+        self, jp_fetch, proxy, put_object, route, bucket, key
+    ):
+        put_object(bucket, key, PAYLOAD)
+        resp = await jp_fetch("gridlook", *route, key, headers={"Range": "bytes=0-3"})
+        assert resp.code == 206
+        assert resp.body == PAYLOAD[:4]
+
+    @pytest.mark.parametrize(
+        "route",
+        [
+            ("gs", ALLOWED_BUCKET, "data/chunk.bin"),  # allowlisted on s3 only
+            ("az", "container", "private", "chunk.bin"),  # outside the allowed prefix
+            ("az", "container", "pub-lic", "chunk.bin"),  # prefix must end at a `/`
+            ("s3", "other", "chunk.bin"),
+        ],
+    )
+    async def test_outside_the_allowlist_403(self, jp_fetch, proxy, route):
+        with pytest.raises(HTTPClientError) as e:
+            await jp_fetch("gridlook", *route)
+        assert e.value.code == 403
+        assert b"allowlist" in e.value.response.body
+
+    async def test_bare_store_url_400(self, jp_fetch, proxy):
+        with pytest.raises(HTTPClientError) as e:
+            await jp_fetch("gridlook", "gs", "gcs-bucket/")
+        assert e.value.code == 400
 
 
 class TestDisabledProxy:

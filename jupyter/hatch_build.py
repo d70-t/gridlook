@@ -51,13 +51,13 @@ class FrontendBuildHook(BuildHookInterface):
     def _build_spa(self, pkg_root: Path) -> None:
         static = pkg_root / "gridlook_jupyter" / "static"
         if (static / "index.html").exists():
-            self.app.display_info(f"gridlook-jupyter: packaging pre-built SPA from {static}")
+            self.app.display_info(f"jupyter-gridlook: packaging pre-built SPA from {static}")
             return
 
         repo_root = pkg_root.parent
         if not (repo_root / "package.json").exists():
             raise RuntimeError(
-                "gridlook-jupyter: gridlook_jupyter/static/ is empty and the frontend "
+                "jupyter-gridlook: gridlook_jupyter/static/ is empty and the frontend "
                 "sources are not present one directory up (no package.json). Build the "
                 "wheel from a repository checkout, not from the sdist (`uv build --wheel "
                 "jupyter`), or pre-populate gridlook_jupyter/static/ with a built dist/. "
@@ -66,25 +66,25 @@ class FrontendBuildHook(BuildHookInterface):
         npm = shutil.which("npm")
         if npm is None:
             raise RuntimeError(
-                "gridlook-jupyter: gridlook_jupyter/static/ is empty and npm is not on "
+                "jupyter-gridlook: gridlook_jupyter/static/ is empty and npm is not on "
                 "PATH. Install node >= 24 and retry, or pre-populate "
                 "gridlook_jupyter/static/ with a built dist/. Refusing to ship a wheel "
                 "without the SPA."
             )
 
-        self.app.display_info("gridlook-jupyter: running npm ci && npm run build")
+        self.app.display_info("jupyter-gridlook: running npm ci && npm run build")
         subprocess.run([npm, "ci"], cwd=repo_root, check=True)
         subprocess.run([npm, "run", "build"], cwd=repo_root, check=True)
         dist = repo_root / "dist"
         if not (dist / "index.html").exists():
-            raise RuntimeError(f"gridlook-jupyter: npm run build produced no {dist}/index.html")
+            raise RuntimeError(f"jupyter-gridlook: npm run build produced no {dist}/index.html")
         if static.exists():
             shutil.rmtree(static)
         # vite.config.ts keeps sourcemaps on for dev/standalone builds; the wheel is a
         # server-extension artifact that never needs them, so drop *.map on the way in.
         shutil.copytree(dist, static, ignore=shutil.ignore_patterns("*.map"))
         self.app.display_info(
-            f"gridlook-jupyter: packaged {dist} -> {static} (source maps excluded)"
+            f"jupyter-gridlook: packaged {dist} -> {static} (source maps excluded)"
         )
 
     def _build_labextension(self, pkg_root: Path) -> None:
@@ -94,16 +94,16 @@ class FrontendBuildHook(BuildHookInterface):
         if not (src / "package.json").exists():
             if not built:
                 raise RuntimeError(
-                    f"gridlook-jupyter: {out} is empty and labextension/ sources are absent. "
+                    f"jupyter-gridlook: {out} is empty and labextension/ sources are absent. "
                     "Refusing to ship a wheel without the JupyterLab extension."
                 )
             _strip_dev_files(out)
-            self.app.display_info(f"gridlook-jupyter: packaging pre-built labextension from {out}")
+            self.app.display_info(f"jupyter-gridlook: packaging pre-built labextension from {out}")
             return
         jlpm = _tool("jlpm")
         if jlpm is None:
             raise RuntimeError(
-                "gridlook-jupyter: jlpm is not available to build labextension/. jlpm ships "
+                "jupyter-gridlook: jlpm is not available to build labextension/. jlpm ships "
                 "with jupyterlab, which is in build-system.requires; build with an "
                 "isolated build (pip wheel / uv build) or install jupyterlab >= 4 into "
                 "the build environment. Refusing to ship a wheel without the JupyterLab "
@@ -115,12 +115,12 @@ class FrontendBuildHook(BuildHookInterface):
             **os.environ,
             "PATH": os.pathsep.join([str(Path(sys.executable).parent), os.environ.get("PATH", "")]),
         }
-        self.app.display_info("gridlook-jupyter: running jlpm install && jlpm build:prod")
+        self.app.display_info("jupyter-gridlook: running jlpm install && jlpm build:prod")
         subprocess.run([jlpm, "install"], cwd=src, check=True, env=env)
         subprocess.run([jlpm, "build:prod"], cwd=src, check=True, env=env)
         if not (out / "package.json").exists() or not (out / "static").is_dir():
             raise RuntimeError(
-                f"gridlook-jupyter: jlpm build:prod produced no {out}/package.json + static/"
+                f"jupyter-gridlook: jlpm build:prod produced no {out}/package.json + static/"
             )
         _strip_dev_files(out)
-        self.app.display_info(f"gridlook-jupyter: packaged labextension -> {out}")
+        self.app.display_info(f"jupyter-gridlook: packaged labextension -> {out}")

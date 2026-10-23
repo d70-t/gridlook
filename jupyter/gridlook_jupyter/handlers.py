@@ -1,4 +1,4 @@
-"""Tornado handlers: health endpoint and the streaming S3 byte-range proxy."""
+"""Tornado handlers: health endpoint and the streaming object-store byte-range proxy."""
 
 import json
 import mimetypes
@@ -81,7 +81,7 @@ class HealthHandler(JupyterHandler):
         self.finish(
             json.dumps(
                 {
-                    "extension": "gridlook-jupyter",
+                    "extension": "jupyter-gridlook",
                     "version": __version__,
                     "proxy_enabled": proxy.enabled,
                     # A probe for hub operators: null when the Lab half is not installed.
@@ -103,30 +103,36 @@ class PlainTextErrorMixin:
         self.finish(message or f"error {status_code}")
 
 
-class S3ProxyHandler(PlainTextErrorMixin, JupyterHandler):
+class StoreProxyHandler(PlainTextErrorMixin, JupyterHandler):
     """Streaming byte-range proxy: GET/HEAD only, no LIST, hub-side credentials only."""
 
     SUPPORTED_METHODS = ("GET", "HEAD")
 
-    def _store_for(self, bucket: str):
+    def _resolve(self, scheme: str, path: str):
+        """``(store, key, url)`` for an allowlisted ``scheme://bucket/key``, else 400/403/502."""
         proxy: GridlookProxy = self.settings["gridlook_proxy"]
+        url = f"{scheme}://{path}"
         if not proxy.enabled:
             raise web.HTTPError(
                 403,
-                "gridlook S3 proxy is disabled: no allowed buckets are configured. "
+                "gridlook proxy is disabled: no allowed buckets are configured. "
                 "Set GridlookProxy.allowed_buckets (or GRIDLOOK_ALLOWED_BUCKETS).",
             )
-        if bucket not in proxy.allowed_buckets:
+        found = proxy.match(url)
+        if found is None:
             raise web.HTTPError(
                 403,
-                f"bucket '{bucket}' is not in the gridlook proxy allowlist "
+                f"{url} is not under a store in the gridlook proxy allowlist "
                 f"(GridlookProxy.allowed_buckets)",
             )
+        entry, key = found
+        if not key:
+            raise web.HTTPError(400, f"invalid key: {url}")
         try:
-            return proxy.get_store(bucket)
+            return proxy.get_store(entry), key, url
         except RuntimeError as e:
-            # The store factory could not sign for an allowlisted bucket (no credentials):
-            # an upstream-auth fault like the other S3 errors, so 502 with the message.
+            # The store factory could not sign for an allowlisted store (no credentials):
+            # an upstream-auth fault like the other store errors, so 502 with the message.
             raise web.HTTPError(502, str(e)) from e
 
     async def _send_range_not_satisfiable(self, store, key):
@@ -148,8 +154,8 @@ class S3ProxyHandler(PlainTextErrorMixin, JupyterHandler):
         self.finish("range not satisfiable")
 
     @web.authenticated
-    async def get(self, bucket, key):
-        store = self._store_for(bucket)
+    async def get(self, scheme, path):
+        store, key, url = self._resolve(scheme, path)
         range_header = self.request.headers.get("Range")
         try:
             rng = parse_range_header(range_header) if range_header else None
@@ -160,7 +166,7 @@ class S3ProxyHandler(PlainTextErrorMixin, JupyterHandler):
         try:
             result = await obstore.get_async(store, key, options=options)
         except (NotFoundError, FileNotFoundError) as e:
-            raise web.HTTPError(404, f"no such object: s3://{bucket}/{key}") from e
+            raise web.HTTPError(404, f"no such object: {url}") from e
         except ValueError as e:
             # obstore's path parser rejects malformed keys (``..``, empty segments)
             # before any I/O; that is a bad client request, not a server fault.
@@ -171,7 +177,7 @@ class S3ProxyHandler(PlainTextErrorMixin, JupyterHandler):
             if rng is not None and "range" in str(e).lower():
                 await self._send_range_not_satisfiable(store, key)
                 return
-            raise web.HTTPError(502, f"S3 error for s3://{bucket}/{key}: {e}") from e
+            raise web.HTTPError(502, f"store error for {url}: {e}") from e
 
         size = result.meta["size"]
         start, end = result.range
@@ -190,16 +196,16 @@ class S3ProxyHandler(PlainTextErrorMixin, JupyterHandler):
             await self.flush()
 
     @web.authenticated
-    async def head(self, bucket, key):
-        store = self._store_for(bucket)
+    async def head(self, scheme, path):
+        store, key, url = self._resolve(scheme, path)
         try:
             meta = await obstore.head_async(store, key)
         except (NotFoundError, FileNotFoundError) as e:
-            raise web.HTTPError(404, f"no such object: s3://{bucket}/{key}") from e
+            raise web.HTTPError(404, f"no such object: {url}") from e
         except ValueError as e:
             raise web.HTTPError(400, f"invalid key: {key}") from e
         except (BaseError, OSError) as e:
-            raise web.HTTPError(502, f"S3 error for s3://{bucket}/{key}: {e}") from e
+            raise web.HTTPError(502, f"store error for {url}: {e}") from e
         self.set_header("Accept-Ranges", "bytes")
         self.set_header("Content-Type", _content_type(key))
         self.set_header("Content-Length", str(meta["size"]))

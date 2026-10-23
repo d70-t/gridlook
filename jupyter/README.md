@@ -1,9 +1,9 @@
-# gridlook-jupyter
+# jupyter-gridlook
 
 A jupyter-server extension that serves the built [gridlook](../README.md) viewer inside a
-JupyterHub/Jupyter environment, plus a **streaming S3 byte-range proxy** so the browser can read
-private buckets through the hub's credentials — credentials never reach the browser, and the
-buckets never need to be public.
+JupyterHub/Jupyter environment, plus a **streaming object-store byte-range proxy** (S3, GCS,
+Azure) so the browser can read private buckets through the hub's credentials — credentials
+never reach the browser, and the buckets never need to be public.
 
 The same wheel carries a **JupyterLab extension** (`jupyterlab-gridlook`, under
 [`labextension/`](labextension/)): a launcher card and an **Open with Gridlook** entry in the
@@ -15,7 +15,7 @@ file browser's context menu, both opening the viewer in a Lab tab
 ```bash
 pip install ./jupyter        # from a gridlook checkout — needs node >= 24 on PATH
 # or
-pip install gridlook_jupyter-<version>-py3-none-any.whl
+pip install jupyter_gridlook-<version>-py3-none-any.whl
 ```
 
 The wheel embeds the built Vite app as package data and the prebuilt Lab extension as
@@ -142,44 +142,52 @@ the extension only creates the `<iframe>` (`labextension/src/index.ts`).
 
 ## Routes
 
-| Route                         | What                                                                                                                                                           |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/gridlook/`                  | the static gridlook SPA                                                                                                                                        |
-| `/gridlook/api/health`        | tiny JSON probe (`{"extension": "gridlook-jupyter", "labextension": "jupyterlab-gridlook", ...}`; `labextension` is `null` when the Lab half is not installed) |
-| `/gridlook/s3/<bucket>/<key>` | streaming S3 proxy — GET/HEAD only, `Range` pass-through (206), no LIST                                                                                        |
+| Route                               | What                                                                                                                                                           |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/gridlook/`                        | the static gridlook SPA                                                                                                                                        |
+| `/gridlook/api/health`              | tiny JSON probe (`{"extension": "jupyter-gridlook", "labextension": "jupyterlab-gridlook", ...}`; `labextension` is `null` when the Lab half is not installed) |
+| `/gridlook/<scheme>/<bucket>/<key>` | streaming object-store proxy, `<scheme>` one of `s3`, `gs`, `az` — GET/HEAD only, `Range` pass-through (206), no LIST                                          |
 
 ## Configuration
 
-Allowlist-only auth: **the proxy is disabled until you configure buckets.** Requests for
-non-allowlisted buckets get a 403 naming the bucket; with an empty allowlist every proxy request
-gets a 403 saying the proxy is disabled.
+Allowlist-only auth: **the proxy is disabled until you configure buckets.** Entries are
+`s3://bucket`, `gs://bucket` or `az://container` URLs, optionally with a `/prefix` that limits
+the proxy to that part of the bucket; a bare name is an S3 bucket. Requests outside the
+allowlist get a 403 naming the URL; with an empty allowlist every proxy request gets a 403
+saying the proxy is disabled.
 
 Via traitlets (`jupyter_server_config.py`, or `--GridlookProxy.…` on the command line):
 
 ```python
-c.GridlookProxy.allowed_buckets = ["my-bucket"]
-c.GridlookProxy.region = "us-west-2"  # optional; ambient AWS config otherwise
+c.GridlookProxy.allowed_buckets = ["my-bucket", "gs://my-gcs-bucket/public", "az://my-container"]
+c.GridlookProxy.region = "us-west-2"  # optional, S3 only; ambient AWS config otherwise
 c.GridlookProxy.static_dir = "/path/to/dist"  # optional; dev override for the SPA files
 ```
 
 Or environment variables (used only when the trait is not configured):
 
 ```bash
-export GRIDLOOK_ALLOWED_BUCKETS="my-bucket,another-bucket"
+export GRIDLOOK_ALLOWED_BUCKETS="my-bucket,gs://my-gcs-bucket/public,az://my-container"
 export GRIDLOOK_S3_REGION="us-west-2"
+export AZURE_STORAGE_ACCOUNT_NAME="myaccount"  # for az:// entries
 ```
 
 S3 credentials are resolved through botocore (the same chain as the AWS CLI: `AWS_PROFILE`
 and the shared config, SSO, instance/pod roles, web identity, plain `AWS_*` env), with
 expiring tokens refreshed. A bucket the chain cannot sign for fails the request loudly
-rather than falling back to an unsigned read: the proxy answers 502 with the reason. The
-proxy streams responses chunk-by-chunk and never buffers whole objects; there are no presigned
-URLs, so nothing credential-shaped is ever exposed to the browser.
+rather than falling back to an unsigned read: the proxy answers 502 with the reason. GCS and
+Azure use obstore's own chain: `GOOGLE_APPLICATION_CREDENTIALS` (a service-account or
+application-default file), `GOOGLE_SERVICE_ACCOUNT` or the metadata server for GCS;
+`AZURE_STORAGE_ACCOUNT_KEY`, a SAS token, client credentials or IMDS for Azure, with the
+account in `AZURE_STORAGE_ACCOUNT_NAME`. The proxy streams responses chunk-by-chunk and never
+buffers whole objects; there are no presigned URLs, so nothing credential-shaped is ever
+exposed to the browser.
 
-## `s3://` inputs in the app
+## Bucket inputs in the app
 
-Point the app at the proxy path as the dataset URL — `<base>/gridlook/s3/<bucket>/<prefix>` —
-for an allowlisted bucket; it is a plain HTTP zarr source to the viewer.
+Point the app at the proxy path as the dataset URL — `<base>/gridlook/s3/<bucket>/<prefix>`,
+`<base>/gridlook/gs/…` or `<base>/gridlook/az/…` — for an allowlisted store; it is a plain HTTP
+zarr source to the viewer.
 
 ## Development
 

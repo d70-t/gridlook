@@ -10,7 +10,7 @@ async def test_health(jp_fetch, proxy):
     resp = await jp_fetch("gridlook", "api", "health")
     assert resp.code == 200
     body = json.loads(resp.body)
-    assert body["extension"] == "gridlook-jupyter"
+    assert body["extension"] == "jupyter-gridlook"
     assert body["proxy_enabled"] is True
 
 
