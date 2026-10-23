@@ -252,6 +252,23 @@ function fetchedCells(variable: string) {
   return cells;
 }
 
+function expectBackdropUnderLevel(
+  meshes: THREE.Mesh<THREE.BufferGeometry, THREE.Material>[]
+) {
+  const backdrop = meshes.filter((mesh) => mesh.renderOrder > 0);
+  const level = meshes.filter((mesh) => mesh.renderOrder === 0);
+  expect(backdrop.length).toBeGreaterThan(0);
+  expect(level.length).toBeGreaterThan(0);
+  for (const { material } of backdrop) {
+    expect(material.stencilFunc).toBe(THREE.NotEqualStencilFunc);
+    expect(material.stencilRef).toBe(level[0].material.stencilRef);
+  }
+  for (const { material } of level) {
+    expect(material.stencilZPass).toBe(THREE.ReplaceStencilOp);
+    expect(material.depthFunc).toBe(THREE.LessEqualDepth);
+  }
+}
+
 it("loads the blocks in view of a dense level over the coarsest level", async () => {
   stored.fine = { level: 9 };
   stored.coarse = { level: 3 };
@@ -261,8 +278,13 @@ it("loads the blocks in view of a dense level over the coarsest level", async ()
   expect(fetchedCells("t")).toBeGreaterThan(0);
   expect(fetchedCells("t")).toBeLessThanOrEqual(DEFAULT_MAX_VIEW_CELLS / 4);
   expect(store.viewLoading).toBe(true);
-  const meshes = scene.current!.children as THREE.Mesh[];
-  expect(meshes.some((mesh) => mesh.renderOrder === -0.5)).toBe(true);
+  // the coarse level is drawn after the level, where it left no stencil mark
+  expectBackdropUnderLevel(
+    scene.current!.children as THREE.Mesh<
+      THREE.BufferGeometry,
+      THREE.Material
+    >[]
+  );
   expect(store.varinfo!.bounds.high).toBeLessThan(0);
 
   // hover reads the fine cell in view, and no cell where nothing is loaded

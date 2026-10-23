@@ -229,12 +229,17 @@ it("loads the view window of a large level over the whole coarsest level", async
   expect(fetched("coarse")).toHaveLength(1);
   expect(fetched("coarse")[0].selection.slice(-2)).toEqual([null, null]);
 
-  // the coarse level is drawn first and supplies the colour range
-  const backdrop = meshes().filter((mesh) => mesh.renderOrder === -0.5);
+  // the coarse level is drawn after the level, only where the level left no
+  // stencil mark, and supplies the colour range
+  const backdrop = meshes().filter((mesh) => mesh.renderOrder > 0);
   const level = meshes().filter((mesh) => mesh.renderOrder === 0);
   expect(backdrop).toHaveLength(1);
   expect(level.length).toBeGreaterThan(0);
-  expect(level[0].material.depthFunc).toBe(THREE.AlwaysDepth);
+  expect(backdrop[0].material.stencilFunc).toBe(THREE.NotEqualStencilFunc);
+  expect(backdrop[0].material.stencilWriteMask).toBe(0);
+  expect(level[0].material.stencilZPass).toBe(THREE.ReplaceStencilOp);
+  expect(level[0].material.stencilRef).toBe(backdrop[0].material.stencilRef);
+  expect(level[0].material.depthFunc).toBe(THREE.LessEqualDepth);
   expect(store.varinfo!.bounds.high).toBeLessThan(0);
 
   // hover reads the fine cell inside the window and nothing outside it
@@ -258,7 +263,6 @@ it("loads the view window of a large level over the whole coarsest level", async
   sources.selectedLevel = 1;
   await wait(40);
   expect(meshes().every((mesh) => mesh.renderOrder === 0)).toBe(true);
-  expect(meshes()[0].material.depthFunc).toBe(THREE.LessEqualDepth);
   expect(hover().findNearest(-60, 200)!.value).toBe(-(1 * 10000 + 10 + 1));
   scope.stop();
 });

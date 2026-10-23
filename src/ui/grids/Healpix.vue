@@ -74,7 +74,10 @@ import {
 } from "@/lib/projection/projectionEdgeQuality.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import {
+  BACKDROP_RENDER_ORDER,
+  backdropMaterial,
   getColormapScaleOffset,
+  levelMaterial,
   makeGpuProjectedTextureMaterial,
 } from "@/lib/shaders/gridShaders.ts";
 import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
@@ -967,8 +970,10 @@ function createHealpixMesh(
   );
   mesh.frustumCulled = false;
   if (target === backdropMeshes) {
-    // after the layers stacked below the grid (-1 and down), before the grid
-    mesh.renderOrder = -0.5;
+    backdropMaterial(material);
+    mesh.renderOrder = BACKDROP_RENDER_ORDER;
+  } else {
+    levelMaterial(material);
   }
   target[batchIndex] = mesh;
   getScene()?.add(mesh);
@@ -1168,20 +1173,6 @@ function showBackdrop(frame: TBackdropFrame | undefined) {
   wanted?.batches.forEach((batch) => updateHealpixBatch(batch, backdropMeshes));
 }
 
-/**
- * A level is drawn after its backdrop and over it whatever the depth says:
- * up close the two surfaces are nearer than float32 positions can order.
- */
-function drawOverBackdrop() {
-  for (const mesh of mainMeshes) {
-    if (mesh) {
-      (mesh.material as THREE.ShaderMaterial).depthFunc = backdropKey
-        ? THREE.AlwaysDepth
-        : THREE.LessEqualDepth;
-    }
-  }
-}
-
 function healpixHoverLookup(
   lat: number,
   lon: number
@@ -1313,7 +1304,6 @@ async function fetchAndRenderData(
     } else {
       textures.forEach((texture) => updateHealpixTexture(texture));
     }
-    drawOverBackdrop();
     setHoverLookup(healpixHoverLookup);
   };
   if (!isCurrent()) {

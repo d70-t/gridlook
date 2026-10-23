@@ -96,7 +96,10 @@ around the point below the camera.
 
 The coarsest level is the exception: it is always loaded whole. It is drawn
 under a finer level wherever that level has no cells on screen (outside its
-window, or outside the region it covers), and the colour range and histogram
+window, or outside the region it covers): the level marks the stencil buffer
+where it draws a cell and the coarsest level is drawn after it, only where
+nothing is marked, so it never shows through a translucent grid. The colour
+range and histogram
 are taken from it, so colours do not shift as the view moves or the level
 changes. A pyramid whose levels do not state their resolution has no known
 coarsest level, and loads every level whole.

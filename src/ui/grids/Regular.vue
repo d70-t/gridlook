@@ -76,7 +76,10 @@ import {
 } from "@/lib/projection/projectionEdgeQuality.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import {
+  BACKDROP_RENDER_ORDER,
+  backdropMaterial,
   getColormapScaleOffset,
+  levelMaterial,
   makeGpuProjectedTextureMaterial,
   updateProjectionUniforms,
 } from "@/lib/shaders/gridShaders.ts";
@@ -1045,9 +1048,7 @@ function setMeshMaterials(material: THREE.ShaderMaterial) {
 function updateMeshMaterials(rawData: Float32Array) {
   const material = makeMaterial(rawData);
   updateProjectionUniforms(material, projectionHelper.value);
-  // A level is drawn after its backdrop and over it whatever the depth says:
-  // up close the two surfaces are nearer than float32 positions can order.
-  material.depthFunc = backdrop ? THREE.AlwaysDepth : THREE.LessEqualDepth;
+  levelMaterial(material);
   setMeshMaterials(material);
   updateColormap(drawnMeshes());
 }
@@ -1119,10 +1120,8 @@ function showBackdrop(frame: TBackdropFrame | undefined) {
   // With two grids on screen a texture export renders them: it must not
   // take the backdrop for the one grid whose texture it can copy.
   delete geometry.userData[GridTextureExportUserDataKey.METADATA];
-  const material = makeMaterial(
-    wanted.data,
-    wanted.latitudes,
-    wanted.longitudes
+  const material = backdropMaterial(
+    makeMaterial(wanted.data, wanted.latitudes, wanted.longitudes)
   );
   updateProjectionUniforms(material, projectionHelper.value);
   backdrop = createWrappedProjectionMesh(
@@ -1131,8 +1130,7 @@ function showBackdrop(frame: TBackdropFrame | undefined) {
     projectionHelper.value.type
   );
   backdrop.frustumCulled = false;
-  // after the layers stacked below the grid (-1 and down), before the grid
-  backdrop.renderOrder = -0.5;
+  backdrop.renderOrder = BACKDROP_RENDER_ORDER;
   backdrop.userData.key = wanted.key;
   getScene()?.add(backdrop);
 }

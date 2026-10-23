@@ -909,6 +909,8 @@ export function useGridScene(options: UseGridSceneOptions) {
     renderer = new THREE.WebGLRenderer({
       canvas: canvas.value,
       powerPreference: "high-performance",
+      // a pyramid's backdrop is masked by its level (see levelMaterial)
+      stencil: true,
     });
 
     camera.up = new THREE.Vector3(0, 0, 1);

@@ -785,7 +785,10 @@ async function encodePixelsToGeoTiffBlob(
 }
 
 function createExportRenderTarget(size: TExportSize) {
-  return new THREE.WebGLRenderTarget(size.width, size.height);
+  // The stencil masks a pyramid's backdrop, as on the canvas.
+  return new THREE.WebGLRenderTarget(size.width, size.height, {
+    stencilBuffer: true,
+  });
 }
 
 function createDirectTextureExportGeometry(
