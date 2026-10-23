@@ -12,15 +12,16 @@ behave as before.
   level, read from the named child group. Without one there, the shallowest
   group below it that carries the attribute is used (the store's listing is
   in memory for consolidated metadata, Icechunk and reference files, so this
-  costs no requests); when several do, the first is read and the browser
-  console names it. Paths in the attribute are relative to the group that
-  carries it. Three layouts are understood:
+  costs no requests); when several do, the shallowest is read and the
+  browser console lists them all. Paths in the attribute are relative to the
+  group that carries it. Three layouts are understood:
   - OME-NGFF: `multiscales[0].datasets[].path` (0.4), or the same under
     `ome.multiscales` (0.5). A `scale` coordinate transformation together
     with `axes` that carry a length unit (`degree`, `metre`, `km`) gives the
     level's ground resolution. An ndpyramid dataset (`crs: "EPSG:3857"` and
-    `pixels_per_tile` p) of zoom n (its `level`, else its numeric `path`)
-    has cells of 2πR / (p · 2ⁿ) at the equator.
+    `pixels_per_tile` p) of zoom n (its `level`, a number or a string of
+    digits, else its numeric `path`) has cells of 2πR / (p · 2ⁿ) at the
+    equator.
   - [zarr-conventions `multiscales`](https://github.com/zarr-conventions/multiscales):
     `multiscales.layout[].asset`. The `transform.scale` of a layout entry is relative to
     another level, so the resolution comes from the level's grid (below). An
@@ -45,7 +46,10 @@ behave as before.
 Arrays outside the level groups (next to them, or in groups that are not
 levels) stay listed as variables without levels. Such a variable is shown
 like a single-level dataset: the level list is disabled, nothing is loaded
-by view or drawn beneath it, and the camera picks no level for it.
+by view or drawn beneath it, and the camera picks no level for it. It is
+loaded whole, however many cells it has. The levels of a second pyramid in
+the same store are such variables too, so a fine level of it can be slow or
+too large to render.
 
 Once every level has a resolution, the levels are sorted finest first,
 whatever order the attribute or the JSON index lists them in. Levels
@@ -98,11 +102,14 @@ The coarsest level is the exception: it is always loaded whole. It is drawn
 under a finer level wherever that level has no cells on screen (outside its
 window, or outside the region it covers): the level marks the stencil buffer
 where it draws a cell and the coarsest level is drawn after it, only where
-nothing is marked, so it never shows through a translucent grid. The colour
-range and histogram
-are taken from it, so colours do not shift as the view moves or the level
-changes. A pyramid whose levels do not state their resolution has no known
-coarsest level, and loads every level whole.
+nothing is marked, so it never shows through a translucent grid. A cell
+that is not drawn (no value, or hidden at or beyond a bound of the colour
+range) marks nothing either, so the coarsest level shows through it: along
+a coastline or at a threshold, coarse cells fill the gaps of the finer
+level. The colour range and histogram are taken from the coarsest level, so
+colours do not shift as the view moves or the level changes. A pyramid
+whose levels do not state their resolution has no known coarsest level, and
+loads every level whole.
 
 A level that is loaded by view can be of any size, so automatic selection has
 no cap for it. Streamlines and the volume layer read the whole level: while
