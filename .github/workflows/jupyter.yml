@@ -17,6 +17,14 @@ on:
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/jupyter.yml"
+  # release.yml calls this on a release to publish the wheel; PyPI's trusted
+  # publisher is bound to this workflow file, so the publish job lives here.
+  workflow_call:
+    inputs:
+      publish:
+        description: Upload the built wheel to PyPI
+        type: boolean
+        default: false
 
 jobs:
   build-and-test:
@@ -58,6 +66,12 @@ jobs:
 
       - name: Assert the wheel ships no source maps
         run: "! unzip -l jupyter/dist-py/*.whl | grep -q '\\.map$'"
+
+      - name: Keep the wheel for the publish job
+        uses: actions/upload-artifact@v4
+        with:
+          name: jupyter-gridlook-wheel
+          path: jupyter/dist-py/*.whl
 
       - name: Install the wheel with jupyterlab and test deps
         run: uv pip install "$(ls jupyter/dist-py/*.whl)[test]" "jupyterlab>=4" ruff
@@ -112,3 +126,21 @@ jobs:
             echo "::error::the sdist ships build outputs" && exit 1
           fi
           test "$(echo "$listing" | wc -l)" -lt 100
+
+  publish:
+    # Wheel only: the sdist is source-only and cannot build itself (README).
+    if: inputs.publish
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: jupyter-gridlook-wheel
+          path: dist
+
+      - name: Publish to PyPI (trusted publishing, no token)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist

@@ -1,6 +1,8 @@
 """jupyter-gridlook: serve the gridlook viewer and an object-store byte-range proxy from jupyter-server."""
 
-__version__ = "0.1.0"
+from importlib.metadata import version
+
+__version__ = version("jupyter-gridlook")
 
 
 def _jupyter_server_extension_points():

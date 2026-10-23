@@ -13,10 +13,13 @@ file browser's context menu, both opening the viewer in a Lab tab
 ## Install
 
 ```bash
-pip install ./jupyter        # from a gridlook checkout — needs node >= 24 on PATH
-# or
-pip install jupyter_gridlook-<version>-py3-none-any.whl
+pip install jupyter-gridlook  # from PyPI; the version is the gridlook release it embeds
+# or, from a gridlook checkout — needs node >= 24 on PATH:
+pip install ./jupyter
 ```
+
+Each gridlook release publishes the wheel to PyPI (`release.yml` calls `jupyter.yml`, which
+uploads with PyPI trusted publishing; there is no sdist on PyPI, see below).
 
 The wheel embeds the built Vite app as package data and the prebuilt Lab extension as
 shared data (`share/jupyter/labextensions/jupyterlab-gridlook/`). **Building the wheel requires

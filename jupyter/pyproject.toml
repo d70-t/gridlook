@@ -6,8 +6,9 @@ build-backend = "hatchling.build"
 
 [project]
 name = "jupyter-gridlook"
-# Static for now; coupling it to gridlook releases is an open question (see the PR).
-version = "0.1.0"
+# The wheel embeds one build of the viewer, so it carries the viewer's version:
+# release-please bumps package.json, and release.yml publishes this at the same number.
+dynamic = ["version"]
 description = "Jupyter server extension serving the gridlook viewer with a streaming object-store byte-range proxy"
 readme = "README.md"
 license = "MIT"
@@ -24,6 +25,11 @@ test = [
     "pytest>=8",
     "pytest-jupyter[server]>=0.10",
 ]
+
+[tool.hatch.version]
+source = "regex"
+path = "../package.json"
+pattern = '"version":\s*"(?P<version>[^"]+)"'
 
 [tool.hatch.build.targets.wheel]
 packages = ["gridlook_jupyter"]

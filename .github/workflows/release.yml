@@ -8,12 +8,29 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  id-token: write # publish-jupyter: PyPI trusted publishing
 
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
     steps:
-      - uses: googleapis/release-please-action@v4
+      - id: release
+        uses: googleapis/release-please-action@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           release-type: node
+
+  # The tag release-please pushes with GITHUB_TOKEN triggers no workflow of its
+  # own, so the jupyter-gridlook wheel is published from here, at the same
+  # version as the viewer (jupyter/pyproject.toml reads it from package.json).
+  publish-jupyter:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/jupyter.yml
+    with:
+      publish: true
