@@ -1,7 +1,11 @@
 <script lang="ts" setup>
 import { computed } from "vue";
 
-import { exceedsCellCap, hasLevels } from "@/lib/data/levels.ts";
+import {
+  exceedsCellCap,
+  hasLevels,
+  levelHoldsVariable,
+} from "@/lib/data/levels.ts";
 import type { TSourceLevel } from "@/lib/types/GlobeTypes.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 
@@ -35,6 +39,12 @@ const options = computed(() =>
     label: `${level.name ?? index}${formatResolution(level.resolution)}`,
     // still selectable by hand; the camera never picks these
     tooManyCells: !store.loadsLevelByView(index) && exceedsCellCap(level),
+    // a level without the variable shown cannot display it
+    lacksVariable: !levelHoldsVariable(
+      props.levels,
+      store.varnameSelector,
+      index
+    ),
   }))
 );
 
@@ -65,6 +75,7 @@ function onAutoChange(event: Event) {
             v-for="option in options"
             :key="option.index"
             :value="option.index"
+            :disabled="option.lacksVariable"
             :title="
               option.tooManyCells
                 ? 'More cells than the renderer allocates comfortably'
