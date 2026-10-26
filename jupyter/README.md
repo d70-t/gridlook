@@ -25,11 +25,11 @@ The wheel embeds the built Vite app as package data and the prebuilt Lab extensi
 shared data (`share/jupyter/labextensions/jupyter-gridlook/`). **Building the wheel requires
 node/npm** — the build hook ([`hatch_build.py`](hatch_build.py)) runs `npm ci && npm run build`
 at the repo root and copies `dist/` into the wheel, then `jlpm install && jlpm build:prod` in
-`labextension/` (jlpm comes from `jupyterlab`, a build-time-only requirement in
+`labextension/` (jlpm and `jupyter-builder` come from `jupyterlab` >= 4.6, a build-time-only requirement in
 `build-system.requires`; an isolated build fetches it). Installing a pre-built wheel needs
 neither. Both halves auto-enable on install — the server extension via
 `jupyter_server_config.d`, the Lab extension as a prebuilt labextension with its
-`install.json` — so there is no `jupyter labextension develop` step for users. Runtime
+`install.json` — so there is no `jupyter-builder develop` step for users. Runtime
 dependencies are `jupyter-server`, `obstore` and `boto3`.
 
 The sdist is **source-only**: the hook needs the frontend sources one directory up, which the
@@ -38,7 +38,7 @@ checkout (`uv build --wheel jupyter`, or `pip install ./jupyter`); `uv build jup
 `--wheel` builds the wheel from the sdist and fails for this reason.
 
 Editable installs (`pip install -e ./jupyter`) skip both frontend builds — point
-`GridlookProxy.static_dir` at a locally built `dist/` and `jupyter labextension develop` the
+`GridlookProxy.static_dir` at a locally built `dist/` and `jupyter-builder develop` the
 built extension instead (see [Development](#development)).
 
 ## Launch
@@ -200,7 +200,7 @@ from any venv nested under it.
 
 ```bash
 uv venv ~/.venvs/gridlook && source ~/.venvs/gridlook/bin/activate
-uv pip install -e "./jupyter[test]" "jupyterlab>=4" ruff
+uv pip install -e "./jupyter[test]" "jupyterlab>=4.6" ruff
 pytest jupyter/tests -v
 ruff check jupyter/jupyter_gridlook jupyter/tests jupyter/hatch_build.py
 # run against a dev-built frontend:
@@ -217,8 +217,8 @@ The Lab extension (editable install; the wheel build does all of this itself):
 cd jupyter/labextension
 jlpm install
 jlpm test                # jest: URL construction (src/urls.ts), tab reuse (src/tabs.ts)
-jlpm build               # tsc + `jupyter labextension build` -> ../jupyter_gridlook/labextension/
-jupyter labextension develop --overwrite ../     # symlink it into share/jupyter/labextensions/
+jlpm build               # tsc + `jupyter-builder build` -> ../jupyter_gridlook/labextension/
+jupyter-builder develop --overwrite ../     # symlink it into share/jupyter/labextensions/
 jupyter lab              # launcher card + "Open with Gridlook" in the file browser
 ```
 

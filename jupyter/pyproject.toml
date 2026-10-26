@@ -1,7 +1,7 @@
 [build-system]
-# jupyterlab is build-time only: it provides jlpm / `jupyter labextension build`
+# jupyterlab is build-time only: it provides jlpm and jupyter-builder (>= 4.6)
 # for the Lab extension half (hatch_build.py). Runtime deps stay below.
-requires = ["hatchling", "jupyterlab>=4.0.0,<5"]
+requires = ["hatchling", "jupyterlab>=4.6.0,<5"]
 build-backend = "hatchling.build"
 
 [project]

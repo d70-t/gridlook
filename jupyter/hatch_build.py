@@ -11,7 +11,7 @@ refuses to ship a wheel without its half.
 Wheel builds therefore need node/npm on PATH plus the sources (the frontend one directory
 up, labextension/ here) and jupyterlab in the build environment (build-system.requires) for
 jlpm. Editable installs skip the hook — point GridlookProxy.static_dir at a dev dist/ and
-`jupyter labextension develop` the built labextension instead (see README).
+`jupyter-builder develop` the built labextension instead (see README).
 """
 
 import os
@@ -22,7 +22,7 @@ from pathlib import Path
 
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 
-# Development-build outputs of `jupyter labextension build`; a wheel never needs them.
+# Development-build outputs of `jupyter-builder build`; a wheel never needs them.
 DEV_FILES = ("*.map", "build_log.json")
 
 
@@ -108,11 +108,11 @@ class FrontendBuildHook(BuildHookInterface):
             raise RuntimeError(
                 "jupyter-gridlook: jlpm is not available to build labextension/. jlpm ships "
                 "with jupyterlab, which is in build-system.requires; build with an "
-                "isolated build (pip wheel / uv build) or install jupyterlab >= 4 into "
+                "isolated build (pip wheel / uv build) or install jupyterlab >= 4.6 into "
                 "the build environment. Refusing to ship a wheel without the JupyterLab "
                 "extension."
             )
-        # `jlpm build:prod` runs `jupyter labextension build`: put the build
+        # `jlpm build:prod` runs `jupyter-builder build`: put the build
         # environment's console scripts first on PATH so it resolves there.
         env = {
             **os.environ,

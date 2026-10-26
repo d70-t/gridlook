@@ -77,7 +77,7 @@ jobs:
           path: jupyter/dist-py/*.whl
 
       - name: Install the wheel with jupyterlab and test deps
-        run: uv pip install "$(ls jupyter/dist-py/*.whl)[test]" "jupyterlab>=4" ruff
+        run: uv pip install "$(ls jupyter/dist-py/*.whl)[test]" "jupyterlab>=4.6" ruff
 
       - name: Assert a development labextension build never ships
         # The README's dev loop (`jlpm build`) leaves source maps and build_log.json
