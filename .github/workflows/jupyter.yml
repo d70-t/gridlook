@@ -55,14 +55,14 @@ jobs:
         run: uv build --wheel jupyter -o jupyter/dist-py
 
       - name: Assert the wheel carries the SPA
-        run: unzip -l jupyter/dist-py/*.whl | grep -q "gridlook_jupyter/static/index.html"
+        run: unzip -l jupyter/dist-py/*.whl | grep -q "jupyter_gridlook/static/index.html"
 
       - name: Assert the wheel carries the prebuilt labextension
         run: |
           listing=$(unzip -l jupyter/dist-py/*.whl)
-          echo "$listing" | grep -q "share/jupyter/labextensions/jupyterlab-gridlook/package.json"
-          echo "$listing" | grep -q "share/jupyter/labextensions/jupyterlab-gridlook/install.json"
-          echo "$listing" | grep -q "share/jupyter/labextensions/jupyterlab-gridlook/static/remoteEntry\."
+          echo "$listing" | grep -q "share/jupyter/labextensions/jupyter-gridlook/package.json"
+          echo "$listing" | grep -q "share/jupyter/labextensions/jupyter-gridlook/install.json"
+          echo "$listing" | grep -q "share/jupyter/labextensions/jupyter-gridlook/static/remoteEntry\."
 
       - name: Assert the wheel ships no source maps
         run: "! unzip -l jupyter/dist-py/*.whl | grep -q '\\.map$'"
@@ -82,14 +82,14 @@ jobs:
         # sources absent (the prebuilt path) it strips them. Exercise both.
         run: |
           (cd jupyter/labextension && jlpm build)
-          ls jupyter/gridlook_jupyter/labextension/build_log.json
+          ls jupyter/jupyter_gridlook/labextension/build_log.json
           rsync -a --exclude node_modules jupyter/ "$RUNNER_TEMP/prebuilt/"
           rm "$RUNNER_TEMP/prebuilt/labextension/package.json"
           uv build --wheel jupyter -o "$RUNNER_TEMP/rebuilt"
           uv build --wheel "$RUNNER_TEMP/prebuilt" -o "$RUNNER_TEMP/prebuilt-dist"
           for whl in "$RUNNER_TEMP"/rebuilt/*.whl "$RUNNER_TEMP"/prebuilt-dist/*.whl; do
             listing=$(unzip -l "$whl")
-            echo "$listing" | grep -q "jupyterlab-gridlook/static/remoteEntry\."
+            echo "$listing" | grep -q "jupyter-gridlook/static/remoteEntry\."
             ! echo "$listing" | grep -qE '\.map$|build_log\.json$'
           done
 
@@ -97,14 +97,14 @@ jobs:
         run: |
           # enabled AND validated: `OK` is the part that proves each half loads
           servers=$(jupyter server extension list 2>&1) && echo "$servers"
-          echo "$servers" | grep -E "gridlook_jupyter .*enabled"
-          echo "$servers" | grep -E "gridlook_jupyter [0-9.]+ .*OK"
-          jupyter labextension list 2>&1 | tee /dev/stderr | grep -E "jupyterlab-gridlook v[0-9.]+ .*enabled.*OK"
+          echo "$servers" | grep -E "jupyter_gridlook .*enabled"
+          echo "$servers" | grep -E "jupyter_gridlook [0-9.]+ .*OK"
+          jupyter labextension list 2>&1 | tee /dev/stderr | grep -E "jupyter-gridlook v[0-9.]+ .*enabled.*OK"
 
       - name: Ruff
         run: |
-          ruff check jupyter/gridlook_jupyter jupyter/tests jupyter/hatch_build.py
-          ruff format --check jupyter/gridlook_jupyter jupyter/tests jupyter/hatch_build.py
+          ruff check jupyter/jupyter_gridlook jupyter/tests jupyter/hatch_build.py
+          ruff format --check jupyter/jupyter_gridlook jupyter/tests jupyter/hatch_build.py
 
       - name: Pytest
         run: pytest jupyter/tests -v

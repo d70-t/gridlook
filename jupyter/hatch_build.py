@@ -1,8 +1,8 @@
 """Hatchling build hook: build both frontend halves into the wheel.
 
-The SPA (the Vite app at the repo root) is packaged as gridlook_jupyter/static/; the
+The SPA (the Vite app at the repo root) is packaged as jupyter_gridlook/static/; the
 JupyterLab extension (labextension/) is built with jlpm and packaged through the wheel's
-shared-data as share/jupyter/labextensions/jupyterlab-gridlook/. The SPA step is skipped when
+shared-data as share/jupyter/labextensions/jupyter-gridlook/. The SPA step is skipped when
 its output is already present; the labextension is always rebuilt (`jlpm build:prod`) when its
 sources are here, so a dev build or a stale bundle never ships, and a prebuilt output is used
 only without sources. Source maps and build_log.json are stripped from it either way. Each step
@@ -49,7 +49,7 @@ class FrontendBuildHook(BuildHookInterface):
         self._build_labextension(pkg_root)
 
     def _build_spa(self, pkg_root: Path) -> None:
-        static = pkg_root / "gridlook_jupyter" / "static"
+        static = pkg_root / "jupyter_gridlook" / "static"
         if (static / "index.html").exists():
             self.app.display_warning(
                 f"jupyter-gridlook: packaging pre-built SPA from {static} without rebuilding "
@@ -60,18 +60,18 @@ class FrontendBuildHook(BuildHookInterface):
         repo_root = pkg_root.parent
         if not (repo_root / "package.json").exists():
             raise RuntimeError(
-                "jupyter-gridlook: gridlook_jupyter/static/ is empty and the frontend "
+                "jupyter-gridlook: jupyter_gridlook/static/ is empty and the frontend "
                 "sources are not present one directory up (no package.json). Build the "
                 "wheel from a repository checkout, not from the sdist (`uv build --wheel "
-                "jupyter`), or pre-populate gridlook_jupyter/static/ with a built dist/. "
+                "jupyter`), or pre-populate jupyter_gridlook/static/ with a built dist/. "
                 "Refusing to ship a wheel without the SPA."
             )
         npm = shutil.which("npm")
         if npm is None:
             raise RuntimeError(
-                "jupyter-gridlook: gridlook_jupyter/static/ is empty and npm is not on "
+                "jupyter-gridlook: jupyter_gridlook/static/ is empty and npm is not on "
                 "PATH. Install node >= 24 and retry, or pre-populate "
-                "gridlook_jupyter/static/ with a built dist/. Refusing to ship a wheel "
+                "jupyter_gridlook/static/ with a built dist/. Refusing to ship a wheel "
                 "without the SPA."
             )
 
@@ -92,7 +92,7 @@ class FrontendBuildHook(BuildHookInterface):
 
     def _build_labextension(self, pkg_root: Path) -> None:
         src = pkg_root / "labextension"
-        out = pkg_root / "gridlook_jupyter" / "labextension"
+        out = pkg_root / "jupyter_gridlook" / "labextension"
         built = (out / "package.json").exists() and (out / "static").is_dir()
         if not (src / "package.json").exists():
             if not built:

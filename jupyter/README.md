@@ -5,7 +5,7 @@ JupyterHub/Jupyter environment, plus a **streaming object-store byte-range proxy
 Azure) so the browser can read private buckets through the hub's credentials — credentials
 never reach the browser, and the buckets never need to be public.
 
-The same wheel carries a **JupyterLab extension** (`jupyterlab-gridlook`, under
+The same wheel carries a **JupyterLab extension** (`jupyter-gridlook`, under
 [`labextension/`](labextension/)): a launcher card and an **Open with Gridlook** entry in the
 file browser's context menu, both opening the viewer in a Lab tab
 ([d70-t/gridlook#214](https://github.com/d70-t/gridlook/issues/214)).
@@ -22,7 +22,7 @@ Each gridlook release publishes the wheel to PyPI (`release.yml` calls `jupyter.
 uploads with PyPI trusted publishing; there is no sdist on PyPI, see below).
 
 The wheel embeds the built Vite app as package data and the prebuilt Lab extension as
-shared data (`share/jupyter/labextensions/jupyterlab-gridlook/`). **Building the wheel requires
+shared data (`share/jupyter/labextensions/jupyter-gridlook/`). **Building the wheel requires
 node/npm** — the build hook ([`hatch_build.py`](hatch_build.py)) runs `npm ci && npm run build`
 at the repo root and copies `dist/` into the wheel, then `jlpm install && jlpm build:prod` in
 `labextension/` (jlpm comes from `jupyterlab`, a build-time-only requirement in
@@ -145,11 +145,11 @@ the extension only creates the `<iframe>` (`labextension/src/index.ts`).
 
 ## Routes
 
-| Route                               | What                                                                                                                                                           |
-| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/gridlook/`                        | the static gridlook SPA                                                                                                                                        |
-| `/gridlook/api/health`              | tiny JSON probe (`{"extension": "jupyter-gridlook", "labextension": "jupyterlab-gridlook", ...}`; `labextension` is `null` when the Lab half is not installed) |
-| `/gridlook/<scheme>/<bucket>/<key>` | streaming object-store proxy, `<scheme>` one of `s3`, `gs`, `az` — GET/HEAD only, `Range` pass-through (206), no LIST                                          |
+| Route                               | What                                                                                                                                                        |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/gridlook/`                        | the static gridlook SPA                                                                                                                                     |
+| `/gridlook/api/health`              | tiny JSON probe (`{"extension": "jupyter-gridlook", "labextension": "jupyter-gridlook", ...}`; `labextension` is `null` when the Lab half is not installed) |
+| `/gridlook/<scheme>/<bucket>/<key>` | streaming object-store proxy, `<scheme>` one of `s3`, `gs`, `az` — GET/HEAD only, `Range` pass-through (206), no LIST                                       |
 
 ## Configuration
 
@@ -202,7 +202,7 @@ from any venv nested under it.
 uv venv ~/.venvs/gridlook && source ~/.venvs/gridlook/bin/activate
 uv pip install -e "./jupyter[test]" "jupyterlab>=4" ruff
 pytest jupyter/tests -v
-ruff check jupyter/gridlook_jupyter jupyter/tests jupyter/hatch_build.py
+ruff check jupyter/jupyter_gridlook jupyter/tests jupyter/hatch_build.py
 # run against a dev-built frontend:
 npm run build   # at the repo root
 jupyter server --GridlookProxy.static_dir="$(pwd)/dist" --GridlookProxy.allowed_buckets='["my-bucket"]'
@@ -217,7 +217,7 @@ The Lab extension (editable install; the wheel build does all of this itself):
 cd jupyter/labextension
 jlpm install
 jlpm test                # jest: URL construction (src/urls.ts), tab reuse (src/tabs.ts)
-jlpm build               # tsc + `jupyter labextension build` -> ../gridlook_jupyter/labextension/
+jlpm build               # tsc + `jupyter labextension build` -> ../jupyter_gridlook/labextension/
 jupyter labextension develop --overwrite ../     # symlink it into share/jupyter/labextensions/
 jupyter lab              # launcher card + "Open with Gridlook" in the file browser
 ```

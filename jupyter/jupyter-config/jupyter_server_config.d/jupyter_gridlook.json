@@ -1,7 +1,7 @@
 {
   "ServerApp": {
     "jpserver_extensions": {
-      "gridlook_jupyter": true
+      "jupyter_gridlook": true
     }
   }
 }

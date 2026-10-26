@@ -30,7 +30,7 @@ def allowed_buckets():
 def jp_server_config(static_root, allowed_buckets):
     return {
         "ServerApp": {
-            "jpserver_extensions": {"gridlook_jupyter": True},
+            "jpserver_extensions": {"jupyter_gridlook": True},
             # as jupyterhub-singleuser does: a handler is public only if it says so
             "allow_unauthenticated_access": False,
         },

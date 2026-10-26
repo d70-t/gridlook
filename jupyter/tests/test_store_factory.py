@@ -2,7 +2,7 @@
 
 import pytest
 
-from gridlook_jupyter import config as cfg
+from jupyter_gridlook import config as cfg
 
 
 @pytest.fixture

@@ -3,7 +3,7 @@ import json
 import pytest
 from tornado.httpclient import HTTPClientError
 
-from gridlook_jupyter import handlers
+from jupyter_gridlook import handlers
 
 
 async def test_health(jp_fetch, proxy):
@@ -19,11 +19,11 @@ async def test_health_reports_labextension_only_when_installed(
     jp_fetch, proxy, tmp_path, monkeypatch, installed
 ):
     if installed:
-        (tmp_path / "jupyterlab-gridlook").mkdir()
-        (tmp_path / "jupyterlab-gridlook" / "package.json").write_text("{}")
+        (tmp_path / "jupyter-gridlook").mkdir()
+        (tmp_path / "jupyter-gridlook" / "package.json").write_text("{}")
     monkeypatch.setattr(handlers, "jupyter_path", lambda *_: [str(tmp_path)])
     body = json.loads((await jp_fetch("gridlook", "api", "health")).body)
-    assert body["labextension"] == ("jupyterlab-gridlook" if installed else None)
+    assert body["labextension"] == ("jupyter-gridlook" if installed else None)
 
 
 async def test_static_index_served(jp_fetch, proxy):
@@ -124,7 +124,7 @@ async def test_bare_route_redirects_to_slash(jp_fetch, jp_base_url, proxy):
 
 class TestEnvFallback:
     def test_allowlist_from_env(self, monkeypatch):
-        from gridlook_jupyter.config import GridlookProxy
+        from jupyter_gridlook.config import GridlookProxy
 
         monkeypatch.setenv("GRIDLOOK_ALLOWED_BUCKETS", "bucket-a, bucket-b")
         proxy = GridlookProxy()
@@ -132,20 +132,20 @@ class TestEnvFallback:
         assert proxy.enabled
 
     def test_region_from_env(self, monkeypatch):
-        from gridlook_jupyter.config import GridlookProxy
+        from jupyter_gridlook.config import GridlookProxy
 
         monkeypatch.setenv("GRIDLOOK_S3_REGION", "us-west-2")
         assert GridlookProxy().region == "us-west-2"
 
     def test_traitlet_wins_over_env(self, monkeypatch):
-        from gridlook_jupyter.config import GridlookProxy
+        from jupyter_gridlook.config import GridlookProxy
 
         monkeypatch.setenv("GRIDLOOK_ALLOWED_BUCKETS", "env-bucket")
         proxy = GridlookProxy(allowed_buckets=["cfg-bucket"])
         assert proxy.allowed_buckets == ["cfg-bucket"]
 
     def test_empty_by_default(self, monkeypatch):
-        from gridlook_jupyter.config import GridlookProxy
+        from jupyter_gridlook.config import GridlookProxy
 
         monkeypatch.delenv("GRIDLOOK_ALLOWED_BUCKETS", raising=False)
         proxy = GridlookProxy()
@@ -167,6 +167,6 @@ class TestEnvFallback:
     ],
 )
 def test_parse_range_header(header, expected):
-    from gridlook_jupyter.handlers import parse_range_header
+    from jupyter_gridlook.handlers import parse_range_header
 
     assert parse_range_header(header) == expected

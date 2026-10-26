@@ -21,7 +21,7 @@ _RANGE_RE = re.compile(r"^bytes=(\d*)-(\d*)$")
 _STREAM_CHUNK = 256 * 1024
 
 #: The Lab half shipped in the same wheel (its directory under share/jupyter/labextensions/).
-LABEXTENSION = "jupyterlab-gridlook"
+LABEXTENSION = "jupyter-gridlook"
 
 
 def labextension_installed() -> bool:

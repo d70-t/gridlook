@@ -1,5 +1,5 @@
 /**
- * jupyterlab-gridlook: "Open with Gridlook" for the JupyterLab file browser.
+ * jupyter-gridlook: "Open with Gridlook" for the JupyterLab file browser.
  *
  * Ported from the index.ts attached to d70-t/gridlook#214. The one change:
  * the viewer is the SPA served by the jupyter-gridlook server extension at
@@ -138,7 +138,7 @@ function activate(
 }
 
 const plugin: JupyterFrontEndPlugin<void> = {
-  id: "jupyterlab-gridlook:plugin",
+  id: "jupyter-gridlook:plugin",
   description: "Open zarr stores from the file browser in the gridlook viewer.",
   autoStart: true,
   requires: [IFileBrowserFactory],

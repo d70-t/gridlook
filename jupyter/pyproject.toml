@@ -32,18 +32,18 @@ path = "../package.json"
 pattern = '"version":\s*"(?P<version>[^"]+)"'
 
 [tool.hatch.build.targets.wheel]
-packages = ["gridlook_jupyter"]
+packages = ["jupyter_gridlook"]
 # The static SPA is copied in by the build hook and is gitignored; `artifacts`
 # re-includes VCS-ignored paths.
-artifacts = ["gridlook_jupyter/static/**"]
+artifacts = ["jupyter_gridlook/static/**"]
 
 # Both halves enable themselves on install: the server extension through
 # jupyter_server_config.d, the Lab extension as a prebuilt labextension (built
-# into gridlook_jupyter/labextension/ by the hook) with its install.json.
+# into jupyter_gridlook/labextension/ by the hook) with its install.json.
 [tool.hatch.build.targets.wheel.shared-data]
 "jupyter-config/jupyter_server_config.d" = "etc/jupyter/jupyter_server_config.d"
-"gridlook_jupyter/labextension" = "share/jupyter/labextensions/jupyterlab-gridlook"
-"labextension/install.json" = "share/jupyter/labextensions/jupyterlab-gridlook/install.json"
+"jupyter_gridlook/labextension" = "share/jupyter/labextensions/jupyter-gridlook"
+"labextension/install.json" = "share/jupyter/labextensions/jupyter-gridlook/install.json"
 
 [tool.hatch.build.targets.wheel.hooks.custom]
 path = "hatch_build.py"
@@ -52,7 +52,7 @@ path = "hatch_build.py"
 # the gridlook frontend sources one directory up. Build wheels from a checkout.
 [tool.hatch.build.targets.sdist]
 include = [
-    "gridlook_jupyter",
+    "jupyter_gridlook",
     "jupyter-config",
     "labextension",
     "hatch_build.py",
