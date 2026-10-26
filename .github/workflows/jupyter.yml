@@ -32,15 +32,18 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "24"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
+        with:
+          # No uv.lock is checked in: key uv's cache on the build requirements instead.
+          cache-dependency-glob: jupyter/pyproject.toml
 
       - name: Create a fresh venv outside the checkout
         # Outside on purpose: the repo root package.json declares "type": "module",
@@ -68,7 +71,7 @@ jobs:
         run: "! unzip -l jupyter/dist-py/*.whl | grep -q '\\.map$'"
 
       - name: Keep the wheel for the publish job
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: jupyter-gridlook-wheel
           path: jupyter/dist-py/*.whl
@@ -83,10 +86,12 @@ jobs:
         run: |
           (cd jupyter/labextension && jlpm build)
           ls jupyter/jupyter_gridlook/labextension/build_log.json
-          rsync -a --exclude node_modules jupyter/ "$RUNNER_TEMP/prebuilt/"
-          rm "$RUNNER_TEMP/prebuilt/labextension/package.json"
+          # pyproject.toml reads the version from ../package.json: keep one beside the copy.
+          rsync -a --exclude node_modules jupyter/ "$RUNNER_TEMP/prebuilt/jupyter/"
+          cp package.json "$RUNNER_TEMP/prebuilt/"
+          rm "$RUNNER_TEMP/prebuilt/jupyter/labextension/package.json"
           uv build --wheel jupyter -o "$RUNNER_TEMP/rebuilt"
-          uv build --wheel "$RUNNER_TEMP/prebuilt" -o "$RUNNER_TEMP/prebuilt-dist"
+          uv build --wheel "$RUNNER_TEMP/prebuilt/jupyter" -o "$RUNNER_TEMP/prebuilt-dist"
           for whl in "$RUNNER_TEMP"/rebuilt/*.whl "$RUNNER_TEMP"/prebuilt-dist/*.whl; do
             listing=$(unzip -l "$whl")
             echo "$listing" | grep -q "jupyter-gridlook/static/remoteEntry\."
@@ -135,7 +140,7 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: jupyter-gridlook-wheel
           path: dist
