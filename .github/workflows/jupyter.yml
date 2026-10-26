@@ -87,6 +87,7 @@ jobs:
           (cd jupyter/labextension && jlpm build)
           ls jupyter/jupyter_gridlook/labextension/build_log.json
           # pyproject.toml reads the version from ../package.json: keep one beside the copy.
+          mkdir -p "$RUNNER_TEMP/prebuilt"
           rsync -a --exclude node_modules jupyter/ "$RUNNER_TEMP/prebuilt/jupyter/"
           cp package.json "$RUNNER_TEMP/prebuilt/"
           rm "$RUNNER_TEMP/prebuilt/jupyter/labextension/package.json"
