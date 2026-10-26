@@ -1,47 +1,51 @@
 import { expect, it } from "vitest";
 
 import {
-  buildGaussianReducedBatch,
-  buildGaussianReducedHoverIndexData,
-  buildGaussianReducedRows,
-  getGaussianReducedBatchCount,
+  buildGaussianReducedGrid,
+  createGaussianReducedSampleIndex,
 } from "@/lib/grids/gaussianReducedCalculations.ts";
-import { createSerializedGeoSampleIndex } from "@/lib/grids/serializedGeoSampleIndex.ts";
-import {
-  PROJECTION_TYPES,
-  ProjectionHelper,
-} from "@/lib/projection/projectionUtils.ts";
 
-function buildTestGrid() {
-  return buildGaussianReducedRows(
-    new Float64Array([10, 10, 0, 0]),
-    new Float64Array([0, 180, 0, 180]),
-    new Float32Array([1, 2, 3, 4])
-  );
-}
+// Stored south to north to check that rows are sorted north to south.
+const latitudes = new Float64Array([-45, -45, 45, 45, 45, 45]);
+const longitudes = new Float64Array([0, 180, 0, 90, 180, 270]);
+const values = new Float32Array([1, 2, 3, 4, 5, 6]);
 
-it("builds transferable Gaussian reduced geometry batches", () => {
-  const grid = buildTestGrid();
-  const projection = new ProjectionHelper(
-    PROJECTION_TYPES.NEARSIDE_PERSPECTIVE,
-    { lat: 0, lon: 0 }
-  );
-  const batch = buildGaussianReducedBatch(grid, 0, 64, 0.002, projection);
+it("builds the row table north to south", () => {
+  const grid = buildGaussianReducedGrid(latitudes, longitudes);
 
-  expect(getGaussianReducedBatchCount(grid, 64)).toBe(1);
-  expect(batch.positionValues).toHaveLength(24);
-  expect(batch.latLonValues).toHaveLength(16);
-  expect(batch.dataValues).toEqual(new Float32Array([1, 1, 1, 1, 2, 2, 2, 2]));
-  expect(batch.indices).toEqual(
-    new Uint32Array([0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7])
-  );
+  expect(grid.rowLatitudes).toEqual(new Float64Array([45, -45]));
+  expect(grid.rowPointCounts).toEqual(new Uint32Array([4, 2]));
+  expect(grid.rowOffsets).toEqual(new Uint32Array([2, 0]));
 });
 
-it("reconstructs the worker-built hover index without rebuilding it", () => {
-  const hoverIndexData = buildGaussianReducedHoverIndexData(buildTestGrid());
-  const index = createSerializedGeoSampleIndex(hoverIndexData);
+it("finds the cell centered on each point", () => {
+  const index = createGaussianReducedSampleIndex(
+    buildGaussianReducedGrid(latitudes, longitudes),
+    values
+  );
 
-  expect(hoverIndexData.latitudes).toEqual(new Float64Array([5, 5]));
-  expect(index.findNearest(5, -80)).toEqual({ lat: 5, lon: -90, value: 1 });
-  expect(index.findNearest(5, 80)).toEqual({ lat: 5, lon: 90, value: 2 });
+  expect(index.findNearest(89, 44)).toEqual({ lat: 45, lon: 0, value: 3 });
+  expect(index.findNearest(1, 46)).toEqual({ lat: 45, lon: 90, value: 4 });
+  expect(index.findNearest(30, -46)).toEqual({ lat: 45, lon: -90, value: 6 });
+  expect(index.findNearest(-1, 89)).toEqual({ lat: -45, lon: 0, value: 1 });
+  expect(index.findNearest(-89, -91)).toEqual({
+    lat: -45,
+    lon: -180,
+    value: 2,
+  });
+});
+
+it("rejects rows that are not evenly spaced or not contiguous", () => {
+  expect(() =>
+    buildGaussianReducedGrid(
+      new Float64Array([0, 0, 0]),
+      new Float64Array([0, 10, 20])
+    )
+  ).toThrow("evenly spaced");
+  expect(() =>
+    buildGaussianReducedGrid(
+      new Float64Array([0, 0, 10, 0]),
+      new Float64Array([0, 180, 0, 0])
+    )
+  ).toThrow("contiguously");
 });
