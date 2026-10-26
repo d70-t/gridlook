@@ -14,6 +14,7 @@ jlpm. Editable installs skip the hook — point GridlookProxy.static_dir at a de
 `jupyter-builder develop` the built labextension instead (see README).
 """
 
+import json
 import os
 import shutil
 import subprocess
@@ -101,6 +102,7 @@ class FrontendBuildHook(BuildHookInterface):
                     "Refusing to ship a wheel without the JupyterLab extension."
                 )
             _strip_dev_files(out)
+            self._stamp_version(out)
             self.app.display_info(f"jupyter-gridlook: packaging pre-built labextension from {out}")
             return
         jlpm = _tool("jlpm")
@@ -126,4 +128,13 @@ class FrontendBuildHook(BuildHookInterface):
                 f"jupyter-gridlook: jlpm build:prod produced no {out}/package.json + static/"
             )
         _strip_dev_files(out)
+        self._stamp_version(out)
         self.app.display_info(f"jupyter-gridlook: packaged labextension -> {out}")
+
+    def _stamp_version(self, out: Path) -> None:
+        # Both halves report the viewer release: labextension/package.json only
+        # carries a placeholder, the wheel's version (from ../package.json) goes here.
+        manifest = out / "package.json"
+        data = json.loads(manifest.read_text())
+        data["version"] = self.metadata.version
+        manifest.write_text(json.dumps(data, indent=2) + "\n")

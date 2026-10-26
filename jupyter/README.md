@@ -22,7 +22,8 @@ Each gridlook release publishes the wheel to PyPI (`release.yml` calls `jupyter.
 uploads with PyPI trusted publishing; there is no sdist on PyPI, see below).
 
 The wheel embeds the built Vite app as package data and the prebuilt Lab extension as
-shared data (`share/jupyter/labextensions/jupyter-gridlook/`). **Building the wheel requires
+shared data (`share/jupyter/labextensions/jupyter-gridlook/`), stamped with the same version as the
+wheel (`labextension/package.json` only holds a placeholder). **Building the wheel requires
 node/npm** — the build hook ([`hatch_build.py`](hatch_build.py)) runs `npm ci && npm run build`
 at the repo root and copies `dist/` into the wheel, then `jlpm install && jlpm build:prod` in
 `labextension/` (jlpm and `jupyter-builder` come from `jupyterlab` >= 4.6, a build-time-only requirement in

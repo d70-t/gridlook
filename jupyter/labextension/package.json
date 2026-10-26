@@ -1,6 +1,6 @@
 {
   "name": "jupyter-gridlook",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "description": "Open zarr stores from the JupyterLab file browser in the gridlook viewer",
   "keywords": [
     "jupyter",

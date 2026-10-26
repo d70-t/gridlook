@@ -104,7 +104,9 @@ jobs:
           servers=$(jupyter server extension list 2>&1) && echo "$servers"
           echo "$servers" | grep -E "jupyter_gridlook .*enabled"
           echo "$servers" | grep -E "jupyter_gridlook [0-9.]+ .*OK"
-          jupyter labextension list 2>&1 | tee /dev/stderr | grep -E "jupyter-gridlook v[0-9.]+ .*enabled.*OK"
+          # the Lab half is stamped with the viewer version (hatch_build.py)
+          version=$(node -p "require('./package.json').version")
+          jupyter labextension list 2>&1 | tee /dev/stderr | grep -F "jupyter-gridlook v$version " | grep -E "enabled.*OK"
 
       - name: Ruff
         run: |
