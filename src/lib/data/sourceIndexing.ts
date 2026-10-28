@@ -25,6 +25,7 @@ import {
 import { ZarrDataManager } from "./ZarrDataManager.ts";
 
 import trim from "@/utils/trim.ts";
+import { joinUrlPath } from "@/utils/xsrfToken.ts";
 
 /*
   Matches strings like "a: foo b: bar" and rewrites them into a map {a: foo, b: bar}
@@ -469,7 +470,10 @@ function collectStores(
   const stores: Record<string, Set<string>> = {};
   for (const varname in datasources) {
     const variable = datasources[varname];
-    const store = trim(variable.store, "/") + "/" + trim(variable.dataset, "/");
+    const store = joinUrlPath(
+      trim(variable.store, "/"),
+      trim(variable.dataset, "/")
+    );
     if (!stores[store]) {
       stores[store] = new Set();
     }
@@ -515,7 +519,14 @@ async function enrichMetadata(
   }
 }
 
-export async function indexFromIndex(src: string): Promise<TSources> {
+/**
+ * `tokenize` is applied to every store the index names, so stores on the same
+ * Jupyter server get its `_xsrf` token too (see `withStoreXsrfToken`).
+ */
+export async function indexFromIndex(
+  src: string,
+  tokenize: (store: string) => string = (store) => store
+): Promise<TSources> {
   const res = await fetch(src);
   if (!res.ok) {
     throw new Error(`Failed to fetch index from ${src}: ${res.statusText}`);
@@ -523,6 +534,17 @@ export async function indexFromIndex(src: string): Promise<TSources> {
     throw new Error(`Index not found at ${src}`);
   }
   const sources = (await res.json()) as TSources;
+  for (const level of sources.levels) {
+    for (const source of [
+      level.grid,
+      level.time,
+      ...Object.values(level.datasources ?? {}),
+    ]) {
+      if (source?.store) {
+        source.store = tokenize(source.store);
+      }
+    }
+  }
   const datasources = sources.levels[0].datasources;
   const stores = collectStores(datasources);
   try {

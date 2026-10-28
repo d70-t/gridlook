@@ -1,0 +1,15 @@
+# Built SPA copied in by the wheel build hook (hatch_build.py)
+jupyter_gridlook/static/
+__pycache__/
+*.egg-info/
+.venv/
+dist-py/
+build/
+.pytest_cache/
+.ruff_cache/
+# Labextension build outputs (hatch_build.py / jlpm build)
+jupyter_gridlook/labextension/
+labextension/lib/
+labextension/.yarn/
+labextension/node_modules/
+labextension/tsconfig.tsbuildinfo
