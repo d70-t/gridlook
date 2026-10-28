@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.8.0](https://github.com/d70-t/gridlook/compare/v1.7.0...v1.8.0) (2026-10-28)
+
+
+### Features
+
+* add gridlook-jupyter, a jupyter-server extension with an Open with Gridlook Lab plugin ([f916e68](https://github.com/d70-t/gridlook/commit/f916e6840bd84bd3c3fe08de2bcff7f2a0789b79))
+* **config:** publish jupyter-gridlook to PyPI on each release ([9f6356a](https://github.com/d70-t/gridlook/commit/9f6356a0cdfa9318dc91112c0e3068bea65bed2f))
+* gridlook-jupyter — Jupyter server extension w/ "Open with Gridlook" JupyterLab plugin ([#214](https://github.com/d70-t/gridlook/issues/214)) ([2c7dff7](https://github.com/d70-t/gridlook/commit/2c7dff7a1f1a39f4a60847c6c8728591f6ffd0ae))
+* **lib:** open Kerchunk reference files ([36ebc77](https://github.com/d70-t/gridlook/commit/36ebc77ba8bbe3ec7c8c65eed065fd65a37dba4c))
+* rename the package to jupyter-gridlook and proxy GCS and Azure stores too ([bd4752e](https://github.com/d70-t/gridlook/commit/bd4752edac1c96c28589932f9b8e1c5c161fb43f))
+
+
+### Bug Fixes
+
+* **config:** build the prebuilt CI wheel beside package.json, drop Node 20 actions ([7506e6c](https://github.com/d70-t/gridlook/commit/7506e6c571683e241648911eb2595556d8dfeefa))
+* **config:** create the prebuilt wheel directory before rsync ([1021884](https://github.com/d70-t/gridlook/commit/10218842825af430f5b93334d3258315ee423a72))
+* **lib:** Delaunay Azimuthal creates less glitches ([2d82b32](https://github.com/d70-t/gridlook/commit/2d82b3240d9cfb5276b8ccfe679afba9e69d3670))
+* **lib:** Fixed seam-issue for certain km-scale datasets ([8c4119c](https://github.com/d70-t/gridlook/commit/8c4119c00dc4df583d07eb9be0bced13bd80cf50))
+* **lib:** keep the _xsrf token under the Jupyter base on icechunk parent probes ([a2db2d2](https://github.com/d70-t/gridlook/commit/a2db2d2b8f6504d3169a944b49d82945034e01f9))
+* make gridlook-jupyter work under JupyterHub ([af09ef7](https://github.com/d70-t/gridlook/commit/af09ef7bbfcb788101e705b9f079ad4cd5df3609))
+* optimize curvilinear rendering with reusable texture-backed meshes and cached hover indexes ([5973ccb](https://github.com/d70-t/gridlook/commit/5973ccb1e3b6e7ee4a85938ebd3450918e1a8685))
+* require login for index aliases and answer any store-factory failure with 502 ([414e992](https://github.com/d70-t/gridlook/commit/414e9929ed4c5f248145e8b5a66c8263b8c511fc))
+* send the Jupyter _xsrf token for icechunk, JSON-index and live stores ([3c0df76](https://github.com/d70-t/gridlook/commit/3c0df76c637243b15fb570b4da8b529ed6507f11))
+* set the hub's _xsrf cookie from /gridlook/ and narrow where the token goes ([0a0c926](https://github.com/d70-t/gridlook/commit/0a0c92620b50fc583f4d14174cb344815b1f5a4c))
+* Show error when no Variable is visualizable instead of endless loading ([a1045c4](https://github.com/d70-t/gridlook/commit/a1045c434147328650f6fb422c9719fcc83276bb))
+* stamp the viewer version on the Lab extension ([31fcdfd](https://github.com/d70-t/gridlook/commit/31fcdfdfa97ff84395f34c8c070b474122f4d5fe))
+* **ui:** stop v-word-break from parsing dataset text as HTML ([38cacb8](https://github.com/d70-t/gridlook/commit/38cacb86c6d20000187625daeaa588b49d87d402))
+
 ## [1.7.0](https://github.com/d70-t/gridlook/compare/v1.6.1...v1.7.0) (2026-10-21)
 
 
