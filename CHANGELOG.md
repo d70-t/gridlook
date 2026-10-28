@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.8.0](https://github.com/d70-t/gridlook/compare/v1.7.0...v1.8.0) (2026-10-28)
+
+
+### Features
+
+* add gridlook-jupyter, a jupyter-server extension with an Open with Gridlook Lab plugin ([f916e68](https://github.com/d70-t/gridlook/commit/f916e6840bd84bd3c3fe08de2bcff7f2a0789b79))
+* **lib:** open Kerchunk reference files ([36ebc77](https://github.com/d70-t/gridlook/commit/36ebc77ba8bbe3ec7c8c65eed065fd65a37dba4c))
+
+
+### Bug Fixes
+
+* **lib:** Delaunay Azimuthal creates less glitches ([2d82b32](https://github.com/d70-t/gridlook/commit/2d82b3240d9cfb5276b8ccfe679afba9e69d3670))
+* **lib:** Fixed seam-issue for certain km-scale datasets ([8c4119c](https://github.com/d70-t/gridlook/commit/8c4119c00dc4df583d07eb9be0bced13bd80cf50))
+* optimize curvilinear rendering with reusable texture-backed meshes and cached hover indexes ([5973ccb](https://github.com/d70-t/gridlook/commit/5973ccb1e3b6e7ee4a85938ebd3450918e1a8685))
+* Show error when no Variable is visualizable instead of endless loading ([a1045c4](https://github.com/d70-t/gridlook/commit/a1045c434147328650f6fb422c9719fcc83276bb))
+* **ui:** stop v-word-break from parsing dataset text as HTML ([38cacb8](https://github.com/d70-t/gridlook/commit/38cacb86c6d20000187625daeaa588b49d87d402))
+
 ## [1.7.0](https://github.com/d70-t/gridlook/compare/v1.6.1...v1.7.0) (2026-10-21)
 
 
