@@ -17,14 +17,8 @@ on:
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/jupyter.yml"
-  # release.yml calls this on a release to publish the wheel; PyPI's trusted
-  # publisher is bound to this workflow file, so the publish job lives here.
+  # release.yml calls this on a release to build the wheel it then publishes.
   workflow_call:
-    inputs:
-      publish:
-        description: Upload the built wheel to PyPI
-        type: boolean
-        default: false
 
 jobs:
   build-and-test:
@@ -134,21 +128,3 @@ jobs:
             echo "::error::the sdist ships build outputs" && exit 1
           fi
           test "$(echo "$listing" | wc -l)" -lt 100
-
-  publish:
-    # Wheel only: the sdist is source-only and cannot build itself (README).
-    if: inputs.publish
-    needs: build-and-test
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-    steps:
-      - uses: actions/download-artifact@v8
-        with:
-          name: jupyter-gridlook-wheel
-          path: dist
-
-      - name: Publish to PyPI (trusted publishing, no token)
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          packages-dir: dist
