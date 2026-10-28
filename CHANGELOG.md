@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.1](https://github.com/d70-t/gridlook/compare/v1.8.0...v1.8.1) (2026-10-28)
+
+
+### Bug Fixes
+
+* move jupyter publish workflow into release.yml ([02ad7c2](https://github.com/d70-t/gridlook/commit/02ad7c291907cad2fec47ff1621b5ece730a8b65))
+
 ## [1.8.0](https://github.com/d70-t/gridlook/compare/v1.7.0...v1.8.0) (2026-10-28)
 
 
