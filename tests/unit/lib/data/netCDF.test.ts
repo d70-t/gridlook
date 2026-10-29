@@ -150,6 +150,8 @@ it("indexes coordinate variables and variables in nested groups", async () => {
     "/lat",
     "/subgroup/wind",
   ]);
+  const { context } = await openNetCDFGroup(file, "local-file");
+  expect(context.dataset.getFullMetadata).toHaveBeenCalledTimes(2);
 });
 
 it("rejects missing grid markers before netcdf4-wasm returns false metadata", async () => {

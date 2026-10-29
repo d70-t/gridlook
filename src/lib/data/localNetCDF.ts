@@ -1,3 +1,6 @@
+import { splitSourceType } from "@/lib/data/sourceType.ts";
+import { ZARR_FORMAT } from "@/lib/types/GlobeTypes.ts";
+
 const LOCAL_NETCDF_PREFIX = "netcdf://local/";
 
 const NETCDF_FILE_EXTENSION = {
@@ -26,6 +29,22 @@ export function registerLocalNetCDF(
   files.clear();
   files.set(source, file);
   return source;
+}
+
+// Remote files are recognized by a `netcdf+` prefix or by their extension,
+// ignoring query and fragment.
+export function isRemoteNetCDFSource(source: string) {
+  const { format, url } = splitSourceType(source);
+  if (format !== undefined) {
+    return format === ZARR_FORMAT.NETCDF;
+  }
+  const path = url.split(/[?#]/)[0].toLowerCase();
+  return (
+    /^https?:\/\//.test(path) &&
+    Object.values(NETCDF_FILE_EXTENSION).some((extension) =>
+      path.endsWith(extension)
+    )
+  );
 }
 
 export function isLocalNetCDFSource(source: string) {

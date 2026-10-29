@@ -20,12 +20,17 @@ import {
   fetchCurrentTimestep,
   liveStoreBaseUrl,
 } from "@/lib/data/liveTimestep.ts";
-import { getLocalNetCDF, isLocalNetCDFSource } from "@/lib/data/localNetCDF.ts";
+import {
+  getLocalNetCDF,
+  isLocalNetCDFSource,
+  isRemoteNetCDFSource,
+} from "@/lib/data/localNetCDF.ts";
 import {
   indexFromIndex,
   indexFromNetCDF,
   indexFromZarr,
 } from "@/lib/data/sourceIndexing.ts";
+import { splitSourceType } from "@/lib/data/sourceType.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { loadTextures } from "@/lib/layers/textureStore.ts";
 import { PROJECTION_TYPES, clamp } from "@/lib/projection/projectionUtils.ts";
@@ -438,6 +443,15 @@ async function loadCurrentSource(resetStore = true) {
   await setGridType(true);
 }
 
+// A type prefix like `zarr3+` skips probing the other types and the JSON index.
+function indexFromRemote(src: string, tokenize: (store: string) => string) {
+  const { format, url } = splitSourceType(src);
+  const fetchSrc = tokenize(url);
+  return format === undefined
+    ? [indexFromZarr(fetchSrc), indexFromIndex(fetchSrc, tokenize)]
+    : [indexFromZarr(fetchSrc, format)];
+}
+
 async function updateSrc(updateId: number) {
   const src = props.src;
   ZarrDataManager.invalidateCache();
@@ -454,6 +468,8 @@ async function updateSrc(updateId: number) {
             new Error("Please select the local NetCDF file again.")
           ),
         ];
+  } else if (isRemoteNetCDFSource(src)) {
+    indexPromises = [indexFromNetCDF(src, src)];
   } else {
     // FIXME: Trying zarr and json-index in parallel and picking the first that
     // works. If both fail, we log the last error which is from the json-index.
@@ -464,11 +480,7 @@ async function updateSrc(updateId: number) {
     // input stay clean. Stores named inside a JSON index get it the same way.
     const tokenize = (store: string) =>
       withStoreXsrfToken(store, document.cookie, location.href);
-    const fetchSrc = tokenize(src);
-    indexPromises = [
-      indexFromZarr(fetchSrc),
-      indexFromIndex(fetchSrc, tokenize),
-    ];
+    indexPromises = indexFromRemote(src, tokenize);
   }
   const indices = await Promise.allSettled(indexPromises);
   let lastError = null;

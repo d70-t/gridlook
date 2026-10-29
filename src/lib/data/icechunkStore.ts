@@ -1,9 +1,12 @@
 import { HttpStorage, IcechunkStore } from "icechunk-js";
 import * as zarr from "zarrita";
 
+import { SOURCE_TYPE_PREFIX } from "@/lib/data/sourceType.ts";
+import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
+import { ZARR_FORMAT } from "@/lib/types/GlobeTypes.ts";
 import { splitXsrfToken, withXsrfToken } from "@/utils/xsrfToken.ts";
 
-const ICECHUNK_PREFIX = "icechunk+";
+const ICECHUNK_PREFIX = SOURCE_TYPE_PREFIX[ZARR_FORMAT.ICECHUNK];
 
 type TIcechunkStore = zarr.AsyncReadable & Pick<IcechunkStore, "listNodes">;
 
@@ -60,13 +63,14 @@ export async function createIcechunkStore(
   // can't stay in its query; it goes in a header instead. Virtual chunks are
   // fetched separately and don't get it.
   const { url, token } = splitXsrfToken(parseStorePath(storePath).url);
+  const { headers, withCredentials } = ZarrDataManager.getRequestSettings();
   return await IcechunkStore.open(
-    new HttpStorage(
-      url,
-      token
-        ? { headers: { "X-XSRFToken": decodeURIComponent(token) } }
-        : undefined
-    )
+    new HttpStorage(url, {
+      headers: token
+        ? { ...headers, "X-XSRFToken": decodeURIComponent(token) }
+        : headers,
+      credentials: withCredentials ? "include" : undefined,
+    })
   );
 }
 
