@@ -122,13 +122,16 @@ function getStride(shape: readonly number[]) {
   return stride;
 }
 
+// Servers that ignore Range requests send the whole file; larger ones fail to open.
+const MAX_FULL_DOWNLOAD = 4 * 1024 ** 3;
+
 async function createContext(source: File | string): Promise<TNetCDFContext> {
   const dataset =
     typeof source === "string"
-      ? await NetCDF4.fromUrl(
-          splitSourceType(source).url,
-          ZarrDataManager.getRequestSettings()
-        )
+      ? await NetCDF4.fromUrl(splitSourceType(source).url, {
+          ...ZarrDataManager.getRequestSettings(),
+          maxFullDownload: MAX_FULL_DOWNLOAD,
+        })
       : await NetCDF4.fromBlobLazy(source);
   return {
     dataset,
