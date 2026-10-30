@@ -41,6 +41,7 @@ import {
   type TLayerKind,
 } from "@/store/store.ts";
 import { useLog } from "@/ui/common/useLog.ts";
+import RgbControls from "@/ui/overlays/controls/RgbControls.vue";
 import VolumeControls from "@/ui/overlays/controls/VolumeControls.vue";
 import { BasemapTileType, fetchBasemapCatalog } from "@/utils/basemap.ts";
 
@@ -68,6 +69,8 @@ const {
   volumeLoading,
   volumeProgress,
   volumeAvailable,
+  rgbAvailable,
+  rgbLoading,
   varnameDisplay,
   varnameSelector,
   varinfo,
@@ -98,6 +101,7 @@ const ADD_LAYER_ACTIONS = {
   GRATICULES: LAYER_KINDS.GRATICULES,
   STREAMLINES: LAYER_KINDS.STREAMLINES,
   VOLUME: LAYER_KINDS.VOLUME,
+  RGB: LAYER_KINDS.RGB,
   BASEMAP: LAYER_KINDS.BASEMAP,
   UPLOAD: "upload",
   VARIABLE_IMAGE: "variable-image",
@@ -325,6 +329,7 @@ const LAYER_ICONS: Record<TLayerKind, string> = {
   [LAYER_KINDS.GRID]: "fa-border-all",
   [LAYER_KINDS.STREAMLINES]: "fa-wind",
   [LAYER_KINDS.VOLUME]: "fa-cloud",
+  [LAYER_KINDS.RGB]: "fa-palette",
   [LAYER_KINDS.TEXTURE]: "fa-image",
   [LAYER_KINDS.BASEMAP]: "fa-mask",
 };
@@ -343,6 +348,9 @@ const LAYER_PROPERTIES: Record<TLayerKind, TLayerProperties> = {
     buttons: [LAYER_BUTTONS.OPACITY, LAYER_BUTTONS.REMOVE],
   },
   [LAYER_KINDS.VOLUME]: {
+    buttons: [LAYER_BUTTONS.OPACITY, LAYER_BUTTONS.REMOVE],
+  },
+  [LAYER_KINDS.RGB]: {
     buttons: [LAYER_BUTTONS.OPACITY, LAYER_BUTTONS.REMOVE],
   },
   [LAYER_KINDS.TEXTURE]: {
@@ -454,7 +462,7 @@ function isLayerControl(target: EventTarget | null) {
     target instanceof Element &&
     Boolean(
       target.closest(
-        ".layer-actions, .layer-details, .streamline-components, .volume-controls"
+        ".layer-actions, .layer-details, .streamline-components, .volume-controls, .rgb-layer-controls"
       )
     )
   );
@@ -520,6 +528,9 @@ function isLayerAvailable(layer: TLayerEntry) {
   if (layer.kind === LAYER_KINDS.VOLUME) {
     return !volumeUnavailableReason.value;
   }
+  if (layer.kind === LAYER_KINDS.RGB) {
+    return rgbAvailable.value;
+  }
   return layer.kind !== LAYER_KINDS.STREAMLINES || Boolean(props.modelInfo);
 }
 
@@ -565,6 +576,17 @@ const addLayerOptions = computed<TAddLayerOption[]>(() => {
       disabledReason: volumeUnavailableReason.value,
     });
   }
+  if (!hasDisplayedLayer(LAYER_KINDS.RGB)) {
+    options.push({
+      value: ADD_LAYER_ACTIONS.RGB,
+      label: BUILTIN_LAYER_NAMES[LAYER_KINDS.RGB],
+      icon: LAYER_ICONS[LAYER_KINDS.RGB],
+      disabled: !rgbAvailable.value,
+      disabledReason: rgbAvailable.value
+        ? undefined
+        : "RGB composites are drawn on HEALPix and regular grids only",
+    });
+  }
   if (!hasDisplayedLayer(LAYER_KINDS.BASEMAP)) {
     options.push({
       value: ADD_LAYER_ACTIONS.BASEMAP,
@@ -608,6 +630,8 @@ function addLayer(action: TAddLayerAction) {
   } else if (action === ADD_LAYER_ACTIONS.VOLUME) {
     store.restoreBuiltinLayer(LAYER_KINDS.VOLUME);
     store.setVolumeLayerEnabled(true);
+  } else if (action === ADD_LAYER_ACTIONS.RGB) {
+    store.setRgbLayerEnabled(true);
   } else if (action === ADD_LAYER_ACTIONS.BASEMAP) {
     store.restoreBuiltinLayer(LAYER_KINDS.BASEMAP);
     store.setBasemapLayerEnabled(true);
@@ -718,6 +742,15 @@ function getLayerName(layer: TLayerEntry) {
                 <span class="loader"></span>
               </span>
               <span>{{ volumeProgress ?? 0 }}%</span>
+            </span>
+            <span
+              v-if="layer.kind === LAYER_KINDS.RGB && rgbLoading"
+              class="layer-progress ml-1"
+              title="Loading RGB channels"
+            >
+              <span class="icon is-small" aria-hidden="true">
+                <span class="loader"></span>
+              </span>
             </span>
             <template
               v-if="layer.kind === LAYER_KINDS.GRID && varnameDisplay !== '-'"
@@ -1028,6 +1061,10 @@ function getLayerName(layer: TLayerEntry) {
             </button>
           </div>
         </div>
+        <RgbControls
+          v-if="layer.kind === LAYER_KINDS.RGB && isLayerVisible(layer)"
+          class="rgb-layer-controls"
+        />
         <VolumeControls
           v-if="layer.kind === LAYER_KINDS.VOLUME && isLayerVisible(layer)"
           class="volume-controls"
@@ -1186,7 +1223,8 @@ function getLayerName(layer: TLayerEntry) {
   }
 }
 
-.volume-controls {
+.volume-controls,
+.rgb-layer-controls {
   flex-basis: 100%;
   padding-left: 1.65rem;
 }
@@ -1305,6 +1343,7 @@ function getLayerName(layer: TLayerEntry) {
 
 @media (max-width: 480px) {
   .volume-controls,
+  .rgb-layer-controls,
   .streamline-components {
     padding-left: 0;
   }
