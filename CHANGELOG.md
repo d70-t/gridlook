@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.9.0](https://github.com/d70-t/gridlook/compare/v1.8.1...v1.9.0) (2026-10-30)
+
+
+### Features
+
+* **lib:** support for remote NetCDF-Files ([14a17cf](https://github.com/d70-t/gridlook/commit/14a17cf614c8c011e784ad84526031773af31f9f))
+* **ui:** advanced HTTP-Settings ([e9ced9d](https://github.com/d70-t/gridlook/commit/e9ced9d77385561ebed4d2e758911d90f6c19966))
+
+
+### Bug Fixes
+
+* faster reset of Info Panel when switching datasets ([62432f1](https://github.com/d70-t/gridlook/commit/62432f1d6f870d53f77cbbabfca1319d041641d9))
+* **lib:** Prevent a NetCDF attribute named "name" from overwriting the real variable name ([a1691a1](https://github.com/d70-t/gridlook/commit/a1691a19142e1c35399319a3e1a295e8bd0477e7))
+* Presenter mode works with local datasets ([c2004c6](https://github.com/d70-t/gridlook/commit/c2004c6857e32a66fb79e611f2aa95055b6295a9))
+* render Gaussian reduced grids per fragment instead of per-cell quads ([864061c](https://github.com/d70-t/gridlook/commit/864061cdfe7428cb3b1b0381a98fe95b097af283))
+
 ## [1.8.1](https://github.com/d70-t/gridlook/compare/v1.8.0...v1.8.1) (2026-10-28)
 
 
