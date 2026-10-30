@@ -108,6 +108,20 @@ included in shared URLs: automatically detected components only add
 `streamlines=true`, while manually selected components also add `streamlineu`
 and `streamlinev`.
 
+## RGB Composite
+
+On HEALPix and regular grids, the **RGB composite** layer shows three entries
+of one dimension of the current variable as the red, green, and blue channels
+of one image, for example the B04/B03/B02 bands of a Sentinel-2 `band`
+dimension. Add it from **Add layer…**, then choose the dimension (any
+non-spatial dimension with at least three entries) and the entry for each
+channel. All three channels share one display range; leave it empty to use
+the range of the loaded channels, or enter e.g. `0` and `0.3` for reflectances.
+The gamma slider brightens (above 1) or darkens (below 1) the image. A pixel
+missing in any of the three channels stays transparent. The other dimensions
+follow the sliders of the data grid. The layer and its settings are part of
+the `layers` URL parameter.
+
 ## Notes
 
 - Presenter mode is only available on desktop

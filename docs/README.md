@@ -82,7 +82,7 @@ stores, Icechunk repositories, Kerchunk reference files and NetCDF files.
 ## Layers
 
 - Organize the data grid, basemaps, coastlines, graticules, streamlines,
-  volumes, and custom image layers in one layer stack.
+  volumes, RGB composites, and custom image layers in one layer stack.
 - Drag layers to change their drawing order, toggle their visibility, and
   adjust opacity where supported, including the data grid itself.
 - **Maps and Masks:** show an OpenStreetMap, a simple vector map, or satellite
