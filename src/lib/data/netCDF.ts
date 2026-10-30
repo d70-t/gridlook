@@ -5,6 +5,8 @@ import {
 } from "@earthyscience/netcdf4-wasm";
 import type * as zarr from "zarrita";
 
+import { splitSourceType } from "@/lib/data/sourceType.ts";
+import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { ZARR_FORMAT } from "@/lib/types/GlobeTypes.ts";
 
 const NETCDF_DTYPE = {
@@ -120,8 +122,17 @@ function getStride(shape: readonly number[]) {
   return stride;
 }
 
-async function createContext(file: File): Promise<TNetCDFContext> {
-  const dataset = await NetCDF4.fromBlobLazy(file);
+// Servers that ignore Range requests send the whole file; larger ones fail to open.
+const MAX_FULL_DOWNLOAD = 4 * 1024 ** 3;
+
+async function createContext(source: File | string): Promise<TNetCDFContext> {
+  const dataset =
+    typeof source === "string"
+      ? await NetCDF4.fromUrl(splitSourceType(source).url, {
+          ...ZarrDataManager.getRequestSettings(),
+          maxFullDownload: MAX_FULL_DOWNLOAD,
+        })
+      : await NetCDF4.fromBlobLazy(source);
   return {
     dataset,
     groups: new Map(),
@@ -130,11 +141,11 @@ async function createContext(file: File): Promise<TNetCDFContext> {
   };
 }
 
-async function getContext(file: File, store: string) {
+async function getContext(source: File | string, store: string) {
   if (!pendingContext || activeStore !== store) {
     const previousContext = pendingContext;
     activeStore = store;
-    pendingContext = createContext(file).catch((error) => {
+    pendingContext = createContext(source).catch((error) => {
       if (activeStore === store) {
         activeStore = null;
         pendingContext = null;
@@ -179,8 +190,12 @@ export class NetCDFArray {
   }
 }
 
-export async function openNetCDFGroup(file: File, store: string, path = "/") {
-  const context = await getContext(file, store);
+export async function openNetCDFGroup(
+  source: File | string,
+  store: string,
+  path = "/"
+) {
+  const context = await getContext(source, store);
   const groupPath = normalizePath(path);
   let group = context.groups.get(groupPath);
   if (!group) {
@@ -213,6 +228,7 @@ export async function resolveNetCDFGroup(group: NetCDFGroup, path: string) {
 async function getVariableNames(context: TNetCDFContext, groupPath: string) {
   let names = context.variableNames.get(groupPath);
   if (!names) {
+    // One call per group instead of one per variable.
     names = context.dataset.getFullMetadata(groupPath).then((variables) => {
       const result = new Set<string>();
       for (const value of variables) {
@@ -223,6 +239,7 @@ async function getVariableNames(context: TNetCDFContext, groupPath: string) {
       }
       return result;
     });
+    // Cached, otherwise every opened variable reads all metadata again.
     context.variableNames.set(groupPath, names);
   }
   return await names;
@@ -301,8 +318,8 @@ function collectGroupPaths(
   }
 }
 
-export async function listNetCDFArrays(file: File, store: string) {
-  const root = await openNetCDFGroup(file, store);
+export async function listNetCDFArrays(source: File | string, store: string) {
+  const root = await openNetCDFGroup(source, store);
   const groups =
     (await root.context.dataset.getGroupsRecursive()) as TNetCDFGroupTree;
   const groupPaths = ["/"];

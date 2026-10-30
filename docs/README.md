@@ -4,9 +4,9 @@ Andrej Fast¹, Tobi Kölling², Fabian Wachsmann¹, and contributors
 
 ¹DKRZ, ²MPI-M
 
-Gridlook is a browser-based WebGL viewer for interactive exploration of
-cloud-hosted Zarr datasets and Icechunk repositories containing Earth system
-model (ESM) output on native grids.
+Gridlook is a browser-based WebGL viewer for interactive exploration of Earth
+system model (ESM) output on native grids, read directly from cloud-hosted Zarr
+stores, Icechunk repositories, Kerchunk reference files and NetCDF files.
 
 - [Open Gridlook](https://gridlook.pages.dev/)
 - [Read the EGU26 publication](https://www.egu26.eu/EGU26-9862.html)
@@ -19,6 +19,7 @@ model (ESM) output on native grids.
   controls.
 - [Supported grid types](grid-types.md) — grid families, automatic detection,
   and alternative renderers.
+- [URL parameters](url-parameters.md) — view settings stored in the URL.
 - [JupyterLab / JupyterHub](../jupyter/README.md) — `pip install jupyter-gridlook`
   serves the viewer inside a Jupyter server, adds a **Gridlook** launcher card
   and an **Open with Gridlook** entry to the file browser's context menu (a
@@ -28,6 +29,8 @@ model (ESM) output on native grids.
 
 ### Providing data
 
+- [Data sources](data-sources.md) — supported formats, forcing the data type,
+  remote NetCDF requirements, and authentication.
 - [Catalogs](catalogs.md) — catalog schema, hosting, and shareable catalog URLs.
 - [Live-dataset server contract](live-datasets.md#server-contract) — endpoints
   required by live mode.
@@ -40,18 +43,23 @@ model (ESM) output on native grids.
   HPC system, or generating map tiles first.
 - Render regular and unstructured native grids without regridding, with
   automatic grid detection from dataset metadata.
-- Fetch data directly from public Zarr stores and Icechunk repositories and
-  project, color, and render it in the browser with WebGL.
-- Use interactive 3D and flat projections, scientific colormaps, histograms,
-  range selection, auto-contrast, hover readout, and snapshot export.
-- Add coastlines, graticules, land and sea masks, texture layers, and animated
-  streamlines.
+- Read Zarr v2 and v3 stores, Icechunk repositories, Kerchunk reference files
+  and NetCDF files directly in the browser and project, color, and render them
+  with WebGL. Datasets behind authentication can be opened with a bearer
+  token, custom headers or cookies.
+- Use the 3D globe or one of several flat projections, scientific colormaps,
+  histograms, range selection, auto-contrast, hover readout, a distance scale,
+  and snapshot export.
+- Add basemaps, coastlines, graticules, image layers, animated streamlines,
+  and volume renderings of 3D variables.
 - Share the dataset, variable, projection, and view parameters through a URL
   (remote datasets only; see [Open a dataset](#open-a-dataset)).
 - Browse grouped datasets through catalogs or follow a running simulation in
   live mode.
+- Present on a second screen with the Hyperglobe presenter mode (desktop only).
 - Open a local Zarr store or a local NetCDF file directly from your file
   system, without uploading it anywhere.
+- Use Gridlook inside JupyterLab and JupyterHub with `jupyter-gridlook`.
 
 ## Dataset information
 
@@ -64,31 +72,53 @@ model (ESM) output on native grids.
 
 ![Dataset Info panel showing grid, variable, metadata, and storage information](assets/datasetInfo.png)
 
+## Projections
+
+- Nearside Perspective: the interactive 3D globe.
+- Flat projections: Equirectangular, Mercator, Robinson, Mollweide, Cylindrical
+  Equal Area, Azimuthal Equidistant, and Azimuthal Hybrid.
+- Set the center of a projection by latitude and longitude.
+
 ## Layers
 
-- Organize the data grid, coastlines, graticules, masks, streamlines, and custom
-  texture layers in one layer stack.
+- Organize the data grid, basemaps, coastlines, graticules, streamlines,
+  volumes, and custom image layers in one layer stack.
 - Drag layers to change their drawing order, toggle their visibility, and
-  adjust opacity where supported.
-- Import custom PNG, JPG, and GeoTIFF files as image layers.
-- Create a GeoTIFF image layer from the currently loaded data and add it to the
-  layer stack.
+  adjust opacity where supported, including the data grid itself.
+- **Maps and Masks:** show an OpenStreetMap, a simple vector map, or satellite
+  imagery as basemap, limited to land or water if needed, with place labels on
+  vector maps. Other basemaps can be provided through a basemap catalog, see
+  the `basemapcatalog` [URL parameter](url-parameters.md).
+- Choose 10m or 50m coastlines and 15° or 30° graticules.
+- Import custom PNG, JPG, and GeoTIFF files as image layers, optionally cut
+  out to land or sea.
+- Create a GeoTIFF image layer from the currently loaded data, add it to the
+  layer stack, and download it.
+- Animate streamlines of a vector field, optionally on top of its magnitude;
+  see the [controls guide](Controls.md#flow-streamlines).
+- Render 3D variables as volumes on HEALPix, regular, rotated regular, and
+  projected (e.g. Lambert, Mercator) grids.
 
 ## Open a dataset
 
 - Start with the [hosted Gridlook application](https://gridlook.pages.dev/).
-- Open a Zarr dataset or Icechunk repository directly with this URL pattern:
+- Open a remote dataset directly with this URL pattern:
 
   ```text
-  https://gridlook.pages.dev/#<ZARR_OR_ICECHUNK_URI>
+  https://gridlook.pages.dev/#<DATASET_URL>
   ```
 
-- Use a publicly reachable Zarr or Icechunk URI that allows browser requests
-  through CORS. Icechunk repositories can use an `icechunk+https://` URI.
+- Use a Zarr store, Icechunk repository, or NetCDF file that allows browser
+  requests through CORS. The data type is detected automatically or can be
+  forced with a prefix like `icechunk+https://` or `netcdf+https://`; see
+  [Data sources](data-sources.md).
 - Open a [Kerchunk reference file](https://fsspec.github.io/kerchunk/spec.html)
   (JSON, version 0 or 1) with `reference+https://<file>.json`, followed by the
   path of a group if needed. The whole file is loaded when the dataset is
   opened, so keep it to a few hundred thousand references.
+- Send a bearer token, custom headers, or cookies through the advanced
+  settings of the "Open dataset" dialog; see
+  [Authentication](data-sources.md#authentication).
 - Open multiple related datasets through a [Gridlook catalog](catalogs.md).
 - Follow a changing dataset by adding `::live=true`; see
   [Live datasets](live-datasets.md).
@@ -109,8 +139,7 @@ model (ESM) output on native grids.
   URL only records a reference to the selected file, not its content, so
   reloading the page, following a shared link, or using the share/QR-code
   feature will not reopen a local dataset — you must re-select the file or
-  directory each time. URL-based sharing works only for remote, publicly
-  reachable Zarr or Icechunk datasets.
+  directory each time. URL-based sharing works only for remote datasets.
 
 ## Supported grids
 
@@ -119,7 +148,7 @@ model (ESM) output on native grids.
 - Curvilinear grids, including ocean-model grids.
 - Reduced Gaussian grids, including IFS-style products.
 - HEALPix grids, including ICON and HEALPix-remapped output.
-- Triangular grids, including native ICON output.
+- Triangular grids, including native ICON output and UGRID meshes.
 - Irregular and unstructured grids, including AWI-CM and FESOM output.
 
 See [Supported grid types](grid-types.md) for detection rules and rendering
@@ -150,8 +179,8 @@ alternatives.
 - TypeScript and Vue.js for the application.
 - Bulma for the interface.
 - Three.js and WebGL for rendering.
-- Zarrita for Zarr dataset access and `icechunk-js` for Icechunk repository
-  access.
+- Zarrita for Zarr dataset access, `icechunk-js` for Icechunk repository
+  access, and `netcdf4-wasm` for NetCDF files.
 
 ## Publication
 

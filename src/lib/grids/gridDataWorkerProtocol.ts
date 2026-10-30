@@ -2,6 +2,7 @@ import type * as zarr from "zarrita";
 
 import type { TCloneSafeGridData } from "./gridDataWorkerUtils.ts";
 
+import type { TRequestSettings } from "@/lib/data/ZarrDataManager.ts";
 import type { TDatasetSource, TZarrFormat } from "@/lib/types/GlobeTypes.ts";
 
 export const GridDataWorkerMessageType = {
@@ -22,6 +23,8 @@ export type TGridDataWorkerRequest = {
   format: TZarrFormat;
   selection: (number | null | zarr.Slice)[];
   reportProgress?: boolean;
+  // The worker has its own ZarrDataManager, so the settings are passed along.
+  requestSettings: TRequestSettings;
 };
 
 export type TGridDataWorkerResult = {

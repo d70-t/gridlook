@@ -8,6 +8,7 @@ import {
   isIcechunkStorePath,
   parseStorePath,
 } from "./icechunkStore.ts";
+import { isRemoteNetCDFSource } from "./localNetCDF.ts";
 import { getLocalZarrStore, isLocalZarrSource } from "./localZarr.ts";
 import type { NetCDFArray, NetCDFGroup, TNetCDFBackend } from "./netCDF.ts";
 import {
@@ -28,6 +29,12 @@ type TNetCDFNode = {
   readonly format: typeof ZARR_FORMAT.NETCDF;
 };
 
+export type TRequestSettings = {
+  headers: Record<string, string>;
+  // Sends cookies cross-origin too; same-origin requests always send them.
+  withCredentials: boolean;
+};
+
 export class ZarrDataManager {
   private static pendingStore: Promise<
     zarr.Location<zarr.AsyncReadable>
@@ -35,6 +42,20 @@ export class ZarrDataManager {
   private static fetchStorePath: string | null = null;
 
   private static netCDFBackend: TNetCDFBackend | null = null;
+
+  // Kept in memory only, so they never end up in a shared URL.
+  private static requestSettings: TRequestSettings = {
+    headers: {},
+    withCredentials: false,
+  };
+
+  static setRequestSettings(settings: TRequestSettings) {
+    this.requestSettings = settings;
+  }
+
+  static getRequestSettings() {
+    return this.requestSettings;
+  }
 
   private static isNetCDFNode(value: unknown): value is TNetCDFNode {
     return (
@@ -92,7 +113,20 @@ export class ZarrDataManager {
     ) {
       store = await createIcechunkStore(storePath);
     } else {
-      store = new zarr.FetchStore(parsed.url, { useSuffixRequest: true });
+      store = new zarr.FetchStore(parsed.url, {
+        useSuffixRequest: true,
+        // Read at request time, so changed settings apply to cached stores too.
+        fetch: (request) => {
+          const { headers, withCredentials } = this.requestSettings;
+          for (const [name, value] of Object.entries(headers)) {
+            request.headers.set(name, value);
+          }
+          return fetch(
+            request,
+            withCredentials ? { credentials: "include" } : undefined
+          );
+        },
+      });
     }
 
     const cache = new QuickLRU<string, Uint8Array | undefined>({
@@ -110,6 +144,13 @@ export class ZarrDataManager {
     datasource: TDatasetSource,
     format?: TZarrFormat
   ): Promise<zarr.Group<zarr.AsyncReadable> | NetCDFGroup> {
+    if (isRemoteNetCDFSource(datasource.store)) {
+      return await this.getNetCDFBackend().openGroup(
+        datasource.store,
+        datasource.store,
+        datasource.dataset
+      );
+    }
     if (datasource.file || format === ZARR_FORMAT.NETCDF) {
       if (!datasource.file) {
         throw new Error("The local NetCDF file is no longer available.");

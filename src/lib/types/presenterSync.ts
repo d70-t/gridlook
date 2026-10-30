@@ -42,4 +42,10 @@ export type TPresenterMessage =
       type: "dim-sliders-update";
       dimSlidersValues: (number | null)[];
     }
-  | { type: "navigate"; hash: string };
+  | {
+      type: "navigate";
+      hash: string;
+      // Local datasets have no URL, so the File(s) travel with the message.
+      localData?: File | Map<string, File>;
+    }
+  | { type: "display-ready" };

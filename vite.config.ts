@@ -64,6 +64,7 @@ export default defineConfig({
     sourcemap: true,
   },
   resolve: {
+    preserveSymlinks: true,
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
     },

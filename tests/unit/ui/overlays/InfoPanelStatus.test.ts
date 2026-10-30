@@ -58,7 +58,7 @@ type TPanelState = {
 beforeEach(() => {
   setActivePinia(createPinia());
   const store = useGlobeControlStore();
-  store.varnameDisplay = "tas";
+  store.varnameSelector = "tas";
   store.loading = false;
   logError.mockClear();
   vi.mocked(ZarrDataManager.getDimensionNames)
@@ -209,7 +209,7 @@ it("keeps metadata and source notices stable during animation frame loads", asyn
     }
     expect(ZarrDataManager.getVariableInfo).toHaveBeenCalledTimes(calls);
     expect(state.timeInfo.value).toBe(timeInfo);
-    useGlobeControlStore().varnameDisplay = "other";
+    useGlobeControlStore().varnameSelector = "other";
     await vi.waitFor(() =>
       expect(ZarrDataManager.getVariableInfo).toHaveBeenCalledWith(
         source,
