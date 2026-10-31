@@ -210,6 +210,78 @@ describe("indexing a HEALPix pyramid under the DGGS convention", () => {
   });
 });
 
+/**
+ * Consolidated v2 metadata of a HEALPix pyramid whose `multiscales` layout
+ * describes arrays, as healpix-convert writes it when the variables of a
+ * derived level come from different native levels: "a" is converted at the
+ * level 3, "b" at the level 2, both aggregated to the levels 1 and 0.
+ */
+function arrayLayoutMetadata() {
+  const layout = [
+    { asset: "3/a" },
+    { asset: "2/b" },
+    { asset: "1/a", derived_from: "3/a", transform: { scale: [4] } },
+    { asset: "1/b", derived_from: "2/b", transform: { scale: [2] } },
+    { asset: "0/a", derived_from: "3/a", transform: { scale: [8] } },
+    { asset: "0/b", derived_from: "2/b", transform: { scale: [4] } },
+  ];
+  const metadata: Record<string, unknown> = {
+    ".zgroup": { zarr_format: 2 },
+    ".zattrs": { multiscales: { layout, resampling_method: "mean" } },
+  };
+  const variables: Record<string, string[]> = {
+    "3": ["a"],
+    "2": ["b"],
+    "1": ["a", "b"],
+    "0": ["a", "b"],
+  };
+  for (const [path, names] of Object.entries(variables)) {
+    const cells = 12 * 4 ** Number(path);
+    metadata[`${path}/.zgroup`] = { zarr_format: 2 };
+    metadata[`${path}/.zattrs`] = {
+      dggs: { name: "healpix", refinement_level: Number(path) },
+    };
+    metadata[`${path}/cell_ids/.zarray`] = zarray([cells]);
+    metadata[`${path}/cell_ids/.zattrs`] = { _ARRAY_DIMENSIONS: ["cells"] };
+    for (const name of names) {
+      metadata[`${path}/${name}/.zarray`] = zarray([cells]);
+      metadata[`${path}/${name}/.zattrs`] = { _ARRAY_DIMENSIONS: ["cells"] };
+    }
+  }
+  return { zarr_consolidated_format: 1, metadata };
+}
+
+describe("indexing a pyramid whose layout describes arrays", () => {
+  it("reads one level per parent group, with the level group's grid", async () => {
+    serve({ [`${SRC}/.zmetadata`]: arrayLayoutMetadata() });
+    const index = await indexFromZarr(SRC);
+    expect(index.levels.map((level) => level.name)).toEqual([
+      "3",
+      "2",
+      "1",
+      "0",
+    ]);
+    expect(index.levels.map(({ path }) => path)).toEqual(["3", "2", "1", "0"]);
+    expect(
+      index.levels.map(({ datasources }) =>
+        Object.keys(datasources)
+          .filter((name) => !datasources[name].hidden)
+          .sort()
+      )
+    ).toEqual([["3/a"], ["2/b"], ["1/a", "1/b"], ["0/a", "0/b"]]);
+    expect(index.levels.map(({ cellCount }) => cellCount)).toEqual([
+      12 * 4 ** 3,
+      12 * 4 ** 2,
+      12 * 4,
+      12,
+    ]);
+    const nsideResolution = (order: number) =>
+      (EARTH_RADIUS_METERS * Math.sqrt(Math.PI / 3)) / 2 ** order;
+    expect(index.levels[0].resolution).toBeCloseTo(nsideResolution(3), 6);
+    expect(index.levels[3].resolution).toBeCloseTo(nsideResolution(0), 6);
+  });
+});
+
 function jsonIndex(stores: string[]) {
   return {
     zarr_format: 2,

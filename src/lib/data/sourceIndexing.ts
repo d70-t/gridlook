@@ -19,6 +19,7 @@ import {
 } from "./icechunkStore.ts";
 import { sortFinestFirst } from "./levels.ts";
 import {
+  groupArrayAssets,
   levelGeometryFromGrid,
   parseMultiscales,
   type TMultiscaleEntry,
@@ -499,6 +500,26 @@ function levelGroupPath(pyramidPath: string, entry: TMultiscaleEntry) {
 }
 
 /**
+ * The levels a pyramid's `multiscales` attribute declares. Items naming an
+ * array of a level (`asset: "18/b02"`) are folded into their parent group,
+ * which the store's listing tells apart from a level group.
+ */
+function pyramidEntries(
+  store: zarr.Listable<zarr.AsyncReadable>,
+  pyramid: { path: string; group: zarr.Group<zarr.AsyncReadable> }
+) {
+  const arrays = new Set(
+    store
+      .contents()
+      .filter(({ kind }) => kind === "array")
+      .map(({ path }) => trim(path, "/"))
+  );
+  return groupArrayAssets(parseMultiscales(pyramid.group.attrs), (asset) =>
+    arrays.has(levelGroupPath(pyramid.path, { path: asset }))
+  );
+}
+
+/**
  * Keep the arrays of the dataset outside every declared level group (next
  * to the levels, or in groups that are not levels) as variables without
  * levels, in every level's variables, so they stay listed whichever level
@@ -516,7 +537,7 @@ async function addVariablesWithoutLevels(
     levels: TSourceLevel[];
   }
 ) {
-  const levelPaths = parseMultiscales(pyramid.group.attrs).map((entry) =>
+  const levelPaths = pyramidEntries(store, pyramid).map((entry) =>
     levelGroupPath(pyramid.path, entry)
   );
   const others = await processZarrVariables(
@@ -543,6 +564,9 @@ async function addVariablesWithoutLevels(
  * level that fails to index is left out, and a group left with fewer than
  * two levels is indexed as a single level by the caller, as it was before
  * levels existed.
+ * A zarr-conventions layout may describe the arrays of the levels instead of
+ * the level groups (`asset: "18/b02"`): those are read as one level per
+ * parent group (see pyramidEntries).
  */
 async function indexLevels(
   store: zarr.Listable<zarr.AsyncReadable>,
@@ -563,8 +587,9 @@ async function indexLevels(
   if (!pyramid) {
     return null;
   }
+  const entries = pyramidEntries(store, pyramid);
   const levels: TSourceLevel[] = [];
-  for (const entry of parseMultiscales(pyramid.group.attrs)) {
+  for (const entry of entries) {
     const level = await indexLevel(
       store,
       root,

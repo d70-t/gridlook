@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { EARTH_RADIUS_METERS } from "@/lib/camera/cameraSettings.ts";
 import {
+  groupArrayAssets,
   levelGeometryFromGrid,
   parseMultiscales,
 } from "@/lib/data/multiscales.ts";
@@ -157,6 +158,52 @@ describe("parseMultiscales for a zarr-conventions layout", () => {
       },
     });
     expect(levels).toEqual([{ path: "0" }, { path: "1" }]);
+  });
+});
+
+describe("groupArrayAssets", () => {
+  const isArray = (path: string) => path.includes("/");
+
+  it("folds the arrays of a per-array layout into their parent groups", () => {
+    const levels = groupArrayAssets(
+      [
+        { path: "3/a" },
+        { path: "2/b" },
+        { path: "1/a" },
+        { path: "1/b" },
+        { path: "0/a" },
+        { path: "0/b" },
+      ],
+      isArray
+    );
+    expect(levels).toEqual([
+      { path: "3" },
+      { path: "2" },
+      { path: "1" },
+      { path: "0" },
+    ]);
+  });
+
+  it("keeps level groups as declared and merges a group with its arrays", () => {
+    const levels = groupArrayAssets(
+      [
+        { path: "1/", resolution: 2 },
+        { path: "1/a" },
+        { path: "0/a", resolution: 4 },
+        { path: "0/b", resolution: 8 },
+      ],
+      isArray
+    );
+    expect(levels).toEqual([
+      { path: "1", resolution: 2 },
+      { path: "0", resolution: 4 },
+    ]);
+  });
+
+  it("takes an array at the multiscales group itself as its level", () => {
+    expect(groupArrayAssets([{ path: "a" }], () => true)).toEqual([
+      { path: "" },
+    ]);
   });
 });
 
