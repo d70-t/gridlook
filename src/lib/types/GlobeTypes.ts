@@ -50,6 +50,7 @@ export type TZarrDggsMetadata = {
   name: string;
   refinement_level: number;
   coordinate: string | null;
+  compression?: string;
   indexing_scheme: IndexingScheme;
   ellipsoid: EllipsoidInput;
 };

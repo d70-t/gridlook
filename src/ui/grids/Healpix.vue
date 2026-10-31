@@ -44,6 +44,10 @@ import {
 } from "@/lib/data/vectorMagnitude.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
+  createCompactedCells,
+  createRangeCells,
+} from "@/lib/grids/compactedCells.ts";
+import {
   getGridVariableData,
   terminateGridDataWorker,
 } from "@/lib/grids/gridDataWorkerClient.ts";
@@ -171,7 +175,13 @@ const VIEW_WINDOW_MARGIN = 0.5;
 // (nested, and either dense or with an ascending `cell` coordinate).
 let levelCellCount = 0;
 let levelWindowable = false;
-let sortedCells: ReturnType<typeof createSortedCells> | undefined;
+// How the stored cells are found by id: searched in a `cell` coordinate, or
+// by arithmetic on a compressed one.
+type TCellIndex = Pick<
+  ReturnType<typeof createSortedCells>,
+  "lowerBound" | "slice" | "isAscending"
+>;
+let sortedCells: TCellIndex | undefined;
 // The coordinate reader of a sparse level, kept while the level stays the
 // same so that its chunks are read once.
 let cellsReader:
@@ -430,10 +440,55 @@ async function getCellCoordinateName(sources = props.datasources!) {
   return cellCoord as string;
 }
 
+// The cells of levels whose coordinate is compressed, read once: it holds one
+// id per run of cells, not one per cell.
+const compressedCells = new Map<string, Promise<TCompressedCells>>();
+type TCompressedCells = ReturnType<typeof createCompactedCells>;
+
+/**
+ * The stored cells of a level whose `cell` coordinate is `"compacted"`
+ * (`zuniq` ids) or `"ranges"`, or undefined when it is stored as it is.
+ */
+async function getCompressedCells(sources = props.datasources!) {
+  const variable = levelVariable(sources);
+  const metadata = await ZarrDataManager.getDggsMetadata(sources, variable);
+  const compression = metadata?.compression;
+  if (compression !== "compacted" && compression !== "ranges") {
+    return undefined;
+  }
+  const path = ZarrDataManager.resolveVariablePath(
+    variable,
+    await getCellCoordinateName(sources)
+  );
+  const source = ZarrDataManager.getDatasetSource(sources, variable);
+  const key = JSON.stringify([source.store, source.dataset, path, compression]);
+  let cells = compressedCells.get(key);
+  if (!cells) {
+    cells = (async () => {
+      const level = (await getHealpixGridParameters(sources)).level;
+      const ids = (await fetchHealpixVariableData(
+        [],
+        path,
+        sources
+      )) as ArrayLike<number | bigint>;
+      return (
+        compression === "ranges" ? createRangeCells : createCompactedCells
+      )(level, ids);
+    })();
+    compressedCells.set(key, cells);
+    cells.catch(() => compressedCells.delete(key));
+  }
+  return cells;
+}
+
 async function getCells(sources = props.datasources!) {
   const cellCoord = await getCellCoordinateName(sources);
 
   try {
+    const compressed = await getCompressedCells(sources);
+    if (compressed) {
+      return await compressed.slice(0, compressed.length);
+    }
     const rawCells = await fetchHealpixVariableData(
       [],
       ZarrDataManager.resolveVariablePath(levelVariable(sources), cellCoord),
@@ -535,8 +590,20 @@ async function prepareLevel() {
   );
   const cellCount = datavar.shape[datavar.shape.length - 1];
   let windowable = false;
-  let cells: ReturnType<typeof createSortedCells> | undefined;
-  if (
+  let cells: TCellIndex | undefined;
+  // A coordinate that says it is compressed but cannot be read is an error:
+  // read as one id per cell, its ids would place the data wrongly.
+  const compressed =
+    grid.scheme === "nested" ? await getCompressedCells(sources) : undefined;
+  if (compressed) {
+    if (compressed.length !== cellCount) {
+      throw new Error(
+        `The compressed cell coordinate holds ${compressed.length} cells, the data ${cellCount}.`
+      );
+    }
+    windowable = coarsestLevelOf(sources.levels, variable) !== undefined;
+    cells = windowable ? compressed : undefined;
+  } else if (
     coarsestLevelOf(sources.levels, variable) !== undefined &&
     grid.scheme === "nested"
   ) {
