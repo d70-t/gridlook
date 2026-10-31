@@ -44,6 +44,7 @@ import {
   decodeHealpixFaceXY,
   getHealpixFaceDataRect,
   getHealpixFaceRange,
+  healpixCellCoordinateNames,
   type THealpixDataRect,
 } from "@/lib/grids/healpixCalculations.ts";
 import {
@@ -339,30 +340,26 @@ function unpackGrid(): healpixGeo.Grid {
 }
 
 async function getCells() {
-  let cellCoord = "cell";
   const dggsMetadata = await ZarrDataManager.getDggsMetadata(
     props.datasources!,
     varnameSelector.value
   );
-  if (dggsMetadata !== null) {
-    const coordinate = dggsMetadata["coordinate"];
-    if (coordinate) {
-      cellCoord = coordinate;
+
+  for (const cellCoord of healpixCellCoordinateNames(
+    dggsMetadata?.["coordinate"]
+  )) {
+    try {
+      const rawCells = await fetchHealpixVariableData(
+        [],
+        ZarrDataManager.resolveVariablePath(varnameSelector.value, cellCoord)
+      );
+
+      return Array.from(rawCells, (cell) => Number(cell));
+    } catch {
+      // no such coordinate, try the next name
     }
-  } else {
-    // no dggs metadata found, continue with the default cell coordinate
   }
-
-  try {
-    const rawCells = await fetchHealpixVariableData(
-      [],
-      ZarrDataManager.resolveVariablePath(varnameSelector.value, cellCoord)
-    );
-
-    return Array.from(rawCells, (cell) => Number(cell));
-  } catch {
-    return undefined;
-  }
+  return undefined;
 }
 
 function fetchHealpixVariableData(
