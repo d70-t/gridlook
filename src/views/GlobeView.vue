@@ -391,6 +391,11 @@ function initDatasetLayersFromParams(entries: TLayerUrlEntry[]) {
     );
   }
 
+  const rgb = findLayerParam(entries, LAYER_KINDS.RGB);
+  if (rgb) {
+    store.updateRgbSettings(rgb.settings);
+  }
+
   const volume = findLayerParam(entries, LAYER_KINDS.VOLUME);
   if (volume) {
     store.setVolumeSelections(

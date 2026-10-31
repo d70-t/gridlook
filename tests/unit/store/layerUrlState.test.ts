@@ -63,3 +63,41 @@ it("keeps basemap options, labels off by default", () => {
     "grid;mask,1,1,esri"
   );
 });
+
+it("keeps the RGB composite settings", () => {
+  const param = "rgb,1,0.9,band,3,2,1,0,0.3,1.5;coastlines;grid";
+  expect(formatLayersParam(parseLayersParam(param))).toBe(param);
+  expect(parseLayersParam(param)[0]).toEqual({
+    kind: "rgb",
+    visible: true,
+    opacity: 0.9,
+    settings: {
+      dimension: "band",
+      channels: [3, 2, 1],
+      low: 0,
+      high: 0.3,
+      gamma: 1.5,
+    },
+  });
+});
+
+it("falls back to the RGB defaults and drops them from the URL", () => {
+  expect(parseLayersParam("rgb;grid")[0]).toEqual({
+    kind: "rgb",
+    visible: true,
+    opacity: 1,
+    settings: {
+      dimension: undefined,
+      channels: [0, 1, 2],
+      low: undefined,
+      high: undefined,
+      gamma: 1,
+    },
+  });
+  expect(
+    formatLayersParam(parseLayersParam("rgb,1,1,band,-1,x,2,,0.3,9;grid"))
+  ).toBe("rgb,1,1,band,0,1,2,,0.3;grid");
+  expect(formatLayersParam(parseLayersParam("rgb,1,1,,0,1,2,,,1;grid"))).toBe(
+    "rgb;grid"
+  );
+});

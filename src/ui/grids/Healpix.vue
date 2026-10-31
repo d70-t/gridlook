@@ -12,15 +12,22 @@ import {
   type TGridHoverLookupResult,
 } from "./composables/gridHoverUtils.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
+import {
+  useRgbLayer,
+  type TRgbBatch,
+  type TRgbRequest,
+} from "./composables/useRgbLayer.ts";
 import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 import { useStreamlineLayer } from "./composables/useStreamlineLayer.ts";
 import { useVolume } from "./composables/useVolume.ts";
 
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
+import { interleaveRgba, mergeRgbBounds } from "@/lib/data/rgbComposite.ts";
 import { loadVectorComponents } from "@/lib/data/streamlineData.ts";
 import {
   castDataVarToFloat32,
+  decodeVariableDataAndGetBounds,
   getFillValue,
   getMissingValue,
 } from "@/lib/data/variableDecoding.ts";
@@ -140,6 +147,7 @@ type TStreamlineContext = {
 };
 
 let lastStreamlineContext: TStreamlineContext | undefined;
+let lastDatavar: zarr.Array<zarr.DataType, zarr.AsyncReadable> | undefined;
 let streamlineRequestRevision = 0;
 let cachedMagnitude: TVectorMagnitudeData | undefined;
 let cachedStreamlineKey: string | undefined;
@@ -165,6 +173,16 @@ const streamlines = useStreamlineLayer({
   projectionHelper,
   onProjectionChange,
   registerAnimationCallback,
+});
+
+const rgbLayer = useRgbLayer({
+  getScene,
+  redraw,
+  projectionHelper,
+  isSceneInMotion,
+  onProjectionChange,
+  onMotionStateChange,
+  load: loadRgbComposite,
 });
 
 const volume = useVolume({
@@ -725,6 +743,7 @@ function updateHealpixBatch(batch: THealpixBatch) {
     mesh.geometry.dispose();
     setupProjectionGeometryWrap(geometry);
     mesh.geometry = geometry;
+    rgbLayer.updateGeometry(batch.batchIndex, geometry);
   } else {
     mesh = createHealpixMesh(batch.batchIndex, geometry);
   }
@@ -844,6 +863,56 @@ async function processHealpixChunks(
   return { dataMin, dataMax, histogramSummaries, textures, batches };
 }
 
+// Reads the three channel slices face by face and draws them over the faces
+// of the data grid, which are already meshed for the current selection.
+async function loadRgbComposite(request: TRgbRequest) {
+  const context = lastStreamlineContext;
+  const datavar = lastDatavar;
+  if (!context || !datavar) {
+    return undefined;
+  }
+  const { grid, cellCoord } = context;
+  const { missingValue, fillValue } = getHealpixMissingAndFillValues(datavar);
+  const batches: TRgbBatch[] = [];
+  const bounds: { min: number; max: number }[] = [];
+  for (let faceIndex = 0; faceIndex < HEALPIX_NUMCHUNKS; faceIndex++) {
+    const mesh = mainMeshes[faceIndex];
+    const range = getHealpixFaceRange(faceIndex, grid.nside, cellCoord);
+    if (!mesh || range.start === range.end) {
+      continue;
+    }
+    const textures = await Promise.all(
+      request.channels.map(async (channel) => {
+        const selection = request.indices.slice();
+        selection[request.dimensionIndex] = channel;
+        selection[selection.length - 1] = zarr.slice(range.start, range.end);
+        const data = castDataVarToFloat32(
+          await fetchHealpixVariableData(selection)
+        );
+        bounds.push(
+          decodeVariableDataAndGetBounds(datavar, data, missingValue, fillValue)
+        );
+        return buildHealpixTexture(data, faceIndex, grid.nside, range.cells);
+      })
+    );
+    if (disposed || !request.isCurrent()) {
+      return undefined;
+    }
+    const [red, green, blue] = textures;
+    batches.push({
+      batchIndex: faceIndex,
+      geometry: mesh.geometry,
+      image: {
+        data: interleaveRgba(red.dataValues, green.dataValues, blue.dataValues),
+        width: red.width,
+        height: red.height,
+        dataRect: red.dataRect,
+      },
+    });
+  }
+  return { batches, bounds: mergeRgbBounds(bounds) };
+}
+
 function healpixHoverLookup(
   lat: number,
   lon: number
@@ -919,6 +988,7 @@ async function fetchAndRenderData(
   const { dataMin, dataMax, histogramSummaries, textures, batches } = result;
 
   lastStreamlineContext = { indices, grid, cellCoord };
+  lastDatavar = datavar;
   volume.setContext({
     dimensionNames: selectedDimensionNames.value,
     indices,
@@ -974,6 +1044,13 @@ async function fetchAndRenderData(
   await updateStreamlines(lastStreamlineContext);
   if (isCurrent() && !store.streamlineMagnitudeDisplayed) {
     await scalarCache.restoreScalar();
+  }
+  if (isCurrent()) {
+    await rgbLayer.setContext({
+      indices,
+      dimRanges: dimensionRanges,
+      dimInfo,
+    });
   }
 }
 

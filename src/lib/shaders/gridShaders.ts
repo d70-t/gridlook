@@ -19,6 +19,7 @@ import pointFalloffFragmentShader from "./glsl/pointFalloff.frag.glsl";
 import scalarColormapFragmentShader from "./glsl/scalarColormap.frag.glsl";
 import screenQuadValueVertexShader from "./glsl/screenQuadValue.vert.glsl";
 import textureColormapFragmentShader from "./glsl/textureColormap.frag.glsl";
+import textureRgbFragmentShader from "./glsl/textureRgb.frag.glsl";
 
 export function makeCompressedColormapLutMaterial(
   colormap: TColorMap = "turbo",
@@ -89,29 +90,61 @@ export function makeGpuProjectedTextureMaterial(
       posterizeLevels: { value: 0.0 },
       hideBelowValue: { value: -1e38 },
       hideAboveValue: { value: 1e38 },
-      opacity: { value: 1.0 },
-      data: { value: texture },
-      // The full-face UV rectangle the texture actually covers (identity
-      // unless the texture only holds a sub-region, e.g. a regional dataset).
-      dataUvOffset: { value: new THREE.Vector2(0, 0) },
-      dataUvScale: { value: new THREE.Vector2(1, 1) },
-      // Off by default: only a HEALPix face cropped to a sparse data's
-      // bounding box turns this on. Left off elsewhere so a texture's own
-      // wrap mode (e.g. RepeatWrapping across the lon-wrap seam) still works.
-      clipToDataRect: { value: 0 },
-      // Projection uniforms
-      projectionType: {
-        value: PROJECTION_TYPE_BY_MODE[PROJECTION_TYPES.NEARSIDE_PERSPECTIVE],
-      },
-      centerLon: { value: 0.0 },
-      centerLat: { value: 0.0 },
-      projectionRadius: { value: 1.0 },
-      edgeQuality: { value: 1 },
-      useTriangleWrapCull: { value: 0 },
+      ...makeProjectedTextureUniforms(texture),
     },
     vertexShader: gpuProjectedTextureVertexShader,
     fragmentShader: textureColormapFragmentShader,
   });
+  setProjectedTextureAttributeDefaults(material);
+  return material;
+}
+
+/**
+ * Create a GPU-projected material that shows an RGBA float texture as true
+ * colours: each channel is scaled from [rgbLow, rgbHigh] to [0, 1] and then
+ * gamma-corrected. Same geometry and projection uniforms as the colormap
+ * material above.
+ */
+export function makeGpuProjectedRgbTextureMaterial(texture: THREE.Texture) {
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      rgbLow: { value: 0.0 },
+      rgbHigh: { value: 1.0 },
+      gamma: { value: 1.0 },
+      ...makeProjectedTextureUniforms(texture),
+    },
+    vertexShader: gpuProjectedTextureVertexShader,
+    fragmentShader: textureRgbFragmentShader,
+  });
+  setProjectedTextureAttributeDefaults(material);
+  return material;
+}
+
+function makeProjectedTextureUniforms(texture: THREE.Texture) {
+  return {
+    opacity: { value: 1.0 },
+    data: { value: texture },
+    // The full-face UV rectangle the texture actually covers (identity
+    // unless the texture only holds a sub-region, e.g. a regional dataset).
+    dataUvOffset: { value: new THREE.Vector2(0, 0) },
+    dataUvScale: { value: new THREE.Vector2(1, 1) },
+    // Off by default: only a HEALPix face cropped to a sparse data's
+    // bounding box turns this on. Left off elsewhere so a texture's own
+    // wrap mode (e.g. RepeatWrapping across the lon-wrap seam) still works.
+    clipToDataRect: { value: 0 },
+    // Projection uniforms
+    projectionType: {
+      value: PROJECTION_TYPE_BY_MODE[PROJECTION_TYPES.NEARSIDE_PERSPECTIVE],
+    },
+    centerLon: { value: 0.0 },
+    centerLat: { value: 0.0 },
+    projectionRadius: { value: 1.0 },
+    edgeQuality: { value: 1 },
+    useTriangleWrapCull: { value: 0 },
+  };
+}
+
+function setProjectedTextureAttributeDefaults(material: THREE.ShaderMaterial) {
   (material.defaultAttributeValues as Record<string, unknown>).wrapDirection = [
     0,
   ];
@@ -121,7 +154,6 @@ export function makeGpuProjectedTextureMaterial(
     [0, 0];
   (material.defaultAttributeValues as Record<string, unknown>).triangleLatLon2 =
     [0, 0];
-  return material;
 }
 
 /**

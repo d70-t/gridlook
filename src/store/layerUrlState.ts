@@ -9,6 +9,11 @@ import {
 } from "./store.ts";
 
 import {
+  DEFAULT_RGB_CHANNELS,
+  RGB_GAMMA,
+  type TRgbSettings,
+} from "@/lib/data/rgbComposite.ts";
+import {
   DEFAULT_BASEMAP,
   DEFAULT_BASEMAP_OPTIONS,
   type TBasemapOptions,
@@ -64,6 +69,12 @@ export type TLayerUrlEntry =
       opacity: number;
       provider: string;
       options: TBasemapOptions;
+    }
+  | {
+      kind: typeof LAYER_KINDS.RGB;
+      visible: boolean;
+      opacity: number;
+      settings: TRgbSettings;
     };
 
 function parseFlag(value: string | undefined, fallback: boolean) {
@@ -95,6 +106,40 @@ function parseOneOf<T extends string | number>(
   fallback: T
 ): T {
   return Object.values(allowed).includes(value as T) ? (value as T) : fallback;
+}
+
+function parseOptionalNumber(value: string | undefined) {
+  const number = Number(value);
+  return value && Number.isFinite(number) ? number : undefined;
+}
+
+function parseChannel(value: string | undefined, fallback: number) {
+  const channel = Number(value);
+  return value && Number.isInteger(channel) && channel >= 0
+    ? channel
+    : fallback;
+}
+
+// fields: dimension, red, green, blue, low, high, gamma
+function parseRgbSettings(fields: string[]): TRgbSettings {
+  const [dimension, red, green, blue, low, high, gamma] = fields;
+  const parsedGamma = parseOptionalNumber(gamma);
+  return {
+    dimension: dimension || undefined,
+    channels: [
+      parseChannel(red, DEFAULT_RGB_CHANNELS[0]),
+      parseChannel(green, DEFAULT_RGB_CHANNELS[1]),
+      parseChannel(blue, DEFAULT_RGB_CHANNELS[2]),
+    ],
+    low: parseOptionalNumber(low),
+    high: parseOptionalNumber(high),
+    gamma:
+      parsedGamma !== undefined &&
+      parsedGamma >= RGB_GAMMA.MIN &&
+      parsedGamma <= RGB_GAMMA.MAX
+        ? parsedGamma
+        : RGB_GAMMA.DEFAULT,
+  };
 }
 
 function parseVolumeSelections(fields: string[]): TVolumeSelection[] {
@@ -155,6 +200,13 @@ function parseLayer(kind: string, f: string[]): TLayerUrlEntry | undefined {
         opacity: parseOpacity(f[1], LAYER_OPACITY.MAX),
         selections: parseVolumeSelections(f.slice(2)),
       };
+    case LAYER_KINDS.RGB:
+      return {
+        kind,
+        visible,
+        opacity: parseOpacity(f[1], LAYER_OPACITY.MAX),
+        settings: parseRgbSettings(f.slice(2)),
+      };
     case LAYER_KINDS.BASEMAP:
       return {
         kind,
@@ -197,6 +249,10 @@ function formatOpacity(value: number) {
   return String(Number(value.toFixed(2)));
 }
 
+function formatOptionalNumber(value: number | undefined) {
+  return value === undefined ? "" : String(value);
+}
+
 function formatFields(entry: TLayerUrlEntry): string[] {
   switch (entry.kind) {
     case LAYER_KINDS.COASTLINES:
@@ -222,6 +278,16 @@ function formatFields(entry: TLayerUrlEntry): string[] {
           selection.color.replace(/^#/, "").toLowerCase(),
           formatOpacity(selection.opacity),
         ]),
+      ];
+    case LAYER_KINDS.RGB:
+      return [
+        formatFlag(entry.visible),
+        formatOpacity(entry.opacity),
+        entry.settings.dimension ?? "",
+        ...entry.settings.channels.map(String),
+        formatOptionalNumber(entry.settings.low),
+        formatOptionalNumber(entry.settings.high),
+        String(entry.settings.gamma),
       ];
     case LAYER_KINDS.BASEMAP:
       return [

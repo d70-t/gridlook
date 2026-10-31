@@ -75,6 +75,7 @@ const URL_PARAM_SYNC_MAP: TUrlSyncEntry[] = [
   },
 ];
 
+// eslint-disable-next-line max-lines-per-function
 function getLayerUrlEntry(
   store: ReturnType<typeof useGlobeControlStore>,
   layer: TLayerEntry
@@ -112,6 +113,13 @@ function getLayerUrlEntry(
         visible,
         opacity,
         selections: store.volumeSelections,
+      };
+    case LAYER_KINDS.RGB:
+      return {
+        kind: LAYER_KINDS.RGB,
+        visible,
+        opacity,
+        settings: store.rgbSettings,
       };
     case LAYER_KINDS.BASEMAP:
       return {

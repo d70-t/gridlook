@@ -11,6 +11,7 @@ import type {
   TGeoSampleIndex,
 } from "./composables/gridHoverUtils.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
+import { useRgbLayer, type TRgbRequest } from "./composables/useRgbLayer.ts";
 import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 import { useStreamlineLayer } from "./composables/useStreamlineLayer.ts";
@@ -29,6 +30,7 @@ import {
 } from "@/lib/data/coordinateVariables.ts";
 import { downsampleDataTexture } from "@/lib/data/dataTexture.ts";
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
+import { interleaveRgba, mergeRgbBounds } from "@/lib/data/rgbComposite.ts";
 import { loadVectorComponents } from "@/lib/data/streamlineData.ts";
 import {
   castDataVarToFloat32,
@@ -123,6 +125,7 @@ let projectedGrid: TProjectedVolumeGrid | undefined;
 let nativeProjection: TProjectionConverter | undefined;
 const selectedDimensionNames = ref<string[]>([]);
 let lastStreamlineIndices: (number | null | zarr.Slice)[] | undefined;
+let lastDatavar: zarr.Array<zarr.DataType, zarr.AsyncReadable> | undefined;
 let streamlineRequestRevision = 0;
 let cachedMagnitude: TVectorMagnitudeData | undefined;
 let cachedStreamlineKey: string | undefined;
@@ -149,6 +152,16 @@ const streamlines = useStreamlineLayer({
   projectionHelper,
   onProjectionChange,
   registerAnimationCallback,
+});
+
+const rgbLayer = useRgbLayer({
+  getScene,
+  redraw,
+  projectionHelper,
+  isSceneInMotion,
+  onProjectionChange,
+  onMotionStateChange,
+  load: loadRgbComposite,
 });
 
 const volume = useVolume({
@@ -559,6 +572,7 @@ function applyBatchGeometry(
     setupProjectionGeometryWrap(geometry);
     meshes[batchIndex].geometry.dispose();
     meshes[batchIndex].geometry = geometry;
+    rgbLayer.updateGeometry(batchIndex, geometry);
   } else {
     const mesh = createWrappedProjectionMesh(
       geometry,
@@ -658,6 +672,52 @@ function createRegularTexture(rawData: Float32Array, wrapRepeat: boolean) {
   }
   texture.needsUpdate = true;
   return texture;
+}
+
+// All batch meshes share one RGBA image of the whole grid, like the scalar
+// texture.
+async function loadRgbComposite(request: TRgbRequest) {
+  const datavar = lastDatavar;
+  if (!datavar || isLatOnly.value) {
+    return { batches: [] };
+  }
+  const channels = await Promise.all(
+    request.channels.map(async (channel) => {
+      const selection = request.indices.slice();
+      selection[request.dimensionIndex] = channel;
+      const data = castDataVarToFloat32(
+        await fetchRegularGridVariableData(selection)
+      );
+      const bounds = decodeVariableDataAndGetBounds(datavar, data);
+      return {
+        ...fitDataToMaxTextureSize(
+          data,
+          longitudes.value.length,
+          latitudes.value.length
+        ),
+        bounds,
+      };
+    })
+  );
+  if (!request.isCurrent()) {
+    return undefined;
+  }
+  const [red, green, blue] = channels;
+  const image = {
+    data: interleaveRgba(red.data, green.data, blue.data),
+    width: red.texWidth,
+    height: red.texHeight,
+    wrapRepeat:
+      !hasProjectedNativeAxes() && isLongitudeGlobal(longitudes.value),
+  };
+  return {
+    batches: meshes.map((mesh, batchIndex) => ({
+      batchIndex,
+      geometry: mesh.geometry,
+      image,
+    })),
+    bounds: mergeRgbBounds(channels.map((channel) => channel.bounds)),
+  };
 }
 
 function makeMaterial(rawData: Float32Array) {
@@ -1026,6 +1086,7 @@ async function fetchAndRenderData(
   if (!isCurrent()) {
     return;
   }
+  lastDatavar = datavar;
   const { min, max, missingValue, fillValue } = decodeVariableDataAndGetBounds(
     datavar,
     rawData
@@ -1089,6 +1150,13 @@ async function fetchAndRenderData(
   await updateStreamlines(indices);
   if (isCurrent() && !store.streamlineMagnitudeDisplayed) {
     await scalarCache.restoreScalar();
+  }
+  if (isCurrent()) {
+    await rgbLayer.setContext({
+      indices,
+      dimRanges: dimensionRanges,
+      dimInfo,
+    });
   }
 }
 
