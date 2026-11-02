@@ -115,9 +115,17 @@ of one dimension of the current variable as the red, green, and blue channels
 of one image, for example the B04/B03/B02 bands of a Sentinel-2 `band`
 dimension. Add it from **Add layer…**, then choose the dimension and the
 entry for each channel. Only band-like dimensions are offered: not spatial,
-not time, with 3 to 32 entries; without one, the layer cannot be added. All
-three channels share one display range; leave it empty to use the range of
-the loaded channels, or enter e.g. `0` and `0.3` for reflectances.
+not time, with 3 to 32 entries. All three channels share one display range;
+leave it empty to use the range of the loaded channels, or enter e.g. `0` and
+`0.3` for reflectances.
+
+With **Source: Three variables**, the channels are three variables instead,
+taken from the group of the current variable and with its shape, for example
+`b04`, `b03` and `b02` of a Sentinel-2 `measurements/reflectance` group without
+a quicklook. `b04`/`b03`/`b02` and `red`/`green`/`blue` are picked by default.
+On a multi-resolution dataset the layer reads the three variables of the level
+shown. Without a band-like dimension or three such variables, the layer cannot
+be added.
 The gamma slider brightens (above 1) or darkens (below 1) the image. A pixel
 missing in any of the three channels stays transparent. The other dimensions
 follow the sliders of the data grid. The layer and its settings are part of
