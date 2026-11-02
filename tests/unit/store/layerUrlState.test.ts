@@ -72,12 +72,33 @@ it("keeps the RGB composite settings", () => {
     visible: true,
     opacity: 0.9,
     settings: {
+      source: "dimension",
       dimension: "band",
+      variables: undefined,
       channels: [3, 2, 1],
       low: 0,
       high: 0.3,
       gamma: 1.5,
     },
+  });
+});
+
+it("keeps an RGB composite of three variables", () => {
+  const param = "rgb,1,1,@vars,b04,b03,b02,0,0.3;grid";
+  expect(formatLayersParam(parseLayersParam(param))).toBe(param);
+  expect(parseLayersParam(param)[0]).toMatchObject({
+    kind: "rgb",
+    settings: {
+      source: "variables",
+      dimension: undefined,
+      variables: ["b04", "b03", "b02"],
+      low: 0,
+      high: 0.3,
+    },
+  });
+  // an incomplete choice falls back to a guess from the names
+  expect(parseLayersParam("rgb,1,1,@vars,b04,,b02")[0]).toMatchObject({
+    settings: { source: "variables", variables: undefined },
   });
 });
 
@@ -87,7 +108,9 @@ it("falls back to the RGB defaults and drops them from the URL", () => {
     visible: true,
     opacity: 1,
     settings: {
+      source: "dimension",
       dimension: undefined,
+      variables: undefined,
       channels: [0, 1, 2],
       low: undefined,
       high: undefined,

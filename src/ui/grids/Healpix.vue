@@ -13,8 +13,10 @@ import {
 } from "./composables/gridHoverUtils.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import {
+  getRgbChannelReads,
   useRgbLayer,
   type TRgbBatch,
+  type TRgbChannelRead,
   type TRgbRequest,
 } from "./composables/useRgbLayer.ts";
 import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
@@ -863,8 +865,8 @@ async function processHealpixChunks(
   return { dataMin, dataMax, histogramSummaries, textures, batches };
 }
 
-// Reads the three channel slices face by face and draws them over the faces
-// of the data grid, which are already meshed for the current selection.
+// Reads the three channels face by face and draws them over the faces of the
+// data grid, which are already meshed for the current selection.
 async function loadRgbComposite(request: TRgbRequest) {
   const context = lastStreamlineContext;
   const datavar = lastDatavar;
@@ -872,7 +874,7 @@ async function loadRgbComposite(request: TRgbRequest) {
     return undefined;
   }
   const { grid, cellCoord } = context;
-  const { missingValue, fillValue } = getHealpixMissingAndFillValues(datavar);
+  const reads = await getRgbChannelReads(request, datavar, openRgbVariable);
   const batches: TRgbBatch[] = [];
   const bounds: { min: number; max: number }[] = [];
   for (let faceIndex = 0; faceIndex < HEALPIX_NUMCHUNKS; faceIndex++) {
@@ -882,17 +884,15 @@ async function loadRgbComposite(request: TRgbRequest) {
       continue;
     }
     const textures = await Promise.all(
-      request.channels.map(async (channel) => {
-        const selection = request.indices.slice();
-        selection[request.dimensionIndex] = channel;
-        selection[selection.length - 1] = zarr.slice(range.start, range.end);
-        const data = castDataVarToFloat32(
-          await fetchHealpixVariableData(selection)
+      reads.map(async (read) => {
+        const data = await readRgbFaceChannel(read, range);
+        bounds.push(data.bounds);
+        return buildHealpixTexture(
+          data.values,
+          faceIndex,
+          grid.nside,
+          range.cells
         );
-        bounds.push(
-          decodeVariableDataAndGetBounds(datavar, data, missingValue, fillValue)
-        );
-        return buildHealpixTexture(data, faceIndex, grid.nside, range.cells);
       })
     );
     if (disposed || !request.isCurrent()) {
@@ -911,6 +911,35 @@ async function loadRgbComposite(request: TRgbRequest) {
     });
   }
   return { batches, bounds: mergeRgbBounds(bounds) };
+}
+
+async function readRgbFaceChannel(
+  read: TRgbChannelRead,
+  range: { start: number; end: number }
+) {
+  const selection = read.selection.slice();
+  selection[selection.length - 1] = zarr.slice(range.start, range.end);
+  const values = castDataVarToFloat32(
+    await fetchHealpixVariableData(selection, read.variable)
+  );
+  const { missingValue, fillValue } = getHealpixMissingAndFillValues(
+    read.datavar
+  );
+  const bounds = decodeVariableDataAndGetBounds(
+    read.datavar,
+    values,
+    missingValue,
+    fillValue
+  );
+  return { values, bounds };
+}
+
+function openRgbVariable(variable: string) {
+  return ZarrDataManager.getVariableInfo(
+    ZarrDataManager.getDatasetSource(props.datasources!, varnameSelector.value),
+    variable,
+    props.datasources!.zarr_format
+  );
 }
 
 function healpixHoverLookup(
@@ -1050,6 +1079,8 @@ async function fetchAndRenderData(
       indices,
       dimRanges: dimensionRanges,
       dimInfo,
+      varname: varnameSelector.value,
+      vars: props.datasources!.levels[0].datasources,
     });
   }
 }

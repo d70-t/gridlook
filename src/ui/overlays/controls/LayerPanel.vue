@@ -16,6 +16,7 @@ import "vue3-select-component/styles.css";
 import type { T_GRID_TYPES } from "@/lib/data/gridTypeDetector.ts";
 import {
   getRgbDimensionOptions,
+  getRgbVariableOptions,
   RGB_MAX_DIMENSION_LENGTH,
 } from "@/lib/data/rgbComposite.ts";
 import {
@@ -156,8 +157,13 @@ const rgbUnavailableReason = computed(() => {
     varinfo.value?.dimRanges,
     varinfo.value?.dimInfo
   );
-  return options.length === 0
-    ? `This variable has no band-like dimension (3 to ${RGB_MAX_DIMENSION_LENGTH} entries, not time)`
+  // three arrays next to it can be the channels instead
+  const variables = getRgbVariableOptions(
+    props.modelInfo?.vars,
+    varnameSelector.value
+  );
+  return options.length === 0 && variables.length < 3
+    ? `This variable has no band-like dimension (3 to ${RGB_MAX_DIMENSION_LENGTH} entries, not time) and no three variables like it`
     : undefined;
 });
 
@@ -1082,6 +1088,7 @@ function getLayerName(layer: TLayerEntry) {
         <RgbControls
           v-if="layer.kind === LAYER_KINDS.RGB && isLayerVisible(layer)"
           class="rgb-layer-controls"
+          :model-info="modelInfo"
         />
         <VolumeControls
           v-if="layer.kind === LAYER_KINDS.VOLUME && isLayerVisible(layer)"

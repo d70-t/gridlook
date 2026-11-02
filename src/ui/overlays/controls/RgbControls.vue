@@ -4,18 +4,58 @@ import { computed } from "vue";
 
 import {
   chooseRgbDimension,
+  chooseRgbVariables,
   clampRgbChannels,
   getRgbDimensionOptions,
+  getRgbVariableOptions,
   RGB_GAMMA,
   RGB_MAX_DIMENSION_LENGTH,
+  RGB_SOURCES,
   type TRgbChannels,
+  type TRgbSource,
+  type TRgbVariables,
 } from "@/lib/data/rgbComposite.ts";
+import type { TModelInfo } from "@/lib/types/GlobeTypes.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
+
+const props = defineProps<{ modelInfo?: TModelInfo }>();
 
 const CHANNEL_NAMES = ["R", "G", "B"] as const;
 
+const SOURCE_OPTIONS = [
+  { value: RGB_SOURCES.DIMENSION, label: "One dimension" },
+  { value: RGB_SOURCES.VARIABLES, label: "Three variables" },
+] as const;
+
 const store = useGlobeControlStore();
-const { rgbSettings, rgbDataBounds, varinfo } = storeToRefs(store);
+const { rgbSettings, rgbDataBounds, varinfo, varnameSelector } =
+  storeToRefs(store);
+
+const byVariables = computed(
+  () => rgbSettings.value.source === RGB_SOURCES.VARIABLES
+);
+
+const variableOptions = computed(() =>
+  getRgbVariableOptions(props.modelInfo?.vars, varnameSelector.value)
+);
+
+const variables = computed(() =>
+  chooseRgbVariables(variableOptions.value, rgbSettings.value.variables)
+);
+
+const showsChannels = computed(() =>
+  byVariables.value ? Boolean(variables.value) : Boolean(dimension.value)
+);
+
+function setSource(source: TRgbSource) {
+  store.updateRgbSettings({ source });
+}
+
+function setVariable(channelIndex: number, name: string) {
+  const next = [...(variables.value ?? ["", "", ""])] as TRgbVariables;
+  next[channelIndex] = name;
+  store.updateRgbSettings({ variables: next });
+}
 
 const dimensionOptions = computed(() =>
   getRgbDimensionOptions(varinfo.value?.dimRanges, varinfo.value?.dimInfo)
@@ -54,14 +94,71 @@ function formatBound(value: number | undefined) {
 
 <template>
   <div class="rgb-controls">
-    <p v-if="!dimension" class="help is-warning">
+    <label class="rgb-row">
+      <span>Source</span>
+      <span class="select is-small">
+        <select
+          :value="rgbSettings.source"
+          aria-label="RGB source"
+          @change="
+            setSource(($event.target as HTMLSelectElement).value as TRgbSource)
+          "
+        >
+          <option
+            v-for="option in SOURCE_OPTIONS"
+            :key="option.value"
+            :value="option.value"
+          >
+            {{ option.label }}
+          </option>
+        </select>
+      </span>
+    </label>
+    <template v-if="byVariables">
+      <p v-if="!variables" class="help is-warning">
+        {{
+          variableOptions.length < 3
+            ? "There are not three variables like this one in its group."
+            : "The chosen variables are not in this group."
+        }}
+      </p>
+      <label
+        v-for="(name, channelIndex) in CHANNEL_NAMES"
+        :key="name"
+        class="rgb-row"
+      >
+        <span>{{ name }}</span>
+        <span class="select is-small">
+          <select
+            :value="variables?.[channelIndex] ?? ''"
+            :aria-label="`Variable shown as ${name}`"
+            @change="
+              setVariable(
+                channelIndex,
+                ($event.target as HTMLSelectElement).value
+              )
+            "
+          >
+            <option v-if="!variables" value="" disabled>Choose…</option>
+            <option
+              v-for="option in variableOptions"
+              :key="option"
+              :value="option"
+            >
+              {{ option }}
+            </option>
+          </select>
+        </span>
+      </label>
+    </template>
+    <p v-if="!byVariables && !dimension" class="help is-warning">
       {{
         dimensionOptions.length === 0
           ? `This variable has no band-like dimension (3 to ${RGB_MAX_DIMENSION_LENGTH} entries, not time).`
           : `This variable has no dimension "${rgbSettings.dimension}".`
       }}
     </p>
-    <label v-if="dimensionOptions.length > 0" class="rgb-row">
+    <label v-if="!byVariables && dimensionOptions.length > 0" class="rgb-row">
       <span>Dimension</span>
       <span class="select is-small">
         <select
@@ -80,7 +177,7 @@ function formatBound(value: number | undefined) {
         </select>
       </span>
     </label>
-    <template v-if="dimension">
+    <template v-if="!byVariables && dimension">
       <label
         v-for="(name, channelIndex) in CHANNEL_NAMES"
         :key="name"
@@ -108,6 +205,8 @@ function formatBound(value: number | undefined) {
           </select>
         </span>
       </label>
+    </template>
+    <template v-if="showsChannels">
       <div class="rgb-row">
         <span>Range</span>
         <div class="rgb-range">

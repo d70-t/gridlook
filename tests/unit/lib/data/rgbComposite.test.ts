@@ -2,13 +2,17 @@ import { describe, expect, it } from "vitest";
 
 import {
   chooseRgbDimension,
+  chooseRgbVariables,
   clampRgbChannels,
   createDefaultRgbSettings,
   getRgbDimensionOptions,
+  getRgbVariableOptions,
+  guessRgbVariables,
   interleaveRgba,
   mergeRgbBounds,
   resolveRgbDisplayRange,
   RGB_MAX_DIMENSION_LENGTH,
+  resolveSiblingVariable,
 } from "@/lib/data/rgbComposite.ts";
 
 describe("getRgbDimensionOptions", () => {
@@ -106,4 +110,66 @@ it("merges channel bounds and resolves the display range", () => {
     high: 0.3,
   });
   expect(resolveRgbDisplayRange(settings)).toEqual({ low: 0, high: 1 });
+});
+
+describe("getRgbVariableOptions", () => {
+  const source = { store: "s", dataset: "d" };
+  const vars = {
+    "14/b02": { ...source, shape: [5] },
+    "14/b03": { ...source, shape: [5] },
+    "14/b04": { ...source, shape: [5] },
+    "14/b8a": { ...source, shape: [5] },
+    "14/cell_ids": { ...source, shape: [5], hidden: true },
+    "14/scl": { ...source, shape: [2, 5] },
+    "15/b04": { ...source, shape: [20] },
+  };
+
+  it("offers the variables of the current group with the same shape", () => {
+    expect(getRgbVariableOptions(vars, "14/b04")).toEqual([
+      "b02",
+      "b03",
+      "b04",
+      "b8a",
+    ]);
+    expect(getRgbVariableOptions(vars, "15/b04")).toEqual(["b04"]);
+  });
+});
+
+describe("RGB channel variables", () => {
+  it("guesses red, green and blue from the names", () => {
+    expect(guessRgbVariables(["b02", "b03", "b04", "b8a"])).toEqual([
+      "b04",
+      "b03",
+      "b02",
+    ]);
+    expect(guessRgbVariables(["B02", "B03", "B04"])).toEqual([
+      "B04",
+      "B03",
+      "B02",
+    ]);
+    expect(guessRgbVariables(["blue", "green", "red", "x"])).toEqual([
+      "red",
+      "green",
+      "blue",
+    ]);
+    expect(guessRgbVariables(["a", "b", "c", "d"])).toEqual(["a", "b", "c"]);
+    expect(guessRgbVariables(["a", "b"])).toBeUndefined();
+  });
+
+  it("keeps a choice only while all three are offered", () => {
+    const options = ["b02", "b03", "b04", "b8a"];
+    expect(chooseRgbVariables(options, ["b8a", "b04", "b03"])).toEqual([
+      "b8a",
+      "b04",
+      "b03",
+    ]);
+    expect(chooseRgbVariables(options, ["b8a", "b05", "b03"])).toBeUndefined();
+    expect(chooseRgbVariables(options)).toEqual(["b04", "b03", "b02"]);
+  });
+
+  it("resolves a basename in the group of the current variable", () => {
+    expect(resolveSiblingVariable("14/b04", "b03")).toBe("14/b03");
+    expect(resolveSiblingVariable("a/r10m/b04", "b02")).toBe("a/r10m/b02");
+    expect(resolveSiblingVariable("t2m", "u10")).toBe("u10");
+  });
 });

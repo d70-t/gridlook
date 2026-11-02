@@ -11,7 +11,9 @@ import {
 import {
   DEFAULT_RGB_CHANNELS,
   RGB_GAMMA,
+  RGB_SOURCES,
   type TRgbSettings,
+  type TRgbVariables,
 } from "@/lib/data/rgbComposite.ts";
 import {
   DEFAULT_BASEMAP,
@@ -120,17 +122,29 @@ function parseChannel(value: string | undefined, fallback: number) {
     : fallback;
 }
 
-// fields: dimension, red, green, blue, low, high, gamma
+// In place of a dimension name: red, green and blue are variable names.
+const RGB_VARIABLES_MARKER = "@vars";
+
+function parseRgbVariables(names: (string | undefined)[]) {
+  return names.every(Boolean) ? (names as TRgbVariables) : undefined;
+}
+
+// fields: dimension (or "@vars"), red, green, blue, low, high, gamma
 function parseRgbSettings(fields: string[]): TRgbSettings {
   const [dimension, red, green, blue, low, high, gamma] = fields;
   const parsedGamma = parseOptionalNumber(gamma);
+  const byVariables = dimension === RGB_VARIABLES_MARKER;
   return {
-    dimension: dimension || undefined,
-    channels: [
-      parseChannel(red, DEFAULT_RGB_CHANNELS[0]),
-      parseChannel(green, DEFAULT_RGB_CHANNELS[1]),
-      parseChannel(blue, DEFAULT_RGB_CHANNELS[2]),
-    ],
+    source: byVariables ? RGB_SOURCES.VARIABLES : RGB_SOURCES.DIMENSION,
+    dimension: (!byVariables && dimension) || undefined,
+    variables: byVariables ? parseRgbVariables([red, green, blue]) : undefined,
+    channels: byVariables
+      ? [...DEFAULT_RGB_CHANNELS]
+      : [
+          parseChannel(red, DEFAULT_RGB_CHANNELS[0]),
+          parseChannel(green, DEFAULT_RGB_CHANNELS[1]),
+          parseChannel(blue, DEFAULT_RGB_CHANNELS[2]),
+        ],
     low: parseOptionalNumber(low),
     high: parseOptionalNumber(high),
     gamma:
@@ -249,6 +263,13 @@ function formatOpacity(value: number) {
   return String(Number(value.toFixed(2)));
 }
 
+// fields: dimension (or "@vars"), red, green, blue
+function formatRgbChannels(settings: TRgbSettings) {
+  return settings.source === RGB_SOURCES.VARIABLES
+    ? [RGB_VARIABLES_MARKER, ...(settings.variables ?? ["", "", ""])]
+    : [settings.dimension ?? "", ...settings.channels.map(String)];
+}
+
 function formatOptionalNumber(value: number | undefined) {
   return value === undefined ? "" : String(value);
 }
@@ -283,8 +304,7 @@ function formatFields(entry: TLayerUrlEntry): string[] {
       return [
         formatFlag(entry.visible),
         formatOpacity(entry.opacity),
-        entry.settings.dimension ?? "",
-        ...entry.settings.channels.map(String),
+        ...formatRgbChannels(entry.settings),
         formatOptionalNumber(entry.settings.low),
         formatOptionalNumber(entry.settings.high),
         String(entry.settings.gamma),

@@ -11,7 +11,11 @@ import type {
   TGeoSampleIndex,
 } from "./composables/gridHoverUtils.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
-import { useRgbLayer, type TRgbRequest } from "./composables/useRgbLayer.ts";
+import {
+  getRgbChannelReads,
+  useRgbLayer,
+  type TRgbRequest,
+} from "./composables/useRgbLayer.ts";
 import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 import { useStreamlineLayer } from "./composables/useStreamlineLayer.ts";
@@ -681,14 +685,13 @@ async function loadRgbComposite(request: TRgbRequest) {
   if (!datavar || isLatOnly.value) {
     return { batches: [] };
   }
+  const reads = await getRgbChannelReads(request, datavar, openRgbVariable);
   const channels = await Promise.all(
-    request.channels.map(async (channel) => {
-      const selection = request.indices.slice();
-      selection[request.dimensionIndex] = channel;
+    reads.map(async (read) => {
       const data = castDataVarToFloat32(
-        await fetchRegularGridVariableData(selection)
+        await fetchRegularGridVariableData(read.selection, read.variable)
       );
-      const bounds = decodeVariableDataAndGetBounds(datavar, data);
+      const bounds = decodeVariableDataAndGetBounds(read.datavar, data);
       return {
         ...fitDataToMaxTextureSize(
           data,
@@ -868,15 +871,24 @@ async function buildDimensionConfig(
   );
 }
 
+function openRgbVariable(variable: string) {
+  return ZarrDataManager.getVariableInfo(
+    ZarrDataManager.getDatasetSource(props.datasources!, varnameSelector.value),
+    variable,
+    props.datasources!.zarr_format
+  );
+}
+
 function fetchRegularGridVariableData(
-  selection: (number | null | zarr.Slice)[]
+  selection: (number | null | zarr.Slice)[],
+  variable = varnameSelector.value
 ) {
   return getGridVariableData({
     source: ZarrDataManager.getDatasetSource(
       props.datasources!,
       varnameSelector.value
     ),
-    variable: varnameSelector.value,
+    variable,
     format: props.datasources!.zarr_format,
     selection,
   });
@@ -1156,6 +1168,8 @@ async function fetchAndRenderData(
       indices,
       dimRanges: dimensionRanges,
       dimInfo,
+      varname: varnameSelector.value,
+      vars: props.datasources!.levels[0].datasources,
     });
   }
 }

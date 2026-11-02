@@ -6,11 +6,16 @@ import { getLayerRenderOrder } from "./useGridOverlays.ts";
 
 import {
   chooseRgbDimension,
+  chooseRgbVariables,
   clampRgbChannels,
   getRgbDimensionOptions,
+  getRgbVariableOptions,
   resolveRgbDisplayRange,
+  resolveSiblingVariable,
+  RGB_SOURCES,
   type TRgbBounds,
   type TRgbChannels,
+  type TRgbVariables,
 } from "@/lib/data/rgbComposite.ts";
 import { applyLayerStackPosition } from "@/lib/layers/equirectLayer.ts";
 import { updateProjectionMeshes } from "@/lib/projection/projectionEdgeQuality.ts";
@@ -19,7 +24,11 @@ import {
   createProjectionInstancedMesh,
   makeGpuProjectedRgbTextureMaterial,
 } from "@/lib/shaders/gridShaders.ts";
-import type { TDimInfo, TDimensionRange } from "@/lib/types/GlobeTypes.ts";
+import type {
+  TDataSource,
+  TDimInfo,
+  TDimensionRange,
+} from "@/lib/types/GlobeTypes.ts";
 import {
   BUILTIN_LAYER_IDS,
   LAYER_OPACITY,
@@ -47,9 +56,14 @@ export type TRgbBatch = {
   image: TRgbImage;
 };
 
-export type TRgbRequest = {
-  dimensionIndex: number;
-  channels: TRgbChannels;
+/**
+ * Either three entries of one dimension of the current variable, or the same
+ * selection of three other variables (full names) on the same grid.
+ */
+export type TRgbRequest = (
+  | { dimensionIndex: number; channels: TRgbChannels; variables?: undefined }
+  | { variables: TRgbVariables }
+) & {
   indices: TIndices;
   isCurrent: () => boolean;
 };
@@ -60,7 +74,48 @@ type TRgbContext = {
   indices: TIndices;
   dimRanges: TDimensionRange[];
   dimInfo: TDimInfo[];
+  // the variable the grid shows and the variables next to it
+  varname: string;
+  vars: Record<string, TDataSource>;
 };
+
+type TDataVar = zarr.Array<zarr.DataType, zarr.AsyncReadable>;
+
+/** What one channel reads, and the array whose attributes decode it. */
+export type TRgbChannelRead = {
+  // undefined: the current variable
+  variable?: string;
+  selection: TIndices;
+  datavar: TDataVar;
+};
+
+/**
+ * The three reads of a request: the channel entries of the RGB dimension of
+ * the current variable, or the same selection of each channel variable.
+ */
+export function getRgbChannelReads(
+  request: TRgbRequest,
+  datavar: TDataVar,
+  openVariable: (variable: string) => Promise<TDataVar>
+): Promise<TRgbChannelRead[]> {
+  if (request.variables) {
+    return Promise.all(
+      request.variables.map(async (variable) => ({
+        variable,
+        selection: request.indices.slice(),
+        datavar: await openVariable(variable),
+      }))
+    );
+  }
+  const { dimensionIndex } = request;
+  return Promise.resolve(
+    request.channels.map((channel) => {
+      const selection = request.indices.slice();
+      selection[dimensionIndex] = channel;
+      return { selection, datavar };
+    })
+  );
+}
 
 type TOptions = {
   getScene: () => THREE.Scene | undefined;
@@ -110,7 +165,7 @@ function setMeshTexture(
 
 /**
  * The "RGB composite" layer: three slices of one dimension of the current
- * variable, drawn as true colours over the data grid's own geometry. The grid
+ * variable, or three variables next to it, drawn as true colours over the data grid's own geometry. The grid
  * component loads the slices; this keeps the meshes, the settings and the
  * layer-stack position in sync.
  */
@@ -224,7 +279,23 @@ export function useRgbLayer(options: TOptions) {
     updateAppearance();
   }
 
+  function resolveVariablesRequest(current: TRgbContext) {
+    const variables = chooseRgbVariables(
+      getRgbVariableOptions(current.vars, current.varname),
+      store.rgbSettings.variables
+    )?.map((name) => resolveSiblingVariable(current.varname, name)) as
+      TRgbVariables | undefined;
+    if (!variables) {
+      return undefined;
+    }
+    const key = JSON.stringify({ indices: current.indices, variables });
+    return { variables, indices: current.indices, key };
+  }
+
   function resolveRequest(current: TRgbContext) {
+    if (store.rgbSettings.source === RGB_SOURCES.VARIABLES) {
+      return resolveVariablesRequest(current);
+    }
     const option = chooseRgbDimension(
       getRgbDimensionOptions(current.dimRanges, current.dimInfo),
       store.rgbSettings.dimension
@@ -302,8 +373,10 @@ export function useRgbLayer(options: TOptions) {
   watch(
     () => [
       store.isRgbLayerEnabled(),
+      store.rgbSettings.source,
       store.rgbSettings.dimension,
       ...store.rgbSettings.channels,
+      ...(store.rgbSettings.variables ?? []),
     ],
     () => void refresh()
   );
