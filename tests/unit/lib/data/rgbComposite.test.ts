@@ -8,13 +8,14 @@ import {
   interleaveRgba,
   mergeRgbBounds,
   resolveRgbDisplayRange,
+  RGB_MAX_DIMENSION_LENGTH,
 } from "@/lib/data/rgbComposite.ts";
 
 describe("getRgbDimensionOptions", () => {
-  it("offers non-spatial dimensions with three or more entries, bands first", () => {
+  it("offers band-like dimensions, preferred names first", () => {
     const options = getRgbDimensionOptions(
       [
-        { name: "time", startPos: 0, minBound: 0, maxBound: 788 },
+        { name: "member", startPos: 0, minBound: 0, maxBound: 3 },
         { name: "band", startPos: 0, minBound: 0, maxBound: 2 },
         { name: "level", startPos: 0, minBound: 0, maxBound: 1 },
         null,
@@ -23,12 +24,31 @@ describe("getRgbDimensionOptions", () => {
     );
     expect(options).toEqual([
       { name: "band", index: 1, labels: ["B04", "B03", "B02"] },
-      {
-        name: "time",
-        index: 0,
-        labels: Array.from({ length: 789 }, (_, i) => String(i)),
-      },
+      { name: "member", index: 0, labels: ["0", "1", "2", "3"] },
     ]);
+  });
+
+  it("leaves out time and dimensions with many entries", () => {
+    const options = getRgbDimensionOptions(
+      [
+        { name: "time", startPos: 0, minBound: 0, maxBound: 3 },
+        { name: "t", startPos: 0, minBound: 0, maxBound: 3 },
+        {
+          name: "wavelength",
+          startPos: 0,
+          minBound: 0,
+          maxBound: RGB_MAX_DIMENSION_LENGTH,
+        },
+        {
+          name: "band",
+          startPos: 0,
+          minBound: 0,
+          maxBound: RGB_MAX_DIMENSION_LENGTH - 1,
+        },
+      ],
+      [{}, { current: 0, values: [0, 1, 2, 3], attrs: { axis: "T" } }, {}, {}]
+    );
+    expect(options.map((option) => option.name)).toEqual(["band"]);
   });
 
   it("returns nothing without dimension ranges", () => {

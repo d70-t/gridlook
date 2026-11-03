@@ -7,6 +7,7 @@ import {
   clampRgbChannels,
   getRgbDimensionOptions,
   RGB_GAMMA,
+  RGB_MAX_DIMENSION_LENGTH,
   type TRgbChannels,
 } from "@/lib/data/rgbComposite.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
@@ -56,7 +57,7 @@ function formatBound(value: number | undefined) {
     <p v-if="!dimension" class="help is-warning">
       {{
         dimensionOptions.length === 0
-          ? "This variable has no dimension with three or more entries."
+          ? `This variable has no band-like dimension (3 to ${RGB_MAX_DIMENSION_LENGTH} entries, not time).`
           : `This variable has no dimension "${rgbSettings.dimension}".`
       }}
     </p>

@@ -1,3 +1,4 @@
+import { isTimeCoordinate } from "@/lib/data/timeHandling.ts";
 import type { TDimInfo, TDimensionRange } from "@/lib/types/GlobeTypes.ts";
 
 /* An RGB composite shows three slices of one dimension of the current
@@ -33,6 +34,10 @@ export const RGB_GAMMA = {
   DEFAULT: 1,
 } as const;
 
+// A band-like dimension has 3 to this many entries: more would be a time
+// series or a long axis, and every entry becomes an option in three selects.
+export const RGB_MAX_DIMENSION_LENGTH = 32;
+
 export const DEFAULT_RGB_CHANNELS: TRgbChannels = [0, 1, 2];
 
 export function createDefaultRgbSettings(): TRgbSettings {
@@ -54,6 +59,10 @@ function preferenceRank(name: string) {
   return rank === -1 ? PREFERRED_RGB_DIMENSIONS.length : rank;
 }
 
+function dimensionAttrs(info: TDimInfo | undefined) {
+  return info && "attrs" in info ? info.attrs : {};
+}
+
 function dimensionLabels(info: TDimInfo | undefined, length: number) {
   const values = info && "values" in info ? info.values : undefined;
   return Array.from({ length }, (_, index) =>
@@ -62,8 +71,9 @@ function dimensionLabels(info: TDimInfo | undefined, length: number) {
 }
 
 /**
- * The non-spatial dimensions with at least three entries, preferred band-like
- * names first. Spatial dimensions have a null range and are never offered.
+ * The band-like dimensions: not spatial (spatial dimensions have a null
+ * range), not time, with 3 to RGB_MAX_DIMENSION_LENGTH entries. Preferred
+ * band-like names come first.
  */
 export function getRgbDimensionOptions(
   dimRanges: TDimensionRange[] | undefined,
@@ -71,13 +81,19 @@ export function getRgbDimensionOptions(
 ): TRgbDimensionOption[] {
   const options: TRgbDimensionOption[] = [];
   (dimRanges ?? []).forEach((range, index) => {
-    if (!range?.name || range.maxBound < 2) {
+    const length = (range?.maxBound ?? 0) + 1;
+    if (
+      !range?.name ||
+      length < 3 ||
+      length > RGB_MAX_DIMENSION_LENGTH ||
+      isTimeCoordinate(range.name, dimensionAttrs(dimInfo?.[index]))
+    ) {
       return;
     }
     options.push({
       name: range.name,
       index,
-      labels: dimensionLabels(dimInfo?.[index], range.maxBound + 1),
+      labels: dimensionLabels(dimInfo?.[index], length),
     });
   });
   return options.sort(

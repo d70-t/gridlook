@@ -15,6 +15,10 @@ import "vue3-select-component/styles.css";
 
 import type { T_GRID_TYPES } from "@/lib/data/gridTypeDetector.ts";
 import {
+  getRgbDimensionOptions,
+  RGB_MAX_DIMENSION_LENGTH,
+} from "@/lib/data/rgbComposite.ts";
+import {
   getVariableGroup,
   levelAxesAreIdentical,
 } from "@/lib/data/vectorField.ts";
@@ -143,6 +147,19 @@ const volumeUnavailableReason = computed(() =>
     volumeAvailable.value
   )
 );
+
+const rgbUnavailableReason = computed(() => {
+  if (!rgbAvailable.value) {
+    return "RGB composites are drawn on HEALPix and regular grids only";
+  }
+  const options = getRgbDimensionOptions(
+    varinfo.value?.dimRanges,
+    varinfo.value?.dimInfo
+  );
+  return options.length === 0
+    ? `This variable has no band-like dimension (3 to ${RGB_MAX_DIMENSION_LENGTH} entries, not time)`
+    : undefined;
+});
 
 function vectorVariableLabel(name: string) {
   return name.slice(name.lastIndexOf("/") + 1);
@@ -581,10 +598,8 @@ const addLayerOptions = computed<TAddLayerOption[]>(() => {
       value: ADD_LAYER_ACTIONS.RGB,
       label: BUILTIN_LAYER_NAMES[LAYER_KINDS.RGB],
       icon: LAYER_ICONS[LAYER_KINDS.RGB],
-      disabled: !rgbAvailable.value,
-      disabledReason: rgbAvailable.value
-        ? undefined
-        : "RGB composites are drawn on HEALPix and regular grids only",
+      disabled: Boolean(rgbUnavailableReason.value),
+      disabledReason: rgbUnavailableReason.value,
     });
   }
   if (!hasDisplayedLayer(LAYER_KINDS.BASEMAP)) {
@@ -717,7 +732,10 @@ function getLayerName(layer: TLayerEntry) {
           'is-dragging': draggedId === layer.id,
         }"
         :data-layer-index="getLayerStackIndex(layer)"
-        :aria-busy="layer.kind === LAYER_KINDS.STREAMLINES && streamlineLoading"
+        :aria-busy="
+          (layer.kind === LAYER_KINDS.STREAMLINES && streamlineLoading) ||
+          (layer.kind === LAYER_KINDS.RGB && rgbLoading)
+        "
         @dragstart="onDragStart($event, layer)"
         @dragover="onDragOver($event, getLayerStackIndex(layer))"
         @drop="onDrop(getLayerStackIndex(layer))"

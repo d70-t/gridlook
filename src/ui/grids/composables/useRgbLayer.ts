@@ -261,6 +261,11 @@ export function useRgbLayer(options: TOptions) {
     const isCurrent = () => !disposed && revision === requestRevision;
     store.rgbLoading = true;
     try {
+      // Allow the loading indicator to paint before decoding the channels.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      if (!isCurrent()) {
+        return;
+      }
       const result = await options.load({ ...request, isCurrent });
       if (!result || !isCurrent()) {
         return;
