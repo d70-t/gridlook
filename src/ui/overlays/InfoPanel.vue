@@ -383,6 +383,7 @@ async function loadGroupAttrsChain(
   return chain;
 }
 
+// eslint-disable-next-line max-lines-per-function
 async function fetchInfo(requestId: number) {
   const varname = sourceVariable.value;
   error.value = null;
@@ -417,7 +418,11 @@ async function fetchInfo(requestId: number) {
     }
     groupAttrsChain.value = groupChain;
     groupAttrs.value = groupChain[0]?.attrs ?? null;
-    const variable = await ZarrDataManager.getVariableInfo(varSource, varname);
+    const variable = await ZarrDataManager.getVariableInfo(
+      varSource,
+      varname,
+      props.datasources.zarr_format
+    );
     if (requestId !== infoRequestId || varname !== sourceVariable.value) {
       return;
     }

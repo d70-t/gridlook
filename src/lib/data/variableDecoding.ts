@@ -26,6 +26,33 @@ export function getMissingValue(
   return NaN;
 }
 
+// Arrays opened as Zarr v2. zarrita converts v2 metadata to the v3 layout,
+// so the array itself no longer tells which format it came from.
+const zarrV2Arrays = new WeakSet<object>();
+
+export function markZarrV2Array(
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
+) {
+  zarrV2Arrays.add(datavar);
+}
+
+// A zero `fill_value` only marks missing data in Zarr v2, where it is optional
+// (`null` means "not set") and xarray masks it. Zarr v3 always stores one and
+// zarr-python writes 0 when none was given; xarray keeps the v3 mask in
+// `_FillValue` instead.
+function isZeroZarrV2FillValue(
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
+) {
+  // Only numbers: zarrita passes a v2 bool `false` or string `""` through as
+  // is, and both would also read as 0.
+  const fillValue = datavar.fillValue;
+  return (
+    (typeof fillValue === "number" || typeof fillValue === "bigint") &&
+    Number(fillValue) === 0 &&
+    zarrV2Arrays.has(datavar)
+  );
+}
+
 /**
  * Retrieves the fill value from a Zarr array, normalizing across different
  * naming conventions ("fillValue", "fill_value", "_FillValue", "_fillvalue")
@@ -37,6 +64,9 @@ export function getFillValue(
 ) {
   if (datavar.fillValue) {
     return datavar.fillValue as number;
+  }
+  if (isZeroZarrV2FillValue(datavar)) {
+    return 0;
   }
   const attributes = datavar.attrs;
   if (hasNonNullAttribute(attributes, "fillValue")) {
