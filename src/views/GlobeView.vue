@@ -31,6 +31,7 @@ import {
   indexFromZarr,
 } from "@/lib/data/sourceIndexing.ts";
 import { splitSourceType } from "@/lib/data/sourceType.ts";
+import { getDefaultRange } from "@/lib/data/variableDecoding.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { loadTextures } from "@/lib/layers/textureStore.ts";
 import { PROJECTION_TYPES, clamp } from "@/lib/projection/projectionUtils.ts";
@@ -281,8 +282,9 @@ function prepareDefaults(src: string, index: TSources) {
         invertColormap.value = variableDefaults.default_colormap.inverted;
       }
     }
-    if (variableDefaults.default_range) {
-      store.updateBounds(variableDefaults.default_range);
+    const defaultRange = getDefaultRange(variableDefaults);
+    if (defaultRange) {
+      store.updateBounds(defaultRange);
     }
   }
 }

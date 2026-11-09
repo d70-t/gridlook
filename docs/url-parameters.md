@@ -31,6 +31,10 @@ address bar.
 | `catalog`                                  | URL of the [catalog](catalogs.md) shown in the "Open dataset" dialog         |
 | `basemapcatalog`                           | URL of the basemap catalog                                                   |
 
+Without `boundlow` and `boundhigh`, the colormap range starts from the
+variable's `default_range` in a JSON index, then from its CF attribute
+`actual_range`, and otherwise from the data.
+
 Example that opens a dataset with a fixed variable, colormap and time step:
 
 ```text
