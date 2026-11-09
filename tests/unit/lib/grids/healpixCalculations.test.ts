@@ -5,6 +5,7 @@ import {
   getHealpixFaceDataRect,
   getHealpixFaceRange,
   getHealpixTextureIndex,
+  healpixCellCoordinateNames,
 } from "@/lib/grids/healpixCalculations.ts";
 import { buildHistogramSummary } from "@/utils/histogram.ts";
 
@@ -76,4 +77,10 @@ it("builds histograms without copying values and preserves invalid-value handlin
   expect([...buildHistogramSummary([NaN], NaN, NaN, 2).bins]).toEqual([0, 0]);
   expect(values[0]).toBeNaN();
   expect(values[2]).toBe(-999);
+});
+
+it("finds xdggs cell_ids when the dggs metadata names no coordinate", () => {
+  expect(healpixCellCoordinateNames(undefined)).toEqual(["cell", "cell_ids"]);
+  expect(healpixCellCoordinateNames(null)).toEqual(["cell", "cell_ids"]);
+  expect(healpixCellCoordinateNames("zone_ids")).toEqual(["zone_ids"]);
 });
