@@ -1,7 +1,13 @@
 import proj4 from "proj4";
 import * as zarr from "zarrita";
 
+import {
+  createCrsInverse,
+  projectGridToLonLat,
+  type TProjectedGridCoordinates,
+} from "./crsInverse.ts";
 import { currentLevel } from "./levels.ts";
+import { getProjectedGrid } from "./projectedGridCache.ts";
 import {
   castDataVarToFloat32,
   decodeVariableChunkInPlace,
@@ -9,6 +15,7 @@ import {
 } from "./variableDecoding.ts";
 import { ZarrDataManager } from "./ZarrDataManager.ts";
 
+import { projectCurvilinearGrid } from "@/lib/grids/curvilinearWorkerClient.ts";
 import { type TSources } from "@/lib/types/GlobeTypes.ts";
 
 const WGS84 = "EPSG:4326";
@@ -176,34 +183,78 @@ function createFloat32Chunk(
   return { data, shape, stride };
 }
 
+function toLonLatChunks(
+  { latitudes, longitudes }: TProjectedGridCoordinates,
+  shape: number[]
+) {
+  return {
+    latitudes: createFloat32Chunk(latitudes, shape),
+    longitudes: createFloat32Chunk(longitudes, shape),
+  };
+}
+
+/** lon/lat of every (y[j], x[i]) cell centre, on the calling thread. */
 export function projectXYGridToLonLat(
   x: Float32Array,
   y: Float32Array,
   crsWkt: string | null
 ) {
-  const shape = [y.length, x.length];
-  const longitudes = new Float32Array(x.length * y.length);
-  const latitudes = new Float32Array(x.length * y.length);
-  const transformer = crsWkt ? proj4(crsWkt, WGS84) : null;
+  return toLonLatChunks(projectGridToLonLat(x, y, crsWkt), [
+    y.length,
+    x.length,
+  ]);
+}
 
-  for (let j = 0; j < y.length; j++) {
-    for (let i = 0; i < x.length; i++) {
-      const index = j * x.length + i;
-      if (transformer) {
-        const [lon, lat] = transformer.forward([x[i], y[j]]);
-        longitudes[index] = lon;
-        latitudes[index] = lat;
-      } else {
-        longitudes[index] = x[i];
-        latitudes[index] = y[j];
-      }
-    }
-  }
+/**
+ * A key naming the grid of `x` and `y` within the dataset: the level's
+ * store and group, the axis arrays' paths, shapes and ends, and the CRS. Two
+ * levels or windows with the same key project to the same lon/lat.
+ */
+function projectedGridKey(
+  datasources: TSources,
+  xPath: string,
+  yPath: string,
+  x: Float32Array,
+  y: Float32Array,
+  crsWkt: string | null
+) {
+  const { grid } = currentLevel(datasources);
+  return JSON.stringify([
+    grid.store,
+    grid.dataset,
+    xPath,
+    yPath,
+    x.length,
+    y.length,
+    x[0],
+    x[x.length - 1],
+    y[0],
+    y[y.length - 1],
+    crsWkt,
+  ]);
+}
 
-  return {
-    latitudes: createFloat32Chunk(latitudes, shape),
-    longitudes: createFloat32Chunk(longitudes, shape),
-  };
+// lon/lat of the cell centres of the current level, projected in the
+// curvilinear worker (on this thread where there are no workers) and cached
+// per level: switching back to a level, stepping in time or changing the
+// variable never projects again.
+function projectXYGridToLonLatCached(
+  datasources: TSources,
+  xPath: string,
+  yPath: string,
+  x: Float32Array,
+  y: Float32Array,
+  crsWkt: string | null
+) {
+  return getProjectedGrid(
+    datasources.levels,
+    projectedGridKey(datasources, xPath, yPath, x, y, crsWkt),
+    x.length * y.length,
+    () =>
+      typeof Worker === "undefined"
+        ? Promise.resolve(projectGridToLonLat(x, y, crsWkt))
+        : projectCurvilinearGrid(x, y, crsWkt)
+  );
 }
 
 function getProjectedXYNames(dimensionNames: string[]) {
@@ -253,7 +304,17 @@ export async function getProjectedXYLonLatData(
     loadGridAxes(datasources!, variable, [yName, xName]),
     getCRSWkt(datasources!, variable),
   ]);
-  const { latitudes, longitudes } = projectXYGridToLonLat(x, y, crsWkt);
+  const { latitudes, longitudes } = toLonLatChunks(
+    await projectXYGridToLonLatCached(
+      datasources!,
+      ZarrDataManager.resolveVariablePath(variable, xName),
+      ZarrDataManager.resolveVariablePath(variable, yName),
+      x,
+      y,
+      crsWkt
+    ),
+    [y.length, x.length]
+  );
   const geographicDimensionNames = [yName, xName];
 
   return {
@@ -494,14 +555,9 @@ function projectXYPointsToLonLat(
   y: Float32Array,
   crsWkt: string
 ) {
-  const transformer = proj4(crsWkt, WGS84);
   const latitudes = new Float32Array(x.length);
   const longitudes = new Float32Array(x.length);
-  for (let i = 0; i < x.length; i++) {
-    const [lon, lat] = transformer.forward([x[i], y[i]]);
-    longitudes[i] = lon;
-    latitudes[i] = lat;
-  }
+  createCrsInverse(crsWkt).points(x, y, longitudes, latitudes);
   return { latitudes, longitudes };
 }
 

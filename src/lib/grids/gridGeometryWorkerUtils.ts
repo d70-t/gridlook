@@ -15,9 +15,10 @@ import type {
 export function postGridGeometryResponse<
   TMetadata extends TGridGeometryWorkerMetadata,
   TBatch extends TGridWorkerBatch = TGridGeometryBatch,
+  THoverIndex = TSerializedGeoSampleIndexData,
 >(
   workerScope: DedicatedWorkerGlobalScope,
-  response: TGridGeometryWorkerResponse<TMetadata, TBatch>,
+  response: TGridGeometryWorkerResponse<TMetadata, TBatch, THoverIndex>,
   transfer: Transferable[] = []
 ) {
   workerScope.postMessage(response, transfer);
