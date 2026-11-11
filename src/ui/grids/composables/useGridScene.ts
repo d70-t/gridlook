@@ -693,6 +693,10 @@ export function useGridScene(options: UseGridSceneOptions) {
     // fully within the viewport on both axes, with a small 5 % margin.
     const targetDistance = getGlobeFitCameraDistance(cam.aspect, cam.fov);
 
+    // North up. A drag across a pole can leave the globe south up (see
+    // useFreeOrbit); that roll is session-only, as the URL holds the camera's
+    // lat/lon/alt and nothing else, so a reload or a shared link opens the
+    // same place north up.
     cam.up.set(0, 0, 1);
     cam.near = 0.1;
     cam.far = 1000;
