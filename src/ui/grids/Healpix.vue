@@ -85,7 +85,11 @@ import {
   levelMaterial,
   makeGpuProjectedTextureMaterial,
 } from "@/lib/shaders/gridShaders.ts";
-import type { TDimensionRange, TSources } from "@/lib/types/GlobeTypes.ts";
+import {
+  DggsCompression,
+  type TDimensionRange,
+  type TSources,
+} from "@/lib/types/GlobeTypes.ts";
 import { VOLUME_GRID_TYPES } from "@/lib/volume/volumeGrid.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import {
@@ -453,7 +457,10 @@ async function getCompressedCells(sources = props.datasources!) {
   const variable = levelVariable(sources);
   const metadata = await ZarrDataManager.getDggsMetadata(sources, variable);
   const compression = metadata?.compression;
-  if (compression !== "compacted" && compression !== "ranges") {
+  if (
+    compression !== DggsCompression.COMPACTED &&
+    compression !== DggsCompression.RANGES
+  ) {
     return undefined;
   }
   const path = ZarrDataManager.resolveVariablePath(
@@ -472,7 +479,9 @@ async function getCompressedCells(sources = props.datasources!) {
         sources
       )) as ArrayLike<number | bigint>;
       return (
-        compression === "ranges" ? createRangeCells : createCompactedCells
+        compression === DggsCompression.RANGES
+          ? createRangeCells
+          : createCompactedCells
       )(level, ids);
     })();
     compressedCells.set(key, cells);

@@ -46,11 +46,17 @@ export type TVarInfo = {
   rangeOrigin?: TLevelRangeOrigin;
 };
 
+export const DggsCompression = {
+  COMPACTED: "compacted",
+  RANGES: "ranges",
+} as const;
+type TDggsCompression = (typeof DggsCompression)[keyof typeof DggsCompression];
+
 export type TZarrDggsMetadata = {
   name: string;
   refinement_level: number;
   coordinate: string | null;
-  compression?: string;
+  compression?: TDggsCompression;
   indexing_scheme: IndexingScheme;
   ellipsoid: EllipsoidInput;
 };

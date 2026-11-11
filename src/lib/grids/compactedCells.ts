@@ -137,6 +137,8 @@ function createRunCells(runs: TRuns) {
 
   /** The cell ids at indices `[start, end)`. */
   async function slice(start: number, end: number) {
+    start = Math.max(0, start);
+    end = Math.min(end, length);
     const cells: number[] = [];
     let run = firstRun(runs, (at) => runs.offset[at] + runs.count[at] > start);
     for (let index = start; index < end; run++) {

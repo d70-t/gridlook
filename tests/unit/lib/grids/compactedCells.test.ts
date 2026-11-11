@@ -104,6 +104,16 @@ it("reads ranges of level-29 nested ids", async () => {
   expect(await cells.lowerBound(20001)).toBe(3);
 });
 
+it("slices only the cells that exist", async () => {
+  const cells = createCompactedCells(7, [
+    encodeZuniq(7, 3n),
+    encodeZuniq(7, 9n),
+  ]);
+  expect(await cells.slice(1, 100)).toEqual([9]);
+  expect(await cells.slice(-5, 100)).toEqual([3, 9]);
+  expect(await cells.slice(2, 100)).toEqual([]);
+});
+
 it("rejects ranges with a start but no end", () => {
   const shift = 4n ** 22n;
   expect(() =>
