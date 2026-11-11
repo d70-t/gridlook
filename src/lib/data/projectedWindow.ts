@@ -79,7 +79,11 @@ function tryProject<T>(convert: (point: T) => [number, number], point: T) {
  * cannot place (the antipode of a stereographic pole, say) are left out;
  * null when it places none. A footprint that wraps a pole (every
  * longitude) samples a ring of its far latitude, which in a polar
- * projection is the disc around the pole.
+ * projection is the disc around the pole: nine samples per turn are 45°
+ * apart, so the box of the ring falls short of the disc by up to
+ * 1 - cos(22.5°), about 7.6 % of its radius, when the projection's central
+ * meridian is not a multiple of 45°; the margin a window is loaded with
+ * covers that.
  */
 export function projectedBounds(
   footprint: TGeoExtent,

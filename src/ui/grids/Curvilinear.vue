@@ -5,7 +5,10 @@ import * as THREE from "three";
 import { onBeforeMount, onBeforeUnmount } from "vue";
 import * as zarr from "zarrita";
 
-import { useGridHoverLookup } from "./composables/gridHoverUtils.ts";
+import {
+  useGridHoverLookup,
+  type TGeoSampleIndex,
+} from "./composables/gridHoverUtils.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useIrregularStreamlines } from "./composables/useIrregularStreamlines.ts";
 import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
@@ -41,6 +44,7 @@ import {
   decodeVariableDataAndGetBounds,
 } from "@/lib/data/variableDecoding.ts";
 import type { TVectorMagnitudeData } from "@/lib/data/vectorMagnitude.ts";
+import type { TAxisRange } from "@/lib/data/viewWindow.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
   attachCurvilinearHoverValues,
@@ -115,12 +119,19 @@ type TCurvilinearGridState = {
   hoverIndexData: Promise<TCurvilinearHoverIndexData>;
 };
 
-// The coarsest level of a multi-resolution dataset at the selected slice. A
-// finer level takes its colour range from it and is drawn over it, so the
-// range holds still and nothing is empty where the finer level has no cells.
-type TBackdropFrame = {
+// The coarsest level of a multi-resolution dataset. A finer level takes its
+// colour range from it and is drawn over it, so the range holds still and
+// nothing is empty where the finer level has no cells. Its grid and mesh
+// are kept per level and variable, its data per slice: a time step only
+// changes the texture on the mesh.
+type TBackdropGrid = {
   key: string;
   grid: TCurvilinearGrid;
+  mesh: THREE.Mesh | undefined;
+};
+type TBackdropFrame = {
+  key: string;
+  grid: TBackdropGrid;
   data: Float32Array;
   min: number;
   max: number;
@@ -128,13 +139,12 @@ type TBackdropFrame = {
 
 let meshes: THREE.Mesh[] = [];
 let backdrop: THREE.Mesh | undefined;
+let backdropGrid: TBackdropGrid | undefined;
 let backdropFrame: TBackdropFrame | undefined;
 // A grid instance shows one variable (variable changes remount it). The
 // coordinates, mesh and hover index are built once per level and view
 // window, and only the data texture changes between time steps.
 let gridState: Promise<TCurvilinearGridState> | undefined;
-// Bumped on datasource changes so a superseded load cannot install its mesh.
-let gridRevision = 0;
 let levelCoordinates: TLevelCoordinates | undefined;
 let levelCoordinatesKey: string | undefined;
 // The loaded part of a level too large to load whole; null when the view
@@ -289,7 +299,6 @@ const { datasourceUpdate } = useGridDataLoader({
   prepareDatasource: async () => {
     // The meshes keep showing the previous grid until the next one is
     // ready to be drawn with its data.
-    gridRevision++;
     gridState = undefined;
     await loadLevelCoordinates();
     gridWindow = view.applyViewWindow();
@@ -312,6 +321,36 @@ function hasTrailingProjectedXYDimensions(dimensionNames: string[]) {
   return (
     isProjectedXName(lastDimension) && isProjectedYName(secondLastDimension)
   );
+}
+
+/**
+ * The axes of a level given as one-dimensional x/y with a CRS, which can be
+ * loaded by view. `cause` is why its lat/lon arrays could not be read.
+ */
+async function loadAxes(
+  sources: TSources,
+  variable: string,
+  dimensionNames: string[],
+  cause: unknown
+): Promise<TLevelAxes> {
+  const [{ x, y }, crs] = await Promise.all([
+    loadGridAxes(sources, variable, dimensionNames),
+    getCRSWkt(sources, variable),
+  ]);
+  if (!crs) {
+    throw new Error(
+      `${variable} has projected x/y axes but no CRS: no crs_wkt, ` +
+        "proj4_params, spatial_ref or projection attribute on its grid " +
+        "mapping variable or group.",
+      { cause }
+    );
+  }
+  const converter = proj4("EPSG:4326", crs);
+  const projection = {
+    forward: (lonLat: [number, number]) => converter.forward(lonLat),
+    inverse: (xy: [number, number]) => converter.inverse(xy),
+  };
+  return { x, y, crs, projection, extent: projectedExtent(x, y, projection) };
 }
 
 /**
@@ -344,27 +383,7 @@ async function loadCoordinates(
     if (!hasTrailingProjectedXYDimensions(dimensionNames)) {
       throw error;
     }
-    const [{ x, y }, crs] = await Promise.all([
-      loadGridAxes(sources, variable, dimensionNames),
-      getCRSWkt(sources, variable),
-    ]);
-    if (!crs) {
-      throw error;
-    }
-    const converter = proj4("EPSG:4326", crs);
-    const projection = {
-      forward: (lonLat: [number, number]) => converter.forward(lonLat),
-      inverse: (xy: [number, number]) => converter.inverse(xy),
-    };
-    return {
-      axes: {
-        x,
-        y,
-        crs,
-        projection,
-        extent: projectedExtent(x, y, projection),
-      },
-    };
+    return { axes: await loadAxes(sources, variable, dimensionNames, error) };
   }
 }
 
@@ -555,7 +574,6 @@ async function loadGrid(
   missingValue: number,
   fillValue: number
 ): Promise<TCurvilinearGridState> {
-  const revision = gridRevision;
   const coordinates = levelCoordinates!;
   const points =
     "points" in coordinates
@@ -566,8 +584,43 @@ async function loadGrid(
   const grid = makeGrid(points, missingValue, fillValue);
   return {
     grid,
-    mesh: revision === gridRevision ? buildMesh(grid) : undefined,
+    mesh: buildMesh(grid),
     hoverIndexData: buildCurvilinearHoverIndex(grid.latitudes, grid.longitudes),
+  };
+}
+
+/**
+ * The hover index of a windowed level answers only inside the window: the
+ * nearest cell of the window is no answer for a point of the view that shows
+ * the backdrop alone. The window is a rectangle of the axes, so the point is
+ * projected and checked against its x/y bounds, half a cell beyond them.
+ */
+function withinWindow(
+  index: TGeoSampleIndex,
+  axes: TLevelAxes,
+  window: TProjectedWindow
+): TGeoSampleIndex {
+  const bounds = (values: Float32Array, range: TAxisRange) => {
+    const first = values[range.start];
+    const last = values[range.end - 1];
+    const half = values.length > 1 ? Math.abs(values[1] - values[0]) / 2 : 0;
+    return [Math.min(first, last) - half, Math.max(first, last) + half];
+  };
+  const [xMin, xMax] = bounds(axes.x, window.x);
+  const [yMin, yMax] = bounds(axes.y, window.y);
+  return {
+    findNearest(lat, lon) {
+      let x: number;
+      let y: number;
+      try {
+        [x, y] = axes.projection.forward([lon, lat]);
+      } catch {
+        return null;
+      }
+      return x >= xMin && x <= xMax && y >= yMin && y <= yMax
+        ? index.findNearest(lat, lon)
+        : null;
+    },
   };
 }
 
@@ -652,6 +705,39 @@ async function fetchLoadedData(indices: (number | null | zarr.Slice)[]) {
   );
 }
 
+/** The coarsest level's grid and mesh, kept while the level and variable hold. */
+async function loadBackdropGrid(
+  coarse: TSources,
+  variable: string,
+  datavar: TDataVar
+) {
+  const key = `${coarse.selectedLevel}:${variable}`;
+  if (backdropGrid?.key === key) {
+    return backdropGrid;
+  }
+  const coordinates = await loadCoordinates(
+    coarse,
+    variable,
+    datavar,
+    await ZarrDataManager.getDimensionNames(coarse, variable)
+  );
+  const { missingValue, fillValue } = decodeVariableDataAndGetBounds(
+    datavar,
+    new Float32Array()
+  );
+  const grid = makeGrid(
+    "axes" in coordinates
+      ? wholeLevelPoints(coordinates.axes)
+      : coordinates.points,
+    missingValue,
+    fillValue
+  );
+  if (backdropGrid?.key !== key) {
+    backdropGrid = { key, grid, mesh: buildMesh(grid) };
+  }
+  return backdropGrid;
+}
+
 /** Load the coarsest level at the selected slice, unless it is on screen. */
 async function loadBackdrop(indices: (number | null | zarr.Slice)[]) {
   const sources = props.datasources!;
@@ -677,56 +763,58 @@ async function loadBackdrop(indices: (number | null | zarr.Slice)[]) {
   if (!datavar) {
     return undefined;
   }
-  const dimensionNames = await ZarrDataManager.getDimensionNames(
-    coarse,
-    variable
-  );
-  const [coordinates, values] = await Promise.all([
-    loadCoordinates(coarse, variable, datavar, dimensionNames),
+  const [grid, values] = await Promise.all([
+    loadBackdropGrid(coarse, variable, datavar),
     fetchVariableData(coarse, variable, indices),
   ]);
   const data = castDataVarToFloat32(values);
-  const { min, max, missingValue, fillValue } = decodeVariableDataAndGetBounds(
-    datavar,
-    data
-  );
-  const points =
-    "axes" in coordinates
-      ? wholeLevelPoints(coordinates.axes)
-      : coordinates.points;
-  backdropFrame = {
-    key,
-    grid: makeGrid(points, missingValue, fillValue),
-    data,
-    min,
-    max,
-  };
+  const { min, max } = decodeVariableDataAndGetBounds(datavar, data);
+  backdropFrame = { key, grid, data, min, max };
   return backdropFrame;
 }
 
 function removeBackdrop() {
   if (backdrop) {
-    disposeMesh(backdrop);
+    getScene()?.remove(backdrop);
+    disposeMaterial(backdrop.material);
+    backdrop.material = new THREE.ShaderMaterial();
     backdrop = undefined;
   }
 }
 
-/** Draw the coarsest level under a level that leaves part of the view empty. */
+/** Dispose the coarsest level's mesh, kept across frames and windows. */
+function disposeBackdropGrid() {
+  removeBackdrop();
+  if (backdropGrid?.mesh) {
+    backdropGrid.mesh.geometry.dispose();
+  }
+  backdropGrid = undefined;
+  backdropFrame = undefined;
+}
+
+/**
+ * Draw the coarsest level under a level that leaves part of the view empty.
+ * The mesh stays across time steps; only its data changes.
+ */
 function showBackdrop(frame: TBackdropFrame | undefined) {
   if (backdrop?.userData.key === frame?.key) {
     return;
   }
-  removeBackdrop();
-  const mesh = frame && buildMesh(frame.grid);
+  const mesh = frame?.grid.mesh;
+  if (backdrop !== mesh) {
+    removeBackdrop();
+  }
   if (!frame || !mesh) {
     return;
   }
   disposeMaterial(mesh.material);
-  mesh.material = backdropMaterial(makeMaterial(frame.data, frame.grid));
+  mesh.material = backdropMaterial(makeMaterial(frame.data, frame.grid.grid));
   mesh.renderOrder = BACKDROP_RENDER_ORDER;
   mesh.userData.key = frame.key;
-  backdrop = mesh;
-  getScene()?.add(mesh);
+  if (backdrop !== mesh) {
+    backdrop = mesh;
+    getScene()?.add(mesh);
+  }
 }
 
 function updateStreamlines(
@@ -767,9 +855,13 @@ async function fetchAndRenderData(datavar: TDataVar, isCurrent: () => boolean) {
     rawData
   );
   const { grid, mesh, hoverIndexData } = await getGrid(missingValue, fillValue);
-  const hoverIndex = createSerializedGeoSampleIndex(
+  const samples = createSerializedGeoSampleIndex(
     attachCurvilinearHoverValues(await hoverIndexData, rawData)
   );
+  const hoverIndex =
+    gridWindow && levelCoordinates && "axes" in levelCoordinates
+      ? withinWindow(samples, levelCoordinates.axes, gridWindow)
+      : samples;
 
   if (!isCurrent()) {
     return;
@@ -828,7 +920,7 @@ onBeforeMount(async () => {
 onBeforeUnmount(() => {
   terminateCurvilinearWorker();
   terminateGridDataWorker();
-  removeBackdrop();
+  disposeBackdropGrid();
   disposeMeshes();
 });
 

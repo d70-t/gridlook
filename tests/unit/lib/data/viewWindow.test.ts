@@ -29,8 +29,11 @@ it("windows the cells in view plus one neighbour on every side", () => {
 
 it("grows by the margin on every side", () => {
   const window = regularWindow(lats, lons, box, { margin: 0.5 })!;
-  // 2.5° of latitude and 5° of longitude further out
-  expect(window.lat).toEqual({ start: 42, end: 54 });
+  // 2.5° of latitude and 5° of longitude further out: 47.5°N is a cell
+  // centre, and the cell beyond it is taken like the one below 37.5°N
+  expect(window.lat).toEqual({ start: 41, end: 54 });
+  expect(lats[41]).toBe(48.5);
+  expect(lats[53]).toBe(36.5);
   expect(window.lon).toEqual([{ start: 74, end: 96 }]);
   expect(window.lonStep).toBe(1);
 });

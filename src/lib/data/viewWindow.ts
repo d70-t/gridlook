@@ -31,14 +31,22 @@ function axisStep(values: TAxis) {
     : 0;
 }
 
-/** First index of an ascending axis whose value is at least `target`. */
-function lowerBound(values: TAxis, target: number, ascending: boolean) {
+/**
+ * First index, counting up the axis, whose value is at least `target`, or
+ * above it with `strict`.
+ */
+function lowerBound(
+  values: TAxis,
+  target: number,
+  ascending: boolean,
+  strict = false
+) {
   let lo = 0;
   let hi = values.length;
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
     const value = ascending ? values[mid] : values[values.length - 1 - mid];
-    if (value < target) {
+    if (strict ? value <= target : value < target) {
       lo = mid + 1;
     } else {
       hi = mid;
@@ -66,7 +74,7 @@ export function axisRange(
     return null;
   }
   const lo = Math.max(lowerBound(values, min, ascending) - 1, 0);
-  const hi = Math.min(lowerBound(values, max, ascending) + 1, count);
+  const hi = Math.min(lowerBound(values, max, ascending, true) + 1, count);
   return ascending
     ? { start: lo, end: hi }
     : { start: count - hi, end: count - lo };

@@ -204,3 +204,70 @@ it("tells apart overlapping and disjoint lat/lon boxes across the seam", () => {
   expect(extentsOverlap(box, { ...box, latMin: -59, latMax: -50 })).toBe(false);
   expect(extentsOverlap(box, { ...box, lonStart: 0, lonSpan: 360 })).toBe(true);
 });
+
+// The ISMIP6 Greenland grid: north polar stereographic with its central
+// meridian at 45°W (EPSG:3413), 4 km cells, x from -720 km, y from -3450 km.
+const GREENLAND_CRS =
+  "+proj=stere +lat_0=90 +lat_ts=70 +lon_0=-45 +k=1 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs";
+const greenland = proj4("EPSG:4326", GREENLAND_CRS);
+const greenlandProjection = {
+  forward: (lonLat: [number, number]) => greenland.forward(lonLat),
+  inverse: (xy: [number, number]) => greenland.inverse(xy),
+};
+const gx = Float32Array.from({ length: 421 }, (_, i) => -720_000 + i * 4000);
+const gyUp = Float32Array.from(
+  { length: 721 },
+  (_, i) => -3_450_000 + i * 4000
+);
+const gyDown = Float32Array.from(gyUp).reverse();
+
+it.each([
+  ["ascending", gyUp],
+  ["descending", gyDown],
+])("windows a grid with a turned central meridian, y %s", (_, gy) => {
+  const axes: TProjectedAxes = {
+    x: gx,
+    y: gy,
+    projection: greenlandProjection,
+    extent: projectedExtent(gx, gy, greenlandProjection),
+  };
+  // the grid does not reach the pole: a regional lat/lon box around it
+  expect(axes.extent!.latMax).toBeLessThan(90);
+  expect(axes.extent!.latMin).toBeGreaterThan(55);
+  // the west coast, seen from above it
+  const coast = {
+    latMin: 68,
+    latMax: 70,
+    lonStart: -54,
+    lonSpan: 4,
+    centreLat: 69,
+    centreLon: -52,
+  };
+  const window = projectedWindow(axes, coast)!;
+  const bounds = projectedBounds(coast, greenlandProjection.forward)!;
+  // the window holds every projected point of the box, with one cell to spare
+  const inside = (
+    values: Float32Array,
+    range: { start: number; end: number }
+  ) => [values[range.start], values[range.end - 1]].sort((a, b) => a - b);
+  const [xLow, xHigh] = inside(gx, window.x);
+  const [yLow, yHigh] = inside(gy, window.y);
+  expect(xLow).toBeLessThan(bounds.xMin);
+  expect(xHigh).toBeGreaterThan(bounds.xMax);
+  expect(yLow).toBeLessThan(bounds.yMin);
+  expect(yHigh).toBeGreaterThan(bounds.yMax);
+  expect(xLow + 4000).toBeGreaterThanOrEqual(bounds.xMin - 4000);
+  expect(yHigh - 4000).toBeLessThanOrEqual(bounds.yMax + 4000);
+  // the same cells whichever way y runs
+  const other = projectedWindow(
+    { ...axes, y: gy === gyUp ? gyDown : gyUp },
+    coast
+  )!;
+  expect(other.x).toEqual(window.x);
+  expect(other.y.end - other.y.start).toBe(window.y.end - window.y.start);
+  expect(other.y.start).toBe(gy.length - window.y.end);
+  // the far side of the pole is outside the grid
+  expect(
+    projectedWindow(axes, { ...coast, lonStart: 130, centreLon: 132 })
+  ).toBeNull();
+});
