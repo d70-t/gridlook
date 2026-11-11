@@ -23,7 +23,7 @@ export type TRegularWindowOptions = {
   maxCells?: number;
 };
 
-type TAxis = ArrayLike<number>;
+export type TAxis = ArrayLike<number>;
 
 function axisStep(values: TAxis) {
   return values.length > 1
@@ -49,9 +49,14 @@ function lowerBound(values: TAxis, target: number, ascending: boolean) {
 
 /**
  * Cells of a monotonic axis whose centres lie in `[min, max]`, plus one cell
- * on either side; null when the interval misses the axis.
+ * on either side, as indices in storage order whichever way the axis runs;
+ * null when the interval misses the axis.
  */
-function axisRange(values: TAxis, min: number, max: number): TAxisRange | null {
+export function axisRange(
+  values: TAxis,
+  min: number,
+  max: number
+): TAxisRange | null {
   const count = values.length;
   const ascending = count < 2 || values[0] <= values[count - 1];
   const step = axisStep(values);
@@ -67,10 +72,24 @@ function axisRange(values: TAxis, min: number, max: number): TAxisRange | null {
     : { start: count - hi, end: count - lo };
 }
 
-function shrink(range: TAxisRange, factor: number): TAxisRange {
+/**
+ * Shrink a range to `factor` of its length, around `centre` (an index) where
+ * one is given and the shrunk range can hold it, else around its middle.
+ */
+export function shrink(
+  range: TAxisRange,
+  factor: number,
+  centre?: number
+): TAxisRange {
   const length = Math.max(1, Math.floor((range.end - range.start) * factor));
-  const start =
-    range.start + Math.floor((range.end - range.start - length) / 2);
+  const middle =
+    centre !== undefined && centre >= range.start && centre < range.end
+      ? centre + 0.5
+      : (range.start + range.end) / 2;
+  const start = Math.min(
+    Math.max(Math.floor(middle - length / 2), range.start),
+    range.end - length
+  );
   return { start, end: start + length };
 }
 

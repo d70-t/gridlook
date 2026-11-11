@@ -14,6 +14,7 @@ import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
 import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 import { useStreamlineLayer } from "./composables/useStreamlineLayer.ts";
+import { useViewWindow } from "./composables/useViewWindow.ts";
 import { useVolume } from "./composables/useVolume.ts";
 
 import {
@@ -33,8 +34,6 @@ import {
   coarsestLevel,
   coarsestLevelOf,
   currentLevel,
-  DEFAULT_MAX_LEVEL_CELLS,
-  DEFAULT_MAX_VIEW_CELLS,
   levelRangeOrigin,
   STREAMLINES_NEED_WHOLE_LEVEL,
   variableOnLevel,
@@ -153,8 +152,6 @@ let cachedStreamlineKey: string | undefined;
 
 const BATCH_SIZE = 60;
 const MAX_GEO_RESOLUTION = 512;
-// A view window reaches this fraction of the view's size past every edge.
-const VIEW_WINDOW_MARGIN = 0.5;
 
 let meshes: THREE.Mesh[] = [];
 let geometryPending = false;
@@ -232,7 +229,7 @@ const { datasourceUpdate } = useGridDataLoader({
     }
   },
   canLoadByView,
-  viewWindowStale,
+  viewWindowStale: () => view.viewWindowStale(),
   updateColormap: () => updateColormap(drawnMeshes()),
   refreshStreamlines: async (reuseCached) => {
     if (lastStreamlineIndices) {
@@ -262,61 +259,23 @@ function canLoadByView() {
   );
 }
 
-/**
- * Whether the selected level is loaded by view: a large level other than the
- * coarsest, which is the backdrop of the others and is always loaded whole.
- * Streamlines, volumes and "Load whole level" read the whole level, up to
- * the whole-level cap.
- */
-function loadsByView() {
-  const sources = props.datasources!;
-  const readsWholeLevel =
-    store.levelWhole ||
-    store.isStreamlineLayerEnabled() ||
-    store.isVolumeLayerEnabled();
-  return (
-    canLoadByView() &&
-    (sources.selectedLevel ?? 0) !== coarsestLevel(sources.levels) &&
-    levelLatitudes.length * levelLongitudes.length >
-      (readsWholeLevel ? DEFAULT_MAX_LEVEL_CELLS : DEFAULT_MAX_VIEW_CELLS)
-  );
-}
-
-function viewWindow(margin: number) {
-  return store.viewFootprint
-    ? regularWindow(levelLatitudes, levelLongitudes, store.viewFootprint, {
-        margin,
-        // The loaded window is held to the budget. The view it has to cover
-        // is held to half of that, so that a view too large for the budget
-        // still counts as covered and does not reload on every move.
-        maxCells:
-          margin > 0 ? DEFAULT_MAX_VIEW_CELLS : DEFAULT_MAX_VIEW_CELLS / 2,
-      })
-    : null;
-}
-
-function viewWindowStale() {
-  if (levelLatitudes.length === 0) {
-    return false;
-  }
-  if (!loadsByView()) {
-    return gridWindow !== undefined;
-  }
-  if (gridWindow === undefined) {
-    return true;
-  }
-  const needed = viewWindow(0);
-  return (
-    needed !== null &&
-    (gridWindow === null || !windowCovers(gridWindow, needed))
-  );
-}
+const view = useViewWindow<TRegularWindow>({
+  getDatasources: () => props.datasources,
+  canLoadByView,
+  levelCells: () => levelLatitudes.length * levelLongitudes.length,
+  window: (footprint, margin, maxCells) =>
+    regularWindow(levelLatitudes, levelLongitudes, footprint, {
+      margin,
+      maxCells,
+    }),
+  covers: windowCovers,
+});
 
 /** Narrow the loaded axes from the whole level to the window in view. */
 function applyViewWindow() {
   levelLatitudes = latitudes.value;
   levelLongitudes = longitudes.value;
-  gridWindow = loadsByView() ? viewWindow(VIEW_WINDOW_MARGIN) : undefined;
+  gridWindow = view.applyViewWindow();
   if (gridWindow === undefined) {
     return;
   }

@@ -77,14 +77,26 @@ mesh first and are blank while the next level loads.
 ## Loading only what is in view
 
 Regular lat/lon grids (one-dimensional `lat` and `lon` axes, not rotated or
-projected) and nested HEALPix grids do not fetch a large level whole. A level
-with more than **12 · 4^8 ≈ 786 000 cells** is loaded as the part the camera
-sees plus a margin of half the view on every side:
+projected), projected grids (one-dimensional `x` and `y` axes in a CRS, such
+as polar stereographic) and nested HEALPix grids do not fetch a large level
+whole. A level with more than **12 · 4^8 ≈ 786 000 cells** is loaded as the
+part the camera sees plus a margin of half the view on every side:
 
 - **Regular lat/lon:** an index window on both axes, requested as a slice.
   Zarr fetches only the chunks the slice touches. A window across the seam of
   a global longitude axis is fetched as two slices and stitched; around a
   pole the window takes every longitude and reads every n-th column.
+- **Projected:** the view's lat/lon box is transformed forward into the
+  grid's CRS and its x/y box, grown by the margin, becomes an index window on
+  the `x` and `y` axes (either may run descending), requested as one slice.
+  The grid is regular in its own CRS, so there is no seam to stitch and no
+  pole to thin around: a view that holds the pole of a polar grid projects to
+  the disc around it. A view that reaches the horizon projects to most of
+  the grid and is cut down to the budget around the point below the camera,
+  and a view outside the grid (the grid's lat/lon box is found by inverting
+  its edges) loads nothing, leaving the coarsest level to show. This is the
+  curvilinear grid's path for levels given as axes with a CRS; a level given
+  as two-dimensional `lat`/`lon` arrays is still loaded whole.
 - **HEALPix:** blocks of 4^6 cells, six orders above the level, which are
   contiguous in nested order and a square on their face. A dense level reads
   them by index. A level with a `cell` coordinate must store it in ascending
@@ -120,7 +132,8 @@ whole level: while any is on, the cap below applies and levels up to it are
 loaded whole; a larger level picked by hand is still loaded by view.
 
 HEALPix levels in ring order or with an unsorted `cell` coordinate, rotated
-and projected regular grids, and the other grid types load every level whole.
+regular grids, curvilinear levels given as lat/lon arrays, and the other grid
+types load every level whole.
 Every timestep then fetches and decodes as many values as the level has
 cells, so automatic selection never picks such a level with more than
 **12 · 4^10 ≈ 12.6 million cells** (about 50 MB of Float32 per timestep); a

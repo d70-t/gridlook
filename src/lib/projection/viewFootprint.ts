@@ -55,7 +55,7 @@ function globeCap(camera: Camera): TViewFootprint {
 }
 
 /** The shortest arc holding every longitude, as its western edge and extent. */
-function longitudeArc(lons: number[]) {
+export function longitudeArc(lons: number[]) {
   const sorted = lons.map(normalizeLon).sort((a, b) => a - b);
   let gap = sorted[0] + 360 - sorted[sorted.length - 1];
   let start = sorted[0];
