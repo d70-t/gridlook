@@ -37,6 +37,10 @@ it("joins the base URL and endpoint, normalizing trailing slashes", () => {
   expect(timestepEndpointUrl("https://h/d.zarr/", "next-timestep")).toBe(
     "https://h/d.zarr/next-timestep"
   );
+  // A Jupyter _xsrf token on the store URL stays the query.
+  expect(timestepEndpointUrl("https://h/d.zarr?_xsrf=T", "next-timestep")).toBe(
+    "https://h/d.zarr/next-timestep?_xsrf=T"
+  );
 });
 
 it("resolves the normalized HTTP store URL for a fetch-backed dataset", () => {

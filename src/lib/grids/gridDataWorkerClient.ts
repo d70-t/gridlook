@@ -155,6 +155,7 @@ export function getGridVariableChunk(request: TGridDataRequest) {
     variable: request.variable,
     format: request.format,
     reportProgress: Boolean(request.onProgress),
+    requestSettings: ZarrDataManager.getRequestSettings(),
     selection: request.selection.map((selection) => {
       if (typeof selection !== "object" || selection === null) {
         return selection;

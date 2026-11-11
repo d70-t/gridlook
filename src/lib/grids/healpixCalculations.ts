@@ -6,6 +6,14 @@ import { buildHistogramSummary } from "@/utils/histogram.ts";
 
 export const HEALPIX_NUMCHUNKS = 12;
 
+/**
+ * Names to try for the cell-id coordinate: the one named by the dggs
+ * convention, otherwise "cell" and then "cell_ids" (the xdggs default).
+ */
+export function healpixCellCoordinateNames(coordinate?: string | null) {
+  return coordinate ? [coordinate] : ["cell", "cell_ids"];
+}
+
 function distanceSquared(
   x1: number,
   y1: number,

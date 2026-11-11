@@ -1,11 +1,14 @@
 <script lang="ts" setup>
-import { nextTick, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 
 import CatalogEntryList from "./CatalogEntryList.vue";
 import CatalogPanel from "./CatalogPanel.vue";
 
 import { isNetCDFFile, registerLocalNetCDF } from "@/lib/data/localNetCDF.ts";
 import { registerLocalZarr } from "@/lib/data/localZarr.ts";
+import { splitSourceType, withSourceType } from "@/lib/data/sourceType.ts";
+import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
+import { ZARR_FORMAT, type TZarrFormat } from "@/lib/types/GlobeTypes.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 import Modal from "@/ui/common/Modal.vue";
 import { ToastType, useToast } from "@/ui/common/useToast.ts";
@@ -49,6 +52,16 @@ const DataInputTab = {
 
 type TDataInputTab = (typeof DataInputTab)[keyof typeof DataInputTab];
 
+const FORMAT_OPTIONS: { label: string; value: TZarrFormat | undefined }[] = [
+  { label: "Auto-detect", value: undefined },
+  { label: "Zarr v2", value: ZARR_FORMAT.V2 },
+  { label: "Zarr v3", value: ZARR_FORMAT.V3 },
+  { label: "Icechunk", value: ZARR_FORMAT.ICECHUNK },
+  { label: "NetCDF", value: ZARR_FORMAT.NETCDF },
+];
+
+type THeaderEntry = { name: string; value: string };
+
 const TABS = [
   { id: DataInputTab.OPEN, label: "Open", icon: "fa-folder-open" },
   { id: DataInputTab.CATALOG, label: "Catalog", icon: "fa-book" },
@@ -61,6 +74,10 @@ const visible = ref(false);
 const checking = ref(false);
 const keepSettings = ref(false);
 const dataPath = ref("");
+const showAdvanced = ref(false);
+const bearerToken = ref("");
+const headers = ref<THeaderEntry[]>([]);
+const withCredentials = ref(false);
 const datasetInput = ref<HTMLInputElement | null>(null);
 const localFileInput = ref<HTMLInputElement | null>(null);
 const localZarrInput = ref<HTMLInputElement | null>(null);
@@ -152,9 +169,51 @@ function setCatalog(url: string | undefined, data: TCatalog) {
   activeTab.value = DataInputTab.CATALOG;
 }
 
+// The data type lives in the URL as a prefix like `netcdf+`, so links keep it.
+const forcedFormat = computed({
+  get: () => splitSourceType(dataPath.value.trim()).format,
+  set: (format) => {
+    dataPath.value = withSourceType(dataPath.value.trim(), format);
+  },
+});
+
+// Shown next to the toggle, so settings stay noticeable while it's collapsed.
+const activeAdvancedCount = computed(
+  () =>
+    [
+      bearerToken.value.trim(),
+      withCredentials.value,
+      forcedFormat.value !== undefined,
+    ].filter(Boolean).length +
+    headers.value.filter((header) => header.name.trim()).length
+);
+
+function clearAdvanced() {
+  bearerToken.value = "";
+  headers.value = [];
+  withCredentials.value = false;
+  forcedFormat.value = undefined;
+}
+
+function applyAdvanced() {
+  const token = bearerToken.value.trim();
+  const entries = headers.value
+    .map(({ name, value }) => [name.trim(), value.trim()])
+    .filter(([name]) => name);
+  // Explicit headers come last, so they win over the bearer token.
+  ZarrDataManager.setRequestSettings({
+    headers: Object.fromEntries([
+      ...(token ? [["Authorization", `Bearer ${token}`]] : []),
+      ...entries,
+    ]),
+    withCredentials: withCredentials.value,
+  });
+}
+
 // Entry params come first, so carried settings win when both set a parameter.
 function openDataset(entry: TCatalogEntry) {
   addRecentDataset(entry);
+  applyAdvanced();
   const catUrl = store.catalogUrl;
   location.hash =
     "#" +
@@ -285,6 +344,149 @@ onMounted(async () => {
             </span>
           </div>
         </div>
+        <div
+          class="is-flex is-align-items-center is-justify-content-space-between"
+        >
+          <!-- is-text underlines its content, the chevron included -->
+          <button
+            type="button"
+            class="button is-small is-text"
+            style="--bulma-button-text-decoration: none"
+            :aria-expanded="showAdvanced"
+            @click="showAdvanced = !showAdvanced"
+          >
+            <span class="icon is-small">
+              <i
+                class="fa-solid"
+                :class="showAdvanced ? 'fa-chevron-down' : 'fa-chevron-right'"
+                aria-hidden="true"
+              ></i>
+            </span>
+            <span>Advanced settings</span>
+            <span
+              v-if="activeAdvancedCount > 0"
+              class="tag is-info is-light is-rounded ml-1"
+            >
+              {{ activeAdvancedCount }} set
+            </span>
+          </button>
+          <button
+            v-if="activeAdvancedCount > 0"
+            type="button"
+            class="button is-small is-text"
+            @click="clearAdvanced"
+          >
+            Reset
+          </button>
+        </div>
+        <div v-if="showAdvanced" class="advanced-settings mt-2 p-3">
+          <div class="field mb-2">
+            <label class="label is-small" for="source-format">Data type</label>
+            <div class="control">
+              <div class="select is-small is-fullwidth">
+                <select id="source-format" v-model="forcedFormat">
+                  <option
+                    v-for="option in FORMAT_OPTIONS"
+                    :key="option.label"
+                    :value="option.value"
+                  >
+                    {{ option.label }}
+                  </option>
+                </select>
+              </div>
+            </div>
+            <p class="help">
+              Adds a prefix like <code>netcdf+</code> to the URL, so other types
+              aren't probed.
+            </p>
+          </div>
+          <div class="field mb-2">
+            <label class="label is-small" for="bearer-token">
+              Bearer token
+            </label>
+            <div class="control has-icons-left">
+              <input
+                id="bearer-token"
+                v-model="bearerToken"
+                class="input is-small"
+                type="password"
+                autocomplete="off"
+                placeholder="API key"
+              />
+              <span class="icon is-small is-left">
+                <i class="fa-solid fa-key"></i>
+              </span>
+            </div>
+            <p class="help">
+              Sent as <code>Authorization: Bearer &lt;token&gt;</code>.
+            </p>
+          </div>
+          <label class="label is-small">Headers</label>
+          <div
+            v-for="(header, index) in headers"
+            :key="index"
+            class="field has-addons mb-2"
+          >
+            <div class="control is-expanded">
+              <input
+                v-model="header.name"
+                class="input is-small"
+                type="text"
+                autocomplete="off"
+                placeholder="Name"
+                aria-label="Header name"
+              />
+            </div>
+            <div class="control is-expanded">
+              <input
+                v-model="header.value"
+                class="input is-small"
+                type="text"
+                autocomplete="off"
+                placeholder="Value"
+                aria-label="Header value"
+              />
+            </div>
+            <div class="control">
+              <button
+                type="button"
+                class="button is-small"
+                title="Remove header"
+                @click="headers.splice(index, 1)"
+              >
+                <span class="icon is-small">
+                  <i class="fa-solid fa-xmark"></i>
+                </span>
+              </button>
+            </div>
+          </div>
+          <div class="field mb-2">
+            <button
+              type="button"
+              class="button is-small"
+              @click="headers.push({ name: '', value: '' })"
+            >
+              <span class="icon is-small"
+                ><i class="fa-solid fa-plus"></i
+              ></span>
+              <span>Add header</span>
+            </button>
+          </div>
+          <div class="field mb-2">
+            <label class="checkbox is-size-7">
+              <input v-model="withCredentials" type="checkbox" />
+              Send cookies
+            </label>
+            <p class="help">
+              Also sends cookies to other origins. The server has to allow
+              credentials via CORS.
+            </p>
+          </div>
+          <p class="help">
+            Token, headers and cookies apply to every data request. They're kept
+            in memory only and not added to the URL.
+          </p>
+        </div>
       </form>
 
       <div class="buttons mt-3">
@@ -411,3 +613,17 @@ onMounted(async () => {
     </span>
   </button>
 </template>
+
+<style lang="scss" scoped>
+.advanced-settings {
+  background-color: var(--bulma-scheme-main-bis);
+  border: 1px solid var(--bulma-border);
+  border-radius: var(--bulma-radius);
+
+  // Bulma's smallest size is the regular hint size, so one step below is custom.
+  .help {
+    font-size: 0.65rem;
+    color: var(--bulma-grey);
+  }
+}
+</style>

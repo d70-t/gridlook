@@ -23,6 +23,7 @@ vi.mock("@earthyscience/netcdf4-wasm", async (importOriginal) => ({
 
 const NetCDFAttribute = {
   FILL_VALUE: "_FillValue",
+  NAME: "name",
   SCALE_FACTOR: "scale_factor",
 } as const;
 
@@ -35,6 +36,8 @@ const metadata = {
     attributes: {
       [NetCDFAttribute.SCALE_FACTOR]: new Float32Array([0.5]),
       [NetCDFAttribute.FILL_VALUE]: new Float32Array([-999]),
+      // Must not replace the variable name in the index.
+      [NetCDFAttribute.NAME]: "Air temperature",
     },
     chunks: [1, 3],
   },
@@ -147,6 +150,8 @@ it("indexes coordinate variables and variables in nested groups", async () => {
     "/lat",
     "/subgroup/wind",
   ]);
+  const { context } = await openNetCDFGroup(file, "local-file");
+  expect(context.dataset.getFullMetadata).toHaveBeenCalledTimes(2);
 });
 
 it("rejects missing grid markers before netcdf4-wasm returns false metadata", async () => {

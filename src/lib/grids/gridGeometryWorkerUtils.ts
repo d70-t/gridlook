@@ -59,29 +59,6 @@ export function postGridGeometryHoverIndex<
   );
 }
 
-export function postGridGeometryBatch<
-  TMetadata extends TGridGeometryWorkerMetadata,
->(
-  workerScope: DedicatedWorkerGlobalScope,
-  requestId: number,
-  batch: TGridGeometryBatch
-) {
-  postGridGeometryResponse<TMetadata>(
-    workerScope,
-    {
-      requestId,
-      type: GridGeometryWorkerMessageType.BATCH,
-      batch,
-    },
-    getTransferableBuffers([
-      batch.positionValues,
-      batch.dataValues,
-      batch.latLonValues,
-      batch.indices,
-    ])
-  );
-}
-
 export function postGridPointBatch<
   TMetadata extends TGridGeometryWorkerMetadata,
 >(

@@ -28,7 +28,12 @@ vi.mock("@/lib/layers/textureStore.ts", () => ({
   loadTextures: async () => [],
 }));
 
-const location = { pathname: "/", search: "", hash: "#src::" };
+const location = {
+  href: "https://example.test/",
+  pathname: "/",
+  search: "",
+  hash: "#src::",
+};
 vi.stubGlobal("localStorage", { getItem: () => null });
 vi.stubGlobal("location", location);
 vi.stubGlobal("history", {
@@ -37,7 +42,7 @@ vi.stubGlobal("history", {
   },
 });
 const listeners = { addEventListener: vi.fn(), removeEventListener: vi.fn() };
-vi.stubGlobal("document", { location, ...listeners });
+vi.stubGlobal("document", { location, cookie: "", ...listeners });
 vi.stubGlobal("window", {
   location,
   innerWidth: 1000,

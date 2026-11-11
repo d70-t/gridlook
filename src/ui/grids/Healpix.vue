@@ -58,6 +58,7 @@ import {
   decodeHealpixFaceXY,
   getHealpixFaceDataRect,
   getHealpixFaceRange,
+  healpixCellCoordinateNames,
   type THealpixDataRect,
 } from "@/lib/grids/healpixCalculations.ts";
 import {
@@ -427,21 +428,16 @@ function unpackGrid(): healpixGeo.Grid {
   return grid as healpixGeo.Grid;
 }
 
-async function getCellCoordinateName(sources = props.datasources!) {
-  let cellCoord = "cell";
+/**
+ * Names to try for the cell-id coordinate of the level's variable (see
+ * healpixCellCoordinateNames).
+ */
+async function getCellCoordinateNames(sources = props.datasources!) {
   const dggsMetadata = await ZarrDataManager.getDggsMetadata(
     sources,
     levelVariable(sources)
   );
-  if (dggsMetadata !== null) {
-    const coordinate = dggsMetadata["coordinate"];
-    if (coordinate) {
-      cellCoord = coordinate;
-    }
-  } else {
-    // no dggs metadata found, continue with the default cell coordinate
-  }
-  return cellCoord as string;
+  return healpixCellCoordinateNames(dggsMetadata?.["coordinate"]);
 }
 
 // The cells of levels whose coordinate is compressed, read once: it holds one
@@ -465,7 +461,7 @@ async function getCompressedCells(sources = props.datasources!) {
   }
   const path = ZarrDataManager.resolveVariablePath(
     variable,
-    await getCellCoordinateName(sources)
+    (await getCellCoordinateNames(sources))[0]
   );
   const source = ZarrDataManager.getDatasetSource(sources, variable);
   const key = JSON.stringify([source.store, source.dataset, path, compression]);
@@ -491,23 +487,28 @@ async function getCompressedCells(sources = props.datasources!) {
 }
 
 async function getCells(sources = props.datasources!) {
-  const cellCoord = await getCellCoordinateName(sources);
-
   try {
     const compressed = await getCompressedCells(sources);
     if (compressed) {
       return await compressed.slice(0, compressed.length);
     }
-    const rawCells = await fetchHealpixVariableData(
-      [],
-      ZarrDataManager.resolveVariablePath(levelVariable(sources), cellCoord),
-      sources
-    );
-
-    return Array.from(rawCells, (cell) => Number(cell));
   } catch {
     return undefined;
   }
+  for (const cellCoord of await getCellCoordinateNames(sources)) {
+    try {
+      const rawCells = await fetchHealpixVariableData(
+        [],
+        ZarrDataManager.resolveVariablePath(levelVariable(sources), cellCoord),
+        sources
+      );
+
+      return Array.from(rawCells, (cell) => Number(cell));
+    } catch {
+      // no such coordinate, try the next name
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -618,7 +619,7 @@ async function prepareLevel() {
   ) {
     const cellPath = ZarrDataManager.resolveVariablePath(
       variable,
-      await getCellCoordinateName()
+      (await getCellCoordinateNames())[0]
     );
     const coordinate = await ZarrDataManager.getVariableInfoByDatasetSources(
       sources,

@@ -1,6 +1,6 @@
 # gridlook
 
-Gridlook is a WebGL-based viewer for Earth system model (ESM) output. It supports cloud-hosted Zarr and Icechunk datasets, as well as local Zarr stores and local NetCDF files opened directly from your file system.
+Gridlook is a WebGL-based viewer for Earth system model (ESM) output. It supports cloud-hosted Zarr, Icechunk and NetCDF datasets, as well as local Zarr stores and local NetCDF files opened directly from your file system.
 
 ![](docs/assets/showcase.webp)
 
@@ -10,10 +10,10 @@ Try out the example dataset:
 
 https://gridlook.pages.dev
 
-You can view any CORS-enabled, public Zarr dataset with Gridlook:
+You can view any CORS-enabled, public Zarr, Icechunk or NetCDF dataset with Gridlook:
 
 ```
-https://gridlook.pages.dev/#<ZARR_URI>
+https://gridlook.pages.dev/#<DATASET_URL>
 ```
 
 Gridlook can also load catalog JSON files that list multiple datasets. The catalog format and deployment options are documented in [docs/catalogs.md](docs/catalogs.md).
@@ -24,9 +24,13 @@ A guide to the viewer keyboard, mouse, and touch interaction is available in [do
 
 ## Local Zarr and NetCDF Files
 
-Besides remote Zarr URLs, the "Open dataset" dialog lets you open a **local Zarr store** (select the whole dataset directory) or a **local NetCDF file** (`.nc`, `.nc4`, `.cdf`) directly from your file system. Local NetCDF files are read in-browser via WebAssembly; nothing is uploaded to a server.
+Besides remote URLs, the "Open dataset" dialog lets you open a **local Zarr store** (select the whole dataset directory) or a **local NetCDF file** (`.nc`, `.nc4`, `.cdf`) directly from your file system. Local NetCDF files are read in-browser via WebAssembly; nothing is uploaded to a server.
 
-**URL-sharing does not work for local datasets.** Gridlook's URL only stores a reference to the file that was selected, not its content, so a shared link, bookmark, or page reload cannot restore a local dataset — you will need to re-select the file or directory. URL sharing (`#<ZARR_URI>`) is only supported for remote, publicly reachable datasets.
+**URL-sharing does not work for local datasets.** Gridlook's URL only stores a reference to the file that was selected, not its content, so a shared link, bookmark, or page reload cannot restore a local dataset — you will need to re-select the file or directory. URL sharing (`#<DATASET_URL>`) is only supported for remote, publicly reachable datasets.
+
+## Remote Data Sources
+
+Gridlook opens remote Zarr stores, Icechunk repositories, Kerchunk reference files and NetCDF files by URL. The data type is detected automatically or can be forced with a URL prefix like `netcdf+`. For datasets that need authentication, the "Open dataset" dialog can send a bearer token, custom headers and cookies. See [docs/data-sources.md](docs/data-sources.md).
 
 ## Project Setup
 

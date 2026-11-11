@@ -19,6 +19,7 @@ import VariableSelector from "./controls/VariableSelector.vue";
 // Import control components
 import type { T_GRID_TYPES } from "@/lib/data/gridTypeDetector.ts";
 import { isSameVariable } from "@/lib/data/levels.ts";
+import { getDefaultRange } from "@/lib/data/variableDecoding.ts";
 import {
   clamp,
   PROJECTION_TYPES,
@@ -127,10 +128,12 @@ const currentBounds = computed(() => {
 });
 
 const setDefaultBounds = () => {
-  const defaultConfig = props.modelInfo?.vars[varnameSelector.value];
-  if (defaultConfig?.default_range) {
-    userBoundsLow.value = defaultConfig.default_range.low;
-    userBoundsHigh.value = defaultConfig.default_range.high;
+  const defaultRange = getDefaultRange(
+    props.modelInfo?.vars[varnameSelector.value]
+  );
+  if (defaultRange && "low" in defaultRange) {
+    userBoundsLow.value = defaultRange.low;
+    userBoundsHigh.value = defaultRange.high;
     return;
   }
 };

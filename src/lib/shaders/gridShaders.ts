@@ -11,6 +11,7 @@ import {
 
 import { availableColormaps, type TColorMap } from "./colormapShaders.ts";
 import compressedLutFragmentShader from "./glsl/compressedLut.frag.glsl";
+import gaussianReducedFragmentShader from "./glsl/gaussianReduced.frag.glsl";
 import gpuProjectedMeshVertexShader from "./glsl/gpuProjectedMesh.vert.glsl";
 import gpuProjectedPointVertexShader from "./glsl/gpuProjectedPoint.vert.glsl";
 import gpuProjectedTextureVertexShader from "./glsl/gpuProjectedTexture.vert.glsl";
@@ -120,6 +121,23 @@ export function makeGpuProjectedTextureMaterial(
     [0, 0];
   (material.defaultAttributeValues as Record<string, unknown>).triangleLatLon2 =
     [0, 0];
+  return material;
+}
+
+/**
+ * Create a GPU-projected material for Gaussian reduced grids: each fragment
+ * looks up its cell in the row table, so the mesh does not depend on the grid.
+ */
+export function makeGaussianReducedMaterial(
+  data: THREE.Texture,
+  rows: THREE.Texture,
+  rowCount: number,
+  colormap: TColorMap
+) {
+  const material = makeGpuProjectedTextureMaterial(data, colormap, 0, 1);
+  material.uniforms.rows = { value: rows };
+  material.uniforms.rowCount = { value: rowCount };
+  material.fragmentShader = gaussianReducedFragmentShader;
   return material;
 }
 

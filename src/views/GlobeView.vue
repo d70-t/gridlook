@@ -15,6 +15,7 @@ import {
   GRID_TYPES,
   type T_GRID_TYPES,
 } from "@/lib/data/gridTypeDetector.ts";
+import { withStoreXsrfToken } from "@/lib/data/icechunkStore.ts";
 import {
   currentLevel,
   followVariable,
@@ -25,12 +26,18 @@ import {
   fetchCurrentTimestep,
   liveStoreBaseUrl,
 } from "@/lib/data/liveTimestep.ts";
-import { getLocalNetCDF, isLocalNetCDFSource } from "@/lib/data/localNetCDF.ts";
+import {
+  getLocalNetCDF,
+  isLocalNetCDFSource,
+  isRemoteNetCDFSource,
+} from "@/lib/data/localNetCDF.ts";
 import {
   indexFromIndex,
   indexFromNetCDF,
   indexFromZarr,
 } from "@/lib/data/sourceIndexing.ts";
+import { splitSourceType } from "@/lib/data/sourceType.ts";
+import { getDefaultRange } from "@/lib/data/variableDecoding.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { loadTextures } from "@/lib/layers/textureStore.ts";
 import { PROJECTION_TYPES, clamp } from "@/lib/projection/projectionUtils.ts";
@@ -56,6 +63,7 @@ import {
   usePresenterSync,
   isDisplayMode,
   isPresenterActive,
+  waitForLocalSource,
 } from "@/store/usePresenterSync.ts";
 import { useUrlSync } from "@/store/useUrlSync.ts";
 import Toast from "@/ui/common/Toast.vue";
@@ -344,8 +352,9 @@ function prepareDefaults(src: string, index: TSources) {
         invertColormap.value = variableDefaults.default_colormap.inverted;
       }
     }
-    if (variableDefaults.default_range) {
-      store.updateBounds(variableDefaults.default_range);
+    const defaultRange = getDefaultRange(variableDefaults);
+    if (defaultRange) {
+      store.updateBounds(defaultRange);
     }
   }
 }
@@ -507,11 +516,21 @@ async function loadCurrentSource(resetStore = true) {
   await setGridType(true);
 }
 
+// A type prefix like `zarr3+` skips probing the other types and the JSON index.
+function indexFromRemote(src: string, tokenize: (store: string) => string) {
+  const { format, url } = splitSourceType(src);
+  const fetchSrc = tokenize(url);
+  return format === undefined
+    ? [indexFromZarr(fetchSrc), indexFromIndex(fetchSrc, tokenize)]
+    : [indexFromZarr(fetchSrc, format)];
+}
+
 async function updateSrc(updateId: number) {
   const src = props.src;
   ZarrDataManager.invalidateCache();
   sourceValid.value = false;
   store.isInitializingVariable = true;
+  await waitForLocalSource(src);
   let indexPromises: Promise<TSources>[];
   if (isLocalNetCDFSource(src)) {
     const file = getLocalNetCDF(src);
@@ -522,12 +541,19 @@ async function updateSrc(updateId: number) {
             new Error("Please select the local NetCDF file again.")
           ),
         ];
+  } else if (isRemoteNetCDFSource(src)) {
+    indexPromises = [indexFromNetCDF(src, src)];
   } else {
     // FIXME: Trying zarr and json-index in parallel and picking the first that
     // works. If both fail, we log the last error which is from the json-index.
     // This leads to confusing error messages if the zarr source is supposed to
     // work but fails for some reason.
-    indexPromises = [indexFromZarr(src), indexFromIndex(src)];
+    // On JupyterHub, stores on the user's own server need Jupyter's XSRF
+    // token; it is added here, not to `src`, so the hash and the data-path
+    // input stay clean. Stores named inside a JSON index get it the same way.
+    const tokenize = (store: string) =>
+      withStoreXsrfToken(store, document.cookie, location.href);
+    indexPromises = indexFromRemote(src, tokenize);
   }
   const indices = await Promise.allSettled(indexPromises);
   let lastError = null;

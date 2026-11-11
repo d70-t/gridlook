@@ -49,8 +49,16 @@ function createProgressQueue(requestId: number) {
 }
 
 workerScope.onmessage = async (event: MessageEvent<TGridDataWorkerRequest>) => {
-  const { requestId, source, variable, format, selection, reportProgress } =
-    event.data;
+  const {
+    requestId,
+    source,
+    variable,
+    format,
+    selection,
+    reportProgress,
+    requestSettings,
+  } = event.data;
+  ZarrDataManager.setRequestSettings(requestSettings);
   try {
     const array = await ZarrDataManager.getVariableInfo(
       source,

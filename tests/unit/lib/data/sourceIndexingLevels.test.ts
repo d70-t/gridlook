@@ -14,8 +14,11 @@ const icechunk = vi.hoisted(() => ({
 }));
 
 vi.mock("icechunk-js", () => ({
+  HttpStorage: class {
+    constructor(public url: string) {}
+  },
   IcechunkStore: {
-    open: async (url: string) => {
+    open: async ({ url }: { url: string }) => {
       if (url !== "https://example.test/repo.icechunk") {
         throw new Error("Not a valid icechunk repository");
       }

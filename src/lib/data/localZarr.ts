@@ -17,10 +17,20 @@ export function registerLocalZarr(files: File[]) {
     }
   }
   const source = `${LOCAL_ZARR_PREFIX}${++nextStoreId}/${encodeURIComponent(baseDir)}`;
+  setLocalZarrFiles(source, fileMap);
+  return source;
+}
+
+// The presenter display receives the controller's file map as-is, because
+// webkitRelativePath does not survive structured cloning.
+export function setLocalZarrFiles(source: string, fileMap: Map<string, File>) {
   // Gridlook keeps one local dataset alive, mirroring registerLocalNetCDF.
   stores.clear();
   stores.set(source, fileMap);
-  return source;
+}
+
+export function getLocalZarrFiles(source: string) {
+  return stores.get(source);
 }
 
 export function isLocalZarrSource(source: string) {
