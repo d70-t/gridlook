@@ -65,6 +65,15 @@ export type TProjectedGridCoordinates = {
 /** Writes lon and lat in degrees of one projected point into out[0], out[1]. */
 type TPointKernel = (x: number, y: number, out: Float64Array) => void;
 
+/** The kernel for one call, given every x and y it will see. */
+type TKernelFactory = (
+  x: ArrayLike<number>,
+  y: ArrayLike<number>
+) => TPointKernel;
+
+// Intervals of the latitude table of a polar stereographic call.
+const LATITUDE_TABLE_INTERVALS = 8192;
+
 export type TCrsInverse = {
   /** True when the typed-array path handles the CRS, else proj4 point by point. */
   isVectorised: boolean;
@@ -133,24 +142,85 @@ function createLatitudeFromTs(e: number) {
   };
 }
 
-// proj4's stere inverse at a pole, ellipsoidal case.
-function createPolarStereographicKernel(p: TProjParams): TPointKernel {
+function maxAbsoluteOffset(
+  values: ArrayLike<number>,
+  scale: number,
+  offset: number
+) {
+  let max = 0;
+  for (let k = 0; k < values.length; k++) {
+    max = Math.max(max, Math.abs(values[k] * scale - offset));
+  }
+  return max;
+}
+
+/**
+ * `f` sampled at `intervals` + 3 equal steps over [0, max] and read back by
+ * cubic Lagrange interpolation through the four nearest samples. For a
+ * function as smooth as the latitude of a polar radius the interpolation
+ * error is below 1e-13 degrees, and a lookup costs a few multiplications
+ * where the function costs an arctangent.
+ */
+function tabulate(
+  f: (value: number) => number,
+  max: number,
+  intervals: number
+) {
+  const step = max / intervals;
+  const samples = new Float64Array(intervals + 3);
+  for (let k = 0; k < samples.length; k++) {
+    samples[k] = f(k * step);
+  }
+  const perStep = 1 / step;
+  return (value: number) => {
+    const position = value * perStep;
+    const k = Math.min(Math.max(Math.floor(position), 1), intervals);
+    const u = position - k;
+    const before = u + 1;
+    const after = u - 1;
+    const beyond = u - 2;
+    return (
+      (-u * after * beyond * samples[k - 1] +
+        3 * before * after * beyond * samples[k] -
+        3 * before * u * beyond * samples[k + 1] +
+        before * u * after * samples[k + 2]) /
+      6
+    );
+  };
+}
+
+// proj4's stere inverse at a pole, ellipsoidal case. The latitude depends
+// on the polar radius alone, so it is tabulated over the radii of the call.
+function createPolarStereographicKernel(p: TProjParams): TKernelFactory {
   const { x0, y0, con, lat0, long0, over } = p;
   const toMeter = p.to_meter ?? 1;
   const scale = p.cons / (2 * p.a * p.k0);
   const latitudeFromTs = createLatitudeFromTs(p.e);
-  return (xIn, yIn, out) => {
-    const x = xIn * toMeter - x0;
-    const y = yIn * toMeter - y0;
-    const rh = Math.sqrt(x * x + y * y);
-    if (rh <= EPSLN) {
-      out[0] = long0 * R2D;
-      out[1] = lat0 * R2D;
-      return;
-    }
-    out[1] = con * latitudeFromTs(rh * scale) * R2D;
-    out[0] =
-      con * adjustLon(con * long0 + Math.atan2(con * x, -con * y), over) * R2D;
+  return (xValues, yValues) => {
+    const maxRadius = Math.hypot(
+      maxAbsoluteOffset(xValues, toMeter, x0),
+      maxAbsoluteOffset(yValues, toMeter, y0)
+    );
+    const latitudeOfRadius = tabulate(
+      (rh) => latitudeFromTs(rh * scale),
+      Math.max(maxRadius, 1) * (1 + 1e-6),
+      LATITUDE_TABLE_INTERVALS
+    );
+    return (xValue, yValue, out) => {
+      const x = xValue * toMeter - x0;
+      const y = yValue * toMeter - y0;
+      const rh = Math.sqrt(x * x + y * y);
+      if (rh <= EPSLN) {
+        out[0] = long0 * R2D;
+        out[1] = lat0 * R2D;
+        return;
+      }
+      out[1] = con * latitudeOfRadius(rh) * R2D;
+      out[0] =
+        con *
+        adjustLon(con * long0 + Math.atan2(con * x, -con * y), over) *
+        R2D;
+    };
   };
 }
 
@@ -212,7 +282,7 @@ function isWgs84Compatible(p: TProjParams) {
   );
 }
 
-function createVectorisedKernel(crs: string): TPointKernel | null {
+function createVectorisedKernel(crs: string): TKernelFactory | null {
   let p: TProjParams;
   try {
     p = new proj4.Proj(crs) as unknown as TProjParams;
@@ -224,30 +294,35 @@ function createVectorisedKernel(crs: string): TPointKernel | null {
   }
   const names = p.names ?? [];
   if (names.includes("stere") && Math.abs(p.coslat0) <= EPSLN) {
-    return p.sphere
-      ? createPolarStereographicSphereKernel(p)
-      : createPolarStereographicKernel(p);
+    if (p.sphere) {
+      const kernel = createPolarStereographicSphereKernel(p);
+      return () => kernel;
+    }
+    return createPolarStereographicKernel(p);
   }
   if (names.includes("lcc") && !p.sphere && Number.isFinite(p.ns) && p.ns) {
-    return createLambertConformalConicKernel(p);
+    const kernel = createLambertConformalConicKernel(p);
+    return () => kernel;
   }
   return null;
 }
 
-function createProj4Kernel(crs: string): TPointKernel {
+function createProj4Kernel(crs: string): TKernelFactory {
   const transformer = proj4(crs, WGS84);
-  return (x, y, out) => {
+  const kernel: TPointKernel = (x, y, out) => {
     const [lon, lat] = transformer.forward([x, y]);
     out[0] = lon;
     out[1] = lat;
   };
+  return () => kernel;
 }
 
-function createInverse(kernel: TPointKernel, isVectorised: boolean) {
+function createInverse(createKernel: TKernelFactory, isVectorised: boolean) {
   const out = new Float64Array(2);
   const inverse: TCrsInverse = {
     isVectorised,
     grid(x, y, longitudes, latitudes) {
+      const kernel = createKernel(x, y);
       const columns = x.length;
       for (let j = 0; j < y.length; j++) {
         const yj = y[j];
@@ -260,6 +335,7 @@ function createInverse(kernel: TPointKernel, isVectorised: boolean) {
       }
     },
     points(x, y, longitudes, latitudes) {
+      const kernel = createKernel(x, y);
       for (let k = 0; k < x.length; k++) {
         kernel(x[k], y[k], out);
         longitudes[k] = out[0];
@@ -276,9 +352,9 @@ function createInverse(kernel: TPointKernel, isVectorised: boolean) {
  * on WGS84, proj4 point by point otherwise.
  */
 export function createCrsInverse(crs: string): TCrsInverse {
-  const kernel = createVectorisedKernel(crs);
-  return kernel
-    ? createInverse(kernel, true)
+  const createKernel = createVectorisedKernel(crs);
+  return createKernel
+    ? createInverse(createKernel, true)
     : createInverse(createProj4Kernel(crs), false);
 }
 
