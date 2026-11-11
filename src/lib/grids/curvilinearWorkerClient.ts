@@ -11,6 +11,7 @@ import type { TGridGeometryWorkerMetadata } from "./gridGeometryWorkerProtocol.t
 import type { TGridGeometryBatch } from "./gridWorkerTypes.ts";
 
 import type { TProjectedGridCoordinates } from "@/lib/data/crsInverse.ts";
+import { createBoundedPromiseCache } from "@/utils/boundedPromiseCache.ts";
 
 function createClient<TResult>() {
   return createGridGeometryWorkerClient<
@@ -32,56 +33,56 @@ function createClient<TResult>() {
 const hoverIndexClient = createClient<TCurvilinearHoverIndexData>();
 const projectionClient = createClient<TProjectedGridCoordinates>();
 
-type THoverIndexBuild = {
-  latitudes: Float32Array;
-  longitudes: Float32Array;
-  hoverIndex: Promise<TCurvilinearHoverIndexData>;
-};
+// Hover indexes of the coordinates built before, keyed by the coordinate
+// arrays: projected coordinates are cached per level, so a level visited
+// again, or a variable change on it (which remounts the grid), passes the
+// same arrays and gets its index without a rebuild. An index holds about
+// 40 bytes a sample, so the bound keeps a few levels (the three coarsest
+// of the ISMIP7 Antarctic family together); the newest is always kept.
+export const MAX_CACHED_HOVER_SAMPLES = 12 * 2 ** 20;
 
-// The index of the coordinates built last. Projected coordinates are cached
-// per level, so a variable change on the same level (which remounts the
-// grid) passes the same arrays again and gets the index without a rebuild.
-let lastHoverIndexBuild: THoverIndexBuild | undefined;
+const hoverIndexes = createBoundedPromiseCache<
+  Float32Array,
+  TCurvilinearHoverIndexData
+>(MAX_CACHED_HOVER_SAMPLES);
+const longitudesOfIndex = new WeakMap<Float32Array, Float32Array>();
 
 function requestHoverIndex(latitudes: Float32Array, longitudes: Float32Array) {
-  return hoverIndexClient.build(
-    (requestId) => {
-      const latitudesCopy = copyGridWorkerArray(latitudes);
-      const longitudesCopy = copyGridWorkerArray(longitudes);
-      return {
-        message: {
-          requestId,
-          type: CurvilinearWorkerRequestType.HOVER_INDEX,
-          latitudes: latitudesCopy,
-          longitudes: longitudesCopy,
-        },
-        transfer: [latitudesCopy.buffer, longitudesCopy.buffer],
-      };
-    },
-    { onMetadata: () => {}, onBatch: () => {} }
-  );
+  return hoverIndexClient
+    .build(
+      (requestId) => {
+        const latitudesCopy = copyGridWorkerArray(latitudes);
+        const longitudesCopy = copyGridWorkerArray(longitudes);
+        return {
+          message: {
+            requestId,
+            type: CurvilinearWorkerRequestType.HOVER_INDEX,
+            latitudes: latitudesCopy,
+            longitudes: longitudesCopy,
+          },
+          transfer: [latitudesCopy.buffer, longitudesCopy.buffer],
+        };
+      },
+      { onMetadata: () => {}, onBatch: () => {} }
+    )
+    .then((result) => result.hoverIndexData);
 }
 
 export function buildCurvilinearHoverIndex(
   latitudes: Float32Array,
   longitudes: Float32Array
 ) {
-  const last = lastHoverIndexBuild;
-  if (last?.latitudes === latitudes && last.longitudes === longitudes) {
-    return last.hoverIndex;
+  if (longitudesOfIndex.get(latitudes) !== longitudes) {
+    hoverIndexes.delete(latitudes);
+    longitudesOfIndex.set(latitudes, longitudes);
   }
-  const hoverIndex = requestHoverIndex(latitudes, longitudes).then(
-    (result) => result.hoverIndexData
+  return hoverIndexes.get(latitudes, latitudes.length, () =>
+    requestHoverIndex(latitudes, longitudes)
   );
-  const build = { latitudes, longitudes, hoverIndex };
-  lastHoverIndexBuild = build;
-  hoverIndex.catch(() => {
-    if (lastHoverIndexBuild === build) {
-      lastHoverIndexBuild = undefined;
-    }
-  });
-  return hoverIndex;
 }
+
+/** Lowers or restores the sample bound (for tests). */
+export const setMaxCachedHoverSamples = hoverIndexes.setMaxWeight;
 
 /**
  * The lon/lat of every (y[j], x[i]) cell centre of a grid in `crs`, projected
@@ -115,4 +116,5 @@ export async function projectCurvilinearGrid(
 export function terminateCurvilinearWorker() {
   hoverIndexClient.terminate();
   projectionClient.terminate();
+  hoverIndexes.clear();
 }

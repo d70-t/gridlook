@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   buildCurvilinearHoverIndex,
   projectCurvilinearGrid,
+  setMaxCachedHoverSamples,
   terminateCurvilinearWorker,
 } from "@/lib/grids/curvilinearWorkerClient.ts";
 import {
@@ -60,6 +61,7 @@ beforeEach(() => {
 
 afterEach(() => {
   terminateCurvilinearWorker();
+  setMaxCachedHoverSamples();
   vi.unstubAllGlobals();
 });
 
@@ -92,32 +94,47 @@ it("projects a grid in its own worker and transfers copies of the axes", async (
   );
 });
 
-it("reuses the hover index of the coordinates built last", async () => {
-  const latitudes = new Float32Array([1, 2]);
-  const longitudes = new Float32Array([3, 4]);
-  const first = buildCurvilinearHoverIndex(latitudes, longitudes);
-  const worker = TMockWorker.instances[0];
-  const result = {
+function hoverIndexResult(samples: number) {
+  return {
     indexData: new ArrayBuffer(8),
-    latitudes: new Float64Array([1, 2]),
-    longitudes: new Float64Array([3, 4]),
+    latitudes: new Float64Array(samples),
+    longitudes: new Float64Array(samples),
     values: new Float32Array(0),
-    sampleIds: new Uint32Array([0, 1]),
+    sampleIds: new Uint32Array(samples),
   };
-  worker.respond(result);
-  await expect(first).resolves.toEqual(result);
+}
 
-  expect(buildCurvilinearHoverIndex(latitudes, longitudes)).toBe(first);
-  expect(worker.messages).toHaveLength(1);
+it("reuses the hover indexes of coordinates built before, within the sample bound", async () => {
+  const coarse = [new Float32Array(2), new Float32Array(2)] as const;
+  const fine = [new Float32Array(3), new Float32Array(3)] as const;
+  const first = buildCurvilinearHoverIndex(...coarse);
+  TMockWorker.instances[0].respond(hoverIndexResult(2));
+  await expect(first).resolves.toEqual(hoverIndexResult(2));
+  expect(buildCurvilinearHoverIndex(...coarse)).toBe(first);
 
-  const second = buildCurvilinearHoverIndex(
-    new Float32Array([1, 2]),
-    longitudes
-  );
-  expect(second).not.toBe(first);
+  const second = buildCurvilinearHoverIndex(...fine);
   // The worker is not kept alive between builds: a new one gets the request.
   expect(TMockWorker.instances).toHaveLength(2);
-  expect(TMockWorker.instances[1].messages).toHaveLength(1);
+  TMockWorker.instances[1].respond(hoverIndexResult(3));
+  await second;
+  expect(buildCurvilinearHoverIndex(...coarse)).toBe(first);
+  expect(buildCurvilinearHoverIndex(...fine)).toBe(second);
+
+  // Past the bound the least recently used index, the coarse one, goes.
+  setMaxCachedHoverSamples(3);
+  expect(buildCurvilinearHoverIndex(...fine)).toBe(second);
+  expect(buildCurvilinearHoverIndex(...coarse)).not.toBe(first);
+  expect(TMockWorker.instances).toHaveLength(3);
+});
+
+it("takes other longitudes for the same latitudes as other coordinates", async () => {
+  const latitudes = new Float32Array(2);
+  const first = buildCurvilinearHoverIndex(latitudes, new Float32Array(2));
+  TMockWorker.instances[0].respond(hoverIndexResult(2));
+  await first;
+  const relabelled = buildCurvilinearHoverIndex(latitudes, new Float32Array(2));
+  expect(relabelled).not.toBe(first);
+  expect(TMockWorker.instances).toHaveLength(2);
 });
 
 it("forgets a hover index build that was cancelled", async () => {
