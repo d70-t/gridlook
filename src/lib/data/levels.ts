@@ -102,6 +102,20 @@ export function isSameVariable(levels: TLevelPaths, a: string, b: string) {
   return (level === undefined ? a : variableOnLevel(levels, a, level)) === b;
 }
 
+const resolutionFormat = new Intl.NumberFormat(undefined, {
+  maximumSignificantDigits: 3,
+});
+
+/** A level's cell size for display: `2 km`, `500 m`; nothing when unknown. */
+export function formatResolution(resolution?: number) {
+  if (resolution === undefined) {
+    return undefined;
+  }
+  return resolution >= 1000
+    ? `${resolutionFormat.format(resolution / 1000)} km`
+    : `${resolutionFormat.format(resolution)} m`;
+}
+
 /** Sort levels finest first when every one states its resolution. */
 export function sortFinestFirst(levels: TSourceLevel[]) {
   if (levels.every(({ resolution }) => resolution! > 0)) {

@@ -171,3 +171,86 @@ it("shows the attributes of every group from the root to the level", async () =>
     vi.mocked(ZarrDataManager.getGroup).mock.calls.map(([, path]) => path)
   ).toEqual(["", "multiscales", "multiscales/zoom_0"]);
 });
+
+const browseHtml = (html: string) =>
+  html.slice(html.indexOf("Variables <span"));
+
+it("lists every level of a pyramid and greys out the levels not shown", async () => {
+  const store = useGlobeControlStore();
+  store.varnameSelector = "8000m/acabf";
+  store.varnameDisplay = "8000m/acabf";
+  const level = (path: string, resolution: number, cellCount: number) => ({
+    name: path,
+    path,
+    grid: source,
+    time: source,
+    resolution,
+    cellCount,
+    datasources: {
+      [`${path}/acabf`]: { ...source, dtype: "float32", attrs: { units: "m" } },
+      [`${path}/time`]: { ...source, hidden: true },
+      // an array next to the pyramid is in every level's list
+      mask: source,
+    },
+  });
+  const pyramid: TSources = {
+    ["zarr_format"]: ZARR_FORMAT.V3,
+    levels: [level("2000m", 2000, 1_250_000), level("8000m", 8000, 78_125)],
+    selectedLevel: 1,
+  };
+  const html = browseHtml(
+    await renderToString(
+      createSSRApp(InfoPanel, {
+        datasources: pyramid,
+        gridType: GRID_TYPES.REGULAR_ROTATED,
+        isOpen: true,
+      })
+    )
+  );
+  // one group per level, the level shown first and open, the others closed
+  // and sorted by name as groups are
+  const groups = [...html.matchAll(/class="group-name"[^>]*>([^<]+)</g)].map(
+    (match) => match[1].trim()
+  );
+  expect(groups).toEqual(["8000m", "/", "2000m"]);
+  expect(html).toContain("(5)");
+  expect(html).toContain("8 km · 78.1K cells");
+  expect(html).toContain("2 km · 1.25M cells");
+  expect(html.match(/current level/g)).toHaveLength(1);
+  expect(html).toMatch(/8000m[\s\S]*current level[\s\S]*2000m/);
+  expect(html).toMatch(/aria-label="Visualize 8000m\/acabf"(?![^>]*disabled)/);
+  expect(html).not.toContain('title="2000m/acabf"');
+  expect(html).toMatch(/<button[^>]*aria-expanded="false"[^>]*>[\s\S]*?2000m/);
+});
+
+it("shows a single-level dataset without level groups", async () => {
+  const store = useGlobeControlStore();
+  store.varnameSelector = "temperature";
+  store.varnameDisplay = "temperature";
+  const loaded = { ...source, dtype: "float32", attrs: {} };
+  const single: TSources = {
+    ["zarr_format"]: ZARR_FORMAT.V3,
+    levels: [
+      {
+        grid: source,
+        time: source,
+        datasources: { temperature: loaded, u: loaded, v: loaded },
+      },
+    ],
+  };
+  const html = browseHtml(
+    await renderToString(
+      createSSRApp(InfoPanel, {
+        datasources: single,
+        gridType: GRID_TYPES.TRIANGULAR,
+        isOpen: true,
+      })
+    )
+  );
+  expect(html).toContain("(3)");
+  expect(html).not.toContain("variable-group-toggle");
+  expect(html).not.toContain("current level");
+  expect(html).not.toContain("cells");
+  expect(html).toMatch(/aria-label="Visualize temperature"(?![^>]*disabled)/);
+  expect(html).toMatch(/aria-label="Visualize u"(?![^>]*disabled)/);
+});

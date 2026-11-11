@@ -3,6 +3,7 @@ import { computed } from "vue";
 
 import {
   exceedsCellCap,
+  formatResolution,
   hasLevels,
   levelHoldsVariable,
 } from "@/lib/data/levels.ts";
@@ -15,19 +16,6 @@ const props = defineProps<{
 
 const store = useGlobeControlStore();
 
-const resolutionFormat = new Intl.NumberFormat(undefined, {
-  maximumSignificantDigits: 3,
-});
-
-function formatResolution(resolution?: number) {
-  if (resolution === undefined) {
-    return "";
-  }
-  return resolution >= 1000
-    ? ` · ${resolutionFormat.format(resolution / 1000)} km`
-    : ` · ${resolutionFormat.format(resolution)} m`;
-}
-
 // a variable outside the level groups has a single resolution
 const disabled = computed(
   () => !hasLevels(props.levels, store.varnameSelector)
@@ -36,7 +24,9 @@ const disabled = computed(
 const options = computed(() =>
   props.levels.map((level, index) => ({
     index,
-    label: `${level.name ?? index}${formatResolution(level.resolution)}`,
+    label: [level.name ?? index, formatResolution(level.resolution)]
+      .filter((part) => part !== undefined)
+      .join(" · "),
     // still selectable by hand; the camera never picks these
     tooManyCells: !store.loadsLevelByView(index) && exceedsCellCap(level),
     // a level without the variable shown cannot display it

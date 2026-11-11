@@ -202,4 +202,10 @@ checkboxes.
 
 The **Dataset Info** panel lists the attributes of every group from the
 opened one down to the level shown: the root, the group carrying
-`multiscales` (with the attribute itself) and the level group.
+`multiscales` (with the attribute itself) and the level group. Its
+**Browse** tab lists every level as a group, with its resolution and cell
+count when known, and the variables of each; the level shown comes first,
+marked as the current level, and only its variables can be visualised from
+there. The others are listed greyed out: the level is picked in the
+Variable card or from the zoom, and the variable shown follows it. Arrays
+outside the level groups are listed once, under their own group.
