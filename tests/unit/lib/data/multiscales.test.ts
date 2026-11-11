@@ -200,10 +200,10 @@ describe("groupArrayAssets", () => {
     ]);
   });
 
-  it("takes an array at the multiscales group itself as its level", () => {
-    expect(groupArrayAssets([{ path: "a" }], () => true)).toEqual([
-      { path: "" },
-    ]);
+  it("makes no level of an array at the multiscales group itself", () => {
+    expect(
+      groupArrayAssets([{ path: "a" }, { path: "1/a" }], () => true)
+    ).toEqual([{ path: "1" }]);
   });
 });
 

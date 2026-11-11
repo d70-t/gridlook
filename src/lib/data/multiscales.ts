@@ -176,7 +176,12 @@ export function groupArrayAssets(
       continue;
     }
     const separator = path.lastIndexOf("/");
-    const level = separator < 0 ? "" : path.slice(0, separator);
+    if (separator < 0) {
+      // An array at the multiscales group itself has no level group; it stays
+      // a variable without levels.
+      continue;
+    }
+    const level = path.slice(0, separator);
     const existing = levels.get(level);
     if (existing) {
       existing.resolution ??= entry.resolution;
