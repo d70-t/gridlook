@@ -15,8 +15,11 @@ import {
 } from "./variableDecoding.ts";
 import { ZarrDataManager } from "./ZarrDataManager.ts";
 
-import { projectCurvilinearGrid } from "@/lib/grids/curvilinearWorkerClient.ts";
-import { type TSources } from "@/lib/types/GlobeTypes.ts";
+import {
+  projectCurvilinearGrid,
+  registerReusableCoordinates,
+} from "@/lib/grids/curvilinearWorkerClient.ts";
+import type { TDatasetSource, TSources } from "@/lib/types/GlobeTypes.ts";
 
 const WGS84 = "EPSG:4326";
 
@@ -211,14 +214,13 @@ export function projectXYGridToLonLat(
  * levels or windows with the same key project to the same lon/lat.
  */
 function projectedGridKey(
-  datasources: TSources,
+  grid: TDatasetSource,
   xPath: string,
   yPath: string,
   x: Float32Array,
   y: Float32Array,
   crsWkt: string | null
 ) {
-  const { grid } = currentLevel(datasources);
   return JSON.stringify([
     grid.store,
     grid.dataset,
@@ -234,27 +236,31 @@ function projectedGridKey(
   ]);
 }
 
-// lon/lat of the cell centres of the current level, projected in the
-// curvilinear worker (on this thread where there are no workers) and cached
-// per level: switching back to a level, stepping in time or changing the
-// variable never projects again.
-function projectXYGridToLonLatCached(
+// lon/lat of the cell centres of a level, projected in the curvilinear
+// worker and cached per level: switching back to a level, stepping in time
+// or changing the variable never projects again, and the hover index built
+// on the cached arrays is kept with them.
+async function projectXYGridToLonLatCached(
   datasources: TSources,
+  grid: TDatasetSource,
   xPath: string,
   yPath: string,
   x: Float32Array,
   y: Float32Array,
   crsWkt: string | null
 ) {
-  return getProjectedGrid(
+  const coordinates = await getProjectedGrid(
     datasources.levels,
-    projectedGridKey(datasources, xPath, yPath, x, y, crsWkt),
+    projectedGridKey(grid, xPath, yPath, x, y, crsWkt),
     x.length * y.length,
-    () =>
-      typeof Worker === "undefined"
-        ? Promise.resolve(projectGridToLonLat(x, y, crsWkt))
-        : projectCurvilinearGrid(x, y, crsWkt)
+    () => projectCurvilinearGrid(x, y, crsWkt)
   );
+  registerReusableCoordinates(
+    datasources.levels,
+    coordinates.latitudes,
+    coordinates.longitudes
+  );
+  return coordinates;
 }
 
 function getProjectedXYNames(dimensionNames: string[]) {
@@ -300,6 +306,9 @@ export async function getProjectedXYLonLatData(
   dimensionNames = datavar.dimensionNames ?? []
 ) {
   const { xName, yName } = getProjectedXYNames(dimensionNames);
+  // The level is read before the awaits: a level switch meanwhile mutates
+  // `selectedLevel`, and the axes loaded here belong to this level.
+  const { grid } = currentLevel(datasources!);
   const [{ x, y }, crsWkt] = await Promise.all([
     loadGridAxes(datasources!, variable, [yName, xName]),
     getCRSWkt(datasources!, variable),
@@ -307,6 +316,7 @@ export async function getProjectedXYLonLatData(
   const { latitudes, longitudes } = toLonLatChunks(
     await projectXYGridToLonLatCached(
       datasources!,
+      grid,
       ZarrDataManager.resolveVariablePath(variable, xName),
       ZarrDataManager.resolveVariablePath(variable, yName),
       x,

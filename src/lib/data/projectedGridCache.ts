@@ -12,7 +12,7 @@ import { createBoundedPromiseCache } from "@/utils/boundedPromiseCache.ts";
 
 // Float32 lon and lat: 8 bytes a cell, about 256 MB at this bound; the
 // newest entry is kept even when it exceeds it alone.
-export const MAX_CACHED_PROJECTED_CELLS = 32 * 2 ** 20;
+const MAX_CACHED_PROJECTED_CELLS = 32 * 2 ** 20;
 
 const cache = createBoundedPromiseCache<string, TProjectedGridCoordinates>(
   MAX_CACHED_PROJECTED_CELLS

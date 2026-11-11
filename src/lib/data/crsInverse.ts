@@ -54,7 +54,7 @@ type TProjParams = {
   datum?: { datum_type: number; a: number; es: number };
 };
 
-export type TLonLatArray = Float32Array | Float64Array;
+type TLonLatArray = Float32Array | Float64Array;
 
 export type TProjectedGridCoordinates = {
   // row-major over the (y, x) grid
@@ -71,8 +71,13 @@ type TKernelFactory = (
   y: ArrayLike<number>
 ) => TPointKernel;
 
-// Intervals of the latitude table of a polar stereographic call.
-const LATITUDE_TABLE_INTERVALS = 8192;
+// The latitude table of a polar stereographic call: radii up to the call's
+// largest, capped so that one far-out point (an undecoded fill value, a
+// corner near the opposite pole) cannot stretch the knots apart for every
+// other point. Within the cap the interpolation stays below 2e-11 degrees;
+// radii beyond it are evaluated directly.
+const LATITUDE_TABLE_INTERVALS = 16384;
+const LATITUDE_TABLE_MAX_RADIUS = 2e8;
 
 export type TCrsInverse = {
   /** True when the typed-array path handles the CRS, else proj4 point by point. */
@@ -142,6 +147,8 @@ function createLatitudeFromTs(e: number) {
   };
 }
 
+// The largest finite |value * scale - offset|; non-finite values are the
+// points' own problem (they come out as NaN) and must not size the table.
 function maxAbsoluteOffset(
   values: ArrayLike<number>,
   scale: number,
@@ -149,17 +156,21 @@ function maxAbsoluteOffset(
 ) {
   let max = 0;
   for (let k = 0; k < values.length; k++) {
-    max = Math.max(max, Math.abs(values[k] * scale - offset));
+    const offsetValue = Math.abs(values[k] * scale - offset);
+    if (offsetValue > max && offsetValue !== Infinity) {
+      max = offsetValue;
+    }
   }
   return max;
 }
 
 /**
  * `f` sampled at `intervals` + 3 equal steps over [0, max] and read back by
- * cubic Lagrange interpolation through the four nearest samples. For a
- * function as smooth as the latitude of a polar radius the interpolation
- * error is below 1e-13 degrees, and a lookup costs a few multiplications
- * where the function costs an arctangent.
+ * cubic Lagrange interpolation through the four nearest samples, for values
+ * in [0, max]. The error grows with the fourth power of the step: for the
+ * latitude of a polar radius it is below 1e-13 degrees over the 6000 km of
+ * an ice sheet grid and below 2e-11 degrees at the 2e8 m cap. A lookup costs
+ * a few multiplications where the function costs an arctangent.
  */
 function tabulate(
   f: (value: number) => number,
@@ -196,14 +207,19 @@ function createPolarStereographicKernel(p: TProjParams): TKernelFactory {
   const toMeter = p.to_meter ?? 1;
   const scale = p.cons / (2 * p.a * p.k0);
   const latitudeFromTs = createLatitudeFromTs(p.e);
+  const latitudeOfRadius = (rh: number) => latitudeFromTs(rh * scale);
   return (xValues, yValues) => {
     const maxRadius = Math.hypot(
       maxAbsoluteOffset(xValues, toMeter, x0),
       maxAbsoluteOffset(yValues, toMeter, y0)
     );
-    const latitudeOfRadius = tabulate(
-      (rh) => latitudeFromTs(rh * scale),
+    const tableRadius = Math.min(
       Math.max(maxRadius, 1) * (1 + 1e-6),
+      LATITUDE_TABLE_MAX_RADIUS
+    );
+    const tabulatedLatitude = tabulate(
+      latitudeOfRadius,
+      tableRadius,
       LATITUDE_TABLE_INTERVALS
     );
     return (xValue, yValue, out) => {
@@ -215,7 +231,9 @@ function createPolarStereographicKernel(p: TProjParams): TKernelFactory {
         out[1] = lat0 * R2D;
         return;
       }
-      out[1] = con * latitudeOfRadius(rh) * R2D;
+      const latitude =
+        rh <= tableRadius ? tabulatedLatitude(rh) : latitudeOfRadius(rh);
+      out[1] = con * latitude * R2D;
       out[0] =
         con *
         adjustLon(con * long0 + Math.atan2(con * x, -con * y), over) *
@@ -317,6 +335,22 @@ function createProj4Kernel(crs: string): TKernelFactory {
   return () => kernel;
 }
 
+// A point with a non-finite coordinate has no position: NaN lon and lat,
+// where proj4 would throw for the whole call.
+function project(
+  kernel: TPointKernel,
+  x: number,
+  y: number,
+  out: Float64Array
+) {
+  if (Number.isFinite(x) && Number.isFinite(y)) {
+    kernel(x, y, out);
+  } else {
+    out[0] = NaN;
+    out[1] = NaN;
+  }
+}
+
 function createInverse(createKernel: TKernelFactory, isVectorised: boolean) {
   const out = new Float64Array(2);
   const inverse: TCrsInverse = {
@@ -328,7 +362,7 @@ function createInverse(createKernel: TKernelFactory, isVectorised: boolean) {
         const yj = y[j];
         const rowOffset = j * columns;
         for (let i = 0; i < columns; i++) {
-          kernel(x[i], yj, out);
+          project(kernel, x[i], yj, out);
           longitudes[rowOffset + i] = out[0];
           latitudes[rowOffset + i] = out[1];
         }
@@ -337,7 +371,7 @@ function createInverse(createKernel: TKernelFactory, isVectorised: boolean) {
     points(x, y, longitudes, latitudes) {
       const kernel = createKernel(x, y);
       for (let k = 0; k < x.length; k++) {
-        kernel(x[k], y[k], out);
+        project(kernel, x[k], y[k], out);
         longitudes[k] = out[0];
         latitudes[k] = out[1];
       }

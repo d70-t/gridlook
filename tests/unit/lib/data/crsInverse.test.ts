@@ -12,6 +12,9 @@ export const ANTARCTIC_POLAR_STEREOGRAPHIC_WKT =
 export const NSIDC_NORTH_POLAR_STEREOGRAPHIC_WKT =
   'PROJCS["WGS 84 / NSIDC Sea Ice Polar Stereographic North",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],PROJECTION["Polar_Stereographic"],PARAMETER["latitude_of_origin",70],PARAMETER["central_meridian",-45],PARAMETER["false_easting",0],PARAMETER["false_northing",0],UNIT["metre",1],AUTHORITY["EPSG","3413"]]';
 
+// proj4's own phi2z stops iterating at 1e-10 radians, so this is about its
+// tolerance; the series and the table are a hundred times closer to the
+// converged value.
 const MAX_DEGREES_OFF_PROJ4 = 1e-9;
 
 function sampleAxis(from: number, to: number, count: number) {
@@ -102,6 +105,106 @@ describe("other polar stereographic forms", () => {
       sampleAxis(-3_000_000, 3_000_000, 59)
     );
     expect(inverse.isVectorised).toBe(true);
+  });
+});
+
+describe("polar stereographic edge cases", () => {
+  const far = new Float64Array([0, 1e6, 2e6, 3e6]);
+
+  it.each([NaN, Infinity, -Infinity])(
+    "gives NaN for a %s coordinate and leaves the other points alone",
+    (bad) => {
+      const inverse = createCrsInverse(ANTARCTIC_POLAR_STEREOGRAPHIC_WKT);
+      const clean = { lon: new Float64Array(16), lat: new Float64Array(16) };
+      inverse.grid(far, far, clean.lon, clean.lat);
+      const x = Float64Array.from(far);
+      x[2] = bad;
+      const out = { lon: new Float64Array(16), lat: new Float64Array(16) };
+      inverse.grid(x, far, out.lon, out.lat);
+      for (let k = 0; k < 16; k++) {
+        if (k % 4 === 2) {
+          expect(out.lon[k]).toBeNaN();
+          expect(out.lat[k]).toBeNaN();
+        } else {
+          expect(out.lon[k]).toBe(clean.lon[k]);
+          expect(out.lat[k]).toBe(clean.lat[k]);
+        }
+      }
+      const points = { lon: new Float64Array(4), lat: new Float64Array(4) };
+      inverse.points(
+        [1e6, bad, 2e6, 0],
+        [1e6, 5, 0, 1e6],
+        points.lon,
+        points.lat
+      );
+      expect(Array.from(points.lat).filter(Number.isNaN)).toHaveLength(1);
+      expect(points.lat[0]).toBeCloseTo(clean.lat[5], 12);
+    }
+  );
+});
+
+describe("polar stereographic table range", () => {
+  const far = new Float64Array([0, 1e6, 2e6, 3e6]);
+
+  it("is not degraded by one far-out point such as an undecoded fill value", () => {
+    const inverse = createCrsInverse(ANTARCTIC_POLAR_STEREOGRAPHIC_WKT);
+    const transformer = proj4(ANTARCTIC_POLAR_STEREOGRAPHIC_WKT, "EPSG:4326");
+    const x = Float64Array.from([...far, 9.97e36]);
+    const out = { lon: new Float64Array(5), lat: new Float64Array(5) };
+    inverse.points(x, new Float64Array(5), out.lon, out.lat);
+    for (let k = 0; k < 4; k++) {
+      const [, lat] = transformer.forward([x[k], 0]);
+      expect(Math.abs(out.lat[k] - lat)).toBeLessThanOrEqual(
+        MAX_DEGREES_OFF_PROJ4
+      );
+    }
+    expect(Number.isFinite(out.lat[4])).toBe(true);
+  });
+
+  it("matches proj4 on radii across and beyond the tabulated range", () => {
+    // 3e8 m is past the 2e8 m cap: cells beyond it take the series directly.
+    expectGridMatchesProj4(
+      ANTARCTIC_POLAR_STEREOGRAPHIC_WKT,
+      sampleAxis(-3e8, 3e8, 301),
+      sampleAxis(-1e8, 1e8, 7)
+    );
+  });
+});
+
+describe("polar stereographic CRS variants", () => {
+  const far = new Float64Array([0, 1e6, 2e6, 3e6]);
+
+  it("honours a prime meridian, a datum of another ellipsoid and other units", () => {
+    expect(
+      expectGridMatchesProj4(
+        "+proj=stere +lat_0=90 +lat_ts=70 +lon_0=0 +pm=paris +ellps=WGS84 +units=m +no_defs",
+        far,
+        far
+      ).isVectorised
+    ).toBe(false);
+    // GRS80 is WGS84 to proj4's datum comparison; the international
+    // ellipsoid is not, so the datum shift is left to proj4.
+    expect(
+      expectGridMatchesProj4(
+        "+proj=stere +lat_0=90 +lat_ts=70 +lon_0=-45 +ellps=GRS80 +towgs84=0,0,0 +units=m +no_defs",
+        far,
+        far
+      ).isVectorised
+    ).toBe(true);
+    expect(
+      expectGridMatchesProj4(
+        "+proj=stere +lat_0=90 +lat_ts=70 +lon_0=-45 +ellps=intl +towgs84=0,0,0 +units=m +no_defs",
+        far,
+        far
+      ).isVectorised
+    ).toBe(false);
+    expect(
+      expectGridMatchesProj4(
+        "+proj=stere +lat_0=-90 +lat_ts=-71 +lon_0=0 +ellps=WGS84 +units=km +no_defs",
+        sampleAxis(-3000, 3000, 13),
+        sampleAxis(-3000, 3000, 11)
+      ).isVectorised
+    ).toBe(true);
   });
 });
 
