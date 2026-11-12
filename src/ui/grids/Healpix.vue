@@ -64,6 +64,7 @@ import {
 import {
   healpixBlockLevel,
   healpixBlockRanges,
+  healpixNeededBlocks,
   healpixViewBlocks,
 } from "@/lib/grids/healpixWindow.ts";
 import {
@@ -531,17 +532,21 @@ function loadsByView() {
   );
 }
 
-function viewBlocks(margin: number) {
+/** Blocks the view window of the selected level may hold. */
+function blockBudget(grid: healpixGeo.Grid) {
+  return Math.floor(
+    DEFAULT_MAX_VIEW_CELLS / 4 ** (grid.level - healpixBlockLevel(grid.level))
+  );
+}
+
+function viewBlocks() {
   const grid = unpackGrid();
   return store.viewFootprint
     ? healpixViewBlocks(
         grid,
         store.viewFootprint,
-        margin,
-        Math.floor(
-          DEFAULT_MAX_VIEW_CELLS /
-            4 ** (grid.level - healpixBlockLevel(grid.level))
-        )
+        VIEW_WINDOW_MARGIN,
+        blockBudget(grid)
       )
     : [];
 }
@@ -553,8 +558,14 @@ function viewWindowStale() {
   if (loadedBlocks === undefined) {
     return true;
   }
+  if (!store.viewFootprint) {
+    return false;
+  }
+  const grid = unpackGrid();
   const loaded = new Set(loadedBlocks);
-  return viewBlocks(0).some((block) => !loaded.has(block));
+  return healpixNeededBlocks(grid, store.viewFootprint, blockBudget(grid)).some(
+    (block) => !loaded.has(block)
+  );
 }
 
 /** A reader of the selected level's sorted `cell` coordinate, kept per level. */
@@ -639,7 +650,7 @@ async function prepareLevel() {
   levelCellCount = cellCount;
   levelWindowable = windowable;
   sortedCells = cells;
-  loadedBlocks = loadsByView() ? viewBlocks(VIEW_WINDOW_MARGIN) : undefined;
+  loadedBlocks = loadsByView() ? viewBlocks() : undefined;
 }
 
 /** The stored cells with ids in a nested range, and their values. */

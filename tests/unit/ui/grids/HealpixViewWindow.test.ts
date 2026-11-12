@@ -377,3 +377,42 @@ it("loads a variable outside the level groups whole, without a backdrop", async 
   expect(store.viewLoading).toBe(false);
   scope.stop();
 });
+
+it("keeps the window of a view too large for the budget while the camera stays near", async () => {
+  stored.fine = { level: 9 };
+  stored.coarse = { level: 3 };
+  const { store, scope } = await mount(11, 31);
+  // the globe from far out: a hemisphere, four times the budget
+  const hemisphere = (lat: number, lon: number) => ({
+    latMin: Math.max(lat - 88, -90),
+    latMax: Math.min(lat + 88, 90),
+    lonStart: -180,
+    lonSpan: 360,
+    centreLat: lat,
+    centreLon: lon,
+  });
+  const settle = async () => {
+    await wait(50);
+    while (store.loading) {
+      await wait(20);
+    }
+  };
+  for (const [lat, lon] of [
+    [51.3543, -36.5647],
+    [-51.3543, -36.5647],
+    [0, 0],
+    [20, 10],
+    [90, 0],
+  ]) {
+    store.viewFootprint = hemisphere(lat, lon);
+    await settle();
+    const loaded = fetches.length;
+    expect(loaded, `${lat}°N ${lon}°E`).toBeGreaterThan(0);
+    fetches.length = 0;
+    // the window just loaded covers the view, also after a small move
+    store.viewFootprint = hemisphere(lat === 90 ? 89.9 : lat + 0.1, lon + 0.1);
+    await settle();
+    expect(fetches, `${lat}°N ${lon}°E`).toEqual([]);
+  }
+  scope.stop();
+}, 30_000);

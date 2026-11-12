@@ -5,6 +5,7 @@ import "@/utils/disposablePolyfill.ts";
 import {
   healpixBlockLevel,
   healpixBlockRanges,
+  healpixNeededBlocks,
   healpixViewBlocks,
 } from "@/lib/grids/healpixWindow.ts";
 import { createSortedCells } from "@/lib/grids/sortedCells.ts";
@@ -72,6 +73,120 @@ it("cuts a polar view down around the camera, not around longitude 0", () => {
     blockGrid.lonLatToHealpix(Float64Array.of(120, 88.5))[0]
   );
   expect(blocks).toContain(below);
+});
+
+/** What a camera `distance` globe radii from the centre sees of the globe. */
+function globeCap(lat: number, lon: number, distance: number) {
+  const radius = (Math.acos(1 / distance) * 180) / Math.PI;
+  const overPole = lat + radius >= 90 || lat - radius <= -90;
+  const halfSpan = overPole
+    ? 180
+    : (Math.asin(
+        Math.sin((radius * Math.PI) / 180) / Math.cos((lat * Math.PI) / 180)
+      ) *
+        180) /
+      Math.PI;
+  return {
+    latMin: Math.max(lat - radius, -90),
+    latMax: Math.min(lat + radius, 90),
+    lonStart: overPole ? -180 : lon - halfSpan,
+    lonSpan: 2 * halfSpan,
+    centreLat: lat,
+    centreLon: lon,
+  };
+}
+
+it("loads every block a view needs, wherever the camera is", () => {
+  const budget = 192;
+  for (const level of [9, 12, 20]) {
+    using grid = new Grid({ scheme: "nested", level });
+    using blockGrid = new Grid({ scheme: "nested", level: level - 6 });
+    // from a hemisphere in view down to a view within the budget
+    for (const distance of [26.9, 2, 1.05, 1.0005]) {
+      for (let lat = -90; lat <= 90; lat += 7.5) {
+        for (const lon of [-36.5647, 10, 135, -180]) {
+          const view = globeCap(lat, lon, distance);
+          const loaded = healpixViewBlocks(grid, view, 0.5, budget);
+          const needed = healpixNeededBlocks(grid, view, budget);
+          const at = `level ${level}, distance ${distance}, ${lat}°N ${lon}°E`;
+          expect(loaded.length, at).toBeLessThanOrEqual(budget);
+          expect(
+            needed.filter((block) => !loaded.includes(block)),
+            at
+          ).toEqual([]);
+          // and it is not empty: the block below the camera is needed
+          const below = blockGrid.lonLatToHealpix(Float64Array.of(lon, lat));
+          expect(needed, at).toContain(Number(below[0]));
+        }
+      }
+    }
+  }
+});
+
+it("needs every block of a view within the budget", () => {
+  using grid = new Grid({ scheme: "nested", level: 12 });
+  expect(healpixNeededBlocks(grid, box, 192).sort((a, b) => a - b)).toEqual(
+    healpixViewBlocks(grid, box)
+  );
+  // also of a view that takes most of the budget: 12 blocks by 12 at 70°N
+  const large = {
+    latMin: 64.5,
+    latMax: 75.5,
+    lonStart: -16,
+    lonSpan: 32,
+    centreLat: 70,
+    centreLon: 0,
+  };
+  const view = healpixViewBlocks(grid, large);
+  expect(view.length).toBeGreaterThan(96);
+  expect(view.length).toBeLessThanOrEqual(192);
+  expect(healpixNeededBlocks(grid, large, 192).sort((a, b) => a - b)).toEqual(
+    view
+  );
+  const loaded = healpixViewBlocks(grid, large, 0.5, 192);
+  expect(loaded).toHaveLength(192);
+  expect(view.filter((block) => !loaded.includes(block))).toEqual([]);
+});
+
+it("fills the budget of a view too large for it, also next to a pole", () => {
+  for (const level of [9, 12, 20]) {
+    using grid = new Grid({ scheme: "nested", level });
+    for (const lat of [0, 51.3543, 75, 85, 89, 89.9, -89]) {
+      const view = globeCap(lat, -36.5647, 26.9);
+      const at = `level ${level}, ${lat}°N`;
+      expect(healpixViewBlocks(grid, view, 0.5, 192), at).toHaveLength(192);
+      expect(healpixNeededBlocks(grid, view, 192), at).toHaveLength(96);
+    }
+  }
+});
+
+it("keeps the window of a view too large for it over a move of a block", () => {
+  // the camera moves east by 20 block sides in quarter sides
+  for (const level of [9, 12, 20]) {
+    using grid = new Grid({ scheme: "nested", level });
+    const side = 58.63 / 2 ** (level - 6);
+    for (const distance of [26.9, 3]) {
+      for (const lat of [0, 51.3543, 75, 85, -85]) {
+        let reloads = 0;
+        let loaded: number[] = [];
+        for (let step = 0; step <= 80; step++) {
+          const lon = (step * side) / 4 / Math.cos((lat * Math.PI) / 180);
+          const view = globeCap(lat, lon, distance);
+          const needed = healpixNeededBlocks(grid, view, 192);
+          if (needed.some((block) => !loaded.includes(block))) {
+            reloads++;
+            loaded = healpixViewBlocks(grid, view, 0.5, 192);
+          }
+        }
+        // the first load, and then one about every two block sides
+        // the first load, and then one about every two and a half sides
+        expect(
+          reloads,
+          `level ${level}, distance ${distance}, ${lat}°N`
+        ).toBeLessThanOrEqual(10);
+      }
+    }
+  }
 });
 
 it("uses whole faces for levels of at most six orders", () => {
