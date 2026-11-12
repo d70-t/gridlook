@@ -108,7 +108,9 @@ The window is reloaded in place once the view leaves it; moving inside it
 fetches nothing. While the camera keeps moving, a window that is already
 loading is shown before the next one is requested. With a level picked by
 hand that is too fine for the view, the window is cut down to the budget
-around the point below the camera.
+around the point below the camera. Such a view counts as covered while the
+window holds the half of the budget nearest the camera, and is reloaded once
+one of those blocks is missing.
 
 The coarsest level is the exception: it is always loaded whole. It is drawn
 under a finer level wherever that level has no cells on screen (outside its
