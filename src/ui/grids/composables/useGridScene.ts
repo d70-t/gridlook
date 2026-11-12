@@ -248,7 +248,13 @@ export function useGridScene(options: UseGridSceneOptions) {
       }
       const rect = canvas.value.getBoundingClientRect();
       const next = viewFootprint(camera, projectionHelper.value, rect);
-      if (JSON.stringify(next) !== JSON.stringify(store.viewFootprint)) {
+      // Compared to a millionth of a degree: damped controls keep moving a
+      // resting camera by rounding errors, which is no new view.
+      const rounded = (footprint: typeof next) =>
+        JSON.stringify(footprint, (_, value) =>
+          typeof value === "number" ? Math.round(value * 1e6) : value
+        );
+      if (rounded(next) !== rounded(store.viewFootprint)) {
         store.viewFootprint = next;
       }
       // The scale is taken at the point of the surface below the camera, as
