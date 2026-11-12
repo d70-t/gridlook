@@ -8,6 +8,7 @@ import {
   clampRgbChannels,
   getRgbDimensionOptions,
   getRgbVariableOptions,
+  resolveRgbSource,
   RGB_GAMMA,
   RGB_MAX_DIMENSION_LENGTH,
   RGB_SOURCES,
@@ -32,7 +33,12 @@ const { rgbSettings, rgbDataBounds, varinfo, varnameSelector } =
   storeToRefs(store);
 
 const byVariables = computed(
-  () => rgbSettings.value.source === RGB_SOURCES.VARIABLES
+  () =>
+    resolveRgbSource(
+      rgbSettings.value,
+      dimensionOptions.value,
+      variableOptions.value
+    ) === RGB_SOURCES.VARIABLES
 );
 
 const variableOptions = computed(() =>
@@ -98,7 +104,7 @@ function formatBound(value: number | undefined) {
       <span>Source</span>
       <span class="select is-small">
         <select
-          :value="rgbSettings.source"
+          :value="byVariables ? RGB_SOURCES.VARIABLES : RGB_SOURCES.DIMENSION"
           aria-label="RGB source"
           @change="
             setSource(($event.target as HTMLSelectElement).value as TRgbSource)

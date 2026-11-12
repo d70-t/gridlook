@@ -114,13 +114,19 @@ it("falls back to the RGB defaults and drops them from the URL", () => {
       channels: [0, 1, 2],
       low: undefined,
       high: undefined,
-      gamma: 1,
+      gamma: 1.3,
     },
   });
   expect(
     formatLayersParam(parseLayersParam("rgb,1,1,band,-1,x,2,,0.3,9;grid"))
   ).toBe("rgb,1,1,band,0,1,2,,0.3;grid");
-  expect(formatLayersParam(parseLayersParam("rgb,1,1,,0,1,2,,,1;grid"))).toBe(
+  expect(formatLayersParam(parseLayersParam("rgb,1,1,,0,1,2,,,1.3;grid"))).toBe(
     "rgb;grid"
+  );
+});
+
+it("keeps a gamma of 1 that an older link asks for", () => {
+  expect(formatLayersParam(parseLayersParam("rgb,1,1,,0,1,2,,,1;grid"))).toBe(
+    "rgb,1,1,,0,1,2,,,1;grid"
   );
 });

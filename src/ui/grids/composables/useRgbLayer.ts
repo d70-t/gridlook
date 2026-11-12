@@ -11,6 +11,9 @@ import {
   getRgbDimensionOptions,
   getRgbVariableOptions,
   resolveRgbDisplayRange,
+  resolveRgbSource,
+  isTrueColour,
+  RGB_TRUE_COLOUR_RANGE,
   resolveSiblingVariable,
   RGB_SOURCES,
   type TRgbBounds,
@@ -263,7 +266,7 @@ export function useRgbLayer(options: TOptions) {
     setMeshTexture(mesh, texture, batch.image);
   }
 
-  function install(result: TRgbLoadResult) {
+  function install(result: TRgbLoadResult, defaultRange?: TRgbBounds) {
     const batchIndices = new Set(result.batches.map((b) => b.batchIndex));
     for (const batchIndex of [...meshes.keys()]) {
       if (!batchIndices.has(batchIndex)) {
@@ -274,7 +277,7 @@ export function useRgbLayer(options: TOptions) {
     result.batches.forEach((batch) => installBatch(batch, nextTextures));
     textures.forEach((texture) => texture.dispose());
     textures = nextTextures;
-    store.rgbDataBounds = result.bounds;
+    store.rgbDataBounds = defaultRange ?? result.bounds;
     updateProjection();
     updateAppearance();
   }
@@ -288,16 +291,30 @@ export function useRgbLayer(options: TOptions) {
     if (!variables) {
       return undefined;
     }
+    const trueColour = isTrueColour(
+      variables.map((name) =>
+        name.slice(name.lastIndexOf("/") + 1)
+      ) as TRgbVariables
+    );
     const key = JSON.stringify({ indices: current.indices, variables });
-    return { variables, indices: current.indices, key };
+    return { variables, indices: current.indices, key, trueColour };
   }
 
   function resolveRequest(current: TRgbContext) {
-    if (store.rgbSettings.source === RGB_SOURCES.VARIABLES) {
+    const dimensionOptions = getRgbDimensionOptions(
+      current.dimRanges,
+      current.dimInfo
+    );
+    const source = resolveRgbSource(
+      store.rgbSettings,
+      dimensionOptions,
+      getRgbVariableOptions(current.vars, current.varname)
+    );
+    if (source === RGB_SOURCES.VARIABLES) {
       return resolveVariablesRequest(current);
     }
     const option = chooseRgbDimension(
-      getRgbDimensionOptions(current.dimRanges, current.dimInfo),
+      dimensionOptions,
       store.rgbSettings.dimension
     );
     if (!option) {
@@ -311,7 +328,13 @@ export function useRgbLayer(options: TOptions) {
     const indices = current.indices.slice();
     indices[option.index] = null;
     const key = JSON.stringify({ indices, dimension: option.index, channels });
-    return { dimensionIndex: option.index, channels, indices, key };
+    return {
+      dimensionIndex: option.index,
+      channels,
+      indices,
+      key,
+      trueColour: false,
+    };
   }
 
   async function refresh() {
@@ -341,7 +364,8 @@ export function useRgbLayer(options: TOptions) {
       if (!result || !isCurrent()) {
         return;
       }
-      install(result);
+      // reflectance bands look right in a fixed range, not the data range
+      install(result, request.trueColour ? RGB_TRUE_COLOUR_RANGE : undefined);
       loadedKey = request.key;
     } catch (error) {
       if (isCurrent()) {

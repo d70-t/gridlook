@@ -49,7 +49,7 @@ export const RGB_GAMMA = {
   MIN: 0.2,
   MAX: 3,
   STEP: 0.05,
-  DEFAULT: 1,
+  DEFAULT: 1.3,
 } as const;
 
 // A band-like dimension has 3 to this many entries: more would be a time
@@ -266,4 +266,57 @@ export function resolveRgbDisplayRange(
   const low = settings.low ?? dataBounds?.low ?? 0;
   const high = settings.high ?? dataBounds?.high ?? 1;
   return { low, high };
+}
+
+/* True-colour reflectance: the bands b04/b03/b02 (Sentinel-2) or the
+   variables red/green/blue, as red, green and blue. */
+const TRUE_COLOUR_NAME_SETS: TRgbVariables[] = [
+  ["b04", "b03", "b02"],
+  ["red", "green", "blue"],
+];
+
+// A good default display range of reflectance, in place of the data range.
+export const RGB_TRUE_COLOUR_RANGE: TRgbBounds = { low: 0, high: 0.25 };
+
+/** The true-colour variables among `options` (any case), else undefined. */
+export function findTrueColourVariables(options: string[]) {
+  const byLowerName = new Map(
+    options.map((option) => [option.toLowerCase(), option])
+  );
+  for (const names of TRUE_COLOUR_NAME_SETS) {
+    const found = names.map((name) => byLowerName.get(name));
+    if (found.every((name) => name !== undefined)) {
+      return found as TRgbVariables;
+    }
+  }
+  return undefined;
+}
+
+/** Whether `variables` are exactly a true-colour set, in order. */
+export function isTrueColour(variables: TRgbVariables | undefined) {
+  return (
+    variables !== undefined &&
+    TRUE_COLOUR_NAME_SETS.some((names) =>
+      names.every((name, index) => variables[index].toLowerCase() === name)
+    )
+  );
+}
+
+/**
+ * The source drawn. A layer left on "One dimension" that has no band-like
+ * dimension but does have true-colour variables next to it is drawn from them.
+ */
+export function resolveRgbSource(
+  settings: TRgbSettings,
+  dimensionOptions: TRgbDimensionOption[],
+  variableOptions: string[]
+): TRgbSource {
+  if (
+    settings.source === RGB_SOURCES.DIMENSION &&
+    dimensionOptions.length === 0 &&
+    findTrueColourVariables(variableOptions)
+  ) {
+    return RGB_SOURCES.VARIABLES;
+  }
+  return settings.source;
 }

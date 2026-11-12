@@ -5,7 +5,13 @@ import {
   chooseRgbVariables,
   clampRgbChannels,
   createDefaultRgbSettings,
+  findTrueColourVariables,
   getRgbDimensionOptions,
+  isTrueColour,
+  resolveRgbSource,
+  RGB_GAMMA,
+  RGB_SOURCES,
+  RGB_TRUE_COLOUR_RANGE,
   getRgbVariableOptions,
   guessRgbVariables,
   interleaveRgba,
@@ -171,5 +177,59 @@ describe("RGB channel variables", () => {
     expect(resolveSiblingVariable("14/b04", "b03")).toBe("14/b03");
     expect(resolveSiblingVariable("a/r10m/b04", "b02")).toBe("a/r10m/b02");
     expect(resolveSiblingVariable("t2m", "u10")).toBe("u10");
+  });
+});
+
+describe("true-colour defaults", () => {
+  it("finds b04/b03/b02 in any case, else red/green/blue, never the first three", () => {
+    expect(findTrueColourVariables(["B02", "b03", "B04", "red"])).toEqual([
+      "B04",
+      "b03",
+      "B02",
+    ]);
+    expect(findTrueColourVariables(["blue", "green", "red"])).toEqual([
+      "red",
+      "green",
+      "blue",
+    ]);
+    expect(findTrueColourVariables(["a", "b", "c"])).toBeUndefined();
+  });
+
+  it("knows a true-colour set only in order", () => {
+    expect(isTrueColour(["B04", "b03", "b02"])).toBe(true);
+    expect(isTrueColour(["b03", "b04", "b02"])).toBe(false);
+    expect(isTrueColour(["t2m", "d2m", "sp"])).toBe(false);
+    expect(isTrueColour(undefined)).toBe(false);
+  });
+
+  it("has the range and gamma that look right", () => {
+    expect(RGB_TRUE_COLOUR_RANGE).toEqual({ low: 0, high: 0.25 });
+    expect(RGB_GAMMA.DEFAULT).toBe(1.3);
+    expect(createDefaultRgbSettings().gamma).toBe(1.3);
+  });
+
+  const band = { name: "band", index: 0, labels: ["a", "b", "c"] };
+  const settings = createDefaultRgbSettings();
+
+  it("draws true-colour variables when there is no band-like dimension", () => {
+    expect(resolveRgbSource(settings, [], ["b02", "b03", "b04"])).toBe(
+      RGB_SOURCES.VARIABLES
+    );
+  });
+
+  it("keeps the chosen source otherwise", () => {
+    expect(resolveRgbSource(settings, [band], ["b02", "b03", "b04"])).toBe(
+      RGB_SOURCES.DIMENSION
+    );
+    expect(resolveRgbSource(settings, [], ["t2m", "d2m", "sp"])).toBe(
+      RGB_SOURCES.DIMENSION
+    );
+    expect(
+      resolveRgbSource(
+        { ...settings, source: RGB_SOURCES.VARIABLES },
+        [band],
+        []
+      )
+    ).toBe(RGB_SOURCES.VARIABLES);
   });
 });
