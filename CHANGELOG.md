@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.9.0](https://github.com/d70-t/gridlook/compare/v1.8.1...v1.9.0) (2026-11-13)
+
+
+### Features
+
+* **lib:** start the colour range from the CF actual_range attribute ([436cbe6](https://github.com/d70-t/gridlook/commit/436cbe6ea8e40c304b831853ec707bc681b10020))
+* **lib:** start the colour range from the CF actual_range attribute ([392e7a2](https://github.com/d70-t/gridlook/commit/392e7a238590355b108b240b986f28e8ae79a64c))
+* **lib:** support for remote NetCDF-Files ([14a17cf](https://github.com/d70-t/gridlook/commit/14a17cf614c8c011e784ad84526031773af31f9f))
+* **ui:** add an RGB composite layer ([c5dae9a](https://github.com/d70-t/gridlook/commit/c5dae9a0b25cdab93d0bb772f03b332db733c257))
+* **ui:** add an RGB composite layer ([f53fcc2](https://github.com/d70-t/gridlook/commit/f53fcc2f7cccd2cb09bbb1e545d40440b5ddd8c7))
+* **ui:** advanced HTTP-Settings ([e9ced9d](https://github.com/d70-t/gridlook/commit/e9ced9d77385561ebed4d2e758911d90f6c19966))
+* **ui:** build the RGB composite from three variables ([fab8f1c](https://github.com/d70-t/gridlook/commit/fab8f1cc188f0d644f163498af108fbb378b001d))
+* **ui:** draw Sentinel-2 true colour by default in the RGB composite ([98073a9](https://github.com/d70-t/gridlook/commit/98073a956387951ec300e45b3f78cc7e00cbd7c0))
+
+
+### Bug Fixes
+
+* faster reset of Info Panel when switching datasets ([62432f1](https://github.com/d70-t/gridlook/commit/62432f1d6f870d53f77cbbabfca1319d041641d9))
+* **lib:** find xdggs `cell_ids` when no dggs coordinate is given ([5641993](https://github.com/d70-t/gridlook/commit/564199357157f6d377eddb4c94607afb589dd5cd))
+* **lib:** find xdggs cell_ids when no dggs coordinate is given ([8f30818](https://github.com/d70-t/gridlook/commit/8f3081828fd2e11ba99e6752dd34769ba511f26b))
+* **lib:** mesh dense HEALPix faces over their finite values only ([ad77dc8](https://github.com/d70-t/gridlook/commit/ad77dc815ca7e34773837b13da2c77009f2a1123))
+* **lib:** mesh dense HEALPix faces over their finite values only ([f462b64](https://github.com/d70-t/gridlook/commit/f462b646a96d8cd865e030f2536bbb74d28b5bbb))
+* **lib:** Prevent a NetCDF attribute named "name" from overwriting the real variable name ([a1691a1](https://github.com/d70-t/gridlook/commit/a1691a19142e1c35399319a3e1a295e8bd0477e7))
+* Presenter mode works with local datasets ([c2004c6](https://github.com/d70-t/gridlook/commit/c2004c6857e32a66fb79e611f2aa95055b6295a9))
+* render Gaussian reduced grids per fragment instead of per-cell quads ([864061c](https://github.com/d70-t/gridlook/commit/864061cdfe7428cb3b1b0381a98fe95b097af283))
+* **ui:** offer only band-like dimensions for the RGB layer ([86b43c1](https://github.com/d70-t/gridlook/commit/86b43c151f3c0409145dd3138ec5faf248b88c31))
+
 ## [1.8.1](https://github.com/d70-t/gridlook/compare/v1.8.0...v1.8.1) (2026-10-28)
 
 
