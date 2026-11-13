@@ -63,3 +63,70 @@ it("keeps basemap options, labels off by default", () => {
     "grid;mask,1,1,esri"
   );
 });
+
+it("keeps the RGB composite settings", () => {
+  const param = "rgb,1,0.9,band,3,2,1,0,0.3,1.5;coastlines;grid";
+  expect(formatLayersParam(parseLayersParam(param))).toBe(param);
+  expect(parseLayersParam(param)[0]).toEqual({
+    kind: "rgb",
+    visible: true,
+    opacity: 0.9,
+    settings: {
+      source: "dimension",
+      dimension: "band",
+      variables: undefined,
+      channels: [3, 2, 1],
+      low: 0,
+      high: 0.3,
+      gamma: 1.5,
+    },
+  });
+});
+
+it("keeps an RGB composite of three variables", () => {
+  const param = "rgb,1,1,@vars,b04,b03,b02,0,0.3;grid";
+  expect(formatLayersParam(parseLayersParam(param))).toBe(param);
+  expect(parseLayersParam(param)[0]).toMatchObject({
+    kind: "rgb",
+    settings: {
+      source: "variables",
+      dimension: undefined,
+      variables: ["b04", "b03", "b02"],
+      low: 0,
+      high: 0.3,
+    },
+  });
+  // an incomplete choice falls back to a guess from the names
+  expect(parseLayersParam("rgb,1,1,@vars,b04,,b02")[0]).toMatchObject({
+    settings: { source: "variables", variables: undefined },
+  });
+});
+
+it("falls back to the RGB defaults and drops them from the URL", () => {
+  expect(parseLayersParam("rgb;grid")[0]).toEqual({
+    kind: "rgb",
+    visible: true,
+    opacity: 1,
+    settings: {
+      source: "dimension",
+      dimension: undefined,
+      variables: undefined,
+      channels: [0, 1, 2],
+      low: undefined,
+      high: undefined,
+      gamma: 1.3,
+    },
+  });
+  expect(
+    formatLayersParam(parseLayersParam("rgb,1,1,band,-1,x,2,,0.3,9;grid"))
+  ).toBe("rgb,1,1,band,0,1,2,,0.3;grid");
+  expect(formatLayersParam(parseLayersParam("rgb,1,1,,0,1,2,,,1.3;grid"))).toBe(
+    "rgb;grid"
+  );
+});
+
+it("keeps a gamma of 1 that an older link asks for", () => {
+  expect(formatLayersParam(parseLayersParam("rgb,1,1,,0,1,2,,,1;grid"))).toBe(
+    "rgb,1,1,,0,1,2,,,1;grid"
+  );
+});

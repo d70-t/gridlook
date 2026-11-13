@@ -9,6 +9,13 @@ import {
 } from "./store.ts";
 
 import {
+  DEFAULT_RGB_CHANNELS,
+  RGB_GAMMA,
+  RGB_SOURCES,
+  type TRgbSettings,
+  type TRgbVariables,
+} from "@/lib/data/rgbComposite.ts";
+import {
   DEFAULT_BASEMAP,
   DEFAULT_BASEMAP_OPTIONS,
   type TBasemapOptions,
@@ -64,6 +71,12 @@ export type TLayerUrlEntry =
       opacity: number;
       provider: string;
       options: TBasemapOptions;
+    }
+  | {
+      kind: typeof LAYER_KINDS.RGB;
+      visible: boolean;
+      opacity: number;
+      settings: TRgbSettings;
     };
 
 function parseFlag(value: string | undefined, fallback: boolean) {
@@ -95,6 +108,52 @@ function parseOneOf<T extends string | number>(
   fallback: T
 ): T {
   return Object.values(allowed).includes(value as T) ? (value as T) : fallback;
+}
+
+function parseOptionalNumber(value: string | undefined) {
+  const number = Number(value);
+  return value && Number.isFinite(number) ? number : undefined;
+}
+
+function parseChannel(value: string | undefined, fallback: number) {
+  const channel = Number(value);
+  return value && Number.isInteger(channel) && channel >= 0
+    ? channel
+    : fallback;
+}
+
+// In place of a dimension name: red, green and blue are variable names.
+const RGB_VARIABLES_MARKER = "@vars";
+
+function parseRgbVariables(names: (string | undefined)[]) {
+  return names.every(Boolean) ? (names as TRgbVariables) : undefined;
+}
+
+// fields: dimension (or "@vars"), red, green, blue, low, high, gamma
+function parseRgbSettings(fields: string[]): TRgbSettings {
+  const [dimension, red, green, blue, low, high, gamma] = fields;
+  const parsedGamma = parseOptionalNumber(gamma);
+  const byVariables = dimension === RGB_VARIABLES_MARKER;
+  return {
+    source: byVariables ? RGB_SOURCES.VARIABLES : RGB_SOURCES.DIMENSION,
+    dimension: (!byVariables && dimension) || undefined,
+    variables: byVariables ? parseRgbVariables([red, green, blue]) : undefined,
+    channels: byVariables
+      ? [...DEFAULT_RGB_CHANNELS]
+      : [
+          parseChannel(red, DEFAULT_RGB_CHANNELS[0]),
+          parseChannel(green, DEFAULT_RGB_CHANNELS[1]),
+          parseChannel(blue, DEFAULT_RGB_CHANNELS[2]),
+        ],
+    low: parseOptionalNumber(low),
+    high: parseOptionalNumber(high),
+    gamma:
+      parsedGamma !== undefined &&
+      parsedGamma >= RGB_GAMMA.MIN &&
+      parsedGamma <= RGB_GAMMA.MAX
+        ? parsedGamma
+        : RGB_GAMMA.DEFAULT,
+  };
 }
 
 function parseVolumeSelections(fields: string[]): TVolumeSelection[] {
@@ -155,6 +214,13 @@ function parseLayer(kind: string, f: string[]): TLayerUrlEntry | undefined {
         opacity: parseOpacity(f[1], LAYER_OPACITY.MAX),
         selections: parseVolumeSelections(f.slice(2)),
       };
+    case LAYER_KINDS.RGB:
+      return {
+        kind,
+        visible,
+        opacity: parseOpacity(f[1], LAYER_OPACITY.MAX),
+        settings: parseRgbSettings(f.slice(2)),
+      };
     case LAYER_KINDS.BASEMAP:
       return {
         kind,
@@ -197,6 +263,17 @@ function formatOpacity(value: number) {
   return String(Number(value.toFixed(2)));
 }
 
+// fields: dimension (or "@vars"), red, green, blue
+function formatRgbChannels(settings: TRgbSettings) {
+  return settings.source === RGB_SOURCES.VARIABLES
+    ? [RGB_VARIABLES_MARKER, ...(settings.variables ?? ["", "", ""])]
+    : [settings.dimension ?? "", ...settings.channels.map(String)];
+}
+
+function formatOptionalNumber(value: number | undefined) {
+  return value === undefined ? "" : String(value);
+}
+
 function formatFields(entry: TLayerUrlEntry): string[] {
   switch (entry.kind) {
     case LAYER_KINDS.COASTLINES:
@@ -222,6 +299,15 @@ function formatFields(entry: TLayerUrlEntry): string[] {
           selection.color.replace(/^#/, "").toLowerCase(),
           formatOpacity(selection.opacity),
         ]),
+      ];
+    case LAYER_KINDS.RGB:
+      return [
+        formatFlag(entry.visible),
+        formatOpacity(entry.opacity),
+        ...formatRgbChannels(entry.settings),
+        formatOptionalNumber(entry.settings.low),
+        formatOptionalNumber(entry.settings.high),
+        String(entry.settings.gamma),
       ];
     case LAYER_KINDS.BASEMAP:
       return [
