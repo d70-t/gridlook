@@ -2,6 +2,7 @@ import { useDebounceFn } from "@vueuse/core";
 import { storeToRefs } from "pinia";
 import type * as THREE from "three";
 
+import { EARTH_RADIUS_METERS } from "@/lib/camera/cameraSettings.ts";
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 
 export type TCameraState = {
@@ -28,9 +29,7 @@ export type TGridCameraState = {
   ) => void;
 };
 
-// The renderer models Earth as a unit sphere. URL camera coordinates use the
-// IUGG mean Earth radius to expose that sphere in physical metres.
-export const EARTH_RADIUS_METERS = 6_371_008.8;
+export { EARTH_RADIUS_METERS };
 
 function formatCameraParam(value: number) {
   const rounded = Math.round(value);

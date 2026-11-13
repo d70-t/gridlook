@@ -8,6 +8,22 @@ import { splitXsrfToken, withXsrfToken } from "@/utils/xsrfToken.ts";
 
 const ICECHUNK_PREFIX = SOURCE_TYPE_PREFIX[ZARR_FORMAT.ICECHUNK];
 
+/**
+ * Chunk reads of one backing object (a virtual chunk's NetCDF file, say)
+ * that are issued together are merged into one range request when the gap
+ * between them is at most this many bytes. Zarrita's default of 32 KB only
+ * joins neighbouring chunks; a time step of a windowed level spans rows of
+ * chunks with larger gaps, so a megabyte is allowed between them. The cost
+ * is the gaps themselves: at worst, wanted chunks alternating with gaps of
+ * just under a megabyte, about twice the bytes. Only reads of one object
+ * merge; native chunks are objects of their own and never do. Nothing in
+ * gridlook passes an abort signal to a chunk read today; should one be
+ * added, zarrita merges the signals of a batch with AbortSignal.any (Chrome
+ * 116, Safari 17.4, Firefox 124 and later) and one aborted read aborts the
+ * merged request for the whole batch.
+ */
+const ICECHUNK_COALESCE_GAP_BYTES = 1 << 20;
+
 type TIcechunkStore = zarr.AsyncReadable & Pick<IcechunkStore, "listNodes">;
 
 function normalizeStorePath(store: string) {
@@ -70,7 +86,14 @@ export async function createIcechunkStore(
         ? { ...headers, "X-XSRFToken": decodeURIComponent(token) }
         : headers,
       credentials: withCredentials ? "include" : undefined,
-    })
+    }),
+    {
+      withRangeCoalescing: (store, options) =>
+        zarr.withRangeCoalescing(store, {
+          ...options,
+          coalesceSize: ICECHUNK_COALESCE_GAP_BYTES,
+        }),
+    }
   );
 }
 

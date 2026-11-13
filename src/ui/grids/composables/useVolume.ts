@@ -8,6 +8,7 @@ import {
 } from "vue";
 import type * as zarr from "zarrita";
 
+import { variableOnLevel } from "@/lib/data/levels.ts";
 import { getMax3DTextureSize, VolumeLayer } from "@/lib/layers/volumeLayer.ts";
 import type { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import type { TSources } from "@/lib/types/GlobeTypes.ts";
@@ -308,10 +309,13 @@ export function useVolume(options: TOptions) {
     return loadVolume();
   }
 
+  // A level switch renames the variables; the grid's new context loads them.
   watch(
     () =>
       `${store.isVolumeLayerEnabled()}:${store.volumeSelections
-        .map((selection) => selection.variable)
+        .map(({ variable }) =>
+          variableOnLevel(options.getDatasources()?.levels ?? [], variable, 0)
+        )
         .join("\u0000")}`,
     () => {
       updateAppearance();

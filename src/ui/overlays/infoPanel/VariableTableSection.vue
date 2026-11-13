@@ -3,7 +3,7 @@ import { computed, nextTick, ref } from "vue";
 import VueJsonPretty from "vue-json-pretty";
 import * as zarr from "zarrita";
 
-import type { TVariableTableRow } from "./types";
+import type { TVariableGroupInfo, TVariableTableRow } from "./types";
 
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 
@@ -24,11 +24,14 @@ const props = withDefaults(
     selectedVariable?: string | null;
     showVisualize?: boolean;
     searchQuery?: string;
+    // the groups that are levels of the dataset, by group name
+    groupInfo?: Record<string, TVariableGroupInfo>;
   }>(),
   {
     selectedVariable: null,
     showVisualize: false,
     searchQuery: "",
+    groupInfo: () => ({}),
   }
 );
 
@@ -230,8 +233,22 @@ function toggleGroup(groupName: string) {
               ></i>
             </span>
             <span class="group-name">{{ group.name }}</span>
+            <span
+              v-if="groupInfo[group.name]?.detail"
+              class="group-detail has-text-grey ml-2"
+            >
+              {{ groupInfo[group.name].detail }}
+            </span>
           </span>
-          <span class="tag is-rounded ml-2">{{ group.rows.length }}</span>
+          <span class="is-flex is-align-items-center is-flex-shrink-0">
+            <span
+              v-if="groupInfo[group.name]?.current"
+              class="tag is-info is-light ml-2"
+            >
+              current level
+            </span>
+            <span class="tag is-rounded ml-2">{{ group.rows.length }}</span>
+          </span>
         </button>
         <div
           v-if="!hasGroups || isGroupOpen(group.name)"
@@ -350,9 +367,11 @@ function toggleGroup(groupName: string) {
                               : 'is-light'
                           "
                           :aria-label="'Visualize ' + row.name"
-                          :title="'Visualize ' + row.name"
+                          :title="
+                            row.visualizeDisabled ?? 'Visualize ' + row.name
+                          "
                           type="button"
-                          :disabled="!!row.error"
+                          :disabled="!!row.error || !!row.visualizeDisabled"
                           @click="emit('visualize', row.name)"
                         >
                           <span class="icon is-small">
@@ -432,6 +451,12 @@ function toggleGroup(groupName: string) {
   .group-name {
     white-space: normal;
     word-break: break-word;
+  }
+
+  .group-detail {
+    white-space: normal;
+    font-weight: normal;
+    font-size: 0.8em;
   }
 }
 

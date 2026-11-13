@@ -25,6 +25,7 @@ vi.mock("@vueuse/core", async (importOriginal) => ({
 vi.mock("three", async (importOriginal) => ({
   ...(await importOriginal<typeof import("three")>()),
   WebGLRenderer: class {
+    constructor(readonly parameters: object) {}
     domElement = Object.assign(new EventTarget(), {
       ownerDocument: new EventTarget(),
       style: { touchAction: "" },
@@ -132,6 +133,12 @@ it("fits a fresh dataset after its default camera was saved during loading", asy
   scope.stop();
 });
 
+it("asks the renderer for the stencil buffer that masks a pyramid's backdrop", () => {
+  const { grid, scope } = setupRegionalScene();
+  expect(grid.getRenderer()).toMatchObject({ parameters: { stencil: true } });
+  scope.stop();
+});
+
 it.each([{ alt: "1000000" }, { lat: "0" }, { lon: "0" }, { flat: true }])(
   "preserves saved views and flat projections (%j)",
   (saved) => {
@@ -189,6 +196,40 @@ it("updates the distance scale with the picker disabled and clears it on mouse l
   expect(store.distanceScale).toBeNull();
   scope.stop();
 });
+
+it.each(Object.values(PROJECTION_TYPES))(
+  "publishes the ground scale below the camera on a %s view",
+  async (projection) => {
+    const { grid, scope, camera } = setupRegionalScene({ projection });
+    const store = useGlobeControlStore();
+    grid.canvas.value = {
+      getBoundingClientRect: () => ({
+        left: 0,
+        top: 0,
+        width: 800,
+        height: 600,
+      }),
+    } as HTMLCanvasElement;
+    camera.updateMatrixWorld();
+    // the scale is published at most every 200 ms
+    await vi.advanceTimersByTimeAsync(250);
+    grid.redraw();
+    const initial = store.metersPerPixel!;
+    expect(initial).toBeGreaterThan(0);
+    // halve the height above the surface: a pixel covers half the ground
+    const flat = projection !== PROJECTION_TYPES.NEARSIDE_PERSPECTIVE;
+    if (flat) {
+      camera.position.z /= 2;
+    } else {
+      camera.position.setLength(1 + (camera.position.length() - 1) / 2);
+    }
+    camera.updateMatrixWorld();
+    await vi.advanceTimersByTimeAsync(250);
+    grid.redraw();
+    expect(store.metersPerPixel! / initial).toBeCloseTo(0.5, 1);
+    scope.stop();
+  }
+);
 
 it.each(
   Object.values(PROJECTION_TYPES).filter(
@@ -272,9 +313,9 @@ it.each([
       await vi.advanceTimersByTimeAsync(1200);
       expect(useUrlParameterStore().paramCameraAlt).not.toBe(previousAltitude);
       expect(useUrlParameterStore().paramCameraAlt).toBe(
-        String(Math.round(0.001 * EARTH_RADIUS_METERS))
+        String(Math.round(0.0002 * EARTH_RADIUS_METERS))
       );
-      expect(camera.near).toBeCloseTo(0.0005);
+      expect(camera.near).toBeCloseTo(0.0001);
       const surfacePoint = camera.position.clone().normalize();
       camera.updateMatrixWorld();
       const surfaceDepth = surfacePoint.project(camera).z;

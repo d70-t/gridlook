@@ -94,12 +94,12 @@ function setupVolume(
       lat: 0,
       lon: 0,
     })
-  )
+  ),
+  datasources = {} as TSources
 ) {
   const scope = effectScope();
   scopes.push(scope);
   const scene = new Scene();
-  const datasources = {} as TSources;
   return scope.run(() =>
     useVolume({
       getDatasources: () => datasources,
@@ -268,4 +268,43 @@ it("loads regular volumes in a flat projection and reuses them when switching vi
   await nextTick();
   expect(load).toHaveBeenCalledOnce();
   expect(build).toHaveBeenCalledOnce();
+});
+
+it("waits for the new level's grid when a level switch renames the variables", async () => {
+  const store = useGlobeControlStore();
+  store.setVolumeSelections([
+    { variable: "0/water", color: "#ffffff", opacity: 1 },
+  ]);
+  const volume = setupVolume(undefined, {
+    levels: [{ path: "0" }, { path: "1" }],
+  } as TSources);
+  const regular = (size: number) => ({
+    dimensionNames: ["time", "lat", "lon"],
+    indices: [0, null, null],
+    grid: {
+      kind: VOLUME_GRID_TYPES.REGULAR,
+      latitudes: new Float32Array(size).map((_, index) => index),
+      longitudes: new Float32Array(size).map((_, index) => index),
+    },
+  });
+  const shape = (size: number) => [
+    { ...source, sourceCellCount: size * size, spatialShape: [size, size] },
+  ];
+  inspect.mockResolvedValue(shape(2));
+  volume.setContext(regular(2));
+  await vi.waitFor(() => expect(setData).toHaveBeenCalledOnce());
+
+  // followLevel renames the selection before the grid has the new level
+  inspect.mockResolvedValue(shape(4));
+  store.setVolumeSelections([
+    { variable: "1/water", color: "#ffffff", opacity: 1 },
+  ]);
+  await nextTick();
+  await Promise.resolve();
+  expect(inspect).toHaveBeenCalledOnce();
+
+  volume.setContext(regular(4));
+  await vi.waitFor(() => expect(setData).toHaveBeenCalledTimes(2));
+  expect(inspect.mock.calls[1][1]).toEqual(["1/water"]);
+  expect(logError).not.toHaveBeenCalled();
 });

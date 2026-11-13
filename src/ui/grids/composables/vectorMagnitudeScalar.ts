@@ -43,5 +43,7 @@ export function createVectorMagnitudeVarInfo(
     attrs,
     derivedFrom: pair ? { u: pair.u, v: pair.v } : undefined,
     bounds: { low: scalar.min, high: scalar.max },
+    // the magnitude's own range, never the coarsest level's
+    rangeOrigin: undefined,
   };
 }

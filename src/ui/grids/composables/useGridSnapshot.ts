@@ -238,7 +238,10 @@ export function useGridSnapshot(deps: UseGridSnapshotOptions) {
 
     // All shaders output display (sRGB) colors themselves; an sRGB target would
     // encode them again and brighten the snapshot. See AGENTS.md.
-    const rt = new THREE.WebGLRenderTarget(width, height);
+    // The stencil masks a pyramid's backdrop, as on the canvas.
+    const rt = new THREE.WebGLRenderTarget(width, height, {
+      stencilBuffer: true,
+    });
     const origVisible = baseSurface ? baseSurface.visible : true;
     const mat = baseSurface?.material as THREE.MeshBasicMaterial | undefined;
     const origColor = mat ? mat.color.getHex() : null;
