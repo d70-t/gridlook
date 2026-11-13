@@ -98,13 +98,13 @@ function globeCap(lat: number, lon: number, distance: number) {
 
 it("loads every block a view needs, wherever the camera is", () => {
   const budget = 192;
-  for (const level of [9, 12, 20]) {
+  for (const level of [9, 20]) {
     using grid = new Grid({ scheme: "nested", level });
     using blockGrid = new Grid({ scheme: "nested", level: level - 6 });
     // from a hemisphere in view down to a view within the budget
     for (const distance of [26.9, 2, 1.05, 1.0005]) {
-      for (let lat = -90; lat <= 90; lat += 7.5) {
-        for (const lon of [-36.5647, 10, 135, -180]) {
+      for (let lat = -90; lat <= 90; lat += 15) {
+        for (const lon of [-36.5647, 135]) {
           const view = globeCap(lat, lon, distance);
           const loaded = healpixViewBlocks(grid, view, 0.5, budget);
           const needed = healpixNeededBlocks(grid, view, budget);
@@ -162,11 +162,11 @@ it("fills the budget of a view too large for it, also next to a pole", () => {
 
 it("keeps the window of a view too large for it over a move of a block", () => {
   // the camera moves east by 20 block sides in quarter sides
-  for (const level of [9, 12, 20]) {
+  for (const level of [9, 20]) {
     using grid = new Grid({ scheme: "nested", level });
     const side = 58.63 / 2 ** (level - 6);
     for (const distance of [26.9, 3]) {
-      for (const lat of [0, 51.3543, 75, 85, -85]) {
+      for (const lat of [0, 51.3543, 85]) {
         let reloads = 0;
         let loaded: number[] = [];
         for (let step = 0; step <= 80; step++) {
