@@ -61,10 +61,12 @@
     "qrcode": "^1.5.4",
     "quick-lru": "^7.3.0",
     "three": "^0.187.0",
+    "topojson-client": "3.1.0",
     "vue": "^3.5.46",
     "vue-json-pretty": "^2.6.0",
     "vue-router": "^5.5.1",
     "vue3-select-component": "^1.0.1",
+    "world-atlas": "2.0.2",
     "zarrita": "^0.7.6"
   },
   "devDependencies": {
@@ -78,6 +80,7 @@
     "@types/node": "~24",
     "@types/qrcode": "^1.5.6",
     "@types/three": "0.187.0",
+    "@types/topojson-client": "3.1.5",
     "@vitejs/plugin-vue": "^6.0.11",
     "@vue/tsconfig": "0.9.1",
     "eslint": "^9.39.4",
