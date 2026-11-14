@@ -13,10 +13,12 @@ import { isRemoteNetCDFSource } from "./localNetCDF.ts";
 import { getLocalZarrStore, isLocalZarrSource } from "./localZarr.ts";
 import { withMetadataJsonCheck } from "./metadataJson.ts";
 import type { NetCDFArray, NetCDFGroup, TNetCDFBackend } from "./netCDF.ts";
+import { checkedRange } from "./rangeResponse.ts";
 import {
   createReferenceStore,
   isReferenceStorePath,
 } from "./referenceStore.ts";
+import { storeRequests } from "./requestGate.ts";
 
 import {
   ZARR_FORMAT,
@@ -87,7 +89,14 @@ export class ZarrDataManager {
     return dataset.replace(/^\/+/, "").replace(/\/+$/, "");
   }
 
-  public static async createNewStore(storePath: string, isIcechunk = false) {
+  // eslint-disable-next-line max-lines-per-function
+  public static async createNewStore(
+    storePath: string,
+    isIcechunk = false,
+    // Plots keep their own decoded-chunk cache, which a live publication
+    // updates; a byte cache under it would serve the old bytes again.
+    { byteCache = true }: { byteCache?: boolean } = {}
+  ) {
     if (isLocalZarrSource(storePath)) {
       const localStore = getLocalZarrStore(storePath);
       if (!localStore) {
@@ -99,6 +108,9 @@ export class ZarrDataManager {
       const localCache = new QuickLRU<string, Uint8Array | undefined>({
         maxSize: 512,
       });
+      if (!byteCache) {
+        return zarr.extendStore(localStore, withMetadataJsonCheck);
+      }
       return zarr.extendStore(localStore, withMetadataJsonCheck, (s) =>
         zarr.withByteCaching(s, { cache: localCache })
       );
@@ -107,13 +119,13 @@ export class ZarrDataManager {
     const parsed = parseStorePath(storePath);
     let store: zarr.AsyncReadable | undefined = undefined;
     if (isReferenceStorePath(storePath)) {
-      store = await createReferenceStore(storePath);
+      store = await createReferenceStore(storePath, { fresh: !byteCache });
     } else if (
       isIcechunk ||
       parsed.backend === "icechunk" ||
       isIcechunkStorePath(storePath)
     ) {
-      store = await createIcechunkStore(storePath);
+      store = await createIcechunkStore(storePath, { fresh: !byteCache });
     } else {
       store = new zarr.FetchStore(parsed.url, {
         useSuffixRequest: true,
@@ -123,10 +135,15 @@ export class ZarrDataManager {
           for (const [name, value] of Object.entries(headers)) {
             request.headers.set(name, value);
           }
-          return fetch(
-            request,
-            withCredentials ? { credentials: "include" } : undefined
-          );
+          const response = storeRequests.fetch(request, {
+            ...(withCredentials ? { credentials: "include" } : {}),
+            // Without a byte cache, skip the browser's too: a read of a file
+            // that another reader is also reading would otherwise wait for
+            // that reader's whole queue on the file's cache entry (a plot
+            // of a GEFS point waited two minutes behind the map's reads).
+            ...(byteCache ? {} : { cache: "no-store" as const }),
+          });
+          return checkedRange(request, response);
         },
       });
     }
@@ -134,6 +151,11 @@ export class ZarrDataManager {
     const cache = new QuickLRU<string, Uint8Array | undefined>({
       maxSize: 512,
     });
+    if (!byteCache) {
+      return zarr.extendStore(store, withMetadataJsonCheck, (s) =>
+        zarr.withRangeCoalescing(s, { coalesceSize: 32768 })
+      );
+    }
     const fetchStore = zarr.extendStore(
       store,
       withMetadataJsonCheck,

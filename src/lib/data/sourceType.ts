@@ -21,6 +21,15 @@ export function splitSourceType(src: string): {
   return { format: undefined, url: src };
 }
 
+/**
+ * A store's address with a dataset path inside it: one slash between them,
+ * whatever either has.
+ */
+export function storePath(store: string, dataset?: string) {
+  const inside = (dataset ?? "").replace(/^\/+/, "");
+  return inside ? `${store.replace(/\/+$/, "")}/${inside}` : store;
+}
+
 export function withSourceType(src: string, format: TZarrFormat | undefined) {
   const { url } = splitSourceType(src);
   return format === undefined ? url : SOURCE_TYPE_PREFIX[format] + url;

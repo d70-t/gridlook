@@ -139,3 +139,65 @@ describe("createReferenceStore", () => {
     ]);
   });
 });
+
+function referenceFetch(manifest: string) {
+  let offset = 10;
+  const requests: Request[] = [];
+  vi.stubGlobal(
+    "fetch",
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      requests.push(request);
+      if (request.url === manifest) {
+        const data = spec();
+        data.refs["g/x/c/1"] = ["https://example.org/values", offset, 2];
+        return Response.json(data);
+      }
+      const match = /bytes=(\d+)-/.exec(request.headers.get("range") ?? "");
+      const start = Number(match?.[1]);
+      return new Response(new Uint8Array([start, start + 1]), { status: 206 });
+    }
+  );
+  return {
+    requests,
+    publish() {
+      offset = 40;
+    },
+  };
+}
+
+async function readReferenceChunk(url: string) {
+  const { openZarrAnalysisDataset } =
+    await import("@/lib/analysis/sourceAdapter.ts");
+  const { ZARR_FORMAT } = await import("@/lib/types/GlobeTypes.ts");
+  const dataset = await openZarrAnalysisDataset(
+    { store: "reference+" + url, dataset: "g" },
+    ZARR_FORMAT.V3
+  );
+  const array = await dataset.openArray("x");
+  return (await array.readChunk([1])).data;
+}
+
+it("bypasses the browser cache for a plot range read through a reference manifest", async () => {
+  const url = "https://example.org/cache-test/refs.json";
+  const fixture = referenceFetch(url);
+  expect(Array.from((await readReferenceChunk(url)) as Uint8Array)).toEqual([
+    10, 11,
+  ]);
+  const chunkRequests = fixture.requests.filter((r) => r.headers.has("range"));
+  expect(chunkRequests).toHaveLength(1);
+  expect(chunkRequests[0].cache).toBe("no-store");
+});
+
+it("follows a republished reference manifest when reopening its source", async () => {
+  const url = "https://example.org/reopened-data/refs.json";
+  const fixture = referenceFetch(url);
+  expect(Array.from((await readReferenceChunk(url)) as Uint8Array)).toEqual([
+    10, 11,
+  ]);
+  fixture.publish();
+  const current = Array.from((await readReferenceChunk(url)) as Uint8Array);
+  const fresh = await fetch(url).then((r) => r.json());
+  expect(fresh.refs["g/x/c/1"][1]).toBe(40);
+  expect(current).toEqual([40, 41]);
+});
