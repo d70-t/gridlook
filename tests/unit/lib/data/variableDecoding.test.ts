@@ -6,6 +6,7 @@ import {
   decodeVariableDataAndGetBounds,
   getDefaultRange,
   getDefaultRangeFromAttributes,
+  getFillValue,
 } from "@/lib/data/variableDecoding.ts";
 
 it("converts signed and unsigned 64-bit arrays to renderable values", () => {
@@ -108,4 +109,28 @@ it("prefers the index's default_range over the variable's attributes", () => {
   });
   expect(getDefaultRange({ attrs: { units: "K" } })).toBeUndefined();
   expect(getDefaultRange(undefined)).toBeUndefined();
+});
+
+function arrayWith(fillValue: unknown, attrs: Record<string, unknown> = {}) {
+  return { fillValue, attrs } as unknown as zarr.Array<
+    zarr.DataType,
+    zarr.AsyncReadable
+  >;
+}
+
+it("takes a fill value of 0 when no attribute names another one", () => {
+  expect(getFillValue(arrayWith(0))).toBe(0);
+});
+
+it("lets a _FillValue attribute win over a fill value of 0", () => {
+  expect(getFillValue(arrayWith(0, { _FillValue: -9999 }))).toBe(-9999);
+});
+
+it("keeps NaN when there is neither a fill value nor an attribute", () => {
+  expect(getFillValue(arrayWith(undefined))).toBeNaN();
+  expect(getFillValue(arrayWith(null))).toBeNaN();
+});
+
+it("keeps a non-zero fill value of the array first", () => {
+  expect(getFillValue(arrayWith(-1, { _FillValue: -9999 }))).toBe(-1);
 });
