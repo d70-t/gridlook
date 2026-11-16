@@ -10,9 +10,16 @@ import { useIrregularStreamlines } from "./composables/useIrregularStreamlines.t
 import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
-import { getLatLonData } from "@/lib/data/coordinateVariables.ts";
+import {
+  findCoordinateTimeDimensions,
+  getLatLonData,
+} from "@/lib/data/coordinateVariables.ts";
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
-import { reconcileCoordinates } from "@/lib/data/irregularGridHelpers.ts";
+import {
+  getDimensionIndices,
+  reconcileCoordinates,
+  selectChunkIndices,
+} from "@/lib/data/irregularGridHelpers.ts";
 import {
   castDataVarToFloat32,
   decodeVariableDataAndGetBounds,
@@ -244,11 +251,20 @@ async function buildDimensionConfig(
     props.datasources!,
     varnameSelector.value
   );
+  const latitudeDimensions = latitudesAttrs.dimensionNames as string[];
+  const longitudeDimensions = longitudesAttrs!.dimensionNames as string[];
+  // Coordinates moving over time get a slider and are sliced at its step.
+  const timeDimensions = await findCoordinateTimeDimensions(
+    props.datasources!,
+    varnameSelector.value,
+    dimensions,
+    [...latitudeDimensions, ...longitudeDimensions]
+  );
   const geographicDimensions = getGeographicDimensionIndices(
     dimensions,
     latitudesAttrs,
     longitudesAttrs!
-  );
+  ).filter((index) => !timeDimensions.includes(dimensions[index]));
   const config = buildDimensionRangesAndIndices(
     datavar,
     dimensions,
@@ -259,9 +275,19 @@ async function buildDimensionConfig(
     geographicDimensions,
     varinfo.value?.dimRanges
   );
+  const timeIndices = getDimensionIndices(
+    timeDimensions,
+    dimensions,
+    config.indices
+  );
   return {
-    latitudes,
-    longitudes: longitudes!,
+    latitudes: selectChunkIndices(latitudes, latitudeDimensions, timeIndices),
+    longitudes: selectChunkIndices(
+      longitudes!,
+      longitudeDimensions,
+      timeIndices
+    ),
+    hasMovingCoordinates: timeDimensions.length > 0,
     dimensions,
     geographicDimensions,
     ...config,
@@ -301,6 +327,7 @@ async function fetchAndRenderData(
   const {
     latitudes,
     longitudes,
+    hasMovingCoordinates,
     dimensionRanges,
     indices,
     dimensions,
@@ -325,7 +352,9 @@ async function fetchAndRenderData(
       longitudeShape: [...longitudes.shape],
       data: rawData,
       batchSize: BATCH_SIZE,
-      forceGeometryRebuild: meshes.length === 0,
+      // The worker reuses its triangulation while the point count is
+      // unchanged; moving coordinates keep the count but change positions.
+      forceGeometryRebuild: meshes.length === 0 || hasMovingCoordinates,
     },
     {
       onMetadata: (metadata) => {

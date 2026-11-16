@@ -22,7 +22,9 @@ import { useStreamlineLayer } from "./composables/useStreamlineLayer.ts";
 import { useVolume } from "./composables/useVolume.ts";
 
 import {
+  DEFAULT_ANCHOR_CRS,
   getCRSWkt,
+  hasLengthUnitCoordinates,
   hasTrailingProjectedXYDimensions,
   isLatitudeName,
   isLongitudeName,
@@ -79,6 +81,7 @@ import {
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 import { useLog } from "@/ui/common/useLog.ts";
+import { ToastType, useToast } from "@/ui/common/useToast.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -87,6 +90,7 @@ const props = defineProps<{
 
 const store = useGlobeControlStore();
 const { logError } = useLog();
+const { addToast } = useToast();
 const { dimSlidersValues, colormap, varnameSelector, invertColormap, varinfo } =
   storeToRefs(store);
 
@@ -221,6 +225,28 @@ function getDimensionData(
   );
 }
 
+// Projected x/y in metres without a CRS (e.g. idealized LES) have no location
+// on Earth. x/y in other units keep being drawn as degrees.
+async function getDefaultAnchorCRS(dimensions: string[]) {
+  if (
+    !isProjectedGrid.value ||
+    !(await hasLengthUnitCoordinates(
+      props.datasources!,
+      varnameSelector.value,
+      dimensions.slice(-2)
+    ))
+  ) {
+    return null;
+  }
+  addToast("Dataset is not georeferenced", {
+    detail:
+      "Its x/y grid has no map projection, so it is drawn true to scale starting at 0°N 0°E. Its position on the globe has no meaning.",
+    duration: 8000,
+    type: ToastType.WARNING,
+  });
+  return DEFAULT_ANCHOR_CRS;
+}
+
 async function getDims() {
   const dimensions = await ZarrDataManager.getDimensionNames(
     props.datasources!,
@@ -252,12 +278,13 @@ async function getDims() {
     latitudes.value = latitudesData.data as Float32Array;
     longitudes.value = Float32Array.from({ length: 360 }, (_, i) => i - 179.5);
   } else {
-    const [{ x, y }, crs] = await Promise.all([
+    const [{ x, y }, crsWkt] = await Promise.all([
       loadGridAxes(props.datasources!, varnameSelector.value, dimensions),
       isProjectedXY || props.isRotated
         ? getCRSWkt(props.datasources!, varnameSelector.value)
         : null,
     ]);
+    const crs = crsWkt ?? (await getDefaultAnchorCRS(dimensions));
     if (props.isRotated && !crs) {
       throw new Error("Rotated grids need valid pole coordinates.");
     }

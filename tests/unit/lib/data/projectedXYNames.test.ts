@@ -1,6 +1,11 @@
+import proj4 from "proj4";
 import { beforeEach, expect, it, vi } from "vitest";
 
-import { findProjectedXYNames } from "@/lib/data/coordinateVariables.ts";
+import {
+  DEFAULT_ANCHOR_CRS,
+  findProjectedXYNames,
+  hasLengthUnitCoordinates,
+} from "@/lib/data/coordinateVariables.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { ZARR_FORMAT, type TSources } from "@/lib/types/GlobeTypes.ts";
 
@@ -12,7 +17,9 @@ vi.mock("@/lib/data/ZarrDataManager.ts", () => ({
 }));
 
 const AttributeName = {
+  AXIS: "axis",
   STANDARD_NAME: "standard_name",
+  UNITS: "units",
   ZARR_FORMAT: "zarr_format",
 } as const;
 
@@ -76,6 +83,55 @@ it("does not match a dimension named like the standard_name without the attribut
       ProjectionStandardName.X,
     ])
   ).resolves.toBeNull();
+});
+
+it("recognizes x/y by axis with a length unit (MESO-NH ni/nj)", async () => {
+  mockCoordinateAttrs({
+    nj: { [AttributeName.AXIS]: "Y", [AttributeName.UNITS]: "m" },
+    ni: { [AttributeName.AXIS]: "X", [AttributeName.UNITS]: "m" },
+  });
+
+  await expect(
+    findProjectedXYNames(SOURCES, "TEMP", ["time", "level", "nj", "ni"])
+  ).resolves.toEqual({ xName: "ni", yName: "nj" });
+});
+
+it("does not take geographic axes for projected x/y", async () => {
+  mockCoordinateAttrs({
+    lat: { [AttributeName.AXIS]: "Y", [AttributeName.UNITS]: "degrees_north" },
+    lon: { [AttributeName.AXIS]: "X", [AttributeName.UNITS]: "degrees_east" },
+  });
+
+  await expect(
+    findProjectedXYNames(SOURCES, "TEMP", ["lat", "lon"])
+  ).resolves.toBeNull();
+});
+
+it("anchors only x/y in metres, not x/y in degrees", async () => {
+  mockCoordinateAttrs({
+    nj: { [AttributeName.UNITS]: "m" },
+    ni: { [AttributeName.UNITS]: "m" },
+    y: { [AttributeName.UNITS]: "degrees_north" },
+    x: { [AttributeName.UNITS]: "degrees_east" },
+  });
+
+  await expect(
+    hasLengthUnitCoordinates(SOURCES, "TEMP", ["nj", "ni"])
+  ).resolves.toBe(true);
+  await expect(
+    hasLengthUnitCoordinates(SOURCES, "TEMP", ["y", "x"])
+  ).resolves.toBe(false);
+});
+
+it("draws the default anchor true to scale from 0°N 0°E", () => {
+  const transform = proj4(DEFAULT_ANCHOR_CRS, "EPSG:4326");
+
+  expect(transform.forward([0, 0])).toEqual([0, 0]);
+  // 300 km along the equator / a meridian is about 2.7 degrees.
+  const [lon] = transform.forward([300000, 0]);
+  const [, lat] = transform.forward([0, 300000]);
+  expect(lon).toBeCloseTo(2.695, 3);
+  expect(lat).toBeCloseTo(2.713, 3);
 });
 
 it("still recognizes x/y by name without coordinate variables", async () => {

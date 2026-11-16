@@ -33,6 +33,63 @@ function expandCoordinatesToMeshgrid(
   return { latitudes, longitudes };
 }
 
+/** Selected index of each named dimension, e.g. { time: 3 }. */
+export function getDimensionIndices(
+  names: string[],
+  dimensions: string[],
+  indices: (number | null | zarr.Slice)[]
+): Record<string, number> {
+  return Object.fromEntries(
+    names.map((name) => [name, indices[dimensions.indexOf(name)] as number])
+  );
+}
+
+/**
+ * Fix some dimensions of a C-ordered chunk to single indices, e.g. the time
+ * step of latitude(time, ny). Dimensions not in `fixedIndices` are kept.
+ */
+export function selectChunkIndices(
+  chunk: zarr.Chunk<zarr.DataType>,
+  dimensionNames: string[],
+  fixedIndices: Record<string, number>
+): zarr.Chunk<zarr.DataType> {
+  const kept: number[] = [];
+  let offset = 0;
+  for (let i = 0; i < dimensionNames.length; i++) {
+    if (dimensionNames[i] in fixedIndices) {
+      offset += fixedIndices[dimensionNames[i]] * chunk.stride[i];
+    } else {
+      kept.push(i);
+    }
+  }
+  if (kept.length === dimensionNames.length) {
+    return chunk;
+  }
+  const shape = kept.map((i) => chunk.shape[i]);
+  const source = chunk.data as Float32Array;
+  let size = 1;
+  for (const length of shape) {
+    size *= length;
+  }
+  const data = new Float32Array(size);
+  for (let index = 0; index < size; index++) {
+    let remainder = index;
+    let sourceIndex = offset;
+    for (let k = kept.length - 1; k >= 0; k--) {
+      sourceIndex += (remainder % shape[k]) * chunk.stride[kept[k]];
+      remainder = Math.floor(remainder / shape[k]);
+    }
+    data[index] = source[sourceIndex];
+  }
+  const stride = new Array<number>(shape.length);
+  let strideValue = 1;
+  for (let k = shape.length - 1; k >= 0; k--) {
+    stride[k] = strideValue;
+    strideValue *= shape[k];
+  }
+  return { data, shape, stride } as zarr.Chunk<zarr.DataType>;
+}
+
 /**
  * Reconcile coordinate arrays with data array, handling various cases:
  * 1. All same length: use as-is

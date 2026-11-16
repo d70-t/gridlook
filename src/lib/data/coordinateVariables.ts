@@ -1,6 +1,7 @@
 import proj4 from "proj4";
 import * as zarr from "zarrita";
 
+import { isTimeCoordinate } from "./timeHandling.ts";
 import {
   castDataVarToFloat32,
   decodeVariableChunkInPlace,
@@ -21,6 +22,32 @@ const ProjectedCoordinateStandardName = {
   X: "projection_x_coordinate",
   Y: "projection_y_coordinate",
 } as const;
+
+type TProjectedCoordinateStandardName =
+  (typeof ProjectedCoordinateStandardName)[keyof typeof ProjectedCoordinateStandardName];
+
+const ProjectedCoordinateAxis = {
+  X: "X",
+  Y: "Y",
+} as const;
+
+type TProjectedCoordinateAxis =
+  (typeof ProjectedCoordinateAxis)[keyof typeof ProjectedCoordinateAxis];
+
+// Geographic axes carry axis X/Y too, so an axis only counts as projected
+// with a length unit.
+const LengthUnit = {
+  M: "m",
+  KM: "km",
+  METER: "meter",
+  METERS: "meters",
+  METRE: "metre",
+  METRES: "metres",
+} as const;
+
+// Idealized domains (e.g. LES) have Cartesian x/y without any georeference.
+// They are drawn true to scale with their x/y origin at 0°N 0°E.
+export const DEFAULT_ANCHOR_CRS = "+proj=aeqd +lat_0=0 +lon_0=0 +datum=WGS84";
 
 const CrsWktAttributeName = {
   CRS_WKT: "crs_wkt",
@@ -237,16 +264,15 @@ export function projectXYGridToLonLat(
   };
 }
 
-// Projected x/y dimensions, recognized by their name or by the CF
-// standard_name of their coordinate variable. Null if either is missing.
-export async function findProjectedXYNames(
+// Attributes of each dimension's coordinate variable.
+async function getDimensionCoordinateAttrs(
   datasources: TSources,
   variable: string,
   dimensions: string[]
 ) {
   const level = datasources.levels[0];
-  const standardNames = await Promise.all(
-    dimensions.map(async (name) => {
+  return await Promise.all(
+    dimensions.map(async (name): Promise<zarr.Attributes> => {
       const path = ZarrDataManager.resolveVariablePath(variable, name);
       try {
         const coordinate = await ZarrDataManager.getVariableInfo(
@@ -254,24 +280,95 @@ export async function findProjectedXYNames(
           path,
           datasources.zarr_format
         );
-        return coordinate.attrs.standard_name;
+        return coordinate.attrs;
       } catch {
-        // Dimensions without a coordinate variable have no standard_name.
-        return undefined;
+        // Dimensions without a coordinate variable have no attributes.
+        return {};
       }
     })
+  );
+}
+
+function isProjectedCoordinate(
+  attrs: zarr.Attributes,
+  standardName: TProjectedCoordinateStandardName,
+  axis: TProjectedCoordinateAxis
+) {
+  return (
+    attrs.standard_name === standardName ||
+    (attrs.axis === axis &&
+      (Object.values(LengthUnit) as unknown[]).includes(attrs.units))
+  );
+}
+
+// Projected x/y dimensions, recognized by their name or by the CF
+// standard_name or axis (with a length unit) of their coordinate variable.
+// Null if either is missing.
+export async function findProjectedXYNames(
+  datasources: TSources,
+  variable: string,
+  dimensions: string[]
+) {
+  const attrs = await getDimensionCoordinateAttrs(
+    datasources,
+    variable,
+    dimensions
   );
   const xName = dimensions.find(
     (name, i) =>
       isProjectedXName(name) ||
-      standardNames[i] === ProjectedCoordinateStandardName.X
+      isProjectedCoordinate(
+        attrs[i],
+        ProjectedCoordinateStandardName.X,
+        ProjectedCoordinateAxis.X
+      )
   );
   const yName = dimensions.find(
     (name, i) =>
       isProjectedYName(name) ||
-      standardNames[i] === ProjectedCoordinateStandardName.Y
+      isProjectedCoordinate(
+        attrs[i],
+        ProjectedCoordinateStandardName.Y,
+        ProjectedCoordinateAxis.Y
+      )
   );
   return xName && yName ? { xName, yName } : null;
+}
+
+// True if all given dimensions have coordinate variables in a length unit,
+// i.e. x/y in metres rather than degrees.
+export async function hasLengthUnitCoordinates(
+  datasources: TSources,
+  variable: string,
+  dimensions: string[]
+) {
+  const attrs = await getDimensionCoordinateAttrs(
+    datasources,
+    variable,
+    dimensions
+  );
+  return attrs.every((value) =>
+    (Object.values(LengthUnit) as unknown[]).includes(value.units)
+  );
+}
+
+// Time dimensions of the data variable that its lat/lon coordinates also
+// depend on, e.g. a box moving with a storm: latitude(time, ny).
+export async function findCoordinateTimeDimensions(
+  datasources: TSources,
+  variable: string,
+  dataDimensions: string[],
+  coordinateDimensions: string[]
+) {
+  const candidates = [...new Set(coordinateDimensions)].filter((name) =>
+    dataDimensions.includes(name)
+  );
+  const attrs = await getDimensionCoordinateAttrs(
+    datasources,
+    variable,
+    candidates
+  );
+  return candidates.filter((name, i) => isTimeCoordinate(name, attrs[i]));
 }
 
 export async function hasTrailingProjectedXYDimensions(
