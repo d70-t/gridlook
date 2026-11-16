@@ -1,26 +1,24 @@
 import { beforeEach, expect, it, vi } from "vitest";
 
 import {
+  findProjectedXYNames,
   getCRSWkt,
   getLatLonData,
   isLatitudeName,
   isLongitudeName,
   isPolarStereographicCRS,
-  isProjectedXName,
-  isProjectedYName,
 } from "@/lib/data/coordinateVariables.ts";
 import { getGridType, GRID_TYPES } from "@/lib/data/gridTypeDetector.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { ZARR_FORMAT, type TSources } from "@/lib/types/GlobeTypes.ts";
 
 vi.mock("@/lib/data/coordinateVariables.ts", () => ({
+  findProjectedXYNames: vi.fn(),
   getCRSWkt: vi.fn(),
   getLatLonData: vi.fn(),
   isLatitudeName: vi.fn(),
   isLongitudeName: vi.fn(),
-  isProjectedXName: vi.fn(),
   isPolarStereographicCRS: vi.fn(),
-  isProjectedYName: vi.fn(),
 }));
 
 vi.mock("@/lib/data/ZarrDataManager.ts", () => ({
@@ -153,12 +151,7 @@ beforeEach(() => {
   vi.mocked(isLongitudeName).mockImplementation((name) =>
     ["lon", "longitude", "rlon"].includes(getLocalName(name))
   );
-  vi.mocked(isProjectedXName).mockImplementation(
-    (name) => getLocalName(name) === "x"
-  );
-  vi.mocked(isProjectedYName).mockImplementation(
-    (name) => getLocalName(name) === "y"
-  );
+  vi.mocked(findProjectedXYNames).mockResolvedValue(null);
   vi.mocked(isPolarStereographicCRS).mockImplementation((crsWkt) =>
     crsWkt.toLowerCase().includes("polar stereographic")
   );
@@ -277,6 +270,7 @@ it.each([
 ])("returns %s projected x/y fallback", async (crsWkt, expectedGridType) => {
   const sources = createSources(["y", "x"]);
   mockDataVariable();
+  vi.mocked(findProjectedXYNames).mockResolvedValue({ xName: "x", yName: "y" });
   vi.mocked(getCRSWkt).mockResolvedValue(crsWkt);
 
   await expect(detectGridType(sources)).resolves.toBe(expectedGridType);

@@ -14,8 +14,7 @@ import { useVolume } from "./composables/useVolume.ts";
 import {
   getLatLonData,
   getProjectedXYLonLatData,
-  isProjectedXName,
-  isProjectedYName,
+  hasTrailingProjectedXYDimensions,
 } from "@/lib/data/coordinateVariables.ts";
 import { downsampleDataTexture } from "@/lib/data/dataTexture.ts";
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
@@ -183,17 +182,6 @@ const { datasourceUpdate } = useGridDataLoader({
 
 const MAX_GEO_RESOLUTION = 512;
 
-function hasTrailingProjectedXYDimensions(dimensionNames: string[]) {
-  if (dimensionNames.length < 2) {
-    return false;
-  }
-  const lastDimension = dimensionNames[dimensionNames.length - 1];
-  const secondLastDimension = dimensionNames[dimensionNames.length - 2];
-  return (
-    isProjectedXName(lastDimension) && isProjectedYName(secondLastDimension)
-  );
-}
-
 async function getCurvilinearCoordinates(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   dimensionNames: string[]
@@ -205,7 +193,13 @@ async function getCurvilinearCoordinates(
       props.datasources
     );
   } catch (error) {
-    if (hasTrailingProjectedXYDimensions(dimensionNames)) {
+    if (
+      await hasTrailingProjectedXYDimensions(
+        props.datasources!,
+        varnameSelector.value,
+        dimensionNames
+      )
+    ) {
       return await getProjectedXYLonLatData(
         varnameSelector.value,
         datavar,

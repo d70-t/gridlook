@@ -1,13 +1,12 @@
 import * as zarr from "zarrita";
 
 import {
+  findProjectedXYNames,
   getCRSWkt,
   getLatLonData,
   isLatitudeName,
   isLongitudeName,
   isPolarStereographicCRS,
-  isProjectedXName,
-  isProjectedYName,
 } from "./coordinateVariables.ts";
 import { getTriangularMesh } from "./triangularMesh.ts";
 import { ZarrDataManager } from "./ZarrDataManager.ts";
@@ -138,20 +137,13 @@ async function checkRegularGridFromDimensions(
 }
 
 // Check if grid uses projected x/y coordinates (e.g. EPSG:3857 with spatial_ref)
-function checkProjectedXYDimensions(dimensions: string[]): boolean {
-  return dimensions.some(isProjectedXName) && dimensions.some(isProjectedYName);
-}
-
 async function determineProjectedXYGridType(
-  datasources: TSources | undefined,
+  datasources: TSources,
   variable: string,
   dimensions: string[]
 ): Promise<T_GRID_TYPES | null> {
-  if (!checkProjectedXYDimensions(dimensions)) {
+  if (!(await findProjectedXYNames(datasources, variable, dimensions))) {
     return null;
-  }
-  if (!datasources) {
-    return GRID_TYPES.REGULAR;
   }
 
   // Other projections reuse the regular renderer's coarse mesh + data texture

@@ -23,10 +23,9 @@ import { useVolume } from "./composables/useVolume.ts";
 
 import {
   getCRSWkt,
+  hasTrailingProjectedXYDimensions,
   isLatitudeName,
   isLongitudeName,
-  isProjectedXName,
-  isProjectedYName,
   isWebMercatorCRS,
   loadGridAxes,
   projectedAxisCoordinatesToLonLat,
@@ -232,8 +231,11 @@ async function getDims() {
   const lastDim = dimensions[dimensions.length - 1];
   const secondLastDim = dimensions[dimensions.length - 2];
 
-  const isProjectedXY =
-    isProjectedXName(lastDim) && isProjectedYName(secondLastDim);
+  const isProjectedXY = await hasTrailingProjectedXYDimensions(
+    props.datasources!,
+    varnameSelector.value,
+    dimensions
+  );
   isProjectedGrid.value = isProjectedXY;
 
   const latOnlyCheck =

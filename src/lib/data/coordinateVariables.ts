@@ -17,6 +17,11 @@ const ProjectedCoordinateName = {
   Y: "y",
 } as const;
 
+const ProjectedCoordinateStandardName = {
+  X: "projection_x_coordinate",
+  Y: "projection_y_coordinate",
+} as const;
+
 const CrsWktAttributeName = {
   CRS_WKT: "crs_wkt",
   PROJ4_PARAMS: "proj4_params",
@@ -131,8 +136,35 @@ export function getRotatedPoleCRS(attrs: zarr.Attributes) {
   return `+proj=ob_tran +o_proj=longlat +o_lat_p=${latitude} +o_lon_p=${gridLongitude} +lon_0=${longitude + 180} +datum=WGS84`;
 }
 
+export function getLambertAzimuthalEqualAreaCRS(attrs: zarr.Attributes) {
+  if (attrs.grid_mapping_name !== "lambert_azimuthal_equal_area") {
+    return undefined;
+  }
+  const latitude = Number(attrs.latitude_of_projection_origin ?? NaN);
+  const longitude = Number(attrs.longitude_of_projection_origin ?? NaN);
+  const falseEasting = Number(attrs.false_easting ?? 0);
+  const falseNorthing = Number(attrs.false_northing ?? 0);
+  if (
+    ![latitude, longitude, falseEasting, falseNorthing].every(
+      Number.isFinite
+    ) ||
+    Math.abs(latitude) > 90
+  ) {
+    return undefined;
+  }
+  // ponytail: ignores the CF earth shape attributes (semi_major_axis,
+  // inverse_flattening, earth_radius) and assumes WGS84. Map them to
+  // +a/+rf/+R once a dataset needs a different ellipsoid.
+  return `+proj=laea +lat_0=${latitude} +lon_0=${longitude} +x_0=${falseEasting} +y_0=${falseNorthing} +datum=WGS84`;
+}
+
 export function getCRSFromAttrs(attrs: zarr.Attributes) {
-  return getWktFromAttrs(attrs) ?? getRotatedPoleCRS(attrs) ?? null;
+  return (
+    getWktFromAttrs(attrs) ??
+    getRotatedPoleCRS(attrs) ??
+    getLambertAzimuthalEqualAreaCRS(attrs) ??
+    null
+  );
 }
 
 async function getGroupCRSWkt(datasources: TSources, variable: string) {
@@ -205,13 +237,57 @@ export function projectXYGridToLonLat(
   };
 }
 
-function getProjectedXYNames(dimensionNames: string[]) {
-  const xName = dimensionNames.find(isProjectedXName);
-  const yName = dimensionNames.find(isProjectedYName);
-  if (!xName || !yName) {
-    throw new Error("Projected x/y dimensions not found");
+// Projected x/y dimensions, recognized by their name or by the CF
+// standard_name of their coordinate variable. Null if either is missing.
+export async function findProjectedXYNames(
+  datasources: TSources,
+  variable: string,
+  dimensions: string[]
+) {
+  const level = datasources.levels[0];
+  const standardNames = await Promise.all(
+    dimensions.map(async (name) => {
+      const path = ZarrDataManager.resolveVariablePath(variable, name);
+      try {
+        const coordinate = await ZarrDataManager.getVariableInfo(
+          level.datasources[path] ?? level.grid,
+          path,
+          datasources.zarr_format
+        );
+        return coordinate.attrs.standard_name;
+      } catch {
+        // Dimensions without a coordinate variable have no standard_name.
+        return undefined;
+      }
+    })
+  );
+  const xName = dimensions.find(
+    (name, i) =>
+      isProjectedXName(name) ||
+      standardNames[i] === ProjectedCoordinateStandardName.X
+  );
+  const yName = dimensions.find(
+    (name, i) =>
+      isProjectedYName(name) ||
+      standardNames[i] === ProjectedCoordinateStandardName.Y
+  );
+  return xName && yName ? { xName, yName } : null;
+}
+
+export async function hasTrailingProjectedXYDimensions(
+  datasources: TSources,
+  variable: string,
+  dimensions: string[]
+) {
+  if (dimensions.length < 2) {
+    return false;
   }
-  return { xName, yName };
+  const [yName, xName] = dimensions.slice(-2);
+  const names = await findProjectedXYNames(datasources, variable, [
+    yName,
+    xName,
+  ]);
+  return names?.xName === xName && names.yName === yName;
 }
 
 export async function loadGridAxes(
@@ -247,7 +323,15 @@ export async function getProjectedXYLonLatData(
   datasources: TSources | undefined,
   dimensionNames = datavar.dimensionNames ?? []
 ) {
-  const { xName, yName } = getProjectedXYNames(dimensionNames);
+  const names = await findProjectedXYNames(
+    datasources!,
+    variable,
+    dimensionNames
+  );
+  if (!names) {
+    throw new Error("Projected x/y dimensions not found");
+  }
+  const { xName, yName } = names;
   const [{ x, y }, crsWkt] = await Promise.all([
     loadGridAxes(datasources!, variable, [yName, xName]),
     getCRSWkt(datasources!, variable),
