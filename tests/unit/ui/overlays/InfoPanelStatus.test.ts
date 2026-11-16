@@ -49,6 +49,10 @@ const variable = {
 } as unknown as Awaited<ReturnType<typeof ZarrDataManager.getVariableInfo>>;
 
 type TPanelState = {
+  currentVarname: Ref<string>;
+  groupAttrs: Ref<Record<string, unknown> | null>;
+  variableLongName: Ref<string | null>;
+  variableUnits: Ref<string | null>;
   timeInfo: Ref<TTimeInfo | null>;
   noTimeCoordinate: Ref<boolean>;
   variableDtype: Ref<string | null>;
@@ -315,5 +319,45 @@ it("places source notices in Overview before the Browse content", async () => {
   ]) {
     expect(html.indexOf(notice)).toBeGreaterThan(-1);
     expect(html.indexOf(notice)).toBeLessThan(browse);
+  }
+});
+
+it("describes a variable that failed to render by its own attributes", async () => {
+  // A failed render never updates varnameDisplay or varinfo.
+  vi.mocked(ZarrDataManager.getVariableInfo).mockImplementation(
+    async (_source, name) =>
+      name === "tas"
+        ? ({
+            ...variable,
+            attrs: { ["long_name"]: "Air temperature", units: "K" },
+          } as unknown as typeof variable)
+        : variable
+  );
+  const { state, scope } = setupPanel();
+  try {
+    await vi.waitFor(() =>
+      expect(state.variableLongName.value).toBe("Air temperature")
+    );
+    expect(state.variableUnits.value).toBe("K");
+    expect(state.currentVarname.value).toBe("tas");
+  } finally {
+    scope.stop();
+  }
+});
+
+it("loads the dataset attributes without a displayable variable", async () => {
+  useGlobeControlStore().varnameSelector = "-";
+  vi.mocked(ZarrDataManager.getGroup).mockResolvedValue({
+    attrs: { title: "Katrina" },
+  } as unknown as Awaited<ReturnType<typeof ZarrDataManager.getGroup>>);
+  const { state, scope } = setupPanel();
+  try {
+    await vi.waitFor(() =>
+      expect(state.groupAttrs.value).toEqual({ title: "Katrina" })
+    );
+    expect(ZarrDataManager.getGroup).toHaveBeenCalledWith(source, "");
+    expect(ZarrDataManager.getVariableInfo).not.toHaveBeenCalled();
+  } finally {
+    scope.stop();
   }
 });
