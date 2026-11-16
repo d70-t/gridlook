@@ -53,6 +53,11 @@ export function getFillValue(
   if (hasNonNullAttribute(attributes, "_fillvalue")) {
     return new Float32Array([Number(attributes._fillvalue)])[0];
   }
+  // A fill value of 0 is falsy, so it is only taken once no attribute
+  // names another fill value.
+  if (datavar.fillValue === 0) {
+    return 0;
+  }
   return NaN;
 }
 
