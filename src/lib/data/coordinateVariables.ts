@@ -963,6 +963,30 @@ export async function getIrregularLatLonData(
   return { ...coordinates, timeDimensions };
 }
 
+/**
+ * Cells without a position become NaN, e.g. CLM ocean columns with
+ * lat = lon = 1e36. Only the CF attributes count: an array's own fill value
+ * is often 0 and would mask the equator and the prime meridian.
+ */
+function maskCoordinateFillValues(
+  chunk: zarr.Chunk<zarr.DataType> | null,
+  attrs: zarr.Attributes | undefined
+) {
+  const fillValues = [attrs?._FillValue, attrs?.missing_value]
+    .filter((value) => value !== undefined && value !== null)
+    .map((value) => Math.fround(Number(value)));
+  if (!chunk || fillValues.length === 0) {
+    return;
+  }
+  const values = castDataVarToFloat32(chunk.data);
+  for (let i = 0; i < values.length; i++) {
+    if (fillValues.includes(values[i])) {
+      values[i] = NaN;
+    }
+  }
+  chunk.data = values;
+}
+
 async function getGeographicLatLonData(
   variable: string,
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
@@ -1002,6 +1026,8 @@ async function getGeographicLatLonData(
     longitudes,
   };
 
+  maskCoordinateFillValues(returnObject.latitudes, latitudesVar.attrs);
+  maskCoordinateFillValues(returnObject.longitudes, longitudesVar?.attrs);
   decodeVariableChunkInPlace(
     returnObject.latitudes,
     returnObject.latitudesAttrs

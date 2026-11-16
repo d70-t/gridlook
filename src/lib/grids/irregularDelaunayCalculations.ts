@@ -39,6 +39,10 @@ function createExtendedPointSet(
   for (let index = 0; index < latitudes.length; index++) {
     const longitude = longitudes[index];
     const latitude = latitudes[index];
+    // Cells without a position (NaN) would break the triangulation.
+    if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
+      continue;
+    }
     points.push([longitude, latitude]);
     indexMap.push(index);
     if (longitude < -wrapThreshold) {

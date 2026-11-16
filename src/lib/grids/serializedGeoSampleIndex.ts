@@ -22,7 +22,10 @@ export function createSerializedGeoSampleIndex(
         index,
         ProjectionHelper.normalizeLongitude(lon),
         Math.max(-90, Math.min(90, lat)),
-        1
+        1,
+        Infinity,
+        // Samples without a position, see buildSerializedGeoSampleIndexData.
+        (id: number) => Number.isFinite(data.latitudes[id])
       )[0];
       if (nearest === undefined) {
         return null;
