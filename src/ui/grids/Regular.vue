@@ -25,6 +25,7 @@ import {
   DEFAULT_ANCHOR_CRS,
   getCRSWkt,
   hasLengthUnitCoordinates,
+  hasRotatedLatLonMismatch,
   hasTrailingProjectedXYDimensions,
   isLatitudeName,
   isLongitudeName,
@@ -198,6 +199,7 @@ const { datasourceUpdate } = useGridDataLoader({
   clearHoverLookup,
   prepareDatasource: async () => {
     await getDims();
+    void warnIfRotatedLatLonMismatch();
     await makeGeometry();
   },
   updateColormap: () => updateColormap(meshes),
@@ -223,6 +225,30 @@ function getDimensionData(
     grid,
     ZarrDataManager.resolveVariablePath(varnameSelector.value, dimensionName)
   );
+}
+
+// Not awaited: the check reads the 2-D lat/lon and must not delay rendering.
+async function warnIfRotatedLatLonMismatch() {
+  const grid = projectedGrid;
+  if (
+    !props.isRotated ||
+    !grid ||
+    !(await hasRotatedLatLonMismatch(
+      props.datasources!,
+      varnameSelector.value,
+      grid.x,
+      grid.y,
+      grid.crs
+    ))
+  ) {
+    return;
+  }
+  addToast("Rotated pole and lat/lon disagree", {
+    detail:
+      "The dataset's rotated pole places the grid somewhere else than its own lat/lon coordinates. This grid follows the rotated pole; the irregular grids follow lat/lon.",
+    duration: 10000,
+    type: ToastType.WARNING,
+  });
 }
 
 // Projected x/y in metres without a CRS (e.g. idealized LES) have no location

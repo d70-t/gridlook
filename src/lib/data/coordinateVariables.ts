@@ -75,6 +75,14 @@ export function isPolarStereographicCRS(crsWkt: string): boolean {
   }
 }
 
+function isRotatedPoleCRS(crsWkt: string): boolean {
+  try {
+    return new proj4.Proj(crsWkt).names.includes("ob_tran");
+  } catch {
+    return false;
+  }
+}
+
 export function isProjectedXName(name: string): boolean {
   return getVariableLocalName(name) === ProjectedCoordinateName.X;
 }
@@ -433,6 +441,18 @@ export async function getProjectedXYLonLatData(
     loadGridAxes(datasources!, variable, [yName, xName]),
     getCRSWkt(datasources!, variable),
   ]);
+  return gridAxesToLonLatData(x, y, yName, xName, crsWkt);
+}
+
+// One lat/lon pair per cell of a (y, x) grid with 1-D axes, reprojected
+// with the CRS (or taken as-is without one).
+function gridAxesToLonLatData(
+  x: Float32Array,
+  y: Float32Array,
+  yName: string,
+  xName: string,
+  crsWkt: string | null
+) {
   const { latitudes, longitudes } = projectXYGridToLonLat(x, y, crsWkt);
   const geographicDimensionNames = [yName, xName];
 
@@ -757,6 +777,190 @@ export async function getLatLonData(
     }
     return points;
   }
+}
+
+/**
+ * True if a rotated grid's own 2-D lat/lon disagree with its rotated pole by
+ * more than one grid cell, i.e. the file contradicts itself (e.g. iris
+ * small_rotPole_precipitation.nc). False without 2-D lat/lon or on any error:
+ * this only feeds a warning.
+ */
+export async function hasRotatedLatLonMismatch(
+  datasources: TSources,
+  variable: string,
+  rlon: Float32Array,
+  rlat: Float32Array,
+  crsWkt: string
+) {
+  try {
+    const datavar = await ZarrDataManager.getVariableInfoByDatasetSources(
+      datasources,
+      variable
+    );
+    // ponytail: reads the full 2-D lat/lon to compare five cells; read only
+    // those cells if this gets slow for large grids.
+    const { latitudes, longitudes } = await getLatLonData(
+      variable,
+      datavar,
+      datasources
+    );
+    const [ny, nx] = latitudes.shape;
+    if (
+      !longitudes ||
+      latitudes.shape.length !== 2 ||
+      ny !== rlat.length ||
+      nx !== rlon.length ||
+      ny < 2 ||
+      nx < 2
+    ) {
+      return false;
+    }
+    const transform = proj4(crsWkt, WGS84);
+    const tolerance = Math.hypot(rlat[1] - rlat[0], rlon[1] - rlon[0]);
+    const cells = [
+      [0, 0],
+      [0, nx - 1],
+      [ny - 1, 0],
+      [ny - 1, nx - 1],
+      [ny >> 1, nx >> 1],
+    ];
+    const latData = latitudes.data as ArrayLike<number>;
+    const lonData = longitudes.data as ArrayLike<number>;
+    return cells.some(([j, i]) => {
+      const [lon, lat] = transform.forward([rlon[i], rlat[j]]);
+      return (
+        getLonLatDistance(lonData[j * nx + i], latData[j * nx + i], lon, lat) >
+        tolerance
+      );
+    });
+  } catch {
+    return false;
+  }
+}
+
+// Approximate distance in degrees, enough to tell matching positions apart
+// from mismatching ones.
+function getLonLatDistance(
+  lon1: number,
+  lat1: number,
+  lon2: number,
+  lat2: number
+) {
+  const deltaLon = ((((lon1 - lon2) % 360) + 540) % 360) - 180;
+  return Math.hypot(lat1 - lat2, deltaLon * Math.cos((lat1 * Math.PI) / 180));
+}
+
+// Grids without lat/lon variables whose last two dimensions are 1-D axes of
+// a CRS, e.g. rotated-pole grid_latitude/grid_longitude or Lambert x/y.
+async function getReprojectedAxesLonLatData(
+  variable: string,
+  datasources: TSources
+) {
+  const dimensions = await ZarrDataManager.getDimensionNames(
+    datasources,
+    variable
+  );
+  const crsWkt = await getCRSWkt(datasources, variable);
+  if (dimensions.length < 2 || !crsWkt) {
+    return null;
+  }
+  const [yName, xName] = dimensions.slice(-2);
+  const [yAttrs, xAttrs] = await getDimensionCoordinateAttrs(
+    datasources,
+    variable,
+    [yName, xName]
+  );
+  // ponytail: only the CF order (..., y, x). Axes that say otherwise, e.g.
+  // surface_altitude(grid_longitude, grid_latitude), are rejected instead of
+  // transposed; transpose the lat/lon arrays if such data needs to work.
+  if (
+    (yAttrs.axis ?? ProjectedCoordinateAxis.Y) !== ProjectedCoordinateAxis.Y ||
+    (xAttrs.axis ?? ProjectedCoordinateAxis.X) !== ProjectedCoordinateAxis.X
+  ) {
+    return null;
+  }
+  const { x, y } = await loadGridAxes(datasources, variable, [yName, xName]);
+  return gridAxesToLonLatData(x, y, yName, xName, crsWkt);
+}
+
+type TLatLonData = Awaited<ReturnType<typeof getLatLonData>>;
+
+// Two separate 1-D lat/lon axes on a rotated-pole grid are the rotated axes
+// (e.g. rlat/rlon found via the dimension names), not geographic coordinates.
+async function isRotatedAxesLatLon(
+  coordinates: TLatLonData,
+  datasources: TSources,
+  variable: string
+) {
+  const [latitudeDimension] = coordinates.latitudesAttrs.dimensionNames ?? [];
+  const [longitudeDimension] =
+    coordinates.longitudesAttrs?.dimensionNames ?? [];
+  if (
+    coordinates.latitudes.shape.length !== 1 ||
+    coordinates.longitudes?.shape.length !== 1 ||
+    latitudeDimension === longitudeDimension
+  ) {
+    return false;
+  }
+  const crsWkt = await getCRSWkt(datasources, variable);
+  return crsWkt !== null && isRotatedPoleCRS(crsWkt);
+}
+
+async function getLatLonOrReprojectedAxesData(
+  variable: string,
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
+  datasources: TSources | undefined
+) {
+  let coordinates: TLatLonData;
+  try {
+    coordinates = await getLatLonData(variable, datavar, datasources);
+  } catch (error) {
+    const cells = await getReprojectedAxesLonLatData(
+      variable,
+      datasources!
+    ).catch(() => null);
+    if (!cells) {
+      throw error;
+    }
+    return cells;
+  }
+  if (await isRotatedAxesLatLon(coordinates, datasources!, variable)) {
+    // Keeps the rotated axes if they cannot be reprojected, e.g. (x, y) order.
+    const cells = await getReprojectedAxesLonLatData(
+      variable,
+      datasources!
+    ).catch(() => null);
+    return cells ?? coordinates;
+  }
+  return coordinates;
+}
+
+/**
+ * Lat/lon for the irregular grids: like getLatLonData, but grids with a CRS
+ * and only 1-D axes get one reprojected lat/lon pair per cell. Grid detection
+ * keeps using getLatLonData, which would otherwise call such grids
+ * curvilinear. Also returns the time dimensions the coordinates move along
+ * (see selectCoordinateTimeStep).
+ */
+export async function getIrregularLatLonData(
+  variable: string,
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
+  datasources: TSources | undefined
+) {
+  const [coordinates, dimensions] = await Promise.all([
+    getLatLonOrReprojectedAxesData(variable, datavar, datasources),
+    ZarrDataManager.getDimensionNames(datasources!, variable),
+  ]);
+  const timeDimensions = await findCoordinateTimeDimensions(
+    datasources!,
+    variable,
+    dimensions,
+    [
+      ...(coordinates.latitudesAttrs.dimensionNames as string[]),
+      ...(coordinates.longitudesAttrs!.dimensionNames as string[]),
+    ]
+  );
+  return { ...coordinates, timeDimensions };
 }
 
 async function getGeographicLatLonData(

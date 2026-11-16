@@ -34,7 +34,7 @@ function expandCoordinatesToMeshgrid(
 }
 
 /** Selected index of each named dimension, e.g. { time: 3 }. */
-export function getDimensionIndices(
+function getDimensionIndices(
   names: string[],
   dimensions: string[],
   indices: (number | null | zarr.Slice)[]
@@ -88,6 +88,40 @@ export function selectChunkIndices(
     strideValue *= shape[k];
   }
   return { data, shape, stride } as zarr.Chunk<zarr.DataType>;
+}
+
+/**
+ * Slice lat/lon that move over time (e.g. latitude(time, ny)) at the time
+ * step selected for the data variable.
+ */
+export function selectCoordinateTimeStep(
+  coordinates: {
+    latitudes: zarr.Chunk<zarr.DataType>;
+    longitudes: zarr.Chunk<zarr.DataType> | null;
+    latitudesAttrs: zarr.Attributes;
+    longitudesAttrs: zarr.Attributes | null;
+    timeDimensions: string[];
+  },
+  dimensions: string[],
+  indices: (number | null | zarr.Slice)[]
+) {
+  const timeIndices = getDimensionIndices(
+    coordinates.timeDimensions,
+    dimensions,
+    indices
+  );
+  return {
+    latitudes: selectChunkIndices(
+      coordinates.latitudes,
+      coordinates.latitudesAttrs.dimensionNames as string[],
+      timeIndices
+    ),
+    longitudes: selectChunkIndices(
+      coordinates.longitudes!,
+      coordinates.longitudesAttrs!.dimensionNames as string[],
+      timeIndices
+    ),
+  };
 }
 
 /**
