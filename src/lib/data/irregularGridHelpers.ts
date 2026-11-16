@@ -53,6 +53,10 @@ export function selectChunkIndices(
   dimensionNames: string[],
   fixedIndices: Record<string, number>
 ): zarr.Chunk<zarr.DataType> {
+  // Also covers coordinates without dimension names.
+  if (Object.keys(fixedIndices).length === 0) {
+    return chunk;
+  }
   const kept: number[] = [];
   let offset = 0;
   for (let i = 0; i < dimensionNames.length; i++) {

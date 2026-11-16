@@ -1,6 +1,7 @@
 import { beforeEach, expect, it, vi } from "vitest";
 
 import {
+  findCoordinateTimeDimensions,
   findProjectedXYNames,
   getCRSWkt,
   getLatLonData,
@@ -13,6 +14,7 @@ import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { ZARR_FORMAT, type TSources } from "@/lib/types/GlobeTypes.ts";
 
 vi.mock("@/lib/data/coordinateVariables.ts", () => ({
+  findCoordinateTimeDimensions: vi.fn(),
   findProjectedXYNames: vi.fn(),
   getCRSWkt: vi.fn(),
   getLatLonData: vi.fn(),
@@ -151,6 +153,7 @@ beforeEach(() => {
   vi.mocked(isLongitudeName).mockImplementation((name) =>
     ["lon", "longitude", "rlon"].includes(getLocalName(name))
   );
+  vi.mocked(findCoordinateTimeDimensions).mockResolvedValue([]);
   vi.mocked(findProjectedXYNames).mockResolvedValue(null);
   vi.mocked(isPolarStereographicCRS).mockImplementation((crsWkt) =>
     crsWkt.toLowerCase().includes("polar stereographic")
@@ -275,4 +278,23 @@ it.each([
 
   await expect(detectGridType(sources)).resolves.toBe(expectedGridType);
   expect(getCRSWkt).toHaveBeenCalledWith(sources, TEST_VARIABLE);
+});
+
+it("returns curvilinear for 2-D lat/lon with a time dimension (WRF Mercator)", async () => {
+  const sources = createSources(["Time", "south_north", "west_east"]);
+  mockDataVariable();
+  const wrfDimensions = ["Time", "south_north", "west_east"];
+  // Mercator rows share a latitude, which used to look Gaussian reduced.
+  vi.mocked(getLatLonData).mockResolvedValue({
+    latitudesAttrs: { dimensionNames: wrfDimensions },
+    latitudes: createChunk(
+      new Float64Array([21.6, 21.6, 21.7, 21.7]),
+      [1, 2, 2]
+    ),
+    longitudesAttrs: { dimensionNames: wrfDimensions },
+    longitudes: createChunk(new Float64Array([-95, -94, -95, -94]), [1, 2, 2]),
+  } as Awaited<ReturnType<typeof getLatLonData>>);
+  vi.mocked(findCoordinateTimeDimensions).mockResolvedValue(["Time"]);
+
+  await expect(detectGridType(sources)).resolves.toBe(GRID_TYPES.CURVILINEAR);
 });
