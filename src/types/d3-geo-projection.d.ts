@@ -1,5 +1,11 @@
 declare module "d3-geo-projection" {
   import { GeoProjection } from "d3-geo";
+  import type { MultiPolygon, Polygon } from "geojson";
+
+  export function geoProject(
+    object: Polygon | MultiPolygon,
+    projection: import("d3-geo").GeoProjection
+  ): Polygon | MultiPolygon | null;
 
   export function geoWinkel3(): GeoProjection;
   export function geoAitoff(): GeoProjection;
