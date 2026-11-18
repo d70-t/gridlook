@@ -171,7 +171,7 @@ export function getRotatedPoleCRS(attrs: zarr.Attributes) {
   return `+proj=ob_tran +o_proj=longlat +o_lat_p=${latitude} +o_lon_p=${gridLongitude} +lon_0=${longitude + 180} +datum=WGS84`;
 }
 
-export function getLambertAzimuthalEqualAreaCRS(attrs: zarr.Attributes) {
+function getLambertAzimuthalEqualAreaCRS(attrs: zarr.Attributes) {
   if (attrs.grid_mapping_name !== "lambert_azimuthal_equal_area") {
     return undefined;
   }
@@ -211,7 +211,7 @@ function getEarthShape(attrs: zarr.Attributes) {
     : `+R=${semiMajor}`;
 }
 
-export function getPolarStereographicCRS(attrs: zarr.Attributes) {
+function getPolarStereographicCRS(attrs: zarr.Attributes) {
   if (attrs.grid_mapping_name !== "polar_stereographic") {
     return undefined;
   }
