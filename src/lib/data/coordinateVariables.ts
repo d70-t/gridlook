@@ -187,10 +187,53 @@ export function getLambertAzimuthalEqualAreaCRS(attrs: zarr.Attributes) {
   ) {
     return undefined;
   }
-  // ponytail: ignores the CF earth shape attributes (semi_major_axis,
-  // inverse_flattening, earth_radius) and assumes WGS84. Map them to
-  // +a/+rf/+R once a dataset needs a different ellipsoid.
-  return `+proj=laea +lat_0=${latitude} +lon_0=${longitude} +x_0=${falseEasting} +y_0=${falseNorthing} +datum=WGS84`;
+  return `+proj=laea +lat_0=${latitude} +lon_0=${longitude} +x_0=${falseEasting} +y_0=${falseNorthing} ${getEarthShape(attrs)}`;
+}
+
+// CF earth shape attributes as PROJ parameters, WGS84 without any.
+function getEarthShape(attrs: zarr.Attributes) {
+  const radius = Number(attrs.earth_radius ?? NaN);
+  const semiMajor = Number(attrs.semi_major_axis ?? NaN);
+  const semiMinor = Number(attrs.semi_minor_axis ?? NaN);
+  const inverseFlattening = Number(attrs.inverse_flattening ?? NaN);
+  if (Number.isFinite(radius)) {
+    return `+R=${radius}`;
+  }
+  if (!Number.isFinite(semiMajor)) {
+    return "+datum=WGS84";
+  }
+  if (Number.isFinite(semiMinor)) {
+    return `+a=${semiMajor} +b=${semiMinor}`;
+  }
+  // CF: a semi-major axis alone or an inverse flattening of 0 is a sphere.
+  return Number.isFinite(inverseFlattening) && inverseFlattening !== 0
+    ? `+a=${semiMajor} +rf=${inverseFlattening}`
+    : `+R=${semiMajor}`;
+}
+
+export function getPolarStereographicCRS(attrs: zarr.Attributes) {
+  if (attrs.grid_mapping_name !== "polar_stereographic") {
+    return undefined;
+  }
+  const latitude = Number(attrs.latitude_of_projection_origin ?? NaN);
+  const longitude = Number(attrs.straight_vertical_longitude_from_pole ?? NaN);
+  const standardParallel = Number(attrs.standard_parallel ?? NaN);
+  const scaleFactor = Number(attrs.scale_factor_at_projection_origin ?? 1);
+  const falseEasting = Number(attrs.false_easting ?? 0);
+  const falseNorthing = Number(attrs.false_northing ?? 0);
+  if (
+    Math.abs(latitude) !== 90 ||
+    ![longitude, scaleFactor, falseEasting, falseNorthing].every(
+      Number.isFinite
+    )
+  ) {
+    return undefined;
+  }
+  // CF gives the true scale either as a standard parallel or as a scale factor.
+  const scale = Number.isFinite(standardParallel)
+    ? `+lat_ts=${standardParallel}`
+    : `+k_0=${scaleFactor}`;
+  return `+proj=stere +lat_0=${latitude} +lon_0=${longitude} ${scale} +x_0=${falseEasting} +y_0=${falseNorthing} ${getEarthShape(attrs)}`;
 }
 
 export function getCRSFromAttrs(attrs: zarr.Attributes) {
@@ -198,6 +241,7 @@ export function getCRSFromAttrs(attrs: zarr.Attributes) {
     getWktFromAttrs(attrs) ??
     getRotatedPoleCRS(attrs) ??
     getLambertAzimuthalEqualAreaCRS(attrs) ??
+    getPolarStereographicCRS(attrs) ??
     null
   );
 }
