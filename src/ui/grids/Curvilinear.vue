@@ -12,13 +12,14 @@ import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 import { useVolume } from "./composables/useVolume.ts";
 
 import {
+  findCoordinateTimeDimensions,
   getLatLonData,
   getProjectedXYLonLatData,
-  isProjectedXName,
-  isProjectedYName,
+  hasTrailingProjectedXYDimensions,
 } from "@/lib/data/coordinateVariables.ts";
 import { downsampleDataTexture } from "@/lib/data/dataTexture.ts";
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
+import { selectCoordinateTimeStep } from "@/lib/data/irregularGridHelpers.ts";
 import {
   castDataVarToFloat32,
   decodeVariableDataAndGetBounds,
@@ -70,6 +71,10 @@ const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
 type TCurvilinearGridState = {
   grid: TCurvilinearGrid;
   hoverIndexData: Promise<TCurvilinearHoverIndexData>;
+  // Time dimensions of lat/lon (e.g. WRF's XLAT(Time, ...)) and the step the
+  // grid was built for.
+  timeDimensions: string[];
+  stepKey: string;
 };
 
 let meshes: THREE.Mesh[] = [];
@@ -183,17 +188,6 @@ const { datasourceUpdate } = useGridDataLoader({
 
 const MAX_GEO_RESOLUTION = 512;
 
-function hasTrailingProjectedXYDimensions(dimensionNames: string[]) {
-  if (dimensionNames.length < 2) {
-    return false;
-  }
-  const lastDimension = dimensionNames[dimensionNames.length - 1];
-  const secondLastDimension = dimensionNames[dimensionNames.length - 2];
-  return (
-    isProjectedXName(lastDimension) && isProjectedYName(secondLastDimension)
-  );
-}
-
 async function getCurvilinearCoordinates(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   dimensionNames: string[]
@@ -205,7 +199,13 @@ async function getCurvilinearCoordinates(
       props.datasources
     );
   } catch (error) {
-    if (hasTrailingProjectedXYDimensions(dimensionNames)) {
+    if (
+      await hasTrailingProjectedXYDimensions(
+        props.datasources!,
+        varnameSelector.value,
+        dimensionNames
+      )
+    ) {
       return await getProjectedXYLonLatData(
         varnameSelector.value,
         datavar,
@@ -215,6 +215,33 @@ async function getCurvilinearCoordinates(
     }
     throw error;
   }
+}
+
+// Lat/lon with time dimensions (e.g. WRF's XLAT(Time, ...)) are sliced at
+// the selected step.
+async function getCurvilinearStepCoordinates(
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
+  dimensionNames: string[],
+  indices: (number | null | zarr.Slice)[]
+) {
+  const coordinates = await getCurvilinearCoordinates(datavar, dimensionNames);
+  const timeDimensions = await findCoordinateTimeDimensions(
+    props.datasources!,
+    varnameSelector.value,
+    dimensionNames,
+    [
+      ...((coordinates.latitudesAttrs.dimensionNames ?? []) as string[]),
+      ...((coordinates.longitudesAttrs?.dimensionNames ?? []) as string[]),
+    ]
+  );
+  return {
+    ...selectCoordinateTimeStep(
+      { ...coordinates, timeDimensions },
+      dimensionNames,
+      indices
+    ),
+    timeDimensions,
+  };
 }
 
 function disposeMaterial(material: THREE.Material | THREE.Material[]) {
@@ -295,17 +322,26 @@ function showData(rawData: Float32Array, grid: TCurvilinearGrid) {
   updateMeshProjectionUniforms();
 }
 
+function getStepKey(
+  timeDimensions: string[],
+  dimensionNames: string[],
+  indices: (number | null | zarr.Slice)[]
+) {
+  return timeDimensions
+    .map((name) => indices[dimensionNames.indexOf(name)])
+    .join();
+}
+
 async function loadGrid(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   dimensionNames: string[],
+  indices: (number | null | zarr.Slice)[],
   missingValue: number,
   fillValue: number
 ): Promise<TCurvilinearGridState> {
   const revision = gridRevision;
-  const { latitudes, longitudes } = await getCurvilinearCoordinates(
-    datavar,
-    dimensionNames
-  );
+  const { latitudes, longitudes, timeDimensions } =
+    await getCurvilinearStepCoordinates(datavar, dimensionNames, indices);
   const latitudesData = latitudes.data as Float32Array;
   const longitudesData = longitudes!.data as Float32Array;
   const [nj, ni] = latitudes.shape;
@@ -330,16 +366,35 @@ async function loadGrid(
   return {
     grid,
     hoverIndexData: buildCurvilinearHoverIndex(latitudesData, longitudesData),
+    timeDimensions,
+    stepKey: getStepKey(timeDimensions, dimensionNames, indices),
   };
 }
 
-function getGrid(
+async function getGrid(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   dimensionNames: string[],
+  indices: (number | null | zarr.Slice)[],
   missingValue: number,
   fillValue: number
 ) {
-  gridState ??= loadGrid(datavar, dimensionNames, missingValue, fillValue);
+  // Static coordinates keep their grid; coordinates that move over time need
+  // a new one for another time step.
+  const current = await gridState?.catch(() => undefined);
+  if (
+    current &&
+    current.stepKey !==
+      getStepKey(current.timeDimensions, dimensionNames, indices)
+  ) {
+    gridState = undefined;
+  }
+  gridState ??= loadGrid(
+    datavar,
+    dimensionNames,
+    indices,
+    missingValue,
+    fillValue
+  );
   const state = gridState;
   // A failed load or hover index must not stick: the next time step retries.
   state
@@ -436,6 +491,7 @@ async function fetchAndRenderData(
   const { grid, hoverIndexData } = await getGrid(
     datavar,
     dimensionNames,
+    indices,
     missingValue,
     fillValue
   );

@@ -41,7 +41,15 @@ export function buildSerializedGeoSampleIndexData(
     );
     longitudes[sampleIndex] =
       (((longitudes[sampleIndex] % 360) + 540) % 360) - 180;
-    index.add(longitudes[sampleIndex], latitudes[sampleIndex]);
+    // NaN corrupts the k-d tree. Samples without a position are indexed at
+    // 0/0 to keep ids positional and are skipped by findNearest.
+    const hasPosition =
+      Number.isFinite(longitudes[sampleIndex]) &&
+      Number.isFinite(latitudes[sampleIndex]);
+    index.add(
+      hasPosition ? longitudes[sampleIndex] : 0,
+      hasPosition ? latitudes[sampleIndex] : 0
+    );
   }
   index.finish();
   return {

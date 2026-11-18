@@ -1,6 +1,7 @@
 import proj4 from "proj4";
 import * as zarr from "zarrita";
 
+import { isTimeCoordinate } from "./timeHandling.ts";
 import {
   castDataVarToFloat32,
   decodeVariableChunkInPlace,
@@ -16,6 +17,37 @@ const ProjectedCoordinateName = {
   X: "x",
   Y: "y",
 } as const;
+
+const ProjectedCoordinateStandardName = {
+  X: "projection_x_coordinate",
+  Y: "projection_y_coordinate",
+} as const;
+
+type TProjectedCoordinateStandardName =
+  (typeof ProjectedCoordinateStandardName)[keyof typeof ProjectedCoordinateStandardName];
+
+const ProjectedCoordinateAxis = {
+  X: "X",
+  Y: "Y",
+} as const;
+
+type TProjectedCoordinateAxis =
+  (typeof ProjectedCoordinateAxis)[keyof typeof ProjectedCoordinateAxis];
+
+// Geographic axes carry axis X/Y too, so an axis only counts as projected
+// with a length unit.
+const LengthUnit = {
+  M: "m",
+  KM: "km",
+  METER: "meter",
+  METERS: "meters",
+  METRE: "metre",
+  METRES: "metres",
+} as const;
+
+// Idealized domains (e.g. LES) have Cartesian x/y without any georeference.
+// They are drawn true to scale with their x/y origin at 0°N 0°E.
+export const DEFAULT_ANCHOR_CRS = "+proj=aeqd +lat_0=0 +lon_0=0 +datum=WGS84";
 
 const CrsWktAttributeName = {
   CRS_WKT: "crs_wkt",
@@ -38,6 +70,14 @@ export function isWebMercatorCRS(crsWkt: string): boolean {
 export function isPolarStereographicCRS(crsWkt: string): boolean {
   try {
     return new proj4.Proj(crsWkt).names.includes("stere");
+  } catch {
+    return false;
+  }
+}
+
+function isRotatedPoleCRS(crsWkt: string): boolean {
+  try {
+    return new proj4.Proj(crsWkt).names.includes("ob_tran");
   } catch {
     return false;
   }
@@ -131,8 +171,79 @@ export function getRotatedPoleCRS(attrs: zarr.Attributes) {
   return `+proj=ob_tran +o_proj=longlat +o_lat_p=${latitude} +o_lon_p=${gridLongitude} +lon_0=${longitude + 180} +datum=WGS84`;
 }
 
+function getLambertAzimuthalEqualAreaCRS(attrs: zarr.Attributes) {
+  if (attrs.grid_mapping_name !== "lambert_azimuthal_equal_area") {
+    return undefined;
+  }
+  const latitude = Number(attrs.latitude_of_projection_origin ?? NaN);
+  const longitude = Number(attrs.longitude_of_projection_origin ?? NaN);
+  const falseEasting = Number(attrs.false_easting ?? 0);
+  const falseNorthing = Number(attrs.false_northing ?? 0);
+  if (
+    ![latitude, longitude, falseEasting, falseNorthing].every(
+      Number.isFinite
+    ) ||
+    Math.abs(latitude) > 90
+  ) {
+    return undefined;
+  }
+  return `+proj=laea +lat_0=${latitude} +lon_0=${longitude} +x_0=${falseEasting} +y_0=${falseNorthing} ${getEarthShape(attrs)}`;
+}
+
+// CF earth shape attributes as PROJ parameters, WGS84 without any.
+function getEarthShape(attrs: zarr.Attributes) {
+  const radius = Number(attrs.earth_radius ?? NaN);
+  const semiMajor = Number(attrs.semi_major_axis ?? NaN);
+  const semiMinor = Number(attrs.semi_minor_axis ?? NaN);
+  const inverseFlattening = Number(attrs.inverse_flattening ?? NaN);
+  if (Number.isFinite(radius)) {
+    return `+R=${radius}`;
+  }
+  if (!Number.isFinite(semiMajor)) {
+    return "+datum=WGS84";
+  }
+  if (Number.isFinite(semiMinor)) {
+    return `+a=${semiMajor} +b=${semiMinor}`;
+  }
+  // CF: a semi-major axis alone or an inverse flattening of 0 is a sphere.
+  return Number.isFinite(inverseFlattening) && inverseFlattening !== 0
+    ? `+a=${semiMajor} +rf=${inverseFlattening}`
+    : `+R=${semiMajor}`;
+}
+
+function getPolarStereographicCRS(attrs: zarr.Attributes) {
+  if (attrs.grid_mapping_name !== "polar_stereographic") {
+    return undefined;
+  }
+  const latitude = Number(attrs.latitude_of_projection_origin ?? NaN);
+  const longitude = Number(attrs.straight_vertical_longitude_from_pole ?? NaN);
+  const standardParallel = Number(attrs.standard_parallel ?? NaN);
+  const scaleFactor = Number(attrs.scale_factor_at_projection_origin ?? 1);
+  const falseEasting = Number(attrs.false_easting ?? 0);
+  const falseNorthing = Number(attrs.false_northing ?? 0);
+  if (
+    Math.abs(latitude) !== 90 ||
+    ![longitude, scaleFactor, falseEasting, falseNorthing].every(
+      Number.isFinite
+    )
+  ) {
+    return undefined;
+  }
+  // CF gives the true scale either as a standard parallel or as a scale factor.
+  const scale = Number.isFinite(standardParallel)
+    ? `+lat_ts=${standardParallel}`
+    : `+k_0=${scaleFactor}`;
+  return `+proj=stere +lat_0=${latitude} +lon_0=${longitude} ${scale} +x_0=${falseEasting} +y_0=${falseNorthing} ${getEarthShape(attrs)}`;
+}
+
 export function getCRSFromAttrs(attrs: zarr.Attributes) {
-  return getWktFromAttrs(attrs) ?? getRotatedPoleCRS(attrs) ?? null;
+  return (
+    getWktFromAttrs(attrs) ??
+    getRotatedPoleCRS(attrs) ??
+    getLambertAzimuthalEqualAreaCRS(attrs) ??
+    getPolarStereographicCRS(attrs) ??
+    null
+  );
 }
 
 async function getGroupCRSWkt(datasources: TSources, variable: string) {
@@ -205,13 +316,127 @@ export function projectXYGridToLonLat(
   };
 }
 
-function getProjectedXYNames(dimensionNames: string[]) {
-  const xName = dimensionNames.find(isProjectedXName);
-  const yName = dimensionNames.find(isProjectedYName);
-  if (!xName || !yName) {
-    throw new Error("Projected x/y dimensions not found");
+// Attributes of each dimension's coordinate variable.
+async function getDimensionCoordinateAttrs(
+  datasources: TSources,
+  variable: string,
+  dimensions: string[]
+) {
+  const level = datasources.levels[0];
+  return await Promise.all(
+    dimensions.map(async (name): Promise<zarr.Attributes> => {
+      const path = ZarrDataManager.resolveVariablePath(variable, name);
+      try {
+        const coordinate = await ZarrDataManager.getVariableInfo(
+          level.datasources[path] ?? level.grid,
+          path,
+          datasources.zarr_format
+        );
+        return coordinate.attrs;
+      } catch {
+        // Dimensions without a coordinate variable have no attributes.
+        return {};
+      }
+    })
+  );
+}
+
+function isProjectedCoordinate(
+  attrs: zarr.Attributes,
+  standardName: TProjectedCoordinateStandardName,
+  axis: TProjectedCoordinateAxis
+) {
+  return (
+    attrs.standard_name === standardName ||
+    (attrs.axis === axis &&
+      (Object.values(LengthUnit) as unknown[]).includes(attrs.units))
+  );
+}
+
+// Projected x/y dimensions, recognized by their name or by the CF
+// standard_name or axis (with a length unit) of their coordinate variable.
+// Null if either is missing.
+export async function findProjectedXYNames(
+  datasources: TSources,
+  variable: string,
+  dimensions: string[]
+) {
+  const attrs = await getDimensionCoordinateAttrs(
+    datasources,
+    variable,
+    dimensions
+  );
+  const xName = dimensions.find(
+    (name, i) =>
+      isProjectedXName(name) ||
+      isProjectedCoordinate(
+        attrs[i],
+        ProjectedCoordinateStandardName.X,
+        ProjectedCoordinateAxis.X
+      )
+  );
+  const yName = dimensions.find(
+    (name, i) =>
+      isProjectedYName(name) ||
+      isProjectedCoordinate(
+        attrs[i],
+        ProjectedCoordinateStandardName.Y,
+        ProjectedCoordinateAxis.Y
+      )
+  );
+  return xName && yName ? { xName, yName } : null;
+}
+
+// True if all given dimensions have coordinate variables in a length unit,
+// i.e. x/y in metres rather than degrees.
+export async function hasLengthUnitCoordinates(
+  datasources: TSources,
+  variable: string,
+  dimensions: string[]
+) {
+  const attrs = await getDimensionCoordinateAttrs(
+    datasources,
+    variable,
+    dimensions
+  );
+  return attrs.every((value) =>
+    (Object.values(LengthUnit) as unknown[]).includes(value.units)
+  );
+}
+
+// Time dimensions of the data variable that its lat/lon coordinates also
+// depend on, e.g. a box moving with a storm: latitude(time, ny).
+export async function findCoordinateTimeDimensions(
+  datasources: TSources,
+  variable: string,
+  dataDimensions: string[],
+  coordinateDimensions: string[]
+) {
+  const candidates = [...new Set(coordinateDimensions)].filter((name) =>
+    dataDimensions.includes(name)
+  );
+  const attrs = await getDimensionCoordinateAttrs(
+    datasources,
+    variable,
+    candidates
+  );
+  return candidates.filter((name, i) => isTimeCoordinate(name, attrs[i]));
+}
+
+export async function hasTrailingProjectedXYDimensions(
+  datasources: TSources,
+  variable: string,
+  dimensions: string[]
+) {
+  if (dimensions.length < 2) {
+    return false;
   }
-  return { xName, yName };
+  const [yName, xName] = dimensions.slice(-2);
+  const names = await findProjectedXYNames(datasources, variable, [
+    yName,
+    xName,
+  ]);
+  return names?.xName === xName && names.yName === yName;
 }
 
 export async function loadGridAxes(
@@ -247,11 +472,31 @@ export async function getProjectedXYLonLatData(
   datasources: TSources | undefined,
   dimensionNames = datavar.dimensionNames ?? []
 ) {
-  const { xName, yName } = getProjectedXYNames(dimensionNames);
+  const names = await findProjectedXYNames(
+    datasources!,
+    variable,
+    dimensionNames
+  );
+  if (!names) {
+    throw new Error("Projected x/y dimensions not found");
+  }
+  const { xName, yName } = names;
   const [{ x, y }, crsWkt] = await Promise.all([
     loadGridAxes(datasources!, variable, [yName, xName]),
     getCRSWkt(datasources!, variable),
   ]);
+  return gridAxesToLonLatData(x, y, yName, xName, crsWkt);
+}
+
+// One lat/lon pair per cell of a (y, x) grid with 1-D axes, reprojected
+// with the CRS (or taken as-is without one).
+function gridAxesToLonLatData(
+  x: Float32Array,
+  y: Float32Array,
+  yName: string,
+  xName: string,
+  crsWkt: string | null
+) {
   const { latitudes, longitudes } = projectXYGridToLonLat(x, y, crsWkt);
   const geographicDimensionNames = [yName, xName];
 
@@ -578,6 +823,214 @@ export async function getLatLonData(
   }
 }
 
+/**
+ * True if a rotated grid's own 2-D lat/lon disagree with its rotated pole by
+ * more than one grid cell, i.e. the file contradicts itself (e.g. iris
+ * small_rotPole_precipitation.nc). False without 2-D lat/lon or on any error:
+ * this only feeds a warning.
+ */
+export async function hasRotatedLatLonMismatch(
+  datasources: TSources,
+  variable: string,
+  rlon: Float32Array,
+  rlat: Float32Array,
+  crsWkt: string
+) {
+  try {
+    const datavar = await ZarrDataManager.getVariableInfoByDatasetSources(
+      datasources,
+      variable
+    );
+    // ponytail: reads the full 2-D lat/lon to compare five cells; read only
+    // those cells if this gets slow for large grids.
+    const { latitudes, longitudes } = await getLatLonData(
+      variable,
+      datavar,
+      datasources
+    );
+    const [ny, nx] = latitudes.shape;
+    if (
+      !longitudes ||
+      latitudes.shape.length !== 2 ||
+      ny !== rlat.length ||
+      nx !== rlon.length ||
+      ny < 2 ||
+      nx < 2
+    ) {
+      return false;
+    }
+    const transform = proj4(crsWkt, WGS84);
+    const tolerance = Math.hypot(rlat[1] - rlat[0], rlon[1] - rlon[0]);
+    const cells = [
+      [0, 0],
+      [0, nx - 1],
+      [ny - 1, 0],
+      [ny - 1, nx - 1],
+      [ny >> 1, nx >> 1],
+    ];
+    const latData = latitudes.data as ArrayLike<number>;
+    const lonData = longitudes.data as ArrayLike<number>;
+    return cells.some(([j, i]) => {
+      const [lon, lat] = transform.forward([rlon[i], rlat[j]]);
+      return (
+        getLonLatDistance(lonData[j * nx + i], latData[j * nx + i], lon, lat) >
+        tolerance
+      );
+    });
+  } catch {
+    return false;
+  }
+}
+
+// Approximate distance in degrees, enough to tell matching positions apart
+// from mismatching ones.
+function getLonLatDistance(
+  lon1: number,
+  lat1: number,
+  lon2: number,
+  lat2: number
+) {
+  const deltaLon = ((((lon1 - lon2) % 360) + 540) % 360) - 180;
+  return Math.hypot(lat1 - lat2, deltaLon * Math.cos((lat1 * Math.PI) / 180));
+}
+
+// Grids without lat/lon variables whose last two dimensions are 1-D axes of
+// a CRS, e.g. rotated-pole grid_latitude/grid_longitude or Lambert x/y.
+async function getReprojectedAxesLonLatData(
+  variable: string,
+  datasources: TSources
+) {
+  const dimensions = await ZarrDataManager.getDimensionNames(
+    datasources,
+    variable
+  );
+  const crsWkt = await getCRSWkt(datasources, variable);
+  if (dimensions.length < 2 || !crsWkt) {
+    return null;
+  }
+  const [yName, xName] = dimensions.slice(-2);
+  const [yAttrs, xAttrs] = await getDimensionCoordinateAttrs(
+    datasources,
+    variable,
+    [yName, xName]
+  );
+  // ponytail: only the CF order (..., y, x). Axes that say otherwise, e.g.
+  // surface_altitude(grid_longitude, grid_latitude), are rejected instead of
+  // transposed; transpose the lat/lon arrays if such data needs to work.
+  if (
+    (yAttrs.axis ?? ProjectedCoordinateAxis.Y) !== ProjectedCoordinateAxis.Y ||
+    (xAttrs.axis ?? ProjectedCoordinateAxis.X) !== ProjectedCoordinateAxis.X
+  ) {
+    return null;
+  }
+  const { x, y } = await loadGridAxes(datasources, variable, [yName, xName]);
+  return gridAxesToLonLatData(x, y, yName, xName, crsWkt);
+}
+
+type TLatLonData = Awaited<ReturnType<typeof getLatLonData>>;
+
+// Two separate 1-D lat/lon axes on a rotated-pole grid are the rotated axes
+// (e.g. rlat/rlon found via the dimension names), not geographic coordinates.
+async function isRotatedAxesLatLon(
+  coordinates: TLatLonData,
+  datasources: TSources,
+  variable: string
+) {
+  const [latitudeDimension] = coordinates.latitudesAttrs.dimensionNames ?? [];
+  const [longitudeDimension] =
+    coordinates.longitudesAttrs?.dimensionNames ?? [];
+  if (
+    coordinates.latitudes.shape.length !== 1 ||
+    coordinates.longitudes?.shape.length !== 1 ||
+    latitudeDimension === longitudeDimension
+  ) {
+    return false;
+  }
+  const crsWkt = await getCRSWkt(datasources, variable);
+  return crsWkt !== null && isRotatedPoleCRS(crsWkt);
+}
+
+async function getLatLonOrReprojectedAxesData(
+  variable: string,
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
+  datasources: TSources | undefined
+) {
+  let coordinates: TLatLonData;
+  try {
+    coordinates = await getLatLonData(variable, datavar, datasources);
+  } catch (error) {
+    const cells = await getReprojectedAxesLonLatData(
+      variable,
+      datasources!
+    ).catch(() => null);
+    if (!cells) {
+      throw error;
+    }
+    return cells;
+  }
+  if (await isRotatedAxesLatLon(coordinates, datasources!, variable)) {
+    // Keeps the rotated axes if they cannot be reprojected, e.g. (x, y) order.
+    const cells = await getReprojectedAxesLonLatData(
+      variable,
+      datasources!
+    ).catch(() => null);
+    return cells ?? coordinates;
+  }
+  return coordinates;
+}
+
+/**
+ * Lat/lon for the irregular grids: like getLatLonData, but grids with a CRS
+ * and only 1-D axes get one reprojected lat/lon pair per cell. Grid detection
+ * keeps using getLatLonData, which would otherwise call such grids
+ * curvilinear. Also returns the time dimensions the coordinates move along
+ * (see selectCoordinateTimeStep).
+ */
+export async function getIrregularLatLonData(
+  variable: string,
+  datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
+  datasources: TSources | undefined
+) {
+  const [coordinates, dimensions] = await Promise.all([
+    getLatLonOrReprojectedAxesData(variable, datavar, datasources),
+    ZarrDataManager.getDimensionNames(datasources!, variable),
+  ]);
+  const timeDimensions = await findCoordinateTimeDimensions(
+    datasources!,
+    variable,
+    dimensions,
+    [
+      ...(coordinates.latitudesAttrs.dimensionNames as string[]),
+      ...(coordinates.longitudesAttrs!.dimensionNames as string[]),
+    ]
+  );
+  return { ...coordinates, timeDimensions };
+}
+
+/**
+ * Cells without a position become NaN, e.g. CLM ocean columns with
+ * lat = lon = 1e36. Only the CF attributes count: an array's own fill value
+ * is often 0 and would mask the equator and the prime meridian.
+ */
+function maskCoordinateFillValues(
+  chunk: zarr.Chunk<zarr.DataType> | null,
+  attrs: zarr.Attributes | undefined
+) {
+  const fillValues = [attrs?._FillValue, attrs?.missing_value]
+    .filter((value) => value !== undefined && value !== null)
+    .map((value) => Math.fround(Number(value)));
+  if (!chunk || fillValues.length === 0) {
+    return;
+  }
+  const values = castDataVarToFloat32(chunk.data);
+  for (let i = 0; i < values.length; i++) {
+    if (fillValues.includes(values[i])) {
+      values[i] = NaN;
+    }
+  }
+  chunk.data = values;
+}
+
 async function getGeographicLatLonData(
   variable: string,
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
@@ -617,6 +1070,8 @@ async function getGeographicLatLonData(
     longitudes,
   };
 
+  maskCoordinateFillValues(returnObject.latitudes, latitudesVar.attrs);
+  maskCoordinateFillValues(returnObject.longitudes, longitudesVar?.attrs);
   decodeVariableChunkInPlace(
     returnObject.latitudes,
     returnObject.latitudesAttrs

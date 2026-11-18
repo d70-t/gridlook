@@ -1,13 +1,13 @@
 import * as zarr from "zarrita";
 
 import {
+  findCoordinateTimeDimensions,
+  findProjectedXYNames,
   getCRSWkt,
   getLatLonData,
   isLatitudeName,
   isLongitudeName,
   isPolarStereographicCRS,
-  isProjectedXName,
-  isProjectedYName,
 } from "./coordinateVariables.ts";
 import { getTriangularMesh } from "./triangularMesh.ts";
 import { ZarrDataManager } from "./ZarrDataManager.ts";
@@ -85,9 +85,13 @@ function checkRegularRotatedGrid(
   return crs.attrs["grid_mapping_name"] === "rotated_latitude_longitude";
 }
 
-function checkCurvilinear(
-  latitudesVar: zarr.Chunk<zarr.DataType>,
-  longitudesVar: zarr.Chunk<zarr.DataType>
+// 2-D lat/lon, also per time step, e.g. WRF's XLAT(Time, south_north,
+// west_east).
+async function checkCurvilinear(
+  coordinates: Awaited<ReturnType<typeof getLatLonData>>,
+  datasources: TSources,
+  variable: string,
+  dimensions: string[]
 ) {
   // const latitudes = latitudesVar.data as Float64Array;
   // const longitudes = longitudesVar.data as Float64Array;
@@ -95,7 +99,22 @@ function checkCurvilinear(
   // const uniqueLatsNum = new Set(latitudes).size;
   // const uniqueLonsNum = new Set(longitudes).size;
 
-  return latitudesVar.shape.length === 2 && longitudesVar.shape.length === 2;
+  const latitudeDimensions = (coordinates.latitudesAttrs.dimensionNames ??
+    []) as string[];
+  const longitudeDimensions = (coordinates.longitudesAttrs?.dimensionNames ??
+    []) as string[];
+  const timeDimensions = await findCoordinateTimeDimensions(
+    datasources,
+    variable,
+    dimensions,
+    [...latitudeDimensions, ...longitudeDimensions]
+  );
+  const countTime = (names: string[]) =>
+    timeDimensions.filter((name) => names.includes(name)).length;
+  return (
+    coordinates.latitudes.shape.length - countTime(latitudeDimensions) === 2 &&
+    coordinates.longitudes!.shape.length - countTime(longitudeDimensions) === 2
+  );
 }
 
 function checkGaussianGrid(latitudes: Float64Array, longitudes: Float64Array) {
@@ -138,20 +157,13 @@ async function checkRegularGridFromDimensions(
 }
 
 // Check if grid uses projected x/y coordinates (e.g. EPSG:3857 with spatial_ref)
-function checkProjectedXYDimensions(dimensions: string[]): boolean {
-  return dimensions.some(isProjectedXName) && dimensions.some(isProjectedYName);
-}
-
 async function determineProjectedXYGridType(
-  datasources: TSources | undefined,
+  datasources: TSources,
   variable: string,
   dimensions: string[]
 ): Promise<T_GRID_TYPES | null> {
-  if (!checkProjectedXYDimensions(dimensions)) {
+  if (!(await findProjectedXYNames(datasources, variable, dimensions))) {
     return null;
-  }
-  if (!datasources) {
-    return GRID_TYPES.REGULAR;
   }
 
   // Other projections reuse the regular renderer's coarse mesh + data texture
@@ -241,18 +253,26 @@ async function determineGridTypeFromData(
       datasources?.zarr_format
     );
 
-    const { latitudes, longitudes } = await getLatLonData(
+    const coordinates = await getLatLonData(
       varnameSelector,
       datavar,
       datasources
     );
+    const { latitudes, longitudes } = coordinates;
     if (latitudes === null || longitudes === null) {
       return null; // Cannot determine grid type without lat/lon data
     }
     const latitudesData = latitudes.data as Float64Array;
     const longitudesData = longitudes.data as Float64Array;
 
-    if (checkCurvilinear(latitudes, longitudes)) {
+    if (
+      await checkCurvilinear(
+        coordinates,
+        datasources,
+        varnameSelector,
+        dimensions
+      )
+    ) {
       return GRID_TYPES.CURVILINEAR;
     }
     if (checkGaussianGrid(latitudesData, longitudesData)) {
