@@ -50,8 +50,13 @@ dayjs.extend(duration);
 const { logError } = useLog();
 
 const store = useGlobeControlStore();
-const { varnameDisplay, varnameSelector, varinfo, dimSlidersValues } =
-  storeToRefs(store);
+const {
+  varnameDisplay,
+  varnameSelector,
+  varinfo,
+  dimSlidersValues,
+  requestedDimRanges,
+} = storeToRefs(store);
 const sourceVariable = computed(
   () => varinfo.value?.derivedFrom?.u ?? varnameSelector.value
 );
@@ -553,7 +558,7 @@ watch(
             :variable-missing-value="variableMissingValue"
             :variable-fill-value="variableFillValue"
             :zarr-format="datasources?.zarr_format ?? null"
-            :dim-ranges="varinfo?.dimRanges ?? null"
+            :dim-ranges="requestedDimRanges ?? varinfo?.dimRanges ?? null"
             :dim-indices="dimSlidersValues"
           />
           <DimensionsSection v-if="!showsChunks" :dimensions="dimensions" />

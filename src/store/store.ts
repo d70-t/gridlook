@@ -25,7 +25,11 @@ import {
 } from "@/lib/projection/projectionUtils.ts";
 import type { TViewFootprint } from "@/lib/projection/viewFootprint.ts";
 import type { TColorMap } from "@/lib/shaders/colormapShaders.ts";
-import type { TVarInfo, TBounds } from "@/lib/types/GlobeTypes.ts";
+import type {
+  TVarInfo,
+  TBounds,
+  TDimensionRange,
+} from "@/lib/types/GlobeTypes.ts";
 import {
   DEFAULT_BASEMAP,
   DEFAULT_BASEMAP_OPTIONS,
@@ -232,6 +236,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
       varnameDisplay: "-", // the varname currently shown on the globe (will be updated after loading)
       loading: false,
       varinfo: undefined as TVarInfo | undefined, // info about a dataset coming directly from the data
+      requestedDimRanges: null as TDimensionRange[] | null, // dimRanges of the step being loaded, set before its data is fetched
       selection: { low: 0, high: 0 } as TBounds, // all the knobs and buttons in GlobeControl which do not require a reload
       histogram: undefined as number[] | undefined, // selection-range histogram bins
       fullHistogram: undefined as number[] | undefined, // fixed histogram over full data range

@@ -1425,6 +1425,7 @@ async function fetchAndRenderData(
   isCurrent: () => boolean
 ) {
   const { dimensionRanges, indices } = await buildDimensionConfig(datavar);
+  store.requestedDimRanges = dimensionRanges;
 
   // The backdrop (the coarsest level) is drawn and sets the range of every
   // level, unless each level is to take its own.

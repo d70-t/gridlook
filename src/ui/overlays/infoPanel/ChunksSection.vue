@@ -24,6 +24,7 @@ const props = defineProps<{
 // ponytail: fixed threshold for "much more than shown"; 4x catches the common
 // case of several time steps per chunk while tolerating partial edge chunks.
 const OVERHEAD_WARNING = 4;
+const LARGE_STEP_BYTES = 1024 * 1024 * 1024;
 
 /**
  * Spatial dimensions are the ones gridlook loads completely (a `null` range).
@@ -67,6 +68,8 @@ const overheadLabel = computed(() =>
     ? `${overhead.value}×`
     : `~${Math.ceil(overhead.value)}×`
 );
+
+const isLargeStep = computed(() => layout.value.stepBytes > LARGE_STEP_BYTES);
 
 const overheadDims = computed(() =>
   layout.value.dimensions
@@ -218,11 +221,17 @@ const overheadDims = computed(() =>
     </div>
 
     <div
-      v-if="spatial && overhead >= OVERHEAD_WARNING"
-      class="notification is-warning is-light is-size-7 py-2 px-3"
+      v-if="spatial && (isLargeStep || overhead >= OVERHEAD_WARNING)"
+      class="notification is-light is-size-7 py-2 px-3"
+      :class="isLargeStep ? 'is-danger' : 'is-warning'"
     >
-      One step reads {{ overheadLabel }} the data shown.
-      <template v-if="overheadDims.length">
+      <template v-if="isLargeStep">
+        One step loads {{ formatBytes(layout.stepBytes) }} (uncompressed).
+      </template>
+      <template v-if="overhead >= OVERHEAD_WARNING">
+        One step reads {{ overheadLabel }} the data shown.
+      </template>
+      <template v-if="overhead >= OVERHEAD_WARNING && overheadDims.length">
         Smaller chunks along
         <template v-for="(name, i) in overheadDims" :key="name">
           <code>{{ name }}</code

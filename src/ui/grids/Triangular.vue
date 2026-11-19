@@ -342,6 +342,7 @@ async function fetchAndRenderData(
   const deferDisplay = store.isStreamlineLayerEnabled() || stageDisplay;
   const { dimensionRanges, indices, dimensionNames } =
     await buildDimensionConfig(datavar);
+  store.requestedDimRanges = dimensionRanges;
   const variableData = await fetchVariableData(indices);
   const plotData = castDataVarToFloat32(variableData);
   if (!isCurrent()) {

@@ -894,6 +894,7 @@ function updateStreamlines(
 async function fetchAndRenderData(datavar: TDataVar, isCurrent: () => boolean) {
   const { dimensionNames, dimensionRanges, indices } =
     await buildDimensionConfig(datavar);
+  store.requestedDimRanges = dimensionRanges;
 
   // The backdrop (the coarsest level) is drawn and sets the range of every
   // level, unless each level is to take its own.
