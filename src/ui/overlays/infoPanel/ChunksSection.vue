@@ -72,7 +72,6 @@ const overheadDims = computed(() =>
   layout.value.dimensions
     .filter((d) => !d.isSpatial && d.chunkSize > 1)
     .map((d) => d.name)
-    .join(", ")
 );
 </script>
 
@@ -223,8 +222,13 @@ const overheadDims = computed(() =>
       class="notification is-warning is-light is-size-7 py-2 px-3"
     >
       One step reads {{ overheadLabel }} the data shown.
-      <template v-if="overheadDims">
-        Smaller chunks along {{ overheadDims }} can reduce this overhead.
+      <template v-if="overheadDims.length">
+        Smaller chunks along
+        <template v-for="(name, i) in overheadDims" :key="name">
+          <code>{{ name }}</code
+          >{{ i < overheadDims.length - 1 ? ", " : "" }}
+        </template>
+        can reduce this overhead.
       </template>
     </div>
   </section>
