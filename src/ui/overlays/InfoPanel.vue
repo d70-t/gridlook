@@ -50,7 +50,8 @@ dayjs.extend(duration);
 const { logError } = useLog();
 
 const store = useGlobeControlStore();
-const { varnameDisplay, varnameSelector, varinfo } = storeToRefs(store);
+const { varnameDisplay, varnameSelector, varinfo, dimSlidersValues } =
+  storeToRefs(store);
 const sourceVariable = computed(
   () => varinfo.value?.derivedFrom?.u ?? varnameSelector.value
 );
@@ -99,9 +100,17 @@ const activeTab = ref<TInfoPanelTab>(InfoPanelTab.OVERVIEW);
 
 const variableDtype = ref<string | null>(null);
 const variableChunks = ref<readonly (number | null)[] | null>(null);
+const variableShardShape = ref<readonly number[] | null>(null);
 const variableMissingValue = ref<number | null>(null);
 const variableFillValue = ref<number | null>(null);
 const timeInfo = ref<TTimeInfo | null>(null);
+// Mirrors when DataStorageSection shows its ChunksSection, which already lists
+// the dimensions; otherwise the plain dimensions table is shown instead.
+const showsChunks = computed(
+  () =>
+    !varinfo.value?.derivedFrom &&
+    variableChunks.value?.length === dimensions.value.length
+);
 const noTimeCoordinate = ref(false);
 let infoRequestId = 0;
 const error = ref<string | null>(null);
@@ -355,11 +364,16 @@ async function loadVariableDetails(
     props.datasources!,
     varname
   );
+  const shardShape = await ZarrDataManager.getShardShape(
+    variable,
+    props.datasources?.zarr_format
+  );
   if (requestId !== infoRequestId || varname !== sourceVariable.value) {
     return;
   }
   variableDtype.value = String(variable.dtype);
   variableChunks.value = variable.chunks;
+  variableShardShape.value = shardShape;
   const missingVal = getMissingValue(variable);
   variableMissingValue.value = Number.isNaN(missingVal) ? null : missingVal;
   const fillVal = getFillValue(variable);
@@ -408,6 +422,7 @@ function resetInfo() {
   error.value = null;
   variableDtype.value = null;
   variableChunks.value = null;
+  variableShardShape.value = null;
   variableMissingValue.value = null;
   variableFillValue.value = null;
   dimensions.value = [];
@@ -534,11 +549,14 @@ watch(
             :dimensions="dimensions"
             :variable-dtype="variableDtype"
             :variable-chunks="variableChunks"
+            :variable-shard-shape="variableShardShape"
             :variable-missing-value="variableMissingValue"
             :variable-fill-value="variableFillValue"
             :zarr-format="datasources?.zarr_format ?? null"
+            :dim-ranges="varinfo?.dimRanges ?? null"
+            :dim-indices="dimSlidersValues"
           />
-          <DimensionsSection :dimensions="dimensions" />
+          <DimensionsSection v-if="!showsChunks" :dimensions="dimensions" />
           <p
             v-if="
               timeInfo &&

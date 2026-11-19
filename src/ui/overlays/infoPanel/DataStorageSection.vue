@@ -1,34 +1,23 @@
 <script lang="ts" setup>
 import { computed } from "vue";
 
+import ChunksSection from "./ChunksSection.vue";
 import type { TInfoDimension } from "./types.ts";
 
-import { ZARR_FORMAT } from "@/lib/types/GlobeTypes.ts";
+import { formatBytes, getDtypeBytes } from "@/lib/data/chunkLayout.ts";
+import { ZARR_FORMAT, type TDimensionRange } from "@/lib/types/GlobeTypes.ts";
 
 const props = defineProps<{
   dimensions: TInfoDimension[];
   variableDtype: string | null;
   variableChunks: readonly (number | null)[] | null;
+  variableShardShape: readonly number[] | null;
   variableMissingValue: number | null;
   variableFillValue: number | null;
   zarrFormat: number | null;
+  dimRanges: TDimensionRange[] | null;
+  dimIndices: readonly (number | null)[];
 }>();
-
-function getDtypeBytes(dtype: string): number {
-  if (dtype.includes("64")) {
-    return 8;
-  }
-  if (dtype.includes("32")) {
-    return 4;
-  }
-  if (dtype.includes("16")) {
-    return 2;
-  }
-  if (dtype.includes("8")) {
-    return 1;
-  }
-  return 4;
-}
 
 const estimatedSizeMB = computed(() => {
   if (!props.dimensions.length || !props.variableDtype) {
@@ -39,16 +28,7 @@ const estimatedSizeMB = computed(() => {
   if (!Number.isFinite(bytes)) {
     return null;
   }
-  if (bytes >= 1024 * 1024 * 1024 * 1024) {
-    return (bytes / (1024 * 1024 * 1024 * 1024)).toFixed(2) + " TB";
-  }
-  if (bytes >= 1024 * 1024 * 1024) {
-    return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " GB";
-  }
-  if (bytes >= 1024 * 1024) {
-    return (bytes / (1024 * 1024)).toFixed(2) + " MB";
-  }
-  return (bytes / 1024).toFixed(2) + " KB";
+  return formatBytes(bytes);
 });
 </script>
 
@@ -78,12 +58,6 @@ const estimatedSizeMB = computed(() => {
                 <code>{{ variableDtype }}</code>
               </td>
             </tr>
-            <tr v-if="variableChunks && variableChunks.length > 0">
-              <td><strong>Chunk shape</strong></td>
-              <td>
-                <code>{{ variableChunks.join(" × ") }}</code>
-              </td>
-            </tr>
             <tr v-if="variableMissingValue !== null">
               <td><strong>Missing value</strong></td>
               <td>
@@ -106,6 +80,15 @@ const estimatedSizeMB = computed(() => {
           </tbody>
         </table>
       </div>
+      <ChunksSection
+        v-if="variableChunks && variableChunks.length === dimensions.length"
+        :dimensions="dimensions"
+        :chunks="variableChunks"
+        :shard-shape="variableShardShape"
+        :dtype="variableDtype"
+        :dim-ranges="dimRanges"
+        :dim-indices="dimIndices"
+      />
     </section>
   </div>
 </template>

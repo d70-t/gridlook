@@ -4,9 +4,14 @@ import { nextTick, ref, watch, type CSSProperties } from "vue";
 
 const open = defineModel<boolean>("open", { default: false });
 
-defineProps<{
-  dialogClass?: string;
-}>();
+const props = withDefaults(
+  defineProps<{
+    dialogClass?: string;
+    /** Raise it when the trigger sits in an overlay above the default. */
+    zIndex?: number;
+  }>(),
+  { dialogClass: undefined, zIndex: 200 }
+);
 
 const triggerEl = ref<HTMLElement | null>(null);
 const dialogEl = ref<HTMLElement | null>(null);
@@ -31,7 +36,7 @@ function updateDialogPosition() {
     position: "fixed",
     left: `${rect.left}px`,
     bottom: `${window.innerHeight - rect.top + 8}px`,
-    zIndex: 200,
+    zIndex: props.zIndex,
   };
 }
 
