@@ -22,6 +22,7 @@ vi.mock("@/lib/data/ZarrDataManager.ts", () => ({
     getGroup: vi.fn().mockResolvedValue({ attrs: {} }),
     getVariableInfo: vi.fn(),
     getDimensionNames: vi.fn(),
+    getShardShape: vi.fn().mockResolvedValue(null),
     resolveVariablePath: (_variable: string, dimension: string) => dimension,
     getVariableDataFromArray: vi
       .fn()
