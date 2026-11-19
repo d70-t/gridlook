@@ -35,6 +35,11 @@ Without `boundlow` and `boundhigh`, the colormap range starts from the
 variable's `default_range` in a JSON index, then from its CF attribute
 `actual_range`, and otherwise from the data.
 
+`dimIndices_<dim>` also accepts negative indices, which count back from the
+last index: `dimIndices_time=-1` opens the latest time step, `-2` the one
+before. The negative value stays in the URL until you move the slider to
+another index, so a shared link keeps pointing at the latest step.
+
 Example that opens a dataset with a fixed variable, colormap and time step:
 
 ```text
