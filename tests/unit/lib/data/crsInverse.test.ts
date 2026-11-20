@@ -1,6 +1,7 @@
 import proj4 from "proj4";
 import { describe, expect, it } from "vitest";
 
+import { getCRSFromAttrs } from "@/lib/data/coordinateVariables.ts";
 import {
   createCrsInverse,
   projectGridToLonLat,
@@ -105,6 +106,32 @@ describe("other polar stereographic forms", () => {
       sampleAxis(-3_000_000, 3_000_000, 59)
     );
     expect(inverse.isVectorised).toBe(true);
+  });
+});
+
+describe("CRS built from a CF polar_stereographic grid mapping", () => {
+  const mapping = {
+    ["grid_mapping_name"]: "polar_stereographic",
+    ["latitude_of_projection_origin"]: -90,
+    ["straight_vertical_longitude_from_pole"]: 0,
+    ["false_easting"]: 0,
+    ["false_northing"]: 0,
+  };
+
+  it.each([
+    ["a standard parallel on WGS84", { ["standard_parallel"]: -71 }],
+    [
+      "a scale factor on WGS84",
+      { ["scale_factor_at_projection_origin"]: 0.97 },
+    ],
+    [
+      "an earth radius",
+      { ["standard_parallel"]: -71, ["earth_radius"]: 6378169 },
+    ],
+  ])("is inverted on the typed-array path with %s", (_name, attrs) => {
+    const crs = getCRSFromAttrs({ ...mapping, ...attrs })!;
+    const axis = sampleAxis(-3_000_000, 3_000_000, 61);
+    expect(expectGridMatchesProj4(crs, axis, axis).isVectorised).toBe(true);
   });
 });
 

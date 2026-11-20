@@ -10,9 +10,12 @@ import { useIrregularStreamlines } from "./composables/useIrregularStreamlines.t
 import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 
-import { getLatLonData } from "@/lib/data/coordinateVariables.ts";
+import { getIrregularLatLonData } from "@/lib/data/coordinateVariables.ts";
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
-import { reconcileCoordinates } from "@/lib/data/irregularGridHelpers.ts";
+import {
+  reconcileCoordinates,
+  selectCoordinateTimeStep,
+} from "@/lib/data/irregularGridHelpers.ts";
 import {
   castDataVarToFloat32,
   decodeVariableDataAndGetBounds,
@@ -252,17 +255,21 @@ function getGeographicDimensionIndices(
 async function buildDimensionConfig(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>
 ) {
-  const { latitudes, longitudes, latitudesAttrs, longitudesAttrs } =
-    await getLatLonData(varnameSelector.value, datavar, props.datasources);
+  const coordinates = await getIrregularLatLonData(
+    varnameSelector.value,
+    datavar,
+    props.datasources
+  );
   const dimensions = await ZarrDataManager.getDimensionNames(
     props.datasources!,
     varnameSelector.value
   );
+  // Coordinates moving over time get a slider and are sliced at its step.
   const geographicDimensions = getGeographicDimensionIndices(
     dimensions,
-    latitudesAttrs,
-    longitudesAttrs!
-  );
+    coordinates.latitudesAttrs,
+    coordinates.longitudesAttrs!
+  ).filter((index) => !coordinates.timeDimensions.includes(dimensions[index]));
   const config = buildDimensionRangesAndIndices(
     datavar,
     dimensions,
@@ -274,8 +281,7 @@ async function buildDimensionConfig(
     varinfo.value?.dimRanges
   );
   return {
-    latitudes,
-    longitudes: longitudes!,
+    ...selectCoordinateTimeStep(coordinates, dimensions, config.indices),
     dimensions,
     geographicDimensions,
     ...config,

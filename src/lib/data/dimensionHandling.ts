@@ -2,6 +2,26 @@ import * as zarr from "zarrita";
 
 import type { TDimensionRange } from "@/lib/types/GlobeTypes.ts";
 
+/**
+ * Resolves a dimension index from the URL. Negative indices count back from
+ * maxBound (-1 is the latest available index). The result is clamped to the
+ * bounds.
+ */
+export function resolveDimensionIndex(
+  index: number,
+  minBound: number,
+  maxBound: number
+) {
+  let startPos = index < 0 ? maxBound + 1 + index : index;
+  if (startPos < minBound) {
+    startPos = minBound;
+  }
+  if (startPos > maxBound) {
+    startPos = maxBound;
+  }
+  return startPos;
+}
+
 function setDimensionStart(
   presetStarts: Record<string, string>,
   dimensionName: string,
@@ -12,14 +32,11 @@ function setDimensionStart(
     Object.hasOwn(presetStarts, dimensionName) &&
     !isNaN(Number(presetStarts[dimensionName]))
   ) {
-    let startPos = Number(presetStarts[dimensionName]);
-    if (startPos < minBound) {
-      startPos = minBound;
-    }
-    if (startPos > maxBound) {
-      startPos = maxBound;
-    }
-    return startPos;
+    return resolveDimensionIndex(
+      Number(presetStarts[dimensionName]),
+      minBound,
+      maxBound
+    );
   }
   return 0;
 }

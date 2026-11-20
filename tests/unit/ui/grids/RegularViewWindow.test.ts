@@ -81,7 +81,7 @@ vi.mock("@/lib/data/ZarrDataManager.ts", () => ({
     getDimensionNames: async () => ["time", "latitude", "longitude"],
     resolveVariablePath: (_variable: string, dimension: string) => dimension,
     getVariableInfo: async (source: TSource, dimension: string) => ({
-      shape: [axes[source.dataset][dimension].length],
+      shape: [axes[source.dataset][dimension]?.length],
       attrs: {},
       dimension,
       source,
@@ -144,6 +144,7 @@ vi.mock("@/lib/grids/gridDataWorkerClient.ts", () => ({
 
 const { createPinia, setActivePinia } = await import("pinia");
 const { DEFAULT_MAX_VIEW_CELLS } = await import("@/lib/data/levels.ts");
+const { RGB_SOURCES } = await import("@/lib/data/rgbComposite.ts");
 const { useGlobeControlStore } = await import("@/store/store.ts");
 const { default: Regular } = await import("@/ui/grids/Regular.vue");
 
@@ -158,7 +159,8 @@ async function mount(
     lonSpan: number;
   },
   // level groups that do not hold the variable: it has no levels
-  levelPaths = false
+  levelPaths = false,
+  rgb = false
 ) {
   beforeMount.length = 0;
   fetches.length = 0;
@@ -166,6 +168,8 @@ async function mount(
   setActivePinia(createPinia());
   const store = useGlobeControlStore();
   store.varnameSelector = "t";
+  store.setRgbLayerEnabled(rgb);
+  store.updateRgbSettings({ source: RGB_SOURCES.VARIABLES });
   store.viewFootprint = { ...footprint, ...centre };
   scene.current = new THREE.Scene();
   const source = (dataset: string) => ({ store: "s.zarr", dataset });
@@ -175,7 +179,9 @@ async function mount(
     levels: ["fine", "coarse"].map((name) => ({
       grid: source(name),
       time: source(name),
-      datasources: { t: source(name) },
+      datasources: Object.fromEntries(
+        (rgb ? ["t", "r", "g", "b"] : ["t"]).map((key) => [key, source(name)])
+      ),
       resolution: name === "fine" ? 22_000 : 2_200_000,
       ...(levelPaths ? { path: name } : {}),
     })),
@@ -353,5 +359,33 @@ it("loads a variable outside the level groups whole, without a backdrop", async 
   expect(fetched("coarse")).toHaveLength(0);
   expect(meshes().every((mesh) => mesh.renderOrder === 0)).toBe(true);
   expect(store.viewLoading).toBe(false);
+  scope.stop();
+});
+
+it("draws the RGB composite on the view window and reloads it with the window", async () => {
+  const { store, scope } = await mount(
+    { latMin: 10, latMax: 20, lonStart: 30, lonSpan: 10 },
+    false,
+    true
+  );
+  const composite = () =>
+    meshes().filter((mesh) => "rgbLow" in mesh.material.uniforms);
+  // the level's window, then the same window of each of the three channels
+  expect(fetched("fine")).toHaveLength(4);
+  const [, rows, columns] = fetched("fine")[0].selection;
+  for (const fetch of fetched("fine").slice(1)) {
+    expect(fetch.selection).toEqual(fetched("fine")[0].selection);
+  }
+  expect(composite().length).toBeGreaterThan(0);
+  const { width, height } = composite()[0].material.uniforms.data.value.image;
+  expect([width, height]).toEqual([
+    columns!.stop - columns!.start,
+    rows!.stop - rows!.start,
+  ]);
+
+  store.viewFootprint = { ...store.viewFootprint!, lonStart: 100 };
+  await wait(60);
+  expect(fetched("fine")).toHaveLength(8);
+  expect(fetched("fine")[7].selection).toEqual(fetched("fine")[4].selection);
   scope.stop();
 });

@@ -17,15 +17,16 @@ import { useViewWindow } from "./composables/useViewWindow.ts";
 import { useVolume } from "./composables/useVolume.ts";
 
 import {
+  findCoordinateTimeDimensions,
   getCRSWkt,
   getLatLonData,
-  isProjectedXName,
-  isProjectedYName,
+  hasTrailingProjectedXYDimensions,
   loadGridAxes,
   projectXYGridToLonLat,
 } from "@/lib/data/coordinateVariables.ts";
 import { downsampleDataTexture } from "@/lib/data/dataTexture.ts";
 import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
+import { selectCoordinateTimeStep } from "@/lib/data/irregularGridHelpers.ts";
 import {
   coarsestLevelOf,
   levelRangeOrigin,
@@ -109,8 +110,12 @@ type TLevelAxes = TProjectedAxes & {
   crs: string;
 };
 
-// The coordinates of a level: its grid points, loaded whole, or its axes.
-type TLevelCoordinates = { points: TGridPoints } | { axes: TLevelAxes };
+// The lat/lon arrays of a level as read, with the time dimensions they move
+// along (e.g. WRF's XLAT(Time, ...)): the grid points are those of one step.
+type TLevelLatLon = Parameters<typeof selectCoordinateTimeStep>[0];
+
+// The coordinates of a level: its lat/lon, loaded whole, or its axes.
+type TLevelCoordinates = { latLon: TLevelLatLon } | { axes: TLevelAxes };
 
 type TCurvilinearGridState = {
   grid: TCurvilinearGrid;
@@ -145,6 +150,8 @@ let backdropFrame: TBackdropFrame | undefined;
 // coordinates, mesh and hover index are built once per level and view
 // window, and only the data texture changes between time steps.
 let gridState: Promise<TCurvilinearGridState> | undefined;
+// The time step `gridState` was built for, of lat/lon that move over time.
+let gridStepKey: string | undefined;
 let levelCoordinates: TLevelCoordinates | undefined;
 let levelCoordinatesKey: string | undefined;
 // The loaded part of a level too large to load whole; null when the view
@@ -261,9 +268,11 @@ const view = useViewWindow<TProjectedWindow>({
     if (!coordinates) {
       return 0;
     }
-    return "points" in coordinates
-      ? coordinates.points.nj * coordinates.points.ni
-      : coordinates.axes.x.length * coordinates.axes.y.length;
+    if ("axes" in coordinates) {
+      return coordinates.axes.x.length * coordinates.axes.y.length;
+    }
+    const [nj, ni] = coordinates.latLon.latitudes.shape.slice(-2);
+    return nj * ni;
   },
   window: (footprint, margin, maxCells) =>
     projectedWindow(
@@ -312,17 +321,6 @@ const { datasourceUpdate } = useGridDataLoader({
 
 const MAX_GEO_RESOLUTION = 512;
 
-function hasTrailingProjectedXYDimensions(dimensionNames: string[]) {
-  if (dimensionNames.length < 2) {
-    return false;
-  }
-  const lastDimension = dimensionNames[dimensionNames.length - 1];
-  const secondLastDimension = dimensionNames[dimensionNames.length - 2];
-  return (
-    isProjectedXName(lastDimension) && isProjectedYName(secondLastDimension)
-  );
-}
-
 /**
  * The axes of a level given as one-dimensional x/y with a CRS, which can be
  * loaded by view. `cause` is why its lat/lon arrays could not be read.
@@ -364,27 +362,51 @@ async function loadCoordinates(
   datavar: TDataVar,
   dimensionNames: string[]
 ): Promise<TLevelCoordinates> {
+  let coordinates: Awaited<ReturnType<typeof getLatLonData>>;
   try {
-    const { latitudes, longitudes } = await getLatLonData(
-      variable,
-      datavar,
-      sources
-    );
-    const [nj, ni] = latitudes.shape;
-    return {
-      points: {
-        latitudes: latitudes.data as Float32Array,
-        longitudes: longitudes!.data as Float32Array,
-        nj,
-        ni,
-      },
-    };
+    coordinates = await getLatLonData(variable, datavar, sources);
   } catch (error) {
-    if (!hasTrailingProjectedXYDimensions(dimensionNames)) {
+    if (
+      !(await hasTrailingProjectedXYDimensions(
+        sources,
+        variable,
+        dimensionNames
+      ))
+    ) {
       throw error;
     }
     return { axes: await loadAxes(sources, variable, dimensionNames, error) };
   }
+  const timeDimensions = await findCoordinateTimeDimensions(
+    sources,
+    variable,
+    dimensionNames,
+    [
+      ...((coordinates.latitudesAttrs.dimensionNames ?? []) as string[]),
+      ...((coordinates.longitudesAttrs?.dimensionNames ?? []) as string[]),
+    ]
+  );
+  return { latLon: { ...coordinates, timeDimensions } };
+}
+
+/** The grid points of lat/lon arrays, at the selected step where they move. */
+function stepPoints(
+  latLon: TLevelLatLon,
+  dimensionNames: string[],
+  indices: (number | null | zarr.Slice)[]
+): TGridPoints {
+  const { latitudes, longitudes } = selectCoordinateTimeStep(
+    latLon,
+    dimensionNames,
+    indices
+  );
+  const [nj, ni] = latitudes.shape;
+  return {
+    latitudes: latitudes.data as Float32Array,
+    longitudes: longitudes.data as Float32Array,
+    nj,
+    ni,
+  };
 }
 
 /** Read the coordinates of the level shown; a window reload keeps them. */
@@ -570,14 +592,28 @@ function showData(rawData: Float32Array, grid: TCurvilinearGrid) {
   updateMeshProjectionUniforms();
 }
 
+function getStepKey(
+  dimensionNames: string[],
+  indices: (number | null | zarr.Slice)[]
+) {
+  const coordinates = levelCoordinates!;
+  return "latLon" in coordinates
+    ? coordinates.latLon.timeDimensions
+        .map((name) => indices[dimensionNames.indexOf(name)])
+        .join()
+    : "";
+}
+
 async function loadGrid(
+  dimensionNames: string[],
+  indices: (number | null | zarr.Slice)[],
   missingValue: number,
   fillValue: number
 ): Promise<TCurvilinearGridState> {
   const coordinates = levelCoordinates!;
   const points =
-    "points" in coordinates
-      ? coordinates.points
+    "latLon" in coordinates
+      ? stepPoints(coordinates.latLon, dimensionNames, indices)
       : gridWindow === undefined
         ? wholeLevelPoints(coordinates.axes)
         : windowPoints(coordinates.axes, gridWindow);
@@ -624,8 +660,20 @@ function withinWindow(
   };
 }
 
-function getGrid(missingValue: number, fillValue: number) {
-  gridState ??= loadGrid(missingValue, fillValue);
+function getGrid(
+  dimensionNames: string[],
+  indices: (number | null | zarr.Slice)[],
+  missingValue: number,
+  fillValue: number
+) {
+  // Static coordinates keep their grid; coordinates that move over time need
+  // a new one for another time step.
+  const stepKey = getStepKey(dimensionNames, indices);
+  if (gridStepKey !== stepKey) {
+    gridState = undefined;
+    gridStepKey = stepKey;
+  }
+  gridState ??= loadGrid(dimensionNames, indices, missingValue, fillValue);
   const state = gridState;
   // A failed load or hover index must not stick: the next time step retries.
   state
@@ -709,26 +757,34 @@ async function fetchLoadedData(indices: (number | null | zarr.Slice)[]) {
 async function loadBackdropGrid(
   coarse: TSources,
   variable: string,
-  datavar: TDataVar
+  datavar: TDataVar,
+  indices: (number | null | zarr.Slice)[]
 ) {
   const key = `${coarse.selectedLevel}:${variable}`;
   if (backdropGrid?.key === key) {
     return backdropGrid;
   }
+  const dimensionNames = await ZarrDataManager.getDimensionNames(
+    coarse,
+    variable
+  );
   const coordinates = await loadCoordinates(
     coarse,
     variable,
     datavar,
-    await ZarrDataManager.getDimensionNames(coarse, variable)
+    dimensionNames
   );
   const { missingValue, fillValue } = decodeVariableDataAndGetBounds(
     datavar,
     new Float32Array()
   );
+  // ponytail: a backdrop whose lat/lon move over time keeps the grid of the
+  // step it was first loaded at; key the grid by the step if a pyramid ever
+  // pairs projected axes with a coarsest level of moving lat/lon.
   const grid = makeGrid(
     "axes" in coordinates
       ? wholeLevelPoints(coordinates.axes)
-      : coordinates.points,
+      : stepPoints(coordinates.latLon, dimensionNames, indices),
     missingValue,
     fillValue
   );
@@ -764,7 +820,7 @@ async function loadBackdrop(indices: (number | null | zarr.Slice)[]) {
     return undefined;
   }
   const [grid, values] = await Promise.all([
-    loadBackdropGrid(coarse, variable, datavar),
+    loadBackdropGrid(coarse, variable, datavar, indices),
     fetchVariableData(coarse, variable, indices),
   ]);
   const data = castDataVarToFloat32(values);
@@ -854,7 +910,12 @@ async function fetchAndRenderData(datavar: TDataVar, isCurrent: () => boolean) {
     datavar,
     rawData
   );
-  const { grid, mesh, hoverIndexData } = await getGrid(missingValue, fillValue);
+  const { grid, mesh, hoverIndexData } = await getGrid(
+    dimensionNames,
+    indices,
+    missingValue,
+    fillValue
+  );
   const samples = createSerializedGeoSampleIndex(
     attachCurvilinearHoverValues(await hoverIndexData, rawData)
   );

@@ -11,6 +11,11 @@ import type {
   TGeoSampleIndex,
 } from "./composables/gridHoverUtils.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
+import {
+  getRgbChannelReads,
+  useRgbLayer,
+  type TRgbRequest,
+} from "./composables/useRgbLayer.ts";
 import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 import { useStreamlineLayer } from "./composables/useStreamlineLayer.ts";
@@ -18,11 +23,13 @@ import { useViewWindow } from "./composables/useViewWindow.ts";
 import { useVolume } from "./composables/useVolume.ts";
 
 import {
+  DEFAULT_ANCHOR_CRS,
   getCRSWkt,
+  hasLengthUnitCoordinates,
+  hasRotatedLatLonMismatch,
+  hasTrailingProjectedXYDimensions,
   isLatitudeName,
   isLongitudeName,
-  isProjectedXName,
-  isProjectedYName,
   isWebMercatorCRS,
   loadGridAxes,
   projectedAxisCoordinatesToLonLat,
@@ -38,6 +45,7 @@ import {
   STREAMLINES_NEED_WHOLE_LEVEL,
   variableOnLevel,
 } from "@/lib/data/levels.ts";
+import { interleaveRgba, mergeRgbBounds } from "@/lib/data/rgbComposite.ts";
 import { loadVectorComponents } from "@/lib/data/streamlineData.ts";
 import {
   castDataVarToFloat32,
@@ -91,6 +99,7 @@ import {
 import { useUrlParameterStore } from "@/store/paramStore.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 import { useLog } from "@/ui/common/useLog.ts";
+import { ToastType, useToast } from "@/ui/common/useToast.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -99,6 +108,7 @@ const props = defineProps<{
 
 const store = useGlobeControlStore();
 const { logError } = useLog();
+const { addToast } = useToast();
 const { dimSlidersValues, colormap, varnameSelector, invertColormap, varinfo } =
   storeToRefs(store);
 
@@ -146,6 +156,7 @@ let projectedGrid: TProjectedVolumeGrid | undefined;
 let nativeProjection: TProjectionConverter | undefined;
 const selectedDimensionNames = ref<string[]>([]);
 let lastStreamlineIndices: (number | null | zarr.Slice)[] | undefined;
+let lastDatavar: zarr.Array<zarr.DataType, zarr.AsyncReadable> | undefined;
 let streamlineRequestRevision = 0;
 let cachedMagnitude: TVectorMagnitudeData | undefined;
 let cachedStreamlineKey: string | undefined;
@@ -193,6 +204,16 @@ const streamlines = useStreamlineLayer({
   registerAnimationCallback,
 });
 
+const rgbLayer = useRgbLayer({
+  getScene,
+  redraw,
+  projectionHelper,
+  isSceneInMotion,
+  onProjectionChange,
+  onMotionStateChange,
+  load: loadRgbComposite,
+});
+
 const volume = useVolume({
   getDatasources: () => props.datasources,
   getScene,
@@ -220,6 +241,7 @@ const { datasourceUpdate } = useGridDataLoader({
   clearHoverLookup,
   prepareDatasource: async () => {
     await getDims();
+    void warnIfRotatedLatLonMismatch();
     applyViewWindow();
     // On a level or window swap the meshes still show the previous grid:
     // rebuild them together with the data instead.
@@ -305,6 +327,52 @@ function getDimensionData(
   );
 }
 
+// Not awaited: the check reads the 2-D lat/lon and must not delay rendering.
+async function warnIfRotatedLatLonMismatch() {
+  const grid = projectedGrid;
+  if (
+    !props.isRotated ||
+    !grid ||
+    !(await hasRotatedLatLonMismatch(
+      props.datasources!,
+      varnameSelector.value,
+      grid.x,
+      grid.y,
+      grid.crs
+    ))
+  ) {
+    return;
+  }
+  addToast("Rotated pole and lat/lon disagree", {
+    detail:
+      "The dataset's rotated pole places the grid somewhere else than its own lat/lon coordinates. This grid follows the rotated pole; the irregular grids follow lat/lon.",
+    duration: 10000,
+    type: ToastType.WARNING,
+  });
+}
+
+// Projected x/y in metres without a CRS (e.g. idealized LES) have no location
+// on Earth. x/y in other units keep being drawn as degrees.
+async function getDefaultAnchorCRS(dimensions: string[]) {
+  if (
+    !isProjectedGrid.value ||
+    !(await hasLengthUnitCoordinates(
+      props.datasources!,
+      varnameSelector.value,
+      dimensions.slice(-2)
+    ))
+  ) {
+    return null;
+  }
+  addToast("Dataset is not georeferenced", {
+    detail:
+      "Its x/y grid has no map projection, so it is drawn true to scale starting at 0°N 0°E. Its position on the globe has no meaning.",
+    duration: 8000,
+    type: ToastType.WARNING,
+  });
+  return DEFAULT_ANCHOR_CRS;
+}
+
 async function getDims() {
   const dimensions = await ZarrDataManager.getDimensionNames(
     props.datasources!,
@@ -315,8 +383,11 @@ async function getDims() {
   const lastDim = dimensions[dimensions.length - 1];
   const secondLastDim = dimensions[dimensions.length - 2];
 
-  const isProjectedXY =
-    isProjectedXName(lastDim) && isProjectedYName(secondLastDim);
+  const isProjectedXY = await hasTrailingProjectedXYDimensions(
+    props.datasources!,
+    varnameSelector.value,
+    dimensions
+  );
   isProjectedGrid.value = isProjectedXY;
 
   const latOnlyCheck =
@@ -333,12 +404,13 @@ async function getDims() {
     latitudes.value = latitudesData.data as Float32Array;
     longitudes.value = Float32Array.from({ length: 360 }, (_, i) => i - 179.5);
   } else {
-    const [{ x, y }, crs] = await Promise.all([
+    const [{ x, y }, crsWkt] = await Promise.all([
       loadGridAxes(props.datasources!, varnameSelector.value, dimensions),
       isProjectedXY || props.isRotated
         ? getCRSWkt(props.datasources!, varnameSelector.value)
         : null,
     ]);
+    const crs = crsWkt ?? (await getDefaultAnchorCRS(dimensions));
     if (props.isRotated && !crs) {
       throw new Error("Rotated grids need valid pole coordinates.");
     }
@@ -668,6 +740,7 @@ function applyBatchGeometry(
     setupProjectionGeometryWrap(geometry);
     meshes[batchIndex].geometry.dispose();
     meshes[batchIndex].geometry = geometry;
+    rgbLayer.updateGeometry(batchIndex, geometry);
   } else {
     const mesh = createWrappedProjectionMesh(
       geometry,
@@ -770,6 +843,49 @@ function createRegularTexture(
   }
   texture.needsUpdate = true;
   return texture;
+}
+
+// All batch meshes share one RGBA image of the whole grid, like the scalar
+// texture.
+async function loadRgbComposite(request: TRgbRequest) {
+  const datavar = lastDatavar;
+  if (!datavar || isLatOnly.value || gridWindow === null) {
+    return { batches: [] };
+  }
+  const reads = await getRgbChannelReads(request, datavar, openRgbVariable);
+  const channels = await Promise.all(
+    reads.map(async (read) => {
+      const data = await fetchLoadedData(read.selection, read.variable);
+      const bounds = decodeVariableDataAndGetBounds(read.datavar, data);
+      return {
+        ...fitDataToMaxTextureSize(
+          data,
+          longitudes.value.length,
+          latitudes.value.length
+        ),
+        bounds,
+      };
+    })
+  );
+  if (!request.isCurrent()) {
+    return undefined;
+  }
+  const [red, green, blue] = channels;
+  const image = {
+    data: interleaveRgba(red.data, green.data, blue.data),
+    width: red.texWidth,
+    height: red.texHeight,
+    wrapRepeat:
+      !hasProjectedNativeAxes() && isLongitudeGlobal(longitudes.value),
+  };
+  return {
+    batches: meshes.map((mesh, batchIndex) => ({
+      batchIndex,
+      geometry: mesh.geometry,
+      image,
+    })),
+    bounds: mergeRgbBounds(channels.map((channel) => channel.bounds)),
+  };
 }
 
 function makeMaterial(
@@ -938,24 +1054,38 @@ async function buildDimensionConfig(
   );
 }
 
+function openRgbVariable(variable: string) {
+  return ZarrDataManager.getVariableInfo(
+    ZarrDataManager.getDatasetSource(props.datasources!, varnameSelector.value),
+    variable,
+    props.datasources!.zarr_format
+  );
+}
+
 function fetchRegularGridVariableData(
-  selection: (number | null | zarr.Slice)[]
+  selection: (number | null | zarr.Slice)[],
+  variable = varnameSelector.value
 ) {
   return getGridVariableData({
     source: ZarrDataManager.getDatasetSource(
       props.datasources!,
       varnameSelector.value
     ),
-    variable: varnameSelector.value,
+    variable,
     format: props.datasources!.zarr_format,
     selection,
   });
 }
 
 /** The loaded cells of the selected slice, row by row. */
-async function fetchLoadedData(indices: (number | null | zarr.Slice)[]) {
+async function fetchLoadedData(
+  indices: (number | null | zarr.Slice)[],
+  variable?: string
+) {
   if (gridWindow === undefined) {
-    return castDataVarToFloat32(await fetchRegularGridVariableData(indices));
+    return castDataVarToFloat32(
+      await fetchRegularGridVariableData(indices, variable)
+    );
   }
   if (gridWindow === null) {
     return new Float32Array();
@@ -964,11 +1094,14 @@ async function fetchLoadedData(indices: (number | null | zarr.Slice)[]) {
   const parts = await Promise.all(
     lon.map(async (range) =>
       castDataVarToFloat32(
-        await fetchRegularGridVariableData([
-          ...indices.slice(0, -2),
-          zarr.slice(lat.start, lat.end),
-          zarr.slice(range.start, range.end, lonStep),
-        ])
+        await fetchRegularGridVariableData(
+          [
+            ...indices.slice(0, -2),
+            zarr.slice(lat.start, lat.end),
+            zarr.slice(range.start, range.end, lonStep),
+          ],
+          variable
+        )
       )
     )
   );
@@ -1295,6 +1428,7 @@ async function fetchAndRenderData(
   if (!isCurrent()) {
     return;
   }
+  lastDatavar = datavar;
   const { min, max, missingValue, fillValue } = decodeVariableDataAndGetBounds(
     datavar,
     rawData
@@ -1369,6 +1503,16 @@ async function fetchAndRenderData(
   await updateStreamlines(indices);
   if (isCurrent() && !store.streamlineMagnitudeDisplayed) {
     await scalarCache.restoreScalar();
+  }
+  if (isCurrent()) {
+    await rgbLayer.setContext({
+      indices,
+      dimRanges: dimensionRanges,
+      dimInfo,
+      varname: varnameSelector.value,
+      vars: currentLevel(props.datasources!).datasources,
+      loaded: [props.datasources!.selectedLevel, gridWindow],
+    });
   }
 }
 

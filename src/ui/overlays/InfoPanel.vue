@@ -54,14 +54,30 @@ const { varnameDisplay, varnameSelector, varinfo } = storeToRefs(store);
 const sourceVariable = computed(
   () => varinfo.value?.derivedFrom?.u ?? varnameSelector.value
 );
+// Attributes of the variable loaded here. The rendered state describes the
+// variable on screen (also the derived magnitude); a variable that failed to
+// render never reaches it and is described by these attributes instead.
+const variableAttrs = ref<zarr.Attributes>({});
+const isRendered = computed(
+  () =>
+    !!varinfo.value &&
+    (!!varinfo.value.derivedFrom ||
+      varnameDisplay.value === sourceVariable.value)
+);
+const currentVarname = computed(() =>
+  isRendered.value ? varnameDisplay.value : sourceVariable.value
+);
+const currentAttrs = computed(() =>
+  isRendered.value ? varinfo.value!.attrs : variableAttrs.value
+);
 const variableUnits = computed(
-  () => (varinfo.value?.attrs.units as string) || null
+  () => (currentAttrs.value.units as string) || null
 );
 const variableLongName = computed(
-  () => (varinfo.value?.attrs.long_name as string) || null
+  () => (currentAttrs.value.long_name as string) || null
 );
 const variableStandardName = computed(
-  () => (varinfo.value?.attrs.standard_name as string) || null
+  () => (currentAttrs.value.standard_name as string) || null
 );
 
 const groupAttrs = ref<zarr.Attributes | null>(null);
@@ -388,8 +404,7 @@ async function loadGroupAttrsChain(
   return chain;
 }
 
-async function fetchInfo(requestId: number) {
-  const varname = sourceVariable.value;
+function resetInfo() {
   error.value = null;
   variableDtype.value = null;
   variableChunks.value = null;
@@ -410,22 +425,38 @@ async function fetchInfo(requestId: number) {
   lonMax.value = null;
   groupAttrsChain.value = [];
   groupAttrs.value = null;
-  if (!props.datasources || !varname || varname === "-") {
+  variableAttrs.value = {};
+}
+
+async function fetchInfo(requestId: number) {
+  const varname = sourceVariable.value;
+  resetInfo();
+  if (!props.datasources) {
     return;
   }
+  const level = currentLevel(props.datasources);
+  const hasVariable = !!varname && varname in level.datasources;
 
   try {
-    const varSource = currentLevel(props.datasources).datasources[varname];
-    const groupChain = await loadGroupAttrsChain(varSource, varname);
+    // Dataset attributes do not need a variable, e.g. when none can be shown.
+    const varSource = hasVariable ? level.datasources[varname] : level.grid;
+    const groupChain = await loadGroupAttrsChain(
+      varSource,
+      hasVariable ? varname : ""
+    );
     if (requestId !== infoRequestId || varname !== sourceVariable.value) {
       return;
     }
     groupAttrsChain.value = groupChain;
     groupAttrs.value = groupChain[0]?.attrs ?? null;
+    if (!hasVariable) {
+      return;
+    }
     const variable = await ZarrDataManager.getVariableInfo(varSource, varname);
     if (requestId !== infoRequestId || varname !== sourceVariable.value) {
       return;
     }
+    variableAttrs.value = variable.attrs;
     await Promise.all([
       loadVariableDetails(variable, varname, requestId),
       getLatLonInfo(variable, varname, requestId),
@@ -491,7 +522,7 @@ watch(
             @select-grid-type="emit('selectGridType', $event)"
           />
           <CurrentVariableSection
-            :varname="varnameDisplay"
+            :varname="currentVarname"
             :variable-long-name="variableLongName"
             :variable-standard-name="variableStandardName"
             :variable-units="variableUnits"

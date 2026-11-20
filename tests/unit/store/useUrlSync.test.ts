@@ -105,3 +105,37 @@ it("writes the level toggles only when they are not at their default", async () 
     vi.stubGlobal("localStorage", { getItem: () => null });
   }
 });
+
+it("keeps a negative dimension index while it still matches the slider", async () => {
+  vi.stubGlobal("localStorage", { getItem: () => null });
+  setActivePinia(createPinia());
+  const location = {
+    pathname: "/",
+    hash: "#https://example.test/data.zarr::dimIndices_time=-1",
+  };
+  vi.stubGlobal("location", location);
+  vi.stubGlobal("document", { location });
+  vi.stubGlobal("history", {
+    replaceState: (_state: unknown, _title: string, url: string) => {
+      location.hash = url.slice(url.indexOf("#"));
+    },
+  });
+  const store = useGlobeControlStore();
+  store.varinfo = {
+    dimRanges: [{ name: "time", startPos: 9, minBound: 0, maxBound: 9 }, null],
+  } as unknown as typeof store.varinfo;
+  const scope = effectScope();
+  scope.run(useUrlSync);
+  try {
+    store.dimSlidersDisplay = [9, null];
+    await nextTick();
+    expect(location.hash).toContain("::dimIndices_time=-1");
+
+    store.dimSlidersDisplay = [8, null];
+    await nextTick();
+    expect(location.hash).toContain("::dimIndices_time=8");
+  } finally {
+    scope.stop();
+    vi.unstubAllGlobals();
+  }
+});

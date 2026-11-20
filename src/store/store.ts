@@ -2,6 +2,11 @@ import { defineStore } from "pinia";
 
 import { sumsOverCells } from "@/lib/data/levels.ts";
 import {
+  createDefaultRgbSettings,
+  type TRgbBounds,
+  type TRgbSettings,
+} from "@/lib/data/rgbComposite.ts";
+import {
   levelAxesAreIdentical,
   type TStreamlineLevelInfo,
   type TVectorVariablePair,
@@ -53,6 +58,7 @@ export const LAYER_KINDS = {
   GRID: "grid",
   STREAMLINES: "streamlines",
   VOLUME: "volume",
+  RGB: "rgb",
   TEXTURE: "texture",
   // "Maps and Masks"; it replaced the land/sea mask, hence its URL name.
   BASEMAP: "mask",
@@ -82,6 +88,7 @@ export const BUILTIN_LAYER_IDS = {
   GRID: "grid",
   STREAMLINES: "streamlines",
   VOLUME: "volume",
+  RGB: "rgb",
   BASEMAP: "basemap",
 } as const;
 
@@ -135,6 +142,7 @@ export const BUILTIN_LAYER_NAMES = {
   [LAYER_KINDS.GRID]: "Data grid",
   [LAYER_KINDS.STREAMLINES]: "Flow streamlines",
   [LAYER_KINDS.VOLUME]: "Volume",
+  [LAYER_KINDS.RGB]: "RGB composite",
   [LAYER_KINDS.BASEMAP]: "Maps and Masks",
 } as const satisfies Record<
   Exclude<TLayerKind, typeof LAYER_KINDS.TEXTURE>,
@@ -173,6 +181,12 @@ const BUILTIN_LAYER_DEFAULTS: Record<TBuiltinLayerKind, TBuiltinLayerDefaults> =
     [LAYER_KINDS.VOLUME]: {
       id: BUILTIN_LAYER_IDS.VOLUME,
       kind: LAYER_KINDS.VOLUME,
+      opacity: LAYER_OPACITY.MAX,
+      maskMode: LAND_SEA_MASK_MODES.OFF,
+    },
+    [LAYER_KINDS.RGB]: {
+      id: BUILTIN_LAYER_IDS.RGB,
+      kind: LAYER_KINDS.RGB,
       opacity: LAYER_OPACITY.MAX,
       maskMode: LAND_SEA_MASK_MODES.OFF,
     },
@@ -303,6 +317,12 @@ export const useGlobeControlStore = defineStore("globeControl", {
       volumeLoading: false,
       volumeProgress: undefined as number | undefined,
       volumeAvailable: false,
+      rgbSettings: createDefaultRgbSettings() as TRgbSettings,
+      // set by the grids that can draw an RGB composite
+      rgbAvailable: false,
+      rgbLoading: false,
+      // range of the loaded channels, used while no range is set
+      rgbDataBounds: undefined as TRgbBounds | undefined,
     };
   },
   getters: {
@@ -586,6 +606,26 @@ export const useGlobeControlStore = defineStore("globeControl", {
       if (layer) {
         layer.visible = enabled;
       }
+    },
+    isRgbLayerEnabled() {
+      return Boolean(
+        this.layerStack.find((entry) => entry.id === BUILTIN_LAYER_IDS.RGB)
+          ?.visible
+      );
+    },
+    setRgbLayerEnabled(enabled: boolean) {
+      if (enabled) {
+        this.restoreBuiltinLayer(LAYER_KINDS.RGB);
+      }
+      const layer = this.layerStack.find(
+        (entry) => entry.id === BUILTIN_LAYER_IDS.RGB
+      );
+      if (layer) {
+        layer.visible = enabled;
+      }
+    },
+    updateRgbSettings(patch: Partial<TRgbSettings>) {
+      this.rgbSettings = { ...this.rgbSettings, ...patch };
     },
     setVolumeSelections(selections: TVolumeSelection[]) {
       this.volumeSelections = selections.slice(0, 4).map((selection) => ({

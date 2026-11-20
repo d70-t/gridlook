@@ -2,6 +2,7 @@ import { watchDebounced } from "@vueuse/core";
 import { storeToRefs } from "pinia";
 import { watch } from "vue";
 
+import { resolveDimensionIndex } from "../lib/data/dimensionHandling.ts";
 import {
   URL_PARAMETERS,
   type TURLParameterValues,
@@ -90,6 +91,7 @@ const URL_PARAM_SYNC_MAP: TUrlSyncEntry[] = [
   },
 ];
 
+// eslint-disable-next-line max-lines-per-function
 function getLayerUrlEntry(
   store: ReturnType<typeof useGlobeControlStore>,
   layer: TLayerEntry
@@ -128,6 +130,13 @@ function getLayerUrlEntry(
         opacity,
         selections: store.volumeSelections,
       };
+    case LAYER_KINDS.RGB:
+      return {
+        kind: LAYER_KINDS.RGB,
+        visible,
+        opacity,
+        settings: store.rgbSettings,
+      };
     case LAYER_KINDS.BASEMAP:
       return {
         kind: LAYER_KINDS.BASEMAP,
@@ -150,14 +159,17 @@ export function useUrlSync() {
 
   const urlParameterStore = useUrlParameterStore();
 
+  function getHashParams() {
+    const [resource, ...paramArray] = location.hash.substring(1).split("::");
+    return { resource, params: new URLSearchParams(paramArray.join("&")) };
+  }
+
   function changeURLHash(
     entries: Partial<
       Record<TURLParameterValues | string, string | number | undefined>
     >
   ) {
-    const [resource, ...paramArray] = location.hash.substring(1).split("::");
-    const paramString = paramArray.join("&");
-    const params = new URLSearchParams(paramString);
+    const { resource, params } = getHashParams();
 
     for (const [key, value] of Object.entries(entries)) {
       if (value === undefined || value === "") {
@@ -271,8 +283,10 @@ export function useUrlSync() {
         return;
       }
       const dimensionValues = {} as Record<string, string | number>;
+      const { params } = getHashParams();
       for (let i = 0; i < dimension.length; i++) {
-        if (dimension[i] === null) {
+        const dim = dimension[i];
+        if (dim === null) {
           continue;
         }
         // In live mode the time index is driven by polling and re-seeded from
@@ -281,8 +295,18 @@ export function useUrlSync() {
           continue;
         }
         const val = store.dimSlidersDisplay[i];
+        const key = `dimIndices_${dim.name}`;
+        // Keep a negative index (e.g. -1 = latest) in the URL as long as the
+        // slider still points at the index it resolves to.
+        const urlIndex = Number(params.get(key));
+        if (
+          urlIndex < 0 &&
+          resolveDimensionIndex(urlIndex, dim.minBound, dim.maxBound) === val
+        ) {
+          continue;
+        }
         if (val !== null) {
-          dimensionValues[`dimIndices_${dimension[i]?.name}` as string] = val;
+          dimensionValues[key] = val;
         }
       }
       changeURLHash(dimensionValues);

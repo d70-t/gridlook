@@ -36,6 +36,16 @@ const { beforeMount, scene, setHoverLookupFromIndex, fetches, axes } =
       axes: {
         fine: { x: axis(1500, 4000, false), y: axis(1500, 4000, true) },
         coarse: { x: axis(100, 60_000, false), y: axis(100, 60_000, true) },
+        // lat/lon(time, y, x) of 2 x 3 cells that move 10 degrees north a step
+        moving: {
+          x: Float32Array.of(0, 1, 2),
+          y: Float32Array.of(0, 1),
+          lat: Float32Array.from(
+            { length: 18 },
+            (_, k) => 10 * Math.floor(k / 6) + (Math.floor(k / 3) % 2)
+          ),
+          lon: Float32Array.from({ length: 18 }, (_, k) => k % 3),
+        },
       } as Record<string, Record<string, Float32Array>>,
     };
   });
@@ -89,12 +99,24 @@ vi.mock("@/lib/data/ZarrDataManager.ts", () => ({
       if (!values) {
         throw new Error(`${name} is not in the store`);
       }
-      return { shape: [values.length], attrs: {}, dimension: name, source };
+      const moves = name === "lat" || name === "lon";
+      return {
+        shape: moves ? [3, 2, 3] : [values.length],
+        dimensionNames: moves ? ["time", "y", "x"] : [name],
+        attrs: {},
+        dimension: name,
+        source,
+      };
     },
     getVariableDataFromArray: async (array: {
+      shape: number[];
       dimension: string;
       source: TSource;
-    }) => ({ data: axes[array.source.dataset][array.dimension].slice() }),
+    }) => ({
+      data: axes[array.source.dataset][array.dimension].slice(),
+      shape: array.shape,
+      stride: [6, 3, 1].slice(-array.shape.length),
+    }),
     getCRSInfo: async () => ({ attrs: { crs_wkt: CRS } }), // eslint-disable-line camelcase
     getDatasetSource: (sources: TLevelSources, variable: string) =>
       level(sources).datasources[variable],
@@ -104,8 +126,11 @@ vi.mock("@/lib/data/variableData.ts", () => ({
   getVariableDatasource: (sources: TLevelSources, variable: string) =>
     level(sources).datasources[variable],
   fetchDataVariable: async (_variable: string, sources: TLevelSources) => {
-    const { x, y } = axes[level(sources).grid.dataset];
-    return { shape: [3, y.length, x.length], attrs: {} };
+    const { x, y, lat } = axes[level(sources).grid.dataset];
+    return {
+      shape: [3, y.length, x.length],
+      attrs: lat ? { coordinates: "lat lon" } : {},
+    };
   },
 }));
 vi.mock("@/lib/data/dimensionData.ts", () => ({
@@ -203,7 +228,7 @@ function fineCell(lon: number, lat: number) {
   return { row: nearest(axes.fine.y, py), column: nearest(axes.fine.x, px) };
 }
 
-async function mount(footprint = peninsula) {
+async function mount(footprint = peninsula, names = ["fine", "coarse"]) {
   beforeMount.length = 0;
   fetches.length = 0;
   setHoverLookupFromIndex.mockClear();
@@ -216,7 +241,7 @@ async function mount(footprint = peninsula) {
   const sources = reactive({
     zarr_format: ZARR_FORMAT.V3, // eslint-disable-line camelcase
     selectedLevel: 0,
-    levels: ["fine", "coarse"].map((name) => ({
+    levels: names.map((name) => ({
       grid: source(name),
       time: source(name),
       datasources: { t: source(name) },
@@ -359,5 +384,26 @@ it("loads nothing of a level the view misses, and shows the backdrop", async () 
   expect(fetched("coarse")).toHaveLength(1);
   expect(meshes()).toHaveLength(1);
   expect(meshes()[0].renderOrder).toBeGreaterThan(0);
+  scope.stop();
+});
+
+it("meshes lat/lon that move over time at the selected step", async () => {
+  const { store, scope } = await mount(peninsula, ["moving"]);
+  const northernmost = () => {
+    let max = -Infinity;
+    for (const value of meshes()[0].geometry.getAttribute("latLon").array) {
+      max = value > max ? value : max;
+    }
+    return max;
+  };
+  expect(meshes()).toHaveLength(1);
+  expect(northernmost()).toBeLessThan(3);
+  const first = meshes()[0];
+
+  store.dimSlidersValues = [2, null, null];
+  await wait(60);
+  expect(meshes()).toHaveLength(1);
+  expect(meshes()).not.toContain(first);
+  expect(northernmost()).toBeGreaterThan(20);
   scope.stop();
 });

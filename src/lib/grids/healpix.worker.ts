@@ -70,7 +70,10 @@ async function buildGrid(request: THealpixWorkerRequest) {
     metadata: { totalBatches: 1 },
   });
   const { dataValues, histogramSummary, width, height, dataRect } =
-    buildHealpixTexture(data, faceIndex, grid.nside, request.cells);
+    // Mesh only the data's extent: the same 65 steps then span a smaller area.
+    buildHealpixTexture(data, faceIndex, grid.nside, request.cells, {
+      cropDenseToData: true,
+    });
   postBatch(requestId, {
     batchIndex: 0,
     ...buildHealpixGeometry(

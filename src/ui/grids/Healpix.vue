@@ -12,6 +12,13 @@ import {
   type TGridHoverLookupResult,
 } from "./composables/gridHoverUtils.ts";
 import { useGridDataLoader } from "./composables/useGridDataLoader.ts";
+import {
+  getRgbChannelReads,
+  useRgbLayer,
+  type TRgbBatch,
+  type TRgbChannelRead,
+  type TRgbRequest,
+} from "./composables/useRgbLayer.ts";
 import { useScalarFieldCache } from "./composables/useScalarFieldCache.ts";
 import { useSharedGridLogic } from "./composables/useSharedGridLogic.ts";
 import { useStreamlineLayer } from "./composables/useStreamlineLayer.ts";
@@ -28,9 +35,11 @@ import {
   STREAMLINES_NEED_WHOLE_LEVEL,
   variableOnLevel,
 } from "@/lib/data/levels.ts";
+import { interleaveRgba, mergeRgbBounds } from "@/lib/data/rgbComposite.ts";
 import { loadVectorComponents } from "@/lib/data/streamlineData.ts";
 import {
   castDataVarToFloat32,
+  decodeVariableDataAndGetBounds,
   getFillValue,
   getMissingValue,
 } from "@/lib/data/variableDecoding.ts";
@@ -169,6 +178,7 @@ type TStreamlineContext = {
 };
 
 let lastStreamlineContext: TStreamlineContext | undefined;
+let lastDatavar: zarr.Array<zarr.DataType, zarr.AsyncReadable> | undefined;
 let streamlineRequestRevision = 0;
 let cachedMagnitude: TVectorMagnitudeData | undefined;
 let cachedStreamlineKey: string | undefined;
@@ -235,6 +245,16 @@ const streamlines = useStreamlineLayer({
   projectionHelper,
   onProjectionChange,
   registerAnimationCallback,
+});
+
+const rgbLayer = useRgbLayer({
+  getScene,
+  redraw,
+  projectionHelper,
+  isSceneInMotion,
+  onProjectionChange,
+  onMotionStateChange,
+  load: loadRgbComposite,
 });
 
 const volume = useVolume({
@@ -1084,6 +1104,9 @@ function updateHealpixBatch(batch: THealpixBatch, target = mainMeshes) {
     mesh.geometry.dispose();
     setupProjectionGeometryWrap(geometry);
     mesh.geometry = geometry;
+    if (target === mainMeshes) {
+      rgbLayer.updateGeometry(batch.batchIndex, geometry);
+    }
   } else {
     mesh = createHealpixMesh(batch.batchIndex, geometry, target);
   }
@@ -1265,6 +1288,89 @@ function showBackdrop(frame: TBackdropFrame | undefined) {
   wanted?.batches.forEach((batch) => updateHealpixBatch(batch, backdropMeshes));
 }
 
+// Reads the three channels face by face and draws them over the faces of the
+// data grid, which are already meshed for the current selection.
+async function loadRgbComposite(request: TRgbRequest) {
+  const context = lastStreamlineContext;
+  const datavar = lastDatavar;
+  if (!context || !datavar) {
+    return undefined;
+  }
+  if (loadedBlocks) {
+    // ponytail: the channels are read a whole face at a time, so a level
+    // loaded by view has no composite; read them by block (fetchFaceBlocks)
+    // to draw one on the view window.
+    return { batches: [] };
+  }
+  const { grid, cellCoord } = context;
+  const reads = await getRgbChannelReads(request, datavar, openRgbVariable);
+  const batches: TRgbBatch[] = [];
+  const bounds: { min: number; max: number }[] = [];
+  for (let faceIndex = 0; faceIndex < HEALPIX_NUMCHUNKS; faceIndex++) {
+    const mesh = mainMeshes[faceIndex];
+    const range = getHealpixFaceRange(faceIndex, grid.nside, cellCoord);
+    if (!mesh || range.start === range.end) {
+      continue;
+    }
+    const textures = await Promise.all(
+      reads.map(async (read) => {
+        const data = await readRgbFaceChannel(read, range);
+        bounds.push(data.bounds);
+        return buildHealpixTexture(
+          data.values,
+          faceIndex,
+          grid.nside,
+          range.cells
+        );
+      })
+    );
+    if (disposed || !request.isCurrent()) {
+      return undefined;
+    }
+    const [red, green, blue] = textures;
+    batches.push({
+      batchIndex: faceIndex,
+      geometry: mesh.geometry,
+      image: {
+        data: interleaveRgba(red.dataValues, green.dataValues, blue.dataValues),
+        width: red.width,
+        height: red.height,
+        dataRect: red.dataRect,
+      },
+    });
+  }
+  return { batches, bounds: mergeRgbBounds(bounds) };
+}
+
+async function readRgbFaceChannel(
+  read: TRgbChannelRead,
+  range: { start: number; end: number }
+) {
+  const selection = read.selection.slice();
+  selection[selection.length - 1] = zarr.slice(range.start, range.end);
+  const values = castDataVarToFloat32(
+    await fetchHealpixVariableData(selection, read.variable)
+  );
+  const { missingValue, fillValue } = getHealpixMissingAndFillValues(
+    read.datavar
+  );
+  const bounds = decodeVariableDataAndGetBounds(
+    read.datavar,
+    values,
+    missingValue,
+    fillValue
+  );
+  return { values, bounds };
+}
+
+function openRgbVariable(variable: string) {
+  return ZarrDataManager.getVariableInfo(
+    ZarrDataManager.getDatasetSource(props.datasources!, varnameSelector.value),
+    variable,
+    props.datasources!.zarr_format
+  );
+}
+
 function healpixHoverLookup(
   lat: number,
   lon: number
@@ -1348,6 +1454,7 @@ async function fetchAndRenderData(
   const { dataMin, dataMax, histogramSummaries, textures, batches } = result;
 
   lastStreamlineContext = { indices, grid, cellCoord };
+  lastDatavar = datavar;
   volume.setContext(
     loadedBlocks
       ? undefined
@@ -1417,6 +1524,16 @@ async function fetchAndRenderData(
   await updateStreamlines(lastStreamlineContext);
   if (isCurrent() && !store.streamlineMagnitudeDisplayed) {
     await scalarCache.restoreScalar();
+  }
+  if (isCurrent()) {
+    await rgbLayer.setContext({
+      indices,
+      dimRanges: dimensionRanges,
+      dimInfo,
+      varname: varnameSelector.value,
+      vars: currentLevel(props.datasources!).datasources,
+      loaded: [props.datasources!.selectedLevel, loadedBlocks],
+    });
   }
 }
 
