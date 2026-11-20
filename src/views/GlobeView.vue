@@ -36,7 +36,7 @@ import {
   indexFromNetCDF,
   indexFromZarr,
 } from "@/lib/data/sourceIndexing.ts";
-import { splitSourceType } from "@/lib/data/sourceType.ts";
+import { splitSourceType, withSourceType } from "@/lib/data/sourceType.ts";
 import { getDefaultRange } from "@/lib/data/variableDecoding.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { loadTextures } from "@/lib/layers/textureStore.ts";
@@ -530,6 +530,17 @@ function indexFromRemote(src: string, tokenize: (store: string) => string) {
     : [indexFromZarr(fetchSrc, format)];
 }
 
+// A NetCDF file on the user's own Jupyter server needs the XSRF token like the
+// zarr stores; the tokenized URL is also the store key, so reopens carry it.
+function indexFromRemoteNetCDF(src: string) {
+  const { format, url } = splitSourceType(src);
+  const fetchSrc = withSourceType(
+    withStoreXsrfToken(url, document.cookie, location.href),
+    format
+  );
+  return indexFromNetCDF(fetchSrc, fetchSrc);
+}
+
 async function updateSrc(updateId: number) {
   const src = props.src;
   ZarrDataManager.invalidateCache();
@@ -547,7 +558,7 @@ async function updateSrc(updateId: number) {
           ),
         ];
   } else if (isRemoteNetCDFSource(src)) {
-    indexPromises = [indexFromNetCDF(src, src)];
+    indexPromises = [indexFromRemoteNetCDF(src)];
   } else {
     // FIXME: Trying zarr and json-index in parallel and picking the first that
     // works. If both fail, we log the last error which is from the json-index.

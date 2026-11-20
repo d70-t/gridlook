@@ -49,8 +49,8 @@ In JupyterLab, either:
 - the **Gridlook** launcher card (under _Other_; also in the command palette) — opens the
   viewer in a Lab tab on its start page, where any dataset URL can be pasted (including
   `s3://…` through the proxy, see below);
-- **right-click a directory or a `.zarr` entry in the file browser → Open with Gridlook** —
-  opens the viewer in a Lab tab on that store. The tab holds an iframe on
+- **right-click a directory, a `.zarr` entry or a NetCDF file (`.nc`, `.nc4`, `.cdf`) in the
+  file browser → Open with Gridlook** — opens the viewer in a Lab tab on that store. The tab holds an iframe on
 
   ```
   <base>/gridlook/#<base>/files/<path>
