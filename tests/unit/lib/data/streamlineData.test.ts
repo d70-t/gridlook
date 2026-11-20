@@ -181,6 +181,49 @@ it("selects a vertical slice and exposes its coordinate values", async () => {
   );
 });
 
+it("reads a level's vertical coordinate again after a level switch", async () => {
+  const datasource = sources();
+  datasource.levels.push({ ...datasource.levels[0] });
+  vi.spyOn(ZarrDataManager, "getDimensionNames").mockResolvedValue([
+    "time",
+    "level",
+    "cell",
+  ]);
+  vi.spyOn(ZarrDataManager, "getDatasetSource").mockImplementation(
+    (allSources, variable) => allSources.levels[0].datasources[variable]
+  );
+  vi.spyOn(ZarrDataManager, "getVariableInfo").mockResolvedValue(
+    pressureLevelVariable()
+  );
+  vi.spyOn(ZarrDataManager, "getVariableDataFromArray")
+    .mockResolvedValueOnce({
+      data: new Float32Array([1000, 850]),
+      shape: [2],
+      stride: [1],
+    })
+    .mockResolvedValueOnce({
+      data: new Float32Array([925, 500]),
+      shape: [2],
+      stride: [1],
+    });
+  vi.mocked(getGridVariableData).mockResolvedValue(new Float64Array([1, 2]));
+  const load = () =>
+    loadVectorComponents({
+      pair: { u: "u", v: "v", kind: "u/v" },
+      datasources: datasource,
+      getDataVar: vi.fn(async () => dataVariable([10, 2, 2])),
+      currentDimensionNames: ["time", "cell"],
+      currentIndices: [7, null],
+      spatialDimensionNames: ["cell"],
+      expectedDataLength: 2,
+      selectedLevelIndex: 0,
+    });
+
+  expect((await load())?.levelInfo?.values).toEqual([1000, 850]);
+  datasource.selectedLevel = 1;
+  expect((await load())?.levelInfo?.values).toEqual([925, 500]);
+});
+
 it.each(["lead_time", "step"])(
   "uses the scalar selection for forecast duration %s without exposing a Level",
   async (leadDimension) => {

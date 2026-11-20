@@ -103,3 +103,49 @@ it("links a coordinate's own dimension to itself instead of showing it as plain 
   const html = await render();
   expect(html).toMatch(/title="atmosphere\/time"[\s\S]*?<a[^>]*>time<\/a>/);
 });
+
+it("describes level groups and greys out the variables of a level not shown", async () => {
+  const html = await renderToString(
+    createSSRApp(VariableTableSection, {
+      rows: rows.map((row) =>
+        row.name.startsWith("ocean/")
+          ? { ...row, visualizeDisabled: "Switch to level ocean to show it" }
+          : row
+      ),
+      emptyLabel: "Empty",
+      selectedAttributesVariable: null,
+      selectedVariable: "atmosphere/tas",
+      showVisualize: true,
+      searchQuery: "tas",
+      groupInfo: {
+        atmosphere: { detail: "2 km · 1.25M cells", current: true },
+        ocean: { detail: "8 km", current: false },
+      },
+    })
+  );
+  // searching lists the rows of every level, the other level's greyed out
+  expect(html).toMatch(
+    /aria-label="Visualize atmosphere\/tas"(?![^>]*disabled)/
+  );
+  expect(html).toMatch(
+    /aria-label="Visualize ocean\/tas" title="Switch to level ocean to show it"[^>]*disabled/
+  );
+
+  const grouped = await renderToString(
+    createSSRApp(VariableTableSection, {
+      rows,
+      emptyLabel: "Empty",
+      selectedAttributesVariable: null,
+      selectedVariable: "atmosphere/tas",
+      showVisualize: true,
+      groupInfo: {
+        atmosphere: { detail: "2 km · 1.25M cells", current: true },
+        ocean: { detail: "8 km", current: false },
+      },
+    })
+  );
+  expect(grouped).toMatch(/atmosphere<\/span>[\s\S]*?2 km · 1.25M cells/);
+  expect(grouped).toMatch(/ocean<\/span>[\s\S]*?8 km/);
+  expect(grouped.match(/current level/g)).toHaveLength(1);
+  expect(grouped).toMatch(/atmosphere[\s\S]*current level[\s\S]*ocean/);
+});

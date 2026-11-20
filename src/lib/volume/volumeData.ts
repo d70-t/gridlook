@@ -1,6 +1,7 @@
 import type * as zarr from "zarrita";
 
 import { loadGridAxes } from "@/lib/data/coordinateVariables.ts";
+import { currentLevel } from "@/lib/data/levels.ts";
 import {
   castDataVarToFloat32,
   decodeVariableDataAndGetBounds,
@@ -23,7 +24,10 @@ export async function loadProjectedVolumeGrid(
   variable: string,
   dimensions: string[]
 ): Promise<TProjectedVolumeGrid | undefined> {
-  const crs = projectedVolumeCRS(variable, datasources.levels[0].datasources);
+  const crs = projectedVolumeCRS(
+    variable,
+    currentLevel(datasources).datasources
+  );
   if (!crs) {
     return undefined;
   }
@@ -80,7 +84,7 @@ async function inspectSource(
     dimensionNames,
     variable.shape,
     name,
-    datasources.levels[0].datasources
+    currentLevel(datasources).datasources
   );
   const spatial = volumeSpatialDimensions(dimensionNames);
   if (
@@ -182,7 +186,7 @@ async function loadHeightValues(
       source.name,
       coordinate
     );
-    if (!datasources.levels[0].datasources[coordinateName]) {
+    if (!currentLevel(datasources).datasources[coordinateName]) {
       continue;
     }
     try {
@@ -256,7 +260,7 @@ async function loadVerticalCoordinates(
   let coordinate;
   try {
     coordinate = await ZarrDataManager.getVariableInfo(
-      datasources.levels[0].grid,
+      currentLevel(datasources).grid,
       name
     );
   } catch {
@@ -284,7 +288,7 @@ async function loadVerticalCoordinates(
   }
   const levels = castDataVarToFloat32(
     await getGridVariableData({
-      source: datasources.levels[0].grid,
+      source: currentLevel(datasources).grid,
       variable: name,
       format: datasources.zarr_format,
       selection: [null],

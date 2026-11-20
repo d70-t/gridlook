@@ -2,9 +2,14 @@
 import { storeToRefs } from "pinia";
 import { computed, ref, watch } from "vue";
 
-import type { TVariableMetadata } from "./types";
+import type { TVariableGroupInfo, TVariableMetadata } from "./types";
 import VariableTableSection from "./VariableTableSection.vue";
 
+import {
+  currentLevel,
+  formatResolution,
+  levelOfVariable,
+} from "@/lib/data/levels.ts";
 import type { TDataSource, TSources } from "@/lib/types/GlobeTypes.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
 
@@ -21,6 +26,33 @@ const displayedDataVariable = computed(() =>
 const metadataByName = ref<Record<string, TVariableMetadata>>({});
 const selectedAttributesVariableName = ref<string | null>(null);
 const searchQuery = ref("");
+
+const cellCountFormat = new Intl.NumberFormat(undefined, {
+  notation: "compact",
+  maximumSignificantDigits: 3,
+});
+
+/**
+ * The variables of every level, the level shown first: a variable outside
+ * the level groups is in every level's list and is taken from the level
+ * shown; the variables of the other levels follow under their own groups.
+ */
+function allLevelEntries(datasources: TSources) {
+  const current = datasources.selectedLevel ?? 0;
+  const levels = [
+    currentLevel(datasources),
+    ...datasources.levels.filter((_, index) => index !== current),
+  ];
+  const entries = new Map<string, TDataSource>();
+  for (const level of levels) {
+    for (const [name, source] of Object.entries(level.datasources)) {
+      if (!entries.has(name)) {
+        entries.set(name, source);
+      }
+    }
+  }
+  return [...entries];
+}
 
 function normalizeDimensionNames(
   dimensionNames: unknown,
@@ -41,7 +73,7 @@ function getDefaultAttributesVariableName(datasources?: TSources) {
     return null;
   }
 
-  const source = datasources.levels[0].datasources[variableName];
+  const source = currentLevel(datasources).datasources[variableName];
   if (!source || source.hidden) {
     return null;
   }
@@ -78,18 +110,35 @@ async function loadAllVariableMetadata(datasources?: TSources) {
     return;
   }
 
-  const entries = Object.entries(datasources.levels[0].datasources);
+  const entries = allLevelEntries(datasources);
   metadataByName.value = Object.fromEntries(
     entries.map(([name, source]) => [name, loadVariableMetadata(name, source)])
   );
 }
 
-const datasourceEntries = computed(() => {
-  if (!props.datasources) {
-    return [];
+const datasourceEntries = computed(() =>
+  props.datasources ? allLevelEntries(props.datasources) : []
+);
+
+const levelLabel = (index: number) =>
+  props.datasources?.levels[index].name ?? String(index);
+
+/**
+ * A variable of a level other than the one shown is listed but cannot be
+ * visualised from here: the level is picked in the Variable card (or from
+ * the zoom), and the variable shown follows it.
+ */
+function visualizeDisabled(name: string) {
+  const levels = props.datasources?.levels ?? [];
+  const level = levelOfVariable(levels, name);
+  if (
+    level === undefined ||
+    level === (props.datasources?.selectedLevel ?? 0)
+  ) {
+    return undefined;
   }
-  return Object.entries(props.datasources.levels[0].datasources);
-});
+  return `Switch to level ${levelLabel(level)} to show it`;
+}
 
 const allVariables = computed(() =>
   datasourceEntries.value.map(([name, source]) => {
@@ -97,10 +146,37 @@ const allVariables = computed(() =>
     return {
       name,
       hidden: source.hidden ?? false,
+      visualizeDisabled: visualizeDisabled(name),
       ...metadata,
     };
   })
 );
+
+/** The level groups: their resolution and cell count, and which is shown. */
+const levelGroups = computed(() => {
+  const info: Record<string, TVariableGroupInfo> = {};
+  const levels = props.datasources?.levels ?? [];
+  const current = props.datasources?.selectedLevel ?? 0;
+  for (const [index, level] of levels.entries()) {
+    if (level.path === undefined || levels.length < 2) {
+      continue;
+    }
+    const detail = [
+      level.name !== level.path.split("/").pop() ? level.name : undefined,
+      formatResolution(level.resolution),
+      level.cellCount === undefined
+        ? undefined
+        : `${cellCountFormat.format(level.cellCount)} cells`,
+    ]
+      .filter((part) => part !== undefined)
+      .join(" · ");
+    info[level.path] = {
+      detail: detail || undefined,
+      current: index === current,
+    };
+  }
+  return info;
+});
 
 const variableCount = computed(() => {
   const query = searchQuery.value.trim().toLowerCase();
@@ -167,6 +243,7 @@ watch(displayedDataVariable, () => {
         :selected-attributes-variable="selectedAttributesVariableName"
         :selected-variable="displayedDataVariable"
         :search-query="searchQuery"
+        :group-info="levelGroups"
         show-visualize
         @toggle-attributes="toggleVariableAttributes"
         @visualize="selectVariable"

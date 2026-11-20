@@ -167,6 +167,22 @@ it("exports a regular texture GeoTIFF without alpha cropping", async () => {
   expect(Array.from(raster)).toEqual(Array.from(pixels));
 });
 
+it("renders into a target with the stencil that masks a pyramid's backdrop", async () => {
+  const size = { width: 4, height: 2 };
+  const renderer = createMockRenderer((target, targetSize) =>
+    writeTopDownPixelsToReadBuffer(target, targetSize, createSolidPixels(size))
+  );
+  const targets: ({ stencilBuffer: boolean } | null)[] = [];
+  renderer.setRenderTarget = (target) => {
+    targets.push(target);
+  };
+  await exportGridAsGeoTiffTexture(
+    renderer,
+    createRegularTextureScene(size, { west: 0, south: 0, east: 4, north: 2 })
+  );
+  expect(targets[0]?.stencilBuffer).toBe(true);
+});
+
 it("treats near-global geometry coverage as global GeoTIFF bounds", async () => {
   const values: number[] = [];
   const step = 0.703125;

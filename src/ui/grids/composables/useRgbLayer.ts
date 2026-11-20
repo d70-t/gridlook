@@ -80,6 +80,12 @@ type TRgbContext = {
   // the variable the grid shows and the variables next to it
   varname: string;
   vars: Record<string, TDataSource>;
+  // the level and view window the grid has loaded: another one is another
+  // composite
+  loaded?: unknown;
+  // whether the grid still shows the load this context comes from: a
+  // composite read for a level or window the grid has left is not installed
+  isCurrent: () => boolean;
 };
 
 type TDataVar = zarr.Array<zarr.DataType, zarr.AsyncReadable>;
@@ -296,7 +302,11 @@ export function useRgbLayer(options: TOptions) {
         name.slice(name.lastIndexOf("/") + 1)
       ) as TRgbVariables
     );
-    const key = JSON.stringify({ indices: current.indices, variables });
+    const key = JSON.stringify({
+      indices: current.indices,
+      variables,
+      loaded: current.loaded,
+    });
     return { variables, indices: current.indices, key, trueColour };
   }
 
@@ -327,7 +337,12 @@ export function useRgbLayer(options: TOptions) {
     // The RGB dimension's own slider does not select what is shown.
     const indices = current.indices.slice();
     indices[option.index] = null;
-    const key = JSON.stringify({ indices, dimension: option.index, channels });
+    const key = JSON.stringify({
+      indices,
+      dimension: option.index,
+      channels,
+      loaded: current.loaded,
+    });
     return {
       dimensionIndex: option.index,
       channels,
@@ -352,7 +367,9 @@ export function useRgbLayer(options: TOptions) {
       return;
     }
     const revision = ++requestRevision;
-    const isCurrent = () => !disposed && revision === requestRevision;
+    const isLatest = () => !disposed && revision === requestRevision;
+    const gridIsCurrent = context.isCurrent;
+    const isCurrent = () => isLatest() && gridIsCurrent();
     store.rgbLoading = true;
     try {
       // Allow the loading indicator to paint before decoding the channels.
@@ -373,7 +390,8 @@ export function useRgbLayer(options: TOptions) {
         logError(error, "Could not load the RGB composite");
       }
     } finally {
-      if (isCurrent()) {
+      // also when the grid moved on: its next load may find nothing to read
+      if (isLatest()) {
         store.rgbLoading = false;
       }
     }
@@ -385,11 +403,23 @@ export function useRgbLayer(options: TOptions) {
     await refresh();
   }
 
-  function updateGeometry(batchIndex: number, geometry: THREE.BufferGeometry) {
+  /**
+   * The grid replaced the geometry of a batch. Without a geometry the batch
+   * is dropped (its geometry is gone, or its image no longer fits) and the
+   * composite is read again with the next context.
+   */
+  function updateGeometry(batchIndex: number, geometry?: THREE.BufferGeometry) {
     const mesh = meshes.get(batchIndex);
-    if (mesh) {
-      mesh.geometry = geometry;
+    if (!mesh) {
+      return;
     }
+    if (geometry) {
+      mesh.geometry = geometry;
+      return;
+    }
+    disposeMesh(batchIndex);
+    loadedKey = undefined;
+    options.redraw();
   }
 
   options.onProjectionChange(updateProjection);

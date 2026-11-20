@@ -42,6 +42,14 @@ type TActiveBuild<
   reject: (reason?: unknown) => void;
 };
 
+/** The rejection of a build that a newer build or a terminate() cancelled. */
+export class GridGeometryWorkerCancelled extends Error {
+  constructor() {
+    super("Grid geometry worker terminated.");
+    this.name = "GridGeometryWorkerCancelled";
+  }
+}
+
 export function copyGridWorkerArray<
   TArray extends Int32Array | Float32Array | Float64Array,
 >(array: TArray): TArray {
@@ -67,7 +75,7 @@ export function createGridGeometryWorkerClient<
 
   function terminate() {
     if (activeBuild) {
-      activeBuild.reject(new Error("Grid geometry worker terminated."));
+      activeBuild.reject(new GridGeometryWorkerCancelled());
     }
     activeBuild = null;
     worker?.terminate();

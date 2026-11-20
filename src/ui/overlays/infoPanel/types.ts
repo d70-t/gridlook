@@ -29,7 +29,19 @@ export type TVariableMetadata = {
 export type TVariableTableRow = {
   name: string;
   hidden: boolean;
+  // why the variable cannot be visualised from the table (shown as the
+  // tooltip of its greyed-out button): it is on a level other than the one
+  // shown
+  visualizeDisabled?: string;
 } & TVariableMetadata;
+
+/** What the table says about a group that is a level of the dataset. */
+export type TVariableGroupInfo = {
+  // resolution and cell count, when known
+  detail?: string;
+  // the level shown, whose variables can be visualised
+  current: boolean;
+};
 
 export type TGroupInfo = {
   path: string;

@@ -1,5 +1,6 @@
 import * as zarr from "zarrita";
 
+import { currentLevel } from "./levels.ts";
 import { ZarrDataManager } from "./ZarrDataManager.ts";
 
 import type { TDataSource, TSources } from "@/lib/types/GlobeTypes.ts";
@@ -8,7 +9,7 @@ export function getVariableDatasource(
   datasources: TSources,
   varname: string
 ): TDataSource | undefined {
-  return datasources.levels[0]?.datasources[varname];
+  return currentLevel(datasources)?.datasources[varname];
 }
 
 export async function fetchDataVariable(
