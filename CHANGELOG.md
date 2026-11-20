@@ -6,24 +6,17 @@
 ### Features
 
 * accept negative dimIndices (e.g. -1 = latest) in the URL ([27000fb](https://github.com/d70-t/gridlook/commit/27000fbe39a52e6fac686fddae7dbad80ff9b109))
-* accept negative dimIndices (e.g. -1 = latest) in the URL ([fb52b4e](https://github.com/d70-t/gridlook/commit/fb52b4eaaa8f6220dd65f613d44c115cd07782f0))
 * allow opening NetCDF-Files in jupyter ([c152715](https://github.com/d70-t/gridlook/commit/c15271599852575ac21ea0c2085c306e35eb514a))
-* allow opening NetCDF-Files in jupyter ([282d92f](https://github.com/d70-t/gridlook/commit/282d92fd4eac9b76bab449d87ff1f2ac17a44905))
 * **lib:** build a CRS from the CF polar_stereographic grid mapping ([8291837](https://github.com/d70-t/gridlook/commit/829183756c4693c08a196ebe727887a9a30f8135))
 * **lib:** reproject rotated and projected axes for the irregular grids ([9d84e6c](https://github.com/d70-t/gridlook/commit/9d84e6c4aef6b4dc1ab503e79b124e0604952273))
 * **lib:** start the colour range from the CF actual_range attribute ([436cbe6](https://github.com/d70-t/gridlook/commit/436cbe6ea8e40c304b831853ec707bc681b10020))
-* **lib:** start the colour range from the CF actual_range attribute ([392e7a2](https://github.com/d70-t/gridlook/commit/392e7a238590355b108b240b986f28e8ae79a64c))
 * **lib:** support curvilinear grids with time-dependent lat/lon ([525d119](https://github.com/d70-t/gridlook/commit/525d11988559043eaa1d39a19809effc787d86fd))
 * **lib:** support for remote NetCDF-Files ([14a17cf](https://github.com/d70-t/gridlook/commit/14a17cf614c8c011e784ad84526031773af31f9f))
 * **lib:** support time-dependent lat/lon and non-georeferenced x/y grids ([253f615](https://github.com/d70-t/gridlook/commit/253f6152f8059e439f9453c85e691043dcf03ed1))
 * support for lambert_azimuthal_equal_area ([ef5fe8e](https://github.com/d70-t/gridlook/commit/ef5fe8eda0e8cf2d14e005386e294bea62163693))
 * **ui:** add an RGB composite layer ([c5dae9a](https://github.com/d70-t/gridlook/commit/c5dae9a0b25cdab93d0bb772f03b332db733c257))
-* **ui:** add an RGB composite layer ([f53fcc2](https://github.com/d70-t/gridlook/commit/f53fcc2f7cccd2cb09bbb1e545d40440b5ddd8c7))
 * **ui:** advanced HTTP-Settings ([e9ced9d](https://github.com/d70-t/gridlook/commit/e9ced9d77385561ebed4d2e758911d90f6c19966))
-* **ui:** build the RGB composite from three variables ([fab8f1c](https://github.com/d70-t/gridlook/commit/fab8f1cc188f0d644f163498af108fbb378b001d))
-* **ui:** draw Sentinel-2 true colour by default in the RGB composite ([98073a9](https://github.com/d70-t/gridlook/commit/98073a956387951ec300e45b3f78cc7e00cbd7c0))
 * **ui:** visualize dataset chunking ([8fd1e79](https://github.com/d70-t/gridlook/commit/8fd1e793a165cadc8e64c75937930cc9d2b07e0f))
-* **ui:** visualize dataset chunking ([b20781a](https://github.com/d70-t/gridlook/commit/b20781ace0ff9026f2c869c4c83d5a214c2cfee3))
 * zoom-driven level selection and view-based loading for multiscales datasets ([#235](https://github.com/d70-t/gridlook/issues/235)) ([cda2ee8](https://github.com/d70-t/gridlook/commit/cda2ee834137a5a12585a02d2ccf062a272aa3ca))
 
 
@@ -31,16 +24,12 @@
 
 * faster reset of Info Panel when switching datasets ([62432f1](https://github.com/d70-t/gridlook/commit/62432f1d6f870d53f77cbbabfca1319d041641d9))
 * **lib:** find xdggs `cell_ids` when no dggs coordinate is given ([5641993](https://github.com/d70-t/gridlook/commit/564199357157f6d377eddb4c94607afb589dd5cd))
-* **lib:** find xdggs cell_ids when no dggs coordinate is given ([8f30818](https://github.com/d70-t/gridlook/commit/8f3081828fd2e11ba99e6752dd34769ba511f26b))
 * **lib:** ignore coordinate fill values in irregular grids ([58fbfb7](https://github.com/d70-t/gridlook/commit/58fbfb728122f445c39f1465300ed5c3740fff1a))
 * **lib:** mask a zero fill_value ([4bf54fb](https://github.com/d70-t/gridlook/commit/4bf54fb04645e4751ca614b05d2bd4363651f219))
-* **lib:** mask a zero Zarr v2 fill_value ([a964e83](https://github.com/d70-t/gridlook/commit/a964e837249bdb3f83dc5f2da7f02aadb127ddde))
 * **lib:** mesh dense HEALPix faces over their finite values only ([ad77dc8](https://github.com/d70-t/gridlook/commit/ad77dc815ca7e34773837b13da2c77009f2a1123))
-* **lib:** mesh dense HEALPix faces over their finite values only ([f462b64](https://github.com/d70-t/gridlook/commit/f462b646a96d8cd865e030f2536bbb74d28b5bbb))
 * **lib:** Prevent a NetCDF attribute named "name" from overwriting the real variable name ([a1691a1](https://github.com/d70-t/gridlook/commit/a1691a19142e1c35399319a3e1a295e8bd0477e7))
 * Presenter mode works with local datasets ([c2004c6](https://github.com/d70-t/gridlook/commit/c2004c6857e32a66fb79e611f2aa95055b6295a9))
 * render Gaussian reduced grids per fragment instead of per-cell quads ([864061c](https://github.com/d70-t/gridlook/commit/864061cdfe7428cb3b1b0381a98fe95b097af283))
-* **ui:** offer only band-like dimensions for the RGB layer ([86b43c1](https://github.com/d70-t/gridlook/commit/86b43c151f3c0409145dd3138ec5faf248b88c31))
 * **ui:** show the selected variable's attributes when its render fails ([1a70e8e](https://github.com/d70-t/gridlook/commit/1a70e8eddd8b9949140d3edb261f72c6465ab7e2))
 
 ## [1.8.1](https://github.com/d70-t/gridlook/compare/v1.8.0...v1.8.1) (2026-10-28)
