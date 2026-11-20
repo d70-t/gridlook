@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.10.0](https://github.com/d70-t/gridlook/compare/v1.9.0...v1.10.0) (2026-11-20)
+
+
+### Features
+
+* replace multiscale level checkboxes with inline controls ([04e4e7e](https://github.com/d70-t/gridlook/commit/04e4e7e404544c6ca938b15aa18683e0c94c5772))
+* replace multiscale level checkboxes with inline controls ([6c6370c](https://github.com/d70-t/gridlook/commit/6c6370c4785b0c26f4c04b14eb4579fc9c1bb226))
+
+
+### Bug Fixes
+
+* read out proj_params for CRS-information ([743c590](https://github.com/d70-t/gridlook/commit/743c590ac0e20cc45addcfc195aa01cf86fc1c17))
+
 ## [1.9.0](https://github.com/d70-t/gridlook/compare/v1.8.1...v1.9.0) (2026-11-20)
 
 
