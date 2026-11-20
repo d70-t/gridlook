@@ -307,6 +307,30 @@ export class ZarrDataManager {
     return zarr.get(array, null, options);
   }
 
+  /**
+   * Shard shape of a sharded Zarr v3 array, or null if it is not sharded.
+   * zarrita only exposes the inner chunk shape, so the shape is read from the
+   * array's zarr.json, which the byte-caching store already holds.
+   */
+  static async getShardShape(
+    array: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
+    format?: TZarrFormat
+  ): Promise<number[] | null> {
+    if (format === ZARR_FORMAT.V2 || this.isNetCDFNode(array)) {
+      return null;
+    }
+    const bytes = await array.store.get(array.resolve("zarr.json").path);
+    if (!bytes) {
+      return null;
+    }
+    const meta = JSON.parse(new TextDecoder().decode(bytes)) as {
+      codecs?: { name: string }[];
+      chunk_grid?: { configuration?: { chunk_shape?: number[] } };
+    };
+    const isSharded = meta.codecs?.some((c) => c.name === "sharding_indexed");
+    return (isSharded && meta.chunk_grid?.configuration?.chunk_shape) || null;
+  }
+
   static async getCRSInfo(
     datasource: TSources,
     variable: string

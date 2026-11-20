@@ -731,6 +731,18 @@ function fetchVariableData(
   });
 }
 
+/** The indices fetchLoadedData reads along y and x; null when whole. */
+function windowRanges(dimensionCount: number) {
+  if (gridWindow === undefined) {
+    return null;
+  }
+  return [
+    ...Array<null>(dimensionCount - 2).fill(null),
+    gridWindow ? [gridWindow.y] : [],
+    gridWindow ? [gridWindow.x] : [],
+  ];
+}
+
 /** The loaded cells of the selected slice, row by row. */
 async function fetchLoadedData(indices: (number | null | zarr.Slice)[]) {
   if (gridWindow === null) {
@@ -894,6 +906,8 @@ function updateStreamlines(
 async function fetchAndRenderData(datavar: TDataVar, isCurrent: () => boolean) {
   const { dimensionNames, dimensionRanges, indices } =
     await buildDimensionConfig(datavar);
+  store.requestedDimRanges = dimensionRanges;
+  store.requestedSpatialRanges = windowRanges(dimensionRanges.length);
 
   // The backdrop (the coarsest level) is drawn and sets the range of every
   // level, unless each level is to take its own.

@@ -5,6 +5,13 @@ export type TInfoDimension = {
   size: number;
 };
 
+/** The level of a multi-resolution dataset the chunk overview describes. */
+export type TChunkLevel = {
+  label: string;
+  /** The coarsest level, when it is also loaded beneath for one colour range. */
+  backdrop: string | null;
+};
+
 export type TCoordinateSlice = {
   first10: number[];
   last10: number[];

@@ -106,6 +106,13 @@ const resolutionFormat = new Intl.NumberFormat(undefined, {
   maximumSignificantDigits: 3,
 });
 
+/** A level as the level selector names it: `2 · 500 m`. */
+export function levelLabel(level: TSourceLevel, index: number) {
+  return [level.name ?? index, formatResolution(level.resolution)]
+    .filter((part) => part !== undefined)
+    .join(" · ");
+}
+
 /** A level's cell size for display: `2 km`, `500 m`; nothing when unknown. */
 export function formatResolution(resolution?: number) {
   if (resolution === undefined) {

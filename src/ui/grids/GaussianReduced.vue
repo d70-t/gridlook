@@ -361,6 +361,8 @@ async function fetchAndRenderData(
 ) {
   const { dimensionRanges, indices, dimensionNames } =
     await buildDimensionConfig(datavar);
+  store.requestedDimRanges = dimensionRanges;
+  store.requestedSpatialRanges = null;
 
   const rawData = castDataVarToFloat32(
     await fetchGaussianReducedVariableData(indices)

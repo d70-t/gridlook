@@ -3,9 +3,9 @@ import { computed } from "vue";
 
 import {
   exceedsCellCap,
-  formatResolution,
   hasLevels,
   levelHoldsVariable,
+  levelLabel,
 } from "@/lib/data/levels.ts";
 import type { TSourceLevel } from "@/lib/types/GlobeTypes.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
@@ -24,9 +24,7 @@ const disabled = computed(
 const options = computed(() =>
   props.levels.map((level, index) => ({
     index,
-    label: [level.name ?? index, formatResolution(level.resolution)]
-      .filter((part) => part !== undefined)
-      .join(" · "),
+    label: levelLabel(level, index),
     // still selectable by hand; the camera never picks these
     tooManyCells: !store.loadsLevelByView(index) && exceedsCellCap(level),
     // a level without the variable shown cannot display it
