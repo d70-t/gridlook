@@ -108,8 +108,7 @@ const overheadDims = computed(() =>
       class="notification is-info is-light is-size-7 py-2 px-3"
     >
       This dataset has several resolution levels. The numbers below are for
-      level <strong>{{ level.label }}</strong
-      >{{ windowRanges ? "" : "." }}
+      level <strong>{{ level.label }}</strong>{{ windowRanges ? "" : "." }}
       <template v-if="windowRanges">
         and only the part of it in the current view, so they change as you pan
         and zoom.
@@ -286,8 +285,7 @@ const overheadDims = computed(() =>
       <template v-if="overhead >= OVERHEAD_WARNING && overheadDims.length">
         Smaller chunks along
         <template v-for="(name, i) in overheadDims" :key="name">
-          <code>{{ name }}</code
-          >{{ i < overheadDims.length - 1 ? ", " : "" }}
+          <code>{{ name }}</code>{{ i < overheadDims.length - 1 ? ", " : "" }}
         </template>
         can reduce this overhead.
       </template>
