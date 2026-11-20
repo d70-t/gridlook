@@ -1060,6 +1060,9 @@ function disposeHealpixMesh(batchIndex: number, target = mainMeshes) {
   }
   getScene()?.remove(mesh);
   target[batchIndex] = undefined;
+  if (target === mainMeshes) {
+    rgbLayer.updateGeometry(batchIndex);
+  }
 }
 
 function createHealpixMesh(
@@ -1543,6 +1546,7 @@ async function fetchAndRenderData(
       varname: varnameSelector.value,
       vars: currentLevel(props.datasources!).datasources,
       loaded: [props.datasources!.selectedLevel, loadedBlocks],
+      isCurrent,
     });
   }
 }

@@ -334,7 +334,7 @@ it("loads the blocks in view of a dense level over the coarsest level", async ()
 it("draws the RGB composite on the blocks in view", async () => {
   stored.fine = { level: 9 };
   stored.coarse = { level: 3 };
-  const { scope } = await mount(11, 31, false, true);
+  const { store, scope } = await mount(11, 31, false, true);
   await wait(50);
 
   // each channel reads the blocks the level read, not its faces whole
@@ -356,6 +356,29 @@ it("draws the RGB composite on the blocks in view", async () => {
     expect(composite[0].material.uniforms[uniform].value).toEqual(
       level.material.uniforms[uniform].value
     );
+  }
+
+  // a view elsewhere reads the channels again, for its own blocks
+  const before = fetchedCells("r");
+  store.viewFootprint = {
+    latMin: -42,
+    latMax: -40,
+    lonStart: 170,
+    lonSpan: 2,
+    centreLat: -41,
+    centreLon: 171,
+  };
+  await wait(200);
+  expect(fetchedCells("r")).toBeGreaterThan(before);
+  for (const channel of ["r", "g", "b"]) {
+    expect(fetchedCells(channel)).toBe(fetchedCells("t"));
+  }
+  // no composite is left on a face the level no longer draws
+  const drawn = scene.current!.children as typeof meshes;
+  for (const mesh of drawn.filter((m) => "rgbLow" in m.material.uniforms)) {
+    expect(
+      drawn.some((other) => other !== mesh && other.geometry === mesh.geometry)
+    ).toBe(true);
   }
   scope.stop();
 });

@@ -150,6 +150,8 @@ let levelLatitudes: Float32Array = new Float32Array();
 // The loaded part of a level too large to load whole; null when the view
 // holds none of it, undefined when the whole level is loaded.
 let gridWindow: TRegularWindow | null | undefined;
+// the window the RGB composite was last read for
+let rgbWindow: typeof gridWindow;
 const isProjectedGrid = ref(false);
 let projectedGrid: TProjectedVolumeGrid | undefined;
 // Converts native axis coordinates (rotated pole or projected x/y) to lon/lat
@@ -683,9 +685,10 @@ function cleanupMeshes(totalBatches: number) {
   if (meshes.length <= totalBatches) {
     return;
   }
-  for (const mesh of meshes) {
+  for (const [batchIndex, mesh] of meshes.entries()) {
     mesh.geometry.dispose();
     getScene()?.remove(mesh);
+    rgbLayer.updateGeometry(batchIndex);
   }
   disposeMeshMaterials(meshes);
   meshes.length = 0;
@@ -740,7 +743,14 @@ function applyBatchGeometry(
     setupProjectionGeometryWrap(geometry);
     meshes[batchIndex].geometry.dispose();
     meshes[batchIndex].geometry = geometry;
-    rgbLayer.updateGeometry(batchIndex, geometry);
+    // The image of a view window spans that window only: on the geometry of
+    // another window (or of the whole level) it would be drawn out of place.
+    // ponytail: the composite is gone until it is read again; an image with a
+    // data rectangle in level coordinates, as on HEALPix, would stay put.
+    rgbLayer.updateGeometry(
+      batchIndex,
+      gridWindow === undefined && rgbWindow === undefined ? geometry : undefined
+    );
   } else {
     const mesh = createWrappedProjectionMesh(
       geometry,
@@ -1505,6 +1515,7 @@ async function fetchAndRenderData(
     await scalarCache.restoreScalar();
   }
   if (isCurrent()) {
+    rgbWindow = gridWindow;
     await rgbLayer.setContext({
       indices,
       dimRanges: dimensionRanges,
@@ -1512,6 +1523,7 @@ async function fetchAndRenderData(
       varname: varnameSelector.value,
       vars: currentLevel(props.datasources!).datasources,
       loaded: [props.datasources!.selectedLevel, gridWindow],
+      isCurrent,
     });
   }
 }

@@ -23,7 +23,11 @@ const { beforeMount, scene, setHoverLookupFromIndex, fetches, axes } =
     beforeMount: [] as (() => Promise<void>)[],
     scene: { current: undefined as THREE.Scene | undefined },
     setHoverLookupFromIndex: vi.fn(),
-    fetches: [] as { dataset: string; selection: TSelection }[],
+    fetches: [] as {
+      dataset: string;
+      variable: string;
+      selection: TSelection;
+    }[],
     axes: {
       fine: {
         latitude: Float32Array.from({ length: 900 }, (_, i) => -89.9 + 0.2 * i),
@@ -109,10 +113,12 @@ vi.mock("@/lib/data/dimensionData.ts", () => ({
 vi.mock("@/lib/grids/gridDataWorkerClient.ts", () => ({
   getGridVariableData: async (request: {
     source: TSource;
+    variable: string;
     selection: TSelection;
   }) => {
     const { dataset } = request.source;
-    fetches.push({ dataset, selection: request.selection });
+    const { variable } = request;
+    fetches.push({ dataset, variable, selection: request.selection });
     const indices = (entry: TSelection[number], count: number) => {
       const picked: number[] = [];
       const stop = entry?.stop ?? count;
@@ -133,7 +139,9 @@ vi.mock("@/lib/grids/gridDataWorkerClient.ts", () => ({
     for (const [i, row] of rows.entries()) {
       for (const [j, column] of columns.entries()) {
         values[i * columns.length + j] =
-          (dataset === "fine" ? 1 : -1) * (row * 10000 + column + 1);
+          (dataset === "fine" ? 1 : -1) * (row * 10000 + column + 1) +
+          // an RGB channel differs from the variable shown, and from the others
+          Math.max(0, ["r", "g", "b"].indexOf(variable) + 1);
       }
     }
     await new Promise((resolve) => setTimeout(resolve, 2));
@@ -206,6 +214,29 @@ function meshes() {
     THREE.BufferGeometry,
     THREE.ShaderMaterial
   >[];
+}
+
+const isComposite = (mesh: ReturnType<typeof meshes>[number]) =>
+  "rgbLow" in mesh.material.uniforms;
+
+/**
+ * A composite on screen is the one of the window its geometry spans: its
+ * first cell is the first cell of the level's texture on that geometry.
+ */
+function expectCompositeOnItsWindow() {
+  const texel = (mesh: ReturnType<typeof meshes>[number]) =>
+    mesh.material.uniforms.data.value.image.data as Float32Array;
+  for (const mesh of meshes().filter(isComposite)) {
+    const shown = meshes().find(
+      (other) =>
+        other.geometry === mesh.geometry &&
+        other.renderOrder === 0 &&
+        !isComposite(other)
+    )!;
+    expect([...texel(mesh).slice(0, 3)]).toEqual(
+      [1, 2, 3].map((channel) => texel(shown)[0] + channel)
+    );
+  }
 }
 
 function fetched(dataset: string) {
@@ -368,23 +399,34 @@ it("draws the RGB composite on the view window and reloads it with the window", 
     false,
     true
   );
-  const composite = () =>
-    meshes().filter((mesh) => "rgbLow" in mesh.material.uniforms);
+  const composite = () => meshes().filter(isComposite);
   // the level's window, then the same window of each of the three channels
   expect(fetched("fine")).toHaveLength(4);
   const [, rows, columns] = fetched("fine")[0].selection;
   for (const fetch of fetched("fine").slice(1)) {
     expect(fetch.selection).toEqual(fetched("fine")[0].selection);
   }
+  expect(fetched("fine").map((fetch) => fetch.variable)).toEqual([
+    "t",
+    "r",
+    "g",
+    "b",
+  ]);
   expect(composite().length).toBeGreaterThan(0);
   const { width, height } = composite()[0].material.uniforms.data.value.image;
   expect([width, height]).toEqual([
     columns!.stop - columns!.start,
     rows!.stop - rows!.start,
   ]);
+  expectCompositeOnItsWindow();
 
+  // while another window loads, the old image is never drawn on its geometry
   store.viewFootprint = { ...store.viewFootprint!, lonStart: 100 };
-  await wait(60);
+  for (let step = 0; step < 60; step++) {
+    await wait(1);
+    expectCompositeOnItsWindow();
+  }
+  expect(composite().length).toBeGreaterThan(0);
   expect(fetched("fine")).toHaveLength(8);
   expect(fetched("fine")[7].selection).toEqual(fetched("fine")[4].selection);
   scope.stop();
