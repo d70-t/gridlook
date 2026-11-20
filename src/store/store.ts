@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
 
+import type { TIndexRange } from "@/lib/data/chunkLayout.ts";
 import { sumsOverCells } from "@/lib/data/levels.ts";
 import {
   createDefaultRgbSettings,
@@ -237,6 +238,7 @@ export const useGlobeControlStore = defineStore("globeControl", {
       loading: false,
       varinfo: undefined as TVarInfo | undefined, // info about a dataset coming directly from the data
       requestedDimRanges: null as TDimensionRange[] | null, // dimRanges of the step being loaded, set before its data is fetched
+      requestedSpatialRanges: null as (TIndexRange[] | null)[] | null, // per dimension of requestedDimRanges: the indices read along a spatial one loaded by view; null where read whole. Set with requestedDimRanges
       selection: { low: 0, high: 0 } as TBounds, // all the knobs and buttons in GlobeControl which do not require a reload
       histogram: undefined as number[] | undefined, // selection-range histogram bins
       fullHistogram: undefined as number[] | undefined, // fixed histogram over full data range

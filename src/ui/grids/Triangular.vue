@@ -343,6 +343,7 @@ async function fetchAndRenderData(
   const { dimensionRanges, indices, dimensionNames } =
     await buildDimensionConfig(datavar);
   store.requestedDimRanges = dimensionRanges;
+  store.requestedSpatialRanges = null;
   const variableData = await fetchVariableData(indices);
   const plotData = castDataVarToFloat32(variableData);
   if (!isCurrent()) {

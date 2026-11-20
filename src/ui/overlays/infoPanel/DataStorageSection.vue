@@ -2,9 +2,13 @@
 import { computed } from "vue";
 
 import ChunksSection from "./ChunksSection.vue";
-import type { TInfoDimension } from "./types.ts";
+import type { TChunkLevel, TInfoDimension } from "./types.ts";
 
-import { formatBytes, getDtypeBytes } from "@/lib/data/chunkLayout.ts";
+import {
+  formatBytes,
+  getDtypeBytes,
+  type TIndexRange,
+} from "@/lib/data/chunkLayout.ts";
 import { ZARR_FORMAT, type TDimensionRange } from "@/lib/types/GlobeTypes.ts";
 
 const props = defineProps<{
@@ -16,6 +20,8 @@ const props = defineProps<{
   variableFillValue: number | null;
   zarrFormat: number | null;
   dimRanges: TDimensionRange[] | null;
+  spatialRanges: (TIndexRange[] | null)[] | null;
+  level: TChunkLevel | null;
   dimIndices: readonly (number | null)[];
 }>();
 
@@ -87,6 +93,8 @@ const estimatedSizeMB = computed(() => {
         :shard-shape="variableShardShape"
         :dtype="variableDtype"
         :dim-ranges="dimRanges"
+        :spatial-ranges="spatialRanges"
+        :level="level"
         :dim-indices="dimIndices"
       />
     </section>

@@ -1087,6 +1087,21 @@ function fetchRegularGridVariableData(
   });
 }
 
+/** The indices fetchLoadedData reads along lat and lon; null when whole. */
+function windowRanges(dimensionCount: number) {
+  const loaded = gridWindow;
+  if (loaded === undefined) {
+    return null;
+  }
+  return [
+    ...Array<null>(dimensionCount - 2).fill(null),
+    loaded ? [loaded.lat] : [],
+    loaded
+      ? loaded.lon.map((range) => ({ ...range, step: loaded.lonStep }))
+      : [],
+  ];
+}
+
 /** The loaded cells of the selected slice, row by row. */
 async function fetchLoadedData(
   indices: (number | null | zarr.Slice)[],
@@ -1426,6 +1441,7 @@ async function fetchAndRenderData(
 ) {
   const { dimensionRanges, indices } = await buildDimensionConfig(datavar);
   store.requestedDimRanges = dimensionRanges;
+  store.requestedSpatialRanges = windowRanges(dimensionRanges.length);
 
   // The backdrop (the coarsest level) is drawn and sets the range of every
   // level, unless each level is to take its own.

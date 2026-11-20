@@ -328,6 +328,7 @@ async function fetchAndRenderData(
     geographicDimensions,
   } = await buildDimensionConfig(datavar);
   store.requestedDimRanges = dimensionRanges;
+  store.requestedSpatialRanges = null;
   const rawData = castDataVarToFloat32(
     await fetchIrregularVariableData(indices)
   );

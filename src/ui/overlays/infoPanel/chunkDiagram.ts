@@ -19,9 +19,8 @@ type TAxis = {
   size: number;
   chunkSize: number;
   chunkCount: number;
-  /** Index range read for one step, drawn as the highlighted slab. */
-  lo: number;
-  hi: number;
+  /** Index ranges `[lo, hi)` read for one step, drawn as highlighted slabs. */
+  spans: [number, number][];
 };
 
 type TPoint = [number, number, number];
@@ -59,15 +58,17 @@ function toAxes(
     }
   }
   return dims.map((dim, i) => {
-    const index = indices[offset + i] ?? 0;
-    const lo = dim.isSpatial
-      ? 0
-      : Math.floor(index / dim.chunkSize) * dim.chunkSize;
+    const chunk = Math.floor((indices[offset + i] ?? 0) / dim.chunkSize);
+    const chunks = dim.isSpatial
+      ? dim.readChunks
+      : [{ start: chunk, end: chunk + 1 }];
     return {
       ...dim,
       length: MAX_SIDE / ratioResponse(maxSize / Math.max(dim.size, 1)),
-      lo,
-      hi: dim.isSpatial ? dim.size : Math.min(lo + dim.chunkSize, dim.size),
+      spans: chunks.map((c): [number, number] => [
+        c.start * dim.chunkSize,
+        Math.min(c.end * dim.chunkSize, dim.size),
+      ]),
     };
   });
 }
@@ -80,18 +81,20 @@ function isDense(axis: TAxis) {
   return axis.length / axis.chunkCount < MIN_LINE_GAP;
 }
 
-/** Pixel extent of the slab along an axis, at least MIN_SLAB wide. */
-function slabSpan(axis: TAxis | undefined, fallback: number) {
+/** Pixel extents of the slabs along an axis, each at least MIN_SLAB wide. */
+function slabSpans(axis: TAxis | undefined, fallback: number) {
   if (!axis) {
-    return [0, fallback];
+    return [[0, fallback]];
   }
-  const lo = scale(axis, axis.lo);
-  const hi = scale(axis, axis.hi);
-  if (hi - lo >= MIN_SLAB) {
-    return [lo, hi];
-  }
-  const start = lo < axis.length - MIN_SLAB ? lo : axis.length - MIN_SLAB;
-  return [start, start + MIN_SLAB];
+  return axis.spans.map(([from, to]) => {
+    const lo = scale(axis, from);
+    const hi = scale(axis, to);
+    if (hi - lo >= MIN_SLAB) {
+      return [lo, hi];
+    }
+    const start = lo < axis.length - MIN_SLAB ? lo : axis.length - MIN_SLAB;
+    return [start, start + MIN_SLAB];
+  });
 }
 
 function boundaries(axis: TAxis | undefined) {
@@ -142,10 +145,14 @@ function buildBlock(axes: TAxis[]): TDiagramBlock {
   const project = (p: TPoint) => pt(p).join(",");
   const zLength = z ? z.length : 0;
 
-  const [x0, x1] = slabSpan(x, W);
-  const [y0, y1] = slabSpan(y, H);
-  const [z0, z1] = slabSpan(z, 0);
-  const slab = boxFaces(project, [x0, y0, z0], [x1, y1, z1]);
+  const slab: string[] = [];
+  for (const [x0, x1] of slabSpans(x, W)) {
+    for (const [y0, y1] of slabSpans(y, H)) {
+      for (const [z0, z1] of slabSpans(z, 0)) {
+        slab.push(...boxFaces(project, [x0, y0, z0], [x1, y1, z1]));
+      }
+    }
+  }
 
   const segments: [TPoint, TPoint][] = [];
   for (const b of boundaries(x)) {

@@ -26,7 +26,12 @@ import {
 
 import { getLatLonData } from "@/lib/data/coordinateVariables.ts";
 import { GRID_TYPES, type T_GRID_TYPES } from "@/lib/data/gridTypeDetector.ts";
-import { currentLevel } from "@/lib/data/levels.ts";
+import {
+  coarsestLevel,
+  currentLevel,
+  hasLevels,
+  levelLabel,
+} from "@/lib/data/levels.ts";
 import { decodeTime, isTimeCoordinate } from "@/lib/data/timeHandling.ts";
 import { getMissingValue, getFillValue } from "@/lib/data/variableDecoding.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
@@ -56,6 +61,7 @@ const {
   varinfo,
   dimSlidersValues,
   requestedDimRanges,
+  requestedSpatialRanges,
 } = storeToRefs(store);
 const sourceVariable = computed(
   () => varinfo.value?.derivedFrom?.u ?? varnameSelector.value
@@ -102,6 +108,28 @@ const lonMin = ref<number | null>(null);
 const lonMax = ref<number | null>(null);
 
 const activeTab = ref<TInfoPanelTab>(InfoPanelTab.OVERVIEW);
+
+/**
+ * The level the chunk overview describes and, when its colour range is kept
+ * across levels, the coarsest level that is also loaded beneath it.
+ */
+const chunkLevel = computed(() => {
+  const sources = props.datasources;
+  if (!sources || !hasLevels(sources.levels, store.varnameSelector)) {
+    return null;
+  }
+  const selected = sources.selectedLevel ?? 0;
+  const coarsest = coarsestLevel(sources.levels);
+  return {
+    label: levelLabel(sources.levels[selected], selected),
+    backdrop:
+      coarsest !== undefined &&
+      coarsest !== selected &&
+      store.sharesLevelRange()
+        ? levelLabel(sources.levels[coarsest], coarsest)
+        : null,
+  };
+});
 
 const variableDtype = ref<string | null>(null);
 const variableChunks = ref<readonly (number | null)[] | null>(null);
@@ -490,7 +518,13 @@ async function fetchInfo(requestId: number) {
 }
 
 watch(
-  [() => props.datasources, sourceVariable, () => props.isOpen],
+  [
+    () => props.datasources,
+    // a level switch keeps the object, and with shared keys the varname
+    () => props.datasources?.selectedLevel,
+    sourceVariable,
+    () => props.isOpen,
+  ],
   () => {
     const requestId = ++infoRequestId;
     if (props.isOpen) {
@@ -559,6 +593,8 @@ watch(
             :variable-fill-value="variableFillValue"
             :zarr-format="datasources?.zarr_format ?? null"
             :dim-ranges="requestedDimRanges ?? varinfo?.dimRanges ?? null"
+            :spatial-ranges="requestedSpatialRanges"
+            :level="chunkLevel"
             :dim-indices="dimSlidersValues"
           />
           <DimensionsSection v-if="!showsChunks" :dimensions="dimensions" />

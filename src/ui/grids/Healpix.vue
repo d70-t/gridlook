@@ -673,17 +673,34 @@ async function prepareLevel() {
   loadedBlocks = loadsByView() ? viewBlocks() : undefined;
 }
 
+/** Indices `[start, end)` of the stored cells with ids in a nested range. */
+async function storedIndices(range: { start: number; end: number }) {
+  // Dense levels store cell `n` at index `n`; sparse ones are searched.
+  return sortedCells
+    ? {
+        start: await sortedCells.lowerBound(range.start),
+        end: await sortedCells.lowerBound(range.end),
+      }
+    : range;
+}
+
+/** The indices of the `cell` dimension that the loaded blocks read. */
+function loadedIndices(grid: healpixGeo.Grid) {
+  return Promise.all(
+    healpixBlockRanges(
+      loadedBlocks!,
+      4 ** (grid.level - healpixBlockLevel(grid.level))
+    ).map(storedIndices)
+  );
+}
+
 /** The stored cells with ids in a nested range, and their values. */
 async function fetchCellRange(
   range: { start: number; end: number },
   indices: (number | zarr.Slice | null)[],
   variable?: string
 ) {
-  // Dense levels store cell `n` at index `n`; sparse ones are searched.
-  const start = sortedCells
-    ? await sortedCells.lowerBound(range.start)
-    : range.start;
-  const end = sortedCells ? await sortedCells.lowerBound(range.end) : range.end;
+  const { start, end } = await storedIndices(range);
   if (start === end) {
     return { data: new Float32Array(), cells: [] as number[] };
   }
@@ -1447,7 +1464,11 @@ async function fetchAndRenderData(
   const cellCoord = loadedBlocks ? undefined : await getCells();
   fitCameraToCells(grid, cellCoord);
   const { dimensionRanges, indices } = await prepareDimensionData(datavar);
+  const cellRanges = loadedBlocks && (await loadedIndices(grid));
   store.requestedDimRanges = dimensionRanges;
+  store.requestedSpatialRanges = cellRanges
+    ? [...dimensionRanges.slice(1).map(() => null), cellRanges]
+    : null;
   // The backdrop (the coarsest level) is drawn and sets the range of every
   // level, unless each level is to take its own. One after the other: the
   // face worker runs a single build at a time.

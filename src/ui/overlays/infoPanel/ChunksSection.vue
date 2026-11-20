@@ -2,12 +2,13 @@
 import { computed } from "vue";
 
 import { buildChunkDiagram } from "./chunkDiagram.ts";
-import type { TInfoDimension } from "./types.ts";
+import type { TChunkLevel, TInfoDimension } from "./types.ts";
 
 import {
   computeChunkLayout,
   formatBytes,
   getDtypeBytes,
+  type TIndexRange,
 } from "@/lib/data/chunkLayout.ts";
 import type { TDimensionRange } from "@/lib/types/GlobeTypes.ts";
 import PopupDialog from "@/ui/overlays/controls/PopupDialog.vue";
@@ -18,6 +19,8 @@ const props = defineProps<{
   shardShape: readonly number[] | null;
   dtype: string;
   dimRanges: TDimensionRange[] | null;
+  spatialRanges: (TIndexRange[] | null)[] | null;
+  level: TChunkLevel | null;
   dimIndices: readonly (number | null)[];
 }>();
 
@@ -43,11 +46,31 @@ const spatial = computed(() => {
   return ranges.map((r) => r === null);
 });
 
+/**
+ * The indices read along the spatial dimensions of a level loaded by view.
+ * Dropped while the panel still describes another level that they do not fit.
+ */
+const windowRanges = computed(() => {
+  const ranges = props.spatialRanges;
+  if (
+    !spatial.value ||
+    !ranges ||
+    ranges.length !== props.dimensions.length ||
+    ranges.some((dimRanges, i) =>
+      dimRanges?.some((r) => r.end > props.dimensions[i].size)
+    )
+  ) {
+    return null;
+  }
+  return ranges;
+});
+
 const layout = computed(() =>
   computeChunkLayout(
     props.dimensions.map((dim, i) => ({
       ...dim,
       isSpatial: spatial.value?.[i] ?? false,
+      ranges: windowRanges.value?.[i] ?? undefined,
     })),
     props.chunks,
     getDtypeBytes(props.dtype)
@@ -71,16 +94,32 @@ const overheadLabel = computed(() =>
 
 const isLargeStep = computed(() => layout.value.stepBytes > LARGE_STEP_BYTES);
 
+// ponytail: a dimension counts once its chunks span twice what it shows.
 const overheadDims = computed(() =>
-  layout.value.dimensions
-    .filter((d) => !d.isSpatial && d.chunkSize > 1)
-    .map((d) => d.name)
+  layout.value.dimensions.filter((d) => d.overhead >= 2).map((d) => d.name)
 );
 </script>
 
 <template>
   <section class="info-section">
     <h4 class="title is-6">Chunks and Dimensions</h4>
+    <div
+      v-if="spatial && level"
+      class="notification is-info is-light is-size-7 py-2 px-3"
+    >
+      This dataset has several resolution levels. The numbers below are for
+      level <strong>{{ level.label }}</strong
+      >{{ windowRanges ? "" : "." }}
+      <template v-if="windowRanges">
+        and only the part of it in the current view, so they change as you pan
+        and zoom.
+      </template>
+      <template v-if="level.backdrop">
+        The coarsest level (<strong>{{ level.backdrop }}</strong
+        >) is also loaded whole: it sets one colour range for all levels and is
+        drawn underneath. It is not counted here.
+      </template>
+    </div>
     <div
       class="is-flex is-flex-wrap-wrap is-align-items-flex-end is-justify-content-center chunk-blocks"
     >
@@ -123,7 +162,8 @@ const overheadDims = computed(() =>
       </svg>
     </div>
     <p v-if="spatial" class="is-size-7 has-text-grey has-text-centered mb-2">
-      Blue marks: chunks read to display the current step.
+      Blue marks: chunks read to display the current
+      {{ windowRanges ? "step in view" : "step" }}.
     </p>
 
     <div class="content">
@@ -212,8 +252,20 @@ const overheadDims = computed(() =>
               <td>{{ formatBytes(layout.stepBytes) }}</td>
             </tr>
             <tr>
-              <td><strong>Data shown per step</strong></td>
+              <td>
+                <strong>Data shown per step</strong>
+                <span v-if="windowRanges" class="ml-1 has-text-grey">
+                  (in view)
+                </span>
+              </td>
               <td>{{ formatBytes(layout.shownBytes) }}</td>
+            </tr>
+            <tr v-if="windowRanges">
+              <td>
+                <strong>Data per step</strong>
+                <span class="ml-1 has-text-grey">(whole level)</span>
+              </td>
+              <td>{{ formatBytes(layout.levelBytes) }}</td>
             </tr>
           </template>
         </tbody>
