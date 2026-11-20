@@ -338,8 +338,8 @@ async function loadAxes(
   if (!crs) {
     throw new Error(
       `${variable} has projected x/y axes but no CRS: no crs_wkt, ` +
-        "proj4_params, spatial_ref or projection attribute on its grid " +
-        "mapping variable or group.",
+        "proj4_params, proj_params, spatial_ref or projection attribute " +
+        "on its grid mapping variable or group.",
       { cause }
     );
   }

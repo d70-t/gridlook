@@ -149,6 +149,7 @@ function handleAutoContrast() {
 
 <template>
   <div class="column mb-5">
+    <slot />
     <ColorBar
       :colormap="colormap"
       :invert-colormap="invertColormap"
