@@ -18,7 +18,7 @@ import VariableSelector from "./controls/VariableSelector.vue";
 
 // Import control components
 import type { T_GRID_TYPES } from "@/lib/data/gridTypeDetector.ts";
-import { isSameVariable } from "@/lib/data/levels.ts";
+import { hasLevels, isSameVariable } from "@/lib/data/levels.ts";
 import { getDefaultRange } from "@/lib/data/variableDecoding.ts";
 import {
   clamp,
@@ -95,6 +95,19 @@ const {
 const menuCollapsed: Ref<boolean> = ref(false);
 const mobileMenuCollapsed: Ref<boolean> = ref(true);
 const isMobileView: Ref<boolean> = ref(false);
+
+// only a variable with levels can share one colour range across them
+const hasLevelRange = computed(() => {
+  const levels = props.modelInfo?.levels;
+  return (
+    !!levels && levels.length > 1 && hasLevels(levels, varnameSelector.value)
+  );
+});
+
+const showRangeOrigin = computed(
+  () =>
+    pickedBoundsMode.value === BOUND_MODES.DATA && !!varinfo.value?.rangeOrigin
+);
 
 const dataBounds = computed(() => {
   return varinfo.value?.bounds ?? {};
@@ -409,20 +422,41 @@ defineExpose({
             @update:picked-bounds-mode="
               onPickedBoundsModeChange($event as TBoundModes)
             "
-          />
-          <p
-            v-if="pickedBoundsMode === BOUND_MODES.DATA && varinfo?.rangeOrigin"
-            class="is-size-7 has-text-grey mb-2"
           >
-            Range and histogram: {{ varinfo.rangeOrigin }}
-          </p>
+            <button
+              v-if="hasLevelRange"
+              type="button"
+              class="button is-small"
+              :class="{ 'is-info': store.sharesLevelRange() }"
+              :aria-pressed="store.sharesLevelRange()"
+              :title="
+                store.sharesLevelRange()
+                  ? 'Range and histogram of the coarsest level, for all levels'
+                  : 'Each level takes its own data range (sums such as counts grow with the cell size)'
+              "
+              @click="store.setLevelRangeShared(!store.sharesLevelRange())"
+            >
+              <span class="icon">
+                <i
+                  class="fa-solid"
+                  :class="store.sharesLevelRange() ? 'fa-lock' : 'fa-lock-open'"
+                  aria-hidden="true"
+                ></i>
+              </span>
+              <span>Same for all levels</span>
+            </button>
+          </BoundsControls>
           <ColormapControls
             v-if="modelInfo"
             :model-info="modelInfo"
             :data-bounds="dataBounds"
             @colormap-user-selected="userHasSelectedColormap = true"
             @force-user-bounds="pickedBoundsMode = BOUND_MODES.USER"
-          />
+          >
+            <p v-if="showRangeOrigin" class="is-size-7 has-text-grey mb-1">
+              Range and histogram: {{ varinfo?.rangeOrigin }}
+            </p>
+          </ColormapControls>
         </CollapsibleCard>
         <CollapsibleCard title="Projections">
           <ProjectionControls />

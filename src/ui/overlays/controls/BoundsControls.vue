@@ -74,7 +74,10 @@ function formatNum(val: number | undefined) {
   <div class="bounds-table">
     <!-- Header -->
     <div class="bounds-row bounds-header">
-      <div class="bounds-cell bounds-cell--label"></div>
+      <div class="bounds-cell bounds-cell--label">
+        <!-- Extras above the mode labels, e.g. the level range lock. -->
+        <slot />
+      </div>
       <div class="bounds-cell bounds-cell--num">Low</div>
       <div class="bounds-cell bounds-cell--num">High</div>
     </div>

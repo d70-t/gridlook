@@ -36,20 +36,21 @@ const options = computed(() =>
   }))
 );
 
+const AUTO = "auto";
+
+// the level the camera picked, shown next to "Auto"
+const autoLabel = computed(() => {
+  const level = props.levels[store.selectedLevel];
+  return level ? `Auto (${levelLabel(level, store.selectedLevel)})` : "Auto";
+});
+
 function onLevelChange(event: Event) {
-  store.selectLevel(Number((event.target as HTMLSelectElement).value));
-}
-
-function onAutoChange(event: Event) {
-  store.setLevelAuto((event.target as HTMLInputElement).checked);
-}
-
-function onWholeChange(event: Event) {
-  store.setLevelWhole((event.target as HTMLInputElement).checked);
-}
-
-function onRangeSharedChange(event: Event) {
-  store.setLevelRangeShared((event.target as HTMLInputElement).checked);
+  const value = (event.target as HTMLSelectElement).value;
+  if (value === AUTO) {
+    store.setLevelAuto(true);
+  } else {
+    store.selectLevel(Number(value));
+  }
 }
 </script>
 
@@ -62,11 +63,12 @@ function onRangeSharedChange(event: Event) {
         :class="{ 'is-loading': store.loading }"
       >
         <select
-          :value="store.selectedLevel"
+          :value="store.levelAuto && !disabled ? AUTO : store.selectedLevel"
           :disabled="disabled"
           class="form-control"
           @change="onLevelChange"
         >
+          <option v-if="!disabled" :value="AUTO">{{ autoLabel }}</option>
           <option
             v-for="option in options"
             :key="option.index"
@@ -85,38 +87,41 @@ function onRangeSharedChange(event: Event) {
       <p v-if="disabled" class="is-size-7 has-text-grey">
         This variable has no levels.
       </p>
-      <template v-else>
-        <label class="checkbox is-size-7 is-block">
-          <input
-            :checked="store.levelAuto"
-            type="checkbox"
-            @change="onAutoChange"
-          />
-          Pick the level from the zoom
-        </label>
-        <label
-          class="checkbox is-size-7 is-block"
-          title="Off: a large level loads only the part in view"
-        >
-          <input
-            :checked="store.levelWhole"
-            type="checkbox"
-            @change="onWholeChange"
-          />
-          Load whole level
-        </label>
-        <label
-          class="checkbox is-size-7 is-block"
-          title="Off: each level takes its own data range (sums such as counts grow with the cell size)"
-        >
-          <input
-            :checked="store.sharesLevelRange()"
-            type="checkbox"
-            @change="onRangeSharedChange"
-          />
-          Keep one colour range across levels
-        </label>
-      </template>
+      <div
+        v-else
+        class="is-flex is-align-items-center is-justify-content-space-between"
+        title="Visible area: a large level loads only the part in view"
+      >
+        <span class="is-size-7 has-text-grey">Load</span>
+        <div class="buttons has-addons">
+          <button
+            type="button"
+            class="button is-small"
+            :class="
+              store.levelWhole
+                ? 'is-light has-text-grey'
+                : 'is-info is-selected'
+            "
+            :aria-pressed="!store.levelWhole"
+            @click="store.setLevelWhole(false)"
+          >
+            Visible area
+          </button>
+          <button
+            type="button"
+            class="button is-small"
+            :class="
+              !store.levelWhole
+                ? 'is-light has-text-grey'
+                : 'is-info is-selected'
+            "
+            :aria-pressed="store.levelWhole"
+            @click="store.setLevelWhole(true)"
+          >
+            Whole level
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
