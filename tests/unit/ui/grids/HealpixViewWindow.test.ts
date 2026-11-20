@@ -190,16 +190,24 @@ vi.mock("@/lib/grids/healpixWorkerClient.ts", async () => {
 
 const { createPinia, setActivePinia } = await import("pinia");
 const { DEFAULT_MAX_VIEW_CELLS } = await import("@/lib/data/levels.ts");
+const { RGB_SOURCES } = await import("@/lib/data/rgbComposite.ts");
 const { useGlobeControlStore } = await import("@/store/store.ts");
 const { default: Healpix } = await import("@/ui/grids/Healpix.vue");
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// the variable shown, and three more for an RGB composite
+const variablesFrom = (from: object, rgb: boolean) =>
+  Object.fromEntries(
+    (rgb ? ["t", "r", "g", "b"] : ["t"]).map((key) => [key, from])
+  );
+
 async function mount(
   lat: number,
   lon: number,
   // level groups that do not hold the variable: it has no levels
-  levelPaths = false
+  levelPaths = false,
+  rgb = false
 ) {
   beforeMount.length = 0;
   fetches.length = 0;
@@ -207,6 +215,8 @@ async function mount(
   setActivePinia(createPinia());
   const store = useGlobeControlStore();
   store.varnameSelector = "t";
+  store.setRgbLayerEnabled(rgb);
+  store.updateRgbSettings({ source: RGB_SOURCES.VARIABLES });
   store.viewFootprint = {
     latMin: lat - 1,
     latMax: lat + 1,
@@ -223,7 +233,7 @@ async function mount(
     levels: ["fine", "coarse"].map((name) => ({
       grid: from(name),
       time: from(name),
-      datasources: { t: from(name) },
+      datasources: variablesFrom(from(name), rgb),
       resolution: 6_500_000 / 2 ** stored[name].level,
       ...(levelPaths ? { path: name } : {}),
     })),
@@ -318,6 +328,35 @@ it("loads the blocks in view of a dense level over the coarsest level", async ()
     )
   ).toBe(true);
   expect(hover.lookup!(-41, 171)!.value).toBe(-(cellAt(3, -41, 171) + 1));
+  scope.stop();
+});
+
+it("draws the RGB composite on the blocks in view", async () => {
+  stored.fine = { level: 9 };
+  stored.coarse = { level: 3 };
+  const { scope } = await mount(11, 31, false, true);
+  await wait(50);
+
+  // each channel reads the blocks the level read, not its faces whole
+  expect(fetchedCells("t")).toBeGreaterThan(0);
+  for (const channel of ["r", "g", "b"]) {
+    expect(fetchedCells(channel)).toBe(fetchedCells("t"));
+  }
+  const meshes = scene.current!.children as THREE.Mesh<
+    THREE.BufferGeometry,
+    THREE.ShaderMaterial
+  >[];
+  const composite = meshes.filter((mesh) => "rgbLow" in mesh.material.uniforms);
+  expect(composite.length).toBeGreaterThan(0);
+  // the composite covers the rectangle of its face that the level covers
+  const level = meshes.find(
+    (mesh) => mesh.renderOrder === 0 && mesh.geometry === composite[0].geometry
+  )!;
+  for (const uniform of ["dataUvOffset", "dataUvScale"]) {
+    expect(composite[0].material.uniforms[uniform].value).toEqual(
+      level.material.uniforms[uniform].value
+    );
+  }
   scope.stop();
 });
 

@@ -676,7 +676,8 @@ async function prepareLevel() {
 /** The stored cells with ids in a nested range, and their values. */
 async function fetchCellRange(
   range: { start: number; end: number },
-  indices: (number | zarr.Slice | null)[]
+  indices: (number | zarr.Slice | null)[],
+  variable?: string
 ) {
   // Dense levels store cell `n` at index `n`; sparse ones are searched.
   const start = sortedCells
@@ -695,7 +696,9 @@ async function fetchCellRange(
     throw new Error("The cell coordinate is not in ascending order.");
   }
   return {
-    data: castDataVarToFloat32(await fetchHealpixVariableData(selection)),
+    data: castDataVarToFloat32(
+      await fetchHealpixVariableData(selection, variable)
+    ),
     cells,
   };
 }
@@ -704,7 +707,8 @@ async function fetchCellRange(
 async function fetchFaceBlocks(
   faceIndex: number,
   grid: healpixGeo.Grid,
-  indices: (number | zarr.Slice | null)[]
+  indices: (number | zarr.Slice | null)[],
+  variable?: string
 ) {
   const blockLevel = healpixBlockLevel(grid.level);
   const ranges = healpixBlockRanges(
@@ -714,7 +718,7 @@ async function fetchFaceBlocks(
     4 ** (grid.level - blockLevel)
   );
   const parts = await Promise.all(
-    ranges.map((range) => fetchCellRange(range, indices))
+    ranges.map((range) => fetchCellRange(range, indices, variable))
   );
   let length = 0;
   for (const part of parts) {
@@ -1296,12 +1300,6 @@ async function loadRgbComposite(request: TRgbRequest) {
   if (!context || !datavar) {
     return undefined;
   }
-  if (loadedBlocks) {
-    // ponytail: the channels are read a whole face at a time, so a level
-    // loaded by view has no composite; read them by block (fetchFaceBlocks)
-    // to draw one on the view window.
-    return { batches: [] };
-  }
   const { grid, cellCoord } = context;
   const reads = await getRgbChannelReads(request, datavar, openRgbVariable);
   const batches: TRgbBatch[] = [];
@@ -1312,21 +1310,25 @@ async function loadRgbComposite(request: TRgbRequest) {
     if (!mesh || range.start === range.end) {
       continue;
     }
-    const textures = await Promise.all(
-      reads.map(async (read) => {
-        const data = await readRgbFaceChannel(read, range);
-        bounds.push(data.bounds);
-        return buildHealpixTexture(
-          data.values,
-          faceIndex,
-          grid.nside,
-          range.cells
-        );
-      })
+    const channels = await Promise.all(
+      reads.map((read) => readRgbFaceChannel(read, faceIndex, grid, range))
     );
     if (disposed || !request.isCurrent()) {
       return undefined;
     }
+    // no block of the view window lies on this face
+    if (!channels[0].values.length) {
+      continue;
+    }
+    const textures = channels.map((channel) => {
+      bounds.push(channel.bounds);
+      return buildHealpixTexture(
+        channel.values,
+        faceIndex,
+        grid.nside,
+        channel.cells
+      );
+    });
     const [red, green, blue] = textures;
     batches.push({
       batchIndex: faceIndex,
@@ -1344,13 +1346,21 @@ async function loadRgbComposite(request: TRgbRequest) {
 
 async function readRgbFaceChannel(
   read: TRgbChannelRead,
-  range: { start: number; end: number }
+  faceIndex: number,
+  grid: healpixGeo.Grid,
+  range: ReturnType<typeof getHealpixFaceRange>
 ) {
   const selection = read.selection.slice();
   selection[selection.length - 1] = zarr.slice(range.start, range.end);
-  const values = castDataVarToFloat32(
-    await fetchHealpixVariableData(selection, read.variable)
-  );
+  // a level loaded by view: the blocks the grid holds, as for its own data
+  const { data: values, cells } = loadedBlocks
+    ? await fetchFaceBlocks(faceIndex, grid, read.selection, read.variable)
+    : {
+        data: castDataVarToFloat32(
+          await fetchHealpixVariableData(selection, read.variable)
+        ),
+        cells: range.cells,
+      };
   const { missingValue, fillValue } = getHealpixMissingAndFillValues(
     read.datavar
   );
@@ -1360,7 +1370,7 @@ async function readRgbFaceChannel(
     missingValue,
     fillValue
   );
-  return { values, bounds };
+  return { values, bounds, cells };
 }
 
 function openRgbVariable(variable: string) {
