@@ -23,7 +23,7 @@ stores, Icechunk repositories, Kerchunk reference files and NetCDF files.
 - [JupyterLab / JupyterHub](../jupyter/README.md) — `pip install jupyter-gridlook`
   serves the viewer inside a Jupyter server, adds a **Gridlook** launcher card
   and an **Open with Gridlook** entry to the file browser's context menu (a
-  consolidated zarr store under your home opens in a Lab tab, read with your
+  consolidated zarr store or NetCDF file under your home opens in a Lab tab, read with your
   session), and proxies allowlisted private S3, GCS and Azure stores through
   the hub's credentials.
 

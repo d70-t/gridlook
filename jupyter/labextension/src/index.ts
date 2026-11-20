@@ -71,7 +71,24 @@ class GridlookViewer extends Widget {
   }
 }
 
-/** The single selected file-browser item, if it is a directory or .zarr. */
+/**
+ * File extensions the viewer reads as remote NetCDF from an http(s) URL; keep
+ * in sync with `NETCDF_FILE_EXTENSION` in `src/lib/data/localNetCDF.ts`.
+ */
+const NETCDF_FILE_EXTENSION = {
+  NC: ".nc",
+  NC4: ".nc4",
+  CDF: ".cdf",
+} as const;
+
+function isNetCDFName(name: string) {
+  const lower = name.toLowerCase();
+  return Object.values(NETCDF_FILE_EXTENSION).some((ext) =>
+    lower.endsWith(ext)
+  );
+}
+
+/** The single selected file-browser item, if it is a directory, .zarr or NetCDF file. */
 function selectedStore(fileBrowser: IFileBrowserFactory) {
   const browser = fileBrowser.tracker.currentWidget;
   if (!browser) {
@@ -82,7 +99,9 @@ function selectedStore(fileBrowser: IFileBrowserFactory) {
     return undefined;
   }
   const item = items[0];
-  return item.type === "directory" || item.name.endsWith(".zarr")
+  return item.type === "directory" ||
+    item.name.endsWith(".zarr") ||
+    isNetCDFName(item.name)
     ? item
     : undefined;
 }
@@ -116,7 +135,8 @@ function activate(
 
   app.commands.addCommand(CommandIDs.openWithGridlook, {
     label: "Open with Gridlook",
-    caption: "Open the selected directory or zarr store in the gridlook viewer",
+    caption:
+      "Open the selected directory, zarr store or NetCDF file in the gridlook viewer",
     icon: gridlookIcon,
     isVisible: () => selectedStore(fileBrowser) !== undefined,
     execute: () => {
