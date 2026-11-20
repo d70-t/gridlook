@@ -63,6 +63,7 @@ export const DEFAULT_ANCHOR_CRS = "+proj=aeqd +lat_0=0 +lon_0=0 +datum=WGS84";
 const CrsWktAttributeName = {
   CRS_WKT: "crs_wkt",
   PROJ4_PARAMS: "proj4_params",
+  PROJ_PARAMS: "proj_params",
   SPATIAL_REF: "spatial_ref",
   PROJECTION: "projection",
 } as const;
@@ -161,6 +162,7 @@ function getWktFromAttrs(attrs: zarr.Attributes) {
   return (
     getStringAttribute(attrs, CrsWktAttributeName.CRS_WKT) ??
     getStringAttribute(attrs, CrsWktAttributeName.PROJ4_PARAMS) ??
+    getStringAttribute(attrs, CrsWktAttributeName.PROJ_PARAMS) ??
     getStringAttribute(attrs, CrsWktAttributeName.SPATIAL_REF) ??
     getStringAttribute(attrs, CrsWktAttributeName.PROJECTION)
   );
