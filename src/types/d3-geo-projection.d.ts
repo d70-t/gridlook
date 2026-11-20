@@ -1,5 +1,5 @@
 declare module "d3-geo-projection" {
-  import { GeoProjection } from "d3";
+  import { GeoProjection } from "d3-geo";
 
   export function geoWinkel3(): GeoProjection;
   export function geoAitoff(): GeoProjection;
