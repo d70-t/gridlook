@@ -27,14 +27,17 @@ it("disables the level list for a variable outside the level groups", async () =
   const html = await render("root_only");
   expect(html).toMatch(/<select[^>]*disabled/);
   expect(html).toContain("This variable has no levels.");
-  expect(html).not.toContain("Pick the level from the zoom");
+  expect(html).not.toContain('<option value="auto"');
+  expect(html).not.toContain("Whole level");
 });
 
 it("offers the levels of a variable in a level group", async () => {
   const html = await render("0/tas");
   expect(html).not.toMatch(/<select[^>]*disabled/);
   expect(html).not.toContain("This variable has no levels.");
-  expect(html).toContain("Pick the level from the zoom");
+  expect(html).toMatch(/<select[^>]*value="auto"/);
+  expect(html).toContain('<option value="auto">Auto (0)</option>');
+  expect(html).toContain("Whole level");
 });
 
 it("disables the levels that lack the variable shown", async () => {
