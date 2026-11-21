@@ -250,6 +250,8 @@ export const useGlobeControlStore = defineStore("globeControl", {
       hideUpperBound: false,
       userBoundsLow: undefined as number | undefined,
       userBoundsHigh: undefined as number | undefined,
+      /** Whether the map's Custom range is the one applied (Controls). */
+      customBoundsActive: false,
       dimSlidersValues: [] as (number | null)[],
       dimSlidersDisplay: [] as (number | null)[],
       isInitializingVariable: false,
