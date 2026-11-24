@@ -26,6 +26,13 @@ import {
   type TGridCameraState,
 } from "./useGridCameraState.ts";
 import { useGridSnapshot } from "./useGridSnapshot.ts";
+import {
+  emitMapClick,
+  emitMapContextMenu,
+  notifyMapRendered,
+  registerMapScene,
+  type TViewport,
+} from "./useMapInteraction.ts";
 
 import {
   CAMERA_VERTICAL_FOV_DEGREES,
@@ -48,6 +55,7 @@ import {
   MERCATOR_LAT_LIMIT,
   PROJECTION_TYPES,
   ProjectionHelper,
+  withinAzimuthalClip,
   type TProjectionCenter,
 } from "@/lib/projection/projectionUtils.ts";
 import { viewFootprint } from "@/lib/projection/viewFootprint.ts";
@@ -144,6 +152,11 @@ export function useGridScene(options: UseGridSceneOptions) {
   const FLAT_CROP_RENDER_ORDER = 5;
   const FLAT_BOUNDARY_STEP_DEGREES = 0.25;
   const TOUCH_PICK_TAP_MAX_DISTANCE_PX = 10;
+  // A click moving less than this is a click, not a drag (map tools).
+  const CLICK_MAX_DISTANCE_PX = 5;
+  let clickStart: { button: number; clientX: number; clientY: number } | null =
+    null;
+  let unregisterMapScene: (() => void) | undefined;
   // Keep ~1.3 km clearance: close enough for automatic level selection to
   // reach cells of a few metres. Float32 positions resolve about half a
   // metre on the globe, so cell edges get ragged this close; closer views
@@ -236,6 +249,7 @@ export function useGridScene(options: UseGridSceneOptions) {
     getRenderer()?.render(getScene()!, getCamera()!);
     refreshDistanceScale();
     refreshViewFootprint();
+    notifyMapRendered();
     return controlsUpdated;
   }
 
@@ -285,7 +299,14 @@ export function useGridScene(options: UseGridSceneOptions) {
     true
   );
 
+  // The scale is work only while shown: off, nothing is measured.
   function refreshDistanceScale() {
+    if (!store.showDistanceScale) {
+      if (store.distanceScale) {
+        store.distanceScale = null;
+      }
+      return;
+    }
     store.distanceScale =
       lastPointerPosition && camera && canvas.value
         ? getDistanceScale(
@@ -314,6 +335,12 @@ export function useGridScene(options: UseGridSceneOptions) {
     }
 
     const [lon, lat] = inverted;
+    if (
+      isAzimuthalProjectionType(projectionHelper.value.type) &&
+      !withinAzimuthalClip(projectionHelper.value.center, lat, lon)
+    ) {
+      return null;
+    }
     const [projectedX, projectedY] = projectionHelper.value.project(lat, lon);
     if (
       !Number.isFinite(projectedX) ||
@@ -327,12 +354,19 @@ export function useGridScene(options: UseGridSceneOptions) {
     return { lat, lon: ProjectionHelper.normalizeLongitude(lon) };
   }
 
-  function getHoveredGeoPoint(clientX: number, clientY: number) {
+  const unitSphere = new THREE.Sphere(new THREE.Vector3(), 1);
+  const pickedPoint = new THREE.Vector3();
+  function getHoveredGeoPoint(
+    clientX: number,
+    clientY: number,
+    viewport?: TViewport
+  ) {
     if (!canvas.value || !camera || !pickSurface) {
       return null;
     }
 
-    const rect = canvas.value.getBoundingClientRect();
+    // A trace picks hundreds of points: the rectangle read once for all.
+    const rect = viewport ?? canvas.value.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) {
       return null;
     }
@@ -343,18 +377,24 @@ export function useGridScene(options: UseGridSceneOptions) {
     );
     raycaster.setFromCamera(pointer, camera);
 
+    if (!projectionHelper.value.isFlat) {
+      // The unit globe itself, not its 64 × 64 mesh: exact at the limb and
+      // cheap enough for a box outline's hundreds of picks a frame.
+      const hit = raycaster.ray.intersectSphere(unitSphere, pickedPoint);
+      if (!hit) {
+        return null;
+      }
+      const { lat, lon } = ProjectionHelper.cartesianToLatLon(
+        hit.x,
+        hit.y,
+        hit.z
+      );
+      return { lat, lon, screenX: clientX, screenY: clientY };
+    }
+
     const [intersection] = raycaster.intersectObject(pickSurface, false);
     if (!intersection) {
       return null;
-    }
-
-    if (!projectionHelper.value.isFlat) {
-      const { lat, lon } = ProjectionHelper.cartesianToLatLon(
-        intersection.point.x,
-        intersection.point.y,
-        intersection.point.z
-      );
-      return { lat, lon, screenX: clientX, screenY: clientY };
     }
 
     const geo = invertFlatProjection(intersection);
@@ -362,6 +402,109 @@ export function useGridScene(options: UseGridSceneOptions) {
       return null;
     }
     return { ...geo, screenX: clientX, screenY: clientY };
+  }
+
+  /**
+   * What is left of a pan's glide applied at once and cleared: OrbitControls
+   * applies its whole remaining motion when updated without damping.
+   */
+  function holdView() {
+    const controls = orbitControls;
+    if (!controls?.enableDamping) {
+      return;
+    }
+    controls.enableDamping = false;
+    controls.update();
+    controls.enableDamping = true;
+    camera?.updateMatrixWorld();
+  }
+
+  /** The view as projectGeoToScreen places points (a drawn Box keeps it). */
+  function currentFrame() {
+    if (!canvas.value || !camera) {
+      return undefined;
+    }
+    const { left, top, width, height } = canvas.value.getBoundingClientRect();
+    return {
+      projection: {
+        type: projectionHelper.value.type,
+        center: { ...projectionHelper.value.center },
+      },
+      view: [...camera.matrixWorldInverse.elements],
+      lens: [...camera.projectionMatrix.elements],
+      eye: camera.position.toArray() as [number, number, number],
+      viewport: { left, top, width, height },
+    };
+  }
+
+  // Reused: country outlines project thousands of points per frame.
+  const projectedPoint = new THREE.Vector3();
+
+  /** Screen position of a geographic point, and whether it faces the camera. */
+  function projectGeoToScreen(lat: number, lon: number, viewport?: TViewport) {
+    if (!canvas.value || !camera) {
+      return null;
+    }
+    const rect = viewport ?? canvas.value.getBoundingClientRect();
+    const [x, y, z] = projectionHelper.value.project(lat, lon);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return null;
+    }
+    const point = projectedPoint.set(x, y, z);
+    // On the globe, a point is visible when it is in front of the horizon; on
+    // an azimuthal map, within the rim it is clipped to.
+    const visible = projectionHelper.value.isFlat
+      ? !isAzimuthalProjectionType(projectionHelper.value.type) ||
+        withinAzimuthalClip(projectionHelper.value.center, lat, lon)
+      : point.dot(camera.position) > 1;
+    point.project(camera);
+    return {
+      x: rect.left + ((point.x + 1) / 2) * rect.width,
+      y: rect.top + ((1 - point.y) / 2) * rect.height,
+      visible: visible && point.z < 1,
+    };
+  }
+
+  function isStationaryClick(event: MouseEvent) {
+    const start = clickStart;
+    clickStart = null;
+    if (!start || start.button !== event.button) {
+      return false;
+    }
+    const dx = event.clientX - start.clientX;
+    const dy = event.clientY - start.clientY;
+    return dx * dx + dy * dy <= CLICK_MAX_DISTANCE_PX * CLICK_MAX_DISTANCE_PX;
+  }
+
+  // Stationary clicks go to map tools; drags keep their camera gestures.
+  function setupMapToolListeners() {
+    useEventListener(
+      canvas.value,
+      "mousedown",
+      (event: MouseEvent) => {
+        clickStart = {
+          button: event.button,
+          clientX: event.clientX,
+          clientY: event.clientY,
+        };
+      },
+      { passive: true }
+    );
+    useEventListener(
+      canvas.value,
+      "mouseup",
+      (event: MouseEvent) => {
+        if (!isStationaryClick(event) || isDisplayMode.value) {
+          return;
+        }
+        if (event.button === 2) {
+          emitMapContextMenu(event.clientX, event.clientY);
+        } else if (event.button === 0) {
+          emitMapClick(event.clientX, event.clientY, event);
+        }
+      },
+      { passive: true }
+    );
   }
 
   function isHoverActive() {
@@ -1246,6 +1389,7 @@ export function useGridScene(options: UseGridSceneOptions) {
     }
     updateHoverPosition(touch.clientX, touch.clientY);
     touchPickStart = null;
+    emitMapClick(touch.clientX, touch.clientY);
   }
 
   function setupHoverListeners() {
@@ -1394,6 +1538,20 @@ export function useGridScene(options: UseGridSceneOptions) {
     }
     useEventListener(box.value, "keydown", (e: KeyboardEvent) => {
       const navigationKeys = [...projectionArrowKeys, "+", "-"];
+      if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+        // The keyboard context-menu gesture opens map tools at the centre.
+        const rect = canvas.value?.getBoundingClientRect();
+        if (
+          rect &&
+          emitMapContextMenu(
+            rect.left + rect.width / 2,
+            rect.top + rect.height / 2
+          )
+        ) {
+          e.preventDefault();
+        }
+        return;
+      }
 
       if (navigationKeys.includes(e.key)) {
         onInteractionStart();
@@ -1410,6 +1568,16 @@ export function useGridScene(options: UseGridSceneOptions) {
     setupRightClickListeners();
     setupTouchProjectionListeners();
     setupKeyboardListeners();
+    setupMapToolListeners();
+    unregisterMapScene = registerMapScene({
+      pick: getHoveredGeoPoint,
+      project: projectGeoToScreen,
+      frame: currentFrame,
+      hold: holdView,
+      canvas: () => canvas.value,
+      pickingReliable: () =>
+        projectionHelper.value.type !== PROJECTION_TYPES.AZIMUTHAL_HYBRID,
+    });
 
     initEssentials();
     void onReady?.();
@@ -1418,6 +1586,7 @@ export function useGridScene(options: UseGridSceneOptions) {
   useResizeObserver(box, onCanvasResize);
 
   onBeforeUnmount(() => {
+    unregisterMapScene?.();
     store.distanceScale = null;
     if (frameId.value) {
       cancelAnimationFrame(frameId.value);
@@ -1513,6 +1682,12 @@ export function useGridScene(options: UseGridSceneOptions) {
       refreshHover();
     },
     { deep: true }
+  );
+
+  // Turned on again: measured at once from the pointer and camera.
+  watch(
+    () => store.showDistanceScale,
+    () => refreshDistanceScale()
   );
 
   watch(

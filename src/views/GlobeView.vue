@@ -1,7 +1,15 @@
 <script lang="ts" setup>
 import { useEventListener } from "@vueuse/core";
 import { storeToRefs } from "pinia";
-import { computed, nextTick, onMounted, ref, watch, type Ref } from "vue";
+import {
+  computed,
+  defineAsyncComponent,
+  nextTick,
+  onMounted,
+  ref,
+  watch,
+  type Ref,
+} from "vue";
 
 import type {
   TModelInfo,
@@ -91,6 +99,13 @@ import HoverReadout from "@/ui/overlays/HoverReadout.vue";
 import InfoPanel from "@/ui/overlays/InfoPanel.vue";
 
 const props = defineProps<{ src: string }>();
+
+// Deployment switch, resolved when building: with VITE_GRIDLOOK_PLOTS=false
+// the plot windows, charts and analysis worker are not in the build at all.
+const AnalysisLayer =
+  import.meta.env.VITE_GRIDLOOK_PLOTS === "false"
+    ? undefined
+    : defineAsyncComponent(() => import("@/ui/analysis/AnalysisLayer.vue"));
 
 useUrlSync();
 const { logError } = useLog();
@@ -811,6 +826,14 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
       <HoverReadout v-if="detectedGridType !== undefined" />
       <DistanceScale v-if="detectedGridType !== undefined" />
       <BasemapAttribution v-if="detectedGridType !== undefined" />
+      <component
+        :is="AnalysisLayer"
+        v-if="AnalysisLayer && detectedGridType !== undefined && !isDisplayMode"
+        v-show="!distractionFree"
+        :hidden="distractionFree"
+        :datasources="datasources"
+        :src="props.src"
+      />
     </div>
     <div
       v-if="!isDisplayMode"

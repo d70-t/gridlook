@@ -199,3 +199,70 @@ input[type="range"]:focus-visible {
   border: none !important;
   box-shadow: none !important;
 }
+
+// Floating analysis panels and plot windows over the map.
+/* Plot windows and menus follow the viewer's light and dark surfaces. */
+:root {
+  --plot-bg: #ffffff;
+  --plot-raised: hsl(0, 0%, 97%);
+  --plot-fg: hsl(0, 0%, 18%);
+  --plot-muted: hsl(0, 0%, 38%);
+  --plot-border: rgba(15, 23, 42, 0.18);
+  --plot-grid: rgba(15, 23, 42, 0.1);
+  --plot-accent: #1d4ed8;
+  --plot-line: #1d4ed8;
+  --plot-hover: rgba(29, 78, 216, 0.1);
+  --plot-warn: #92400e;
+  --plot-danger: #b91c1c;
+  --plot-pending: #c2410c;
+  --plot-unread: rgba(100, 116, 139, 0.16);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --plot-bg: rgb(17, 24, 40);
+    --plot-raised: hsl(220, 35%, 16%);
+    --plot-fg: #f1f5f9;
+    --plot-muted: #a3b1c6;
+    --plot-border: rgba(148, 163, 184, 0.35);
+    --plot-grid: rgba(148, 163, 184, 0.18);
+    --plot-accent: #7dd3fc;
+    --plot-line: #38bdf8;
+    --plot-hover: rgba(59, 130, 246, 0.25);
+    --plot-warn: #fcd34d;
+    --plot-danger: #fca5a5;
+    --plot-pending: #fdba74;
+    --plot-unread: rgba(148, 163, 184, 0.16);
+  }
+}
+
+.analysis-panel {
+  background: var(--plot-bg);
+  color: var(--plot-fg);
+  border: 1px solid var(--plot-border);
+  border-radius: 6px;
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.35);
+}
+
+/* What a control is, beside it on hover (plots: hoverLabel.ts). */
+.analysis-hover-label {
+  position: fixed;
+  z-index: 2100;
+  max-width: min(280px, calc(100vw - 8px));
+  padding: 3px 8px;
+  border: 1px solid var(--plot-border);
+  border-radius: 4px;
+  background: var(--plot-raised);
+  color: var(--plot-fg);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.3);
+  font-size: 0.75rem;
+  line-height: 1.35;
+  pointer-events: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Choosing a country on the map (plots): a crosshair over the map. */
+body.analysis-picking canvas.globe_canvas {
+  cursor: crosshair !important;
+}

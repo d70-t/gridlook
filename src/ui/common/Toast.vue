@@ -1,9 +1,15 @@
 <script lang="ts" setup>
+import RightClickMouse from "./RightClickMouse.vue";
 import { ToastType, useToast, type TToastType } from "./useToast.ts";
 
 type TToastTheme = { tone: TToastType; icon: string };
 
 const { toasts, removeToast } = useToast();
+
+function act(toast: (typeof toasts.value)[number]) {
+  removeToast(toast.id);
+  toast.action?.run();
+}
 
 const toastThemes: Record<TToastType, TToastTheme> = {
   [ToastType.INFO]: { tone: ToastType.INFO, icon: "fa-circle-info" },
@@ -24,11 +30,16 @@ const getToastTheme = (type: TToastType): TToastTheme => toastThemes[type];
       v-for="toast in toasts"
       :key="toast.id"
       class="toast-card"
-      :class="`is-${getToastTheme(toast.type).tone}`"
+      :class="[
+        `is-${getToastTheme(toast.type).tone}`,
+        { 'is-compact': toast.compact },
+      ]"
       role="alert"
     >
       <span class="toast-icon">
+        <RightClickMouse v-if="toast.icon === 'right-click'" />
         <i
+          v-else
           class="fa-solid"
           :class="getToastTheme(toast.type).icon"
           aria-hidden="true"
@@ -44,6 +55,14 @@ const getToastTheme = (type: TToastType): TToastTheme => toastThemes[type];
           {{ toast.detail }}
         </p>
       </div>
+      <button
+        v-if="toast.action"
+        class="button is-small toast-action"
+        type="button"
+        @click="act(toast)"
+      >
+        {{ toast.action.label }}
+      </button>
       <button
         class="toast-close"
         type="button"
@@ -120,6 +139,49 @@ const getToastTheme = (type: TToastType): TToastTheme => toastThemes[type];
 
 .toast-detail {
   margin: 0.15rem 0 0;
+}
+
+/* A one-line notice (an Undo, a tip): sized to its text, at the right. */
+.toast-card.is-compact {
+  justify-self: end;
+  width: auto;
+  max-width: min(24rem, calc(100vw - 2rem));
+  gap: 0.6rem;
+  padding: 0.4rem 0.5rem 0.4rem 0.75rem;
+  font-size: 0.875rem;
+  .toast-icon {
+    font-size: 1rem;
+  }
+  .toast-action.button {
+    margin-right: 0;
+  }
+  .toast-close {
+    position: static;
+  }
+}
+
+/* The map's corner indicator (animation playing, or loading: 40 px at 10 px
+   from the top right) keeps its corner: notices stand left of it instead of
+   under it. */
+body:has(.top-right-loader) .toast-container {
+  right: 58px;
+}
+body:has(.top-right-loader) .toast-card {
+  max-width: min(24rem, calc(100vw - 58px - 1rem));
+}
+
+/* The card is always light: its text and button stay dark in dark mode. */
+.toast-card {
+  color: bulmaUt.$grey-darker;
+}
+
+.toast-action.button {
+  flex: none;
+  margin-right: 1.25rem;
+  font-weight: 600;
+  background-color: bulmaUt.$white;
+  color: bulmaUt.$grey-darker;
+  border-color: bulmaUt.$grey-lighter;
 }
 
 .toast-close {
