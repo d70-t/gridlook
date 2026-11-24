@@ -1,10 +1,19 @@
 <script lang="ts" setup>
 import QRCode from "qrcode";
-import { ref, watch } from "vue";
+import { defineAsyncComponent, ref, watch } from "vue";
 
 import PopupDialog from "./PopupDialog.vue";
 
 import { ToastType, useToast } from "@/ui/common/useToast.ts";
+
+// The plots part, in the build only with plots (see GlobeView).
+const ShareSession =
+  import.meta.env.VITE_GRIDLOOK_PLOTS === "false"
+    ? undefined
+    : defineAsyncComponent(() => import("@/ui/analysis/ShareSession.vue"));
+
+/** Longer links make QR codes too dense to scan reliably. */
+const QR_LIMIT = 2000;
 
 const { addToast } = useToast();
 const dialogOpen = ref(false);
@@ -25,7 +34,17 @@ watch(dialogOpen, (open) => {
   }
 });
 
+/** The link with the plots written in it. */
+function sessionUrl(url: string) {
+  currentUrl.value = url;
+  void generateQrCode(url);
+}
+
 async function generateQrCode(url: string) {
+  if (url.length > QR_LIMIT) {
+    qrCodeDataUrl.value = "";
+    return;
+  }
   isGeneratingQr.value = true;
   try {
     qrCodeDataUrl.value = await QRCode.toDataURL(url, {
@@ -141,7 +160,13 @@ async function shareUrl() {
           alt="QR code for the current view URL"
         />
         <div v-else class="qr-placeholder">
-          {{ isGeneratingQr ? "Generating QR code..." : "QR code unavailable" }}
+          {{
+            isGeneratingQr
+              ? "Generating QR code..."
+              : currentUrl.length > QR_LIMIT
+                ? "Too long for a QR code: copy the link instead."
+                : "QR code unavailable"
+          }}
         </div>
       </div>
 
@@ -152,6 +177,8 @@ async function shareUrl() {
         <strong class="has-text-danger">Warning:</strong> Using the QR-Code may
         incur data roaming charges on mobile devices.
       </p>
+
+      <component :is="ShareSession" v-if="ShareSession" @url="sessionUrl" />
 
       <hr class="my-2" />
       <div class="is-flex is-justify-content-space-between">
