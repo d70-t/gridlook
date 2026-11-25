@@ -31,6 +31,7 @@ import {
   isLocalNetCDFSource,
   isRemoteNetCDFSource,
 } from "@/lib/data/localNetCDF.ts";
+import { isLocalZarrSource } from "@/lib/data/localZarr.ts";
 import {
   indexFromIndex,
   indexFromNetCDF,
@@ -559,6 +560,9 @@ async function updateSrc(updateId: number) {
         ];
   } else if (isRemoteNetCDFSource(src)) {
     indexPromises = [indexFromRemoteNetCDF(src)];
+  } else if (isLocalZarrSource(src)) {
+    // No JSON index for local directories: it would fetch zarr://local/.
+    indexPromises = [indexFromZarr(src)];
   } else {
     // FIXME: Trying zarr and json-index in parallel and picking the first that
     // works. If both fail, we log the last error which is from the json-index.

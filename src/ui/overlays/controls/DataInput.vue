@@ -5,7 +5,12 @@ import CatalogEntryList from "./CatalogEntryList.vue";
 import CatalogPanel from "./CatalogPanel.vue";
 
 import { isNetCDFFile, registerLocalNetCDF } from "@/lib/data/localNetCDF.ts";
-import { registerLocalZarr } from "@/lib/data/localZarr.ts";
+import {
+  checkLocalZarrSelection,
+  LocalZarrSelection,
+  localZarrDirName,
+  registerLocalZarr,
+} from "@/lib/data/localZarr.ts";
 import { splitSourceType, withSourceType } from "@/lib/data/sourceType.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { ZARR_FORMAT, type TZarrFormat } from "@/lib/types/GlobeTypes.ts";
@@ -279,6 +284,25 @@ function onLocalZarrSelected(event: Event) {
   const files = input.files ? Array.from(input.files) : [];
   input.value = "";
   if (files.length === 0) {
+    return;
+  }
+  const selection = checkLocalZarrSelection(files);
+  if (selection !== LocalZarrSelection.OK) {
+    const dirName = localZarrDirName(files);
+    addToast("No Zarr metadata found", {
+      detail:
+        `"${dirName}" has no .zmetadata, .zgroup or zarr.json at its top ` +
+        "level. " +
+        (selection === LocalZarrSelection.NO_HIDDEN_FILES
+          ? "The selection contains no hidden files (names starting with " +
+            '"."). This could be a directory that is not a Zarr store, or ' +
+            "the browser may have left hidden files out (Safari can do " +
+            "this), which drops Zarr v2 metadata."
+          : "This could be a directory that is not a Zarr store, or one " +
+            "that contains the store. Select the .zarr directory itself."),
+      duration: 12000,
+      type: ToastType.DANGER,
+    });
     return;
   }
   location.hash = `#${registerLocalZarr(files)}${carriedParams()}`;
