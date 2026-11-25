@@ -46,7 +46,7 @@ const typoSearch = new uFuzzy({
   intraDel: 1,
 });
 
-export type THighlightSegment = { text: string; match: boolean };
+type THighlightSegment = { text: string; match: boolean };
 
 export type TVariableHighlight = {
   name: THighlightSegment[];
@@ -84,7 +84,7 @@ export function variableHaystack(
 }
 
 /** Splits `text` into matched and unmatched parts; `ranges` start at `offset`. */
-export function highlightSegments(
+function highlightSegments(
   text: string,
   ranges: number[],
   offset = 0

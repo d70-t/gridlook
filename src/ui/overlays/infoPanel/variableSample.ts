@@ -7,7 +7,7 @@ import type { TDatasetSource, TZarrFormat } from "@/lib/types/GlobeTypes.ts";
 const SAMPLE_SIZE = 10;
 
 /** A stored value as text; time coordinates are shown as dates. */
-export function formatSampleValue(
+function formatSampleValue(
   value: unknown,
   attrs: zarr.Attributes,
   dtype: string
