@@ -1,0 +1,94 @@
+{
+  "kind": "point-series",
+  "query": {
+    "version": 1,
+    "kind": "point-series",
+    "source": {
+      "ref": "https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/dynamical/noaa-gefs-forecast-35-day/v0.2.0.zarr",
+      "versionStatus": "best-effort"
+    },
+    "variable": "temperature_2m",
+    "geometry": { "kind": "point", "lat": 27.95, "lon": -82.46 },
+    "time": { "start": 1461, "stop": 1473 },
+    "fixed": { "lead_time": 16, "ensemble_member": 0 }
+  },
+  "units": "degree_Celsius",
+  "longName": "2 metre temperature",
+  "standardName": "air_temperature",
+  "values": [
+    27.75, 29.625, 29.125, 28.75, 24.5, 24.75, 26.25, 26.125, 24.125, 25.625,
+    26, 27.875
+  ],
+  "shape": [12],
+  "dims": ["init_time"],
+  "grid": { "kind": "latitude/longitude", "conflicts": [] },
+  "decoding": "missing where stored value is _FillValue AAAAAAAA+H8=; NaN is missing; chunks never written read as the array fill value",
+  "notes": [
+    "Each stored chunk holds 1 time step of a large area (1 \u00d7 31 \u00d7 64 \u00d7 17 \u00d7 16 values, 2.1 MiB decoded). To read 12 time steps at one place, 12 whole chunks are fetched and decompressed: 25 MiB in all. Data chunked along time would read much faster."
+  ],
+  "counters": {
+    "plannedChunks": 12,
+    "chunkReads": 12,
+    "cacheHits": 0,
+    "sharedReads": 0,
+    "absentChunks": 0,
+    "decodedBytes": 25903104,
+    "indexChunkReads": 0,
+    "indexBytes": 0,
+    "metadataReads": 1,
+    "storeRequests": 25,
+    "storeBytes": 7267338,
+    "physicalRequests": 25,
+    "physicalBytes": 7267338,
+    "geometryMs": 0,
+    "visitedElements": 12,
+    "peakAccumulatorBytes": 0,
+    "overlappingRuns": 0,
+    "physicalUnknownSizes": 0,
+    "readMs": 12019.79999999702,
+    "fetchMs": 11006.20000000298,
+    "fetchedBytes": 7265577,
+    "reduceMs": 2.599999997764826,
+    "totalMs": 3170.300000000745,
+    "queuedMs": 14.400000000372529
+  },
+  "selections": [
+    {
+      "dimension": "ensemble_member",
+      "index": 0,
+      "id": "0",
+      "idType": "int16",
+      "idEncoding": "i8",
+      "ensemble": true
+    },
+    {
+      "dimension": "lead_time",
+      "index": 16,
+      "value": 172800,
+      "units": "seconds",
+      "seconds": 1,
+      "standardName": "forecast_period"
+    }
+  ],
+  "time": {
+    "dimension": "init_time",
+    "raw": [
+      1727740800, 1727827200, 1727913600, 1728000000, 1728086400, 1728172800,
+      1728259200, 1728345600, 1728432000, 1728518400, 1728604800, 1728691200
+    ],
+    "units": "seconds since 1970-01-01",
+    "calendar": "proleptic_gregorian",
+    "standardName": "forecast_reference_time",
+    "quantity": "intensive"
+  },
+  "cell": {
+    "id": "248,390",
+    "stored": true,
+    "lat": 28,
+    "lon": -82.5,
+    "selection": "containing cell (edges halfway between centres; no bounds published)",
+    "decimals": 3,
+    "footprint": { "lat": 0.25, "lon": 0.25, "south": 27.875, "west": -82.625 },
+    "index": { "dims": ["latitude", "longitude"], "values": ["248", "390"] }
+  }
+}
