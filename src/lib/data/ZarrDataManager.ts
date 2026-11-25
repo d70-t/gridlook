@@ -11,6 +11,7 @@ import {
 import { currentLevel } from "./levels.ts";
 import { isRemoteNetCDFSource } from "./localNetCDF.ts";
 import { getLocalZarrStore, isLocalZarrSource } from "./localZarr.ts";
+import { withMetadataJsonCheck } from "./metadataJson.ts";
 import type { NetCDFArray, NetCDFGroup, TNetCDFBackend } from "./netCDF.ts";
 import {
   createReferenceStore,
@@ -98,7 +99,7 @@ export class ZarrDataManager {
       const localCache = new QuickLRU<string, Uint8Array | undefined>({
         maxSize: 512,
       });
-      return zarr.extendStore(localStore, (s) =>
+      return zarr.extendStore(localStore, withMetadataJsonCheck, (s) =>
         zarr.withByteCaching(s, { cache: localCache })
       );
     }
@@ -135,10 +136,25 @@ export class ZarrDataManager {
     });
     const fetchStore = zarr.extendStore(
       store,
+      withMetadataJsonCheck,
       (s) => zarr.withRangeCoalescing(s, { coalesceSize: 32768 }),
       (s) => zarr.withByteCaching(s, { cache: cache })
     );
     return fetchStore;
+  }
+
+  // v2 metadata is served from `.zmetadata` when there is one, instead of
+  // reading every `.zgroup`/`.zarray`/`.zattrs`.
+  private static async openRoot(storePath: string, format?: TZarrFormat) {
+    const store = await this.createNewStore(
+      storePath,
+      format === ZARR_FORMAT.ICECHUNK
+    );
+    return zarr.root(
+      format === ZARR_FORMAT.V2
+        ? await zarr.withMaybeConsolidatedMetadata(store, { format: "v2" })
+        : store
+    );
   }
 
   private static async getDataset(
@@ -166,18 +182,13 @@ export class ZarrDataManager {
     const storePath = this.normalizeStorePath(datasource.store);
     if (!this.pendingStore || this.fetchStorePath !== storePath) {
       this.fetchStorePath = storePath;
-      this.pendingStore = this.createNewStore(
-        storePath,
-        format === ZARR_FORMAT.ICECHUNK
-      )
-        .then((s) => zarr.root(s))
-        .catch((e) => {
-          // Clear the cache on failure so callers can retry.
-          if (this.fetchStorePath === storePath) {
-            this.pendingStore = null;
-          }
-          throw e;
-        });
+      this.pendingStore = this.openRoot(storePath, format).catch((e) => {
+        // Clear the cache on failure so callers can retry.
+        if (this.fetchStorePath === storePath) {
+          this.pendingStore = null;
+        }
+        throw e;
+      });
     }
     // Capture locally so a concurrent path switch cannot swap the store under us.
     const root = await this.pendingStore;

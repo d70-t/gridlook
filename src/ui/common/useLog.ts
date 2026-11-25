@@ -1,6 +1,7 @@
 import { ToastType, useToast } from "./useToast.ts";
 
 import { explainCodecError } from "@/lib/data/codecErrors.ts";
+import { explainMetadataJsonError } from "@/lib/data/metadataJson.ts";
 import { getErrorMessage, toNormalizedError } from "@/utils/errorHandling.ts";
 
 // A codec failure is worth reading and worth writing down, so it stays up
@@ -16,7 +17,8 @@ export function useLog() {
     // A recognised codec problem describes itself better than the call site
     // can: "Could not fetch data" sends the reader to the network, which is
     // not where the problem is.
-    const explanation = explainCodecError(maybeError);
+    const explanation =
+      explainCodecError(maybeError) ?? explainMetadataJsonError(maybeError);
     const prefix = explanation?.heading ?? context ?? "Error";
     addToast(prefix, {
       detail: explanation?.detail ?? `${getErrorMessage(error)}`,
