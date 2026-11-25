@@ -1,9 +1,15 @@
 <script lang="ts" setup>
-import { computed, nextTick, ref } from "vue";
-import VueJsonPretty from "vue-json-pretty";
-import * as zarr from "zarrita";
+import { useVirtualizer } from "@tanstack/vue-virtual";
+import { computed, nextTick, onMounted, ref, shallowRef } from "vue";
 
-import type { TVariableGroupInfo, TVariableTableRow } from "./types";
+import type {
+  TVariableGroupInfo,
+  TVariableSample,
+  TVariableTableRow,
+} from "./types";
+import VariableGroupHeader from "./VariableGroupHeader.vue";
+import type { TVariableSearchResult } from "./variableSearch";
+import VariableTableRow from "./VariableTableRow.vue";
 
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 
@@ -23,15 +29,19 @@ const props = withDefaults(
     selectedAttributesVariable: string | null;
     selectedVariable?: string | null;
     showVisualize?: boolean;
-    searchQuery?: string;
+    // the matches of the search, null when not searching
+    searchResult?: TVariableSearchResult | null;
     // the groups that are levels of the dataset, by group name
     groupInfo?: Record<string, TVariableGroupInfo>;
+    // the loaded samples by variable name; without it, no sample button
+    samples?: Record<string, TVariableSample>;
   }>(),
   {
     selectedVariable: null,
     showVisualize: false,
-    searchQuery: "",
+    searchResult: null,
     groupInfo: () => ({}),
+    samples: undefined,
   }
 );
 
@@ -39,6 +49,7 @@ const emit = defineEmits<{
   toggleAttributes: [varName: string];
   visualize: [varName: string];
   goToVariable: [varName: string];
+  toggleSample: [varName: string];
 }>();
 
 const ROOT_GROUP_NAME = "/";
@@ -46,6 +57,35 @@ const VariableSection = {
   DATA: "Data Variables",
   COORDINATES: "Coordinates",
 } as const;
+
+type TVariableSection = (typeof VariableSection)[keyof typeof VariableSection];
+
+const SearchItemKind = {
+  GROUP: "group",
+  SECTION: "section",
+  ROW: "row",
+} as const;
+
+/** An entry of the flat list of search results. */
+type TSearchItem =
+  | {
+      kind: typeof SearchItemKind.GROUP;
+      key: string;
+      name: string;
+      count: number;
+      open: boolean;
+    }
+  | {
+      kind: typeof SearchItemKind.SECTION;
+      key: string;
+      title: TVariableSection;
+      count: number;
+    }
+  | {
+      kind: typeof SearchItemKind.ROW;
+      key: string;
+      row: TVariableTableDisplayRow;
+    };
 
 const groupNameCollator = new Intl.Collator(undefined, {
   numeric: true,
@@ -69,35 +109,13 @@ function getVariableDisplayName(varName: string) {
     : varName;
 }
 
-const trimmedSearchQuery = computed(() =>
-  props.searchQuery.trim().toLowerCase()
-);
-const isSearching = computed(() => trimmedSearchQuery.value.length > 0);
+const isSearching = computed(() => props.searchResult !== null);
 
-const filteredRows = computed(() =>
-  isSearching.value
-    ? props.rows.filter((row) =>
-        row.name.toLowerCase().includes(trimmedSearchQuery.value)
-      )
-    : props.rows
-);
-
-const groupedRows = computed<TGroupedVariableRows[]>(() => {
-  if (isSearching.value) {
-    return [
-      {
-        name: ROOT_GROUP_NAME,
-        rows: filteredRows.value.map((row) => ({
-          ...row,
-          displayName: row.name,
-        })),
-      },
-    ];
-  }
-
+/** The rows by group, the group of the variable shown first. */
+function groupRows(rows: TVariableTableRow[]): TGroupedVariableRows[] {
   const groups: Record<string, TVariableTableDisplayRow[]> = {};
 
-  for (const row of props.rows) {
+  for (const row of rows) {
     const group = getVariableGroup(row.name);
     if (!groups[group]) {
       groups[group] = [];
@@ -115,8 +133,10 @@ const groupedRows = computed<TGroupedVariableRows[]>(() => {
           Number(isVariableInGroup(props.selectedVariable, nameA)) ||
         groupNameCollator.compare(nameA, nameB)
     )
-    .map(([name, rows]) => ({ name, rows }));
-});
+    .map(([name, groupRows]) => ({ name, rows: groupRows }));
+}
+
+const groupedRows = computed(() => groupRows(props.rows));
 
 const hasGroups = computed(
   () =>
@@ -133,24 +153,148 @@ function resolveDimensionVariable(rowName: string, dim: string): string | null {
   return variableNames.value.has(candidate) ? candidate : null;
 }
 
-const rowElements = ref<Record<string, HTMLElement>>({});
-const detailsElements = ref<Record<string, HTMLElement>>({});
+// groups the user collapsed in the search results
+const collapsedSearchGroups = ref<Set<string>>(new Set());
 
-function registerRowElement(name: string, el: Element | null) {
-  if (el instanceof HTMLElement) {
-    rowElements.value[name] = el;
-  } else {
-    delete rowElements.value[name];
+function toggleSearchGroup(groupName: string) {
+  const next = new Set(collapsedSearchGroups.value);
+  if (!next.delete(groupName)) {
+    next.add(groupName);
+  }
+  collapsedSearchGroups.value = next;
+}
+
+/**
+ * The search results as one flat list (per group a header, then its data
+ * variables and coordinates), so that only the rows in view are rendered: a
+ * search can match tens of thousands of variables.
+ */
+const searchItems = computed<TSearchItem[]>(() => {
+  const items: TSearchItem[] = [];
+  const groups = groupRows(props.searchResult?.rows ?? []);
+  const showGroups = groups.some((group) => group.name !== ROOT_GROUP_NAME);
+  for (const group of groups) {
+    const open = !collapsedSearchGroups.value.has(group.name);
+    if (showGroups) {
+      items.push({
+        kind: SearchItemKind.GROUP,
+        key: `group:${group.name}`,
+        name: group.name,
+        count: group.rows.length,
+        open,
+      });
+      if (!open) {
+        continue;
+      }
+    }
+    for (const [title, rows] of [
+      [VariableSection.DATA, group.rows.filter((row) => !row.hidden)],
+      [VariableSection.COORDINATES, group.rows.filter((row) => row.hidden)],
+    ] as const) {
+      if (rows.length === 0) {
+        continue;
+      }
+      items.push({
+        kind: SearchItemKind.SECTION,
+        key: `section:${group.name}:${title}`,
+        title,
+        count: rows.length,
+      });
+      for (const row of rows) {
+        items.push({
+          kind: SearchItemKind.ROW,
+          key: `row:${row.name}`,
+          row: showGroups ? row : { ...row, displayName: row.name },
+        });
+      }
+    }
+  }
+  return items;
+});
+
+const rootEl = ref<HTMLElement | null>(null);
+const scrollElement = shallowRef<HTMLElement | null>(null);
+
+function findScrollParent(el: HTMLElement | null) {
+  for (let node = el?.parentElement; node; node = node.parentElement) {
+    if (/(auto|scroll)/.test(getComputedStyle(node).overflowY)) {
+      return node;
+    }
+  }
+  return null;
+}
+
+/**
+ * Where the results start in the scrolled panel. Read when a search starts
+ * (the tab is visible then); the controls above the results do not change
+ * height while searching.
+ */
+function resultsOffset() {
+  const root = rootEl.value;
+  const scroll = scrollElement.value;
+  if (!root || !scroll) {
+    return 0;
+  }
+  return (
+    root.getBoundingClientRect().top -
+    scroll.getBoundingClientRect().top +
+    scroll.scrollTop
+  );
+}
+
+const virtualizer = useVirtualizer(
+  computed(() => ({
+    count: searchItems.value.length,
+    getScrollElement: () => scrollElement.value,
+    estimateSize: () => 33,
+    getItemKey: (index: number) => searchItems.value[index].key,
+    scrollMargin: isSearching.value ? resultsOffset() : 0,
+    overscan: 10,
+    // rows to render before the panel is measured (and when rendered without
+    // a browser)
+    initialRect: { width: 0, height: 1000 },
+  }))
+);
+
+const visibleSearchItems = computed(() =>
+  virtualizer.value.getVirtualItems().map((virtualItem) => {
+    const item = searchItems.value[virtualItem.index];
+    return {
+      virtualItem,
+      item,
+      highlight:
+        item.kind === SearchItemKind.ROW
+          ? props.searchResult?.highlight(
+              item.row,
+              item.row.name.length - item.row.displayName.length
+            )
+          : undefined,
+    };
+  })
+);
+
+const paddingTop = computed(() => {
+  const first = visibleSearchItems.value[0]?.virtualItem;
+  return first ? first.start - virtualizer.value.options.scrollMargin : 0;
+});
+
+const paddingBottom = computed(() => {
+  const last = visibleSearchItems.value.at(-1)?.virtualItem;
+  return last
+    ? virtualizer.value.getTotalSize() -
+        (last.end - virtualizer.value.options.scrollMargin)
+    : 0;
+});
+
+function measureSearchItem(el: unknown) {
+  if (el instanceof Element) {
+    virtualizer.value.measureElement(el);
   }
 }
 
-function registerDetailsElement(name: string, el: Element | null) {
-  if (el instanceof HTMLElement) {
-    detailsElements.value[name] = el;
-  } else {
-    delete detailsElements.value[name];
-  }
-}
+onMounted(() => {
+  scrollElement.value = findScrollParent(rootEl.value);
+});
 
 async function goToDimensionCoordinate(rowName: string, dim: string) {
   const target = resolveDimensionVariable(rowName, dim);
@@ -166,14 +310,14 @@ async function goToDimensionCoordinate(rowName: string, dim: string) {
   await nextTick();
   // Scroll to the details row when present so its attributes are visible too,
   // not just the name row above it.
-  (detailsElements.value[target] ?? rowElements.value[target])?.scrollIntoView({
+  const name = CSS.escape(target);
+  (
+    rootEl.value?.querySelector(`[data-variable-details="${name}"]`) ??
+    rootEl.value?.querySelector(`[data-variable-row="${name}"]`)
+  )?.scrollIntoView({
     behavior: "smooth",
     block: "nearest",
   });
-}
-
-function hasAttributes(attrs: zarr.Attributes | null) {
-  return attrs ? Object.keys(attrs).length > 0 : false;
 }
 
 function isVariableInGroup(
@@ -208,48 +352,98 @@ function toggleGroup(groupName: string) {
 </script>
 
 <template>
-  <div class="dataset-table-section">
-    <div v-if="filteredRows.length > 0">
+  <div ref="rootEl" class="dataset-table-section">
+    <div v-if="searchItems.length > 0" class="table-container">
+      <table
+        class="table is-narrow is-fullwidth is-size-7 dataset-table search-results"
+        aria-label="Search results"
+      >
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Dimensions</th>
+            <th class="dtype-column">dtype</th>
+            <th class="actions-column">
+              <span class="is-sr-only">Actions</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody v-if="paddingTop > 0" aria-hidden="true">
+          <tr>
+            <td
+              colspan="4"
+              class="p-0"
+              :style="{ height: `${paddingTop}px` }"
+            ></td>
+          </tr>
+        </tbody>
+        <tbody
+          v-for="{ virtualItem, item, highlight } in visibleSearchItems"
+          :key="virtualItem.key as string"
+          :ref="measureSearchItem"
+          :data-index="virtualItem.index"
+        >
+          <tr v-if="item.kind === SearchItemKind.GROUP">
+            <td colspan="4" class="px-0 pt-3">
+              <VariableGroupHeader
+                :name="item.name"
+                :count="item.count"
+                :open="item.open"
+                :info="groupInfo[item.name]"
+                @toggle="toggleSearchGroup(item.name)"
+              />
+            </td>
+          </tr>
+          <tr v-else-if="item.kind === SearchItemKind.SECTION">
+            <th colspan="4" class="pt-3">
+              {{ item.title }}
+              <span class="has-text-grey">({{ item.count }})</span>
+            </th>
+          </tr>
+          <VariableTableRow
+            v-else
+            :row="item.row"
+            :display-name="item.row.displayName"
+            :highlight="highlight"
+            :selected-attributes-variable="selectedAttributesVariable"
+            :selected-variable="selectedVariable"
+            :show-visualize="showVisualize"
+            :show-sample="!!samples"
+            :sample="samples?.[item.row.name]"
+            :resolve-dimension-variable="resolveDimensionVariable"
+            @toggle-attributes="emit('toggleAttributes', $event)"
+            @toggle-sample="emit('toggleSample', $event)"
+            @visualize="emit('visualize', $event)"
+            @go-to-dimension="goToDimensionCoordinate"
+          />
+        </tbody>
+        <tbody v-if="paddingBottom > 0" aria-hidden="true">
+          <tr>
+            <td
+              colspan="4"
+              class="p-0"
+              :style="{ height: `${paddingBottom}px` }"
+            ></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div v-else-if="!isSearching && rows.length > 0">
       <div
         v-for="group in groupedRows"
         :key="group.name"
         :class="{ box: hasGroups }"
         class="p-0 mb-3"
       >
-        <button
+        <VariableGroupHeader
           v-if="hasGroups"
-          type="button"
-          class="button is-light is-fullwidth is-justify-content-space-between variable-group-toggle"
-          :aria-expanded="isGroupOpen(group.name)"
-          @click="toggleGroup(group.name)"
-        >
-          <span class="is-flex is-align-items-center">
-            <span class="icon is-small mr-2" aria-hidden="true">
-              <i
-                class="fa-solid"
-                :class="
-                  isGroupOpen(group.name) ? 'fa-angle-down' : 'fa-angle-right'
-                "
-              ></i>
-            </span>
-            <span class="group-name">{{ group.name }}</span>
-            <span
-              v-if="groupInfo[group.name]?.detail"
-              class="group-detail has-text-grey ml-2"
-            >
-              {{ groupInfo[group.name].detail }}
-            </span>
-          </span>
-          <span class="is-flex is-align-items-center is-flex-shrink-0">
-            <span
-              v-if="groupInfo[group.name]?.current"
-              class="tag is-info is-light ml-2"
-            >
-              current level
-            </span>
-            <span class="tag is-rounded ml-2">{{ group.rows.length }}</span>
-          </span>
-        </button>
+          :name="group.name"
+          :count="group.rows.length"
+          :open="isGroupOpen(group.name)"
+          :info="groupInfo[group.name]"
+          @toggle="toggleGroup(group.name)"
+        />
         <div
           v-if="!hasGroups || isGroupOpen(group.name)"
           :class="{ 'px-3 pb-3': hasGroups }"
@@ -285,130 +479,22 @@ function toggleGroup(groupName: string) {
                   </tr>
                 </thead>
                 <tbody>
-                  <template v-for="row in table.rows" :key="row.name">
-                    <tr
-                      :ref="
-                        (el) =>
-                          registerRowElement(row.name, el as Element | null)
-                      "
-                      class="variable-row"
-                      :class="{
-                        'is-selected-variable': row.name === selectedVariable,
-                      }"
-                    >
-                      <td class="variable-name">
-                        <code :title="row.name">
-                          {{ hasGroups ? row.displayName : row.name }}
-                        </code>
-                      </td>
-                      <td class="variable-dimensions">
-                        <span
-                          v-if="row.error"
-                          class="has-text-danger"
-                          :title="row.error"
-                        >
-                          Unavailable
-                        </span>
-                        <code v-else
-                          >(<template
-                            v-for="(dim, dimIndex) in row.dimensions"
-                            :key="dim"
-                            ><a
-                              v-if="resolveDimensionVariable(row.name, dim)"
-                              href="#"
-                              class="has-text-link dimension-link"
-                              @click.prevent="
-                                goToDimensionCoordinate(row.name, dim)
-                              "
-                              >{{ dim }}</a
-                            ><template v-else>{{ dim }}</template
-                            ><template
-                              v-if="dimIndex < row.dimensions.length - 1"
-                              >,
-                            </template></template
-                          >)</code
-                        >
-                      </td>
-                      <td>
-                        <span
-                          v-if="row.error || !row.dtype"
-                          class="has-text-grey-light"
-                        >
-                          -
-                        </span>
-                        <code v-else-if="row.dtype">{{ row.dtype }}</code>
-                      </td>
-                      <td class="variable-actions has-text-right">
-                        <button
-                          class="button is-small"
-                          :class="
-                            row.name === selectedAttributesVariable
-                              ? 'is-info'
-                              : 'is-light'
-                          "
-                          :aria-label="'View attributes for ' + row.name"
-                          :aria-pressed="
-                            row.name === selectedAttributesVariable
-                          "
-                          :title="'View attributes for ' + row.name"
-                          type="button"
-                          @click="emit('toggleAttributes', row.name)"
-                        >
-                          <span class="icon is-small">
-                            <i class="fa-solid fa-circle-info"></i>
-                          </span>
-                        </button>
-                        <button
-                          v-if="showVisualize && !row.hidden"
-                          class="button is-small ml-1"
-                          :class="
-                            row.name === selectedVariable
-                              ? 'is-info'
-                              : 'is-light'
-                          "
-                          :aria-label="'Visualize ' + row.name"
-                          :title="
-                            row.visualizeDisabled ?? 'Visualize ' + row.name
-                          "
-                          type="button"
-                          :disabled="!!row.error || !!row.visualizeDisabled"
-                          @click="emit('visualize', row.name)"
-                        >
-                          <span class="icon is-small">
-                            <i class="fa-solid fa-globe"></i>
-                          </span>
-                        </button>
-                      </td>
-                    </tr>
-                    <tr
-                      v-if="row.name === selectedAttributesVariable"
-                      :ref="
-                        (el) =>
-                          registerDetailsElement(row.name, el as Element | null)
-                      "
-                      class="variable-attributes-row"
-                    >
-                      <td colspan="4">
-                        <div class="variable-attributes">
-                          <div
-                            v-if="row.error"
-                            class="notification is-danger is-light is-size-7"
-                          >
-                            {{ row.error }}
-                          </div>
-                          <div
-                            v-else-if="hasAttributes(row.attrs)"
-                            class="info-pre"
-                          >
-                            <VueJsonPretty :data="row.attrs" />
-                          </div>
-                          <p v-else class="has-text-grey-light">
-                            No variable attributes
-                          </p>
-                        </div>
-                      </td>
-                    </tr>
-                  </template>
+                  <VariableTableRow
+                    v-for="row in table.rows"
+                    :key="row.name"
+                    :row="row"
+                    :display-name="hasGroups ? row.displayName : row.name"
+                    :selected-attributes-variable="selectedAttributesVariable"
+                    :selected-variable="selectedVariable"
+                    :show-visualize="showVisualize"
+                    :show-sample="!!samples"
+                    :sample="samples?.[row.name]"
+                    :resolve-dimension-variable="resolveDimensionVariable"
+                    @toggle-attributes="emit('toggleAttributes', $event)"
+                    @toggle-sample="emit('toggleSample', $event)"
+                    @visualize="emit('visualize', $event)"
+                    @go-to-dimension="goToDimensionCoordinate"
+                  />
                 </tbody>
               </table>
             </div>
@@ -433,8 +519,9 @@ function toggleGroup(groupName: string) {
 }
 
 .dataset-table {
-  th,
-  td {
+  // the rows are rendered by VariableTableRow
+  :deep(th),
+  :deep(td) {
     vertical-align: middle;
   }
 
@@ -443,71 +530,24 @@ function toggleGroup(groupName: string) {
   }
 }
 
-.variable-group-toggle {
-  height: auto;
-  padding: 0.75rem;
-  text-align: left;
+.search-results {
+  // with automatic layout the columns would change width as rows scroll in
+  // and out of view
+  table-layout: fixed;
 
-  .group-name {
-    white-space: normal;
-    word-break: break-word;
+  .dtype-column {
+    width: 5rem;
   }
 
-  .group-detail {
-    white-space: normal;
-    font-weight: normal;
-    font-size: 0.8em;
-  }
-}
-
-.variable-row.is-selected-variable {
-  background: color-mix(in srgb, var(--bulma-info) 14%, transparent);
-
-  .variable-name code {
-    background: color-mix(in srgb, var(--bulma-info) 20%, transparent);
-    color: var(--bulma-info-dark);
-    font-weight: 700;
-  }
-}
-
-.variable-name {
-  word-break: break-word;
-}
-
-.variable-dimensions {
-  min-width: 7rem;
-
-  code {
-    white-space: normal;
+  // fits the three action buttons of a row
+  .actions-column {
+    width: 6.5rem;
   }
 
-  .dimension-link:hover {
-    text-decoration: underline;
+  // every result is its own tbody: keep the row separator Bulma removes from
+  // the last row of a tbody
+  tbody tr:last-child :deep(td) {
+    border-bottom-width: 1px;
   }
-}
-
-.variable-actions {
-  white-space: nowrap;
-  width: 1%;
-
-  .button {
-    height: 1.65rem;
-    width: 1.65rem;
-    padding-left: 0;
-    padding-right: 0;
-  }
-}
-
-.variable-attributes-row {
-  td {
-    border-top: 0;
-    padding-top: 0;
-  }
-}
-
-.variable-attributes {
-  border-left: 3px solid var(--bulma-info);
-  padding: 0.5rem 0.5rem 0.5rem 0.75rem;
-  background: color-mix(in srgb, var(--bulma-info) 6%, transparent);
 }
 </style>

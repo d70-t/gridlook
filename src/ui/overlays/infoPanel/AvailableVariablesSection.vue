@@ -2,7 +2,19 @@
 import { storeToRefs } from "pinia";
 import { computed, ref, watch } from "vue";
 
-import type { TVariableGroupInfo, TVariableMetadata } from "./types";
+import type {
+  TVariableGroupInfo,
+  TVariableMetadata,
+  TVariableSample,
+} from "./types";
+import { loadVariableSample } from "./variableSample.ts";
+import {
+  SearchField,
+  searchFieldLabels,
+  searchVariables,
+  type TSearchField,
+  variableHaystack,
+} from "./variableSearch";
 import VariableTableSection from "./VariableTableSection.vue";
 
 import {
@@ -12,6 +24,7 @@ import {
 } from "@/lib/data/levels.ts";
 import type { TDataSource, TSources } from "@/lib/types/GlobeTypes.ts";
 import { useGlobeControlStore } from "@/store/store.ts";
+import { getErrorMessage } from "@/utils/errorHandling.ts";
 
 const props = defineProps<{
   datasources?: TSources;
@@ -26,6 +39,10 @@ const displayedDataVariable = computed(() =>
 const metadataByName = ref<Record<string, TVariableMetadata>>({});
 const selectedAttributesVariableName = ref<string | null>(null);
 const searchQuery = ref("");
+const searchField = ref<TSearchField>(SearchField.ALL);
+const samples = ref<Record<string, TVariableSample>>({});
+// discards samples still loading for a dataset no longer shown
+let sampleGeneration = 0;
 
 const cellCountFormat = new Intl.NumberFormat(undefined, {
   notation: "compact",
@@ -94,6 +111,7 @@ function loadVariableMetadata(
   return {
     attrs: attributsWithoutDims,
     dimensions: normalizeDimensionNames(dimensionNames, source.shape),
+    shape: source.shape,
     dtype: String(source.dtype),
     error:
       !source.dtype && !dimensionNames
@@ -105,6 +123,8 @@ function loadVariableMetadata(
 async function loadAllVariableMetadata(datasources?: TSources) {
   selectedAttributesVariableName.value =
     getDefaultAttributesVariableName(datasources);
+  samples.value = {};
+  sampleGeneration++;
   if (!datasources) {
     metadataByName.value = {};
     return;
@@ -178,17 +198,64 @@ const levelGroups = computed(() => {
   return info;
 });
 
-const variableCount = computed(() => {
-  const query = searchQuery.value.trim().toLowerCase();
-  const total = allVariables.value.length;
+const haystack = computed(() =>
+  variableHaystack(allVariables.value, searchField.value)
+);
+
+const searchResult = computed(() => {
+  const query = searchQuery.value.trim();
   return query
-    ? `${allVariables.value.filter((row) => row.name.toLowerCase().includes(query)).length} / ${total}`
+    ? searchVariables(
+        allVariables.value,
+        haystack.value,
+        query,
+        searchField.value
+      )
+    : null;
+});
+
+const variableCount = computed(() => {
+  const total = allVariables.value.length;
+  return searchResult.value
+    ? `${searchResult.value.rows.length} / ${total}`
     : total;
 });
 
 function toggleVariableAttributes(varName: string) {
   selectedAttributesVariableName.value =
     selectedAttributesVariableName.value === varName ? null : varName;
+}
+
+async function toggleSample(varName: string) {
+  if (varName in samples.value) {
+    delete samples.value[varName];
+    return;
+  }
+  const source = datasourceEntries.value.find(
+    ([name]) => name === varName
+  )?.[1];
+  if (!source) {
+    return;
+  }
+  const generation = sampleGeneration;
+  samples.value[varName] = { values: null, error: null };
+  let sample: TVariableSample;
+  try {
+    sample = {
+      values: await loadVariableSample(
+        source,
+        varName,
+        props.datasources?.zarr_format
+      ),
+      error: null,
+    };
+  } catch (err) {
+    sample = { values: null, error: getErrorMessage(err) };
+  }
+  // the sample may have been closed meanwhile
+  if (generation === sampleGeneration && varName in samples.value) {
+    samples.value[varName] = sample;
+  }
 }
 
 function goToVariable(varName: string) {
@@ -226,25 +293,42 @@ watch(displayedDataVariable, () => {
       <h4 class="title is-6">
         Variables <span class="has-text-grey-light">({{ variableCount }})</span>
       </h4>
-      <div class="control has-icons-left mb-2">
-        <input
-          v-model="searchQuery"
-          class="input is-small"
-          type="text"
-          placeholder="Search variables and coordinates…"
-        />
-        <span class="icon is-left is-small">
-          <i class="fa-solid fa-magnifying-glass"></i>
-        </span>
+      <div class="field has-addons mb-2">
+        <div class="control">
+          <div class="select is-small">
+            <select v-model="searchField" aria-label="Search in">
+              <option
+                v-for="(label, field) in searchFieldLabels"
+                :key="field"
+                :value="field"
+              >
+                {{ label }}
+              </option>
+            </select>
+          </div>
+        </div>
+        <div class="control has-icons-left is-expanded">
+          <input
+            v-model="searchQuery"
+            class="input is-small"
+            type="text"
+            placeholder="Search variables and coordinates…"
+          />
+          <span class="icon is-left is-small">
+            <i class="fa-solid fa-magnifying-glass"></i>
+          </span>
+        </div>
       </div>
       <VariableTableSection
         :rows="allVariables"
         empty-label="No variables or coordinates found"
         :selected-attributes-variable="selectedAttributesVariableName"
         :selected-variable="displayedDataVariable"
-        :search-query="searchQuery"
+        :search-result="searchResult"
         :group-info="levelGroups"
         show-visualize
+        :samples="samples"
+        @toggle-sample="toggleSample"
         @toggle-attributes="toggleVariableAttributes"
         @visualize="selectVariable"
         @go-to-variable="goToVariable"

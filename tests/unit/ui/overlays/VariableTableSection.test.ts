@@ -3,13 +3,18 @@ import { createSSRApp } from "vue";
 import { renderToString } from "vue/server-renderer";
 
 import type { TVariableTableRow } from "@/ui/overlays/infoPanel/types.ts";
+import {
+  SearchField,
+  searchVariables,
+  variableHaystack,
+} from "@/ui/overlays/infoPanel/variableSearch.ts";
 import VariableTableSection from "@/ui/overlays/infoPanel/VariableTableSection.vue";
 
 const rows: TVariableTableRow[] = [
   {
     name: "atmosphere/tas",
     hidden: false,
-    attrs: {},
+    attrs: { ["standard_name"]: "air_temperature" },
     dimensions: ["time"],
     dtype: "float32",
     error: null,
@@ -32,6 +37,14 @@ const rows: TVariableTableRow[] = [
   },
 ];
 
+function search(searchRows: TVariableTableRow[], query: string) {
+  if (!query) {
+    return null;
+  }
+  const haystack = variableHaystack(searchRows, SearchField.ALL);
+  return searchVariables(searchRows, haystack, query, SearchField.ALL);
+}
+
 function render(searchQuery = "", selectedVariable = "atmosphere/tas") {
   return renderToString(
     createSSRApp(VariableTableSection, {
@@ -40,7 +53,7 @@ function render(searchQuery = "", selectedVariable = "atmosphere/tas") {
       selectedAttributesVariable: null,
       selectedVariable,
       showVisualize: true,
-      searchQuery,
+      searchResult: search(rows, searchQuery),
     })
   );
 }
@@ -74,11 +87,13 @@ it("puts the current variable's group first and expands it", async () => {
 
 it("searches collapsed groups and retains full paths in the results", async () => {
   const html = await render("TAS");
-  expect(html).not.toContain("variable-group-toggle");
+  // the matches are listed under their (expanded) groups
+  expect(html.match(/variable-group-toggle/g)).toHaveLength(2);
   expect(html).toContain('title="atmosphere/tas"');
   expect(html).toContain('title="ocean/tas"');
   expect(html).not.toContain('title="atmosphere/time"');
-  expect(html).toContain("No coordinates");
+  // sections without matches are left out
+  expect(html).not.toContain("Coordinates");
 });
 
 it("shows a clear empty state for searches without matches", async () => {
@@ -105,18 +120,19 @@ it("links a coordinate's own dimension to itself instead of showing it as plain 
 });
 
 it("describes level groups and greys out the variables of a level not shown", async () => {
+  const levelRows = rows.map((row) =>
+    row.name.startsWith("ocean/")
+      ? { ...row, visualizeDisabled: "Switch to level ocean to show it" }
+      : row
+  );
   const html = await renderToString(
     createSSRApp(VariableTableSection, {
-      rows: rows.map((row) =>
-        row.name.startsWith("ocean/")
-          ? { ...row, visualizeDisabled: "Switch to level ocean to show it" }
-          : row
-      ),
+      rows: levelRows,
       emptyLabel: "Empty",
       selectedAttributesVariable: null,
       selectedVariable: "atmosphere/tas",
       showVisualize: true,
-      searchQuery: "tas",
+      searchResult: search(levelRows, "tas"),
       groupInfo: {
         atmosphere: { detail: "2 km · 1.25M cells", current: true },
         ocean: { detail: "8 km", current: false },
@@ -148,4 +164,14 @@ it("describes level groups and greys out the variables of a level not shown", as
   expect(grouped).toMatch(/ocean<\/span>[\s\S]*?8 km/);
   expect(grouped.match(/current level/g)).toHaveLength(1);
   expect(grouped).toMatch(/atmosphere[\s\S]*current level[\s\S]*ocean/);
+});
+
+it("shows the standard_name under the name, once when a search matched it", async () => {
+  const html = await render();
+  expect(html).toMatch(/title="atmosphere\/tas"[\s\S]*?air_temperature/);
+
+  const searched = await render("air_temp");
+  expect(searched).toContain("Standard name:");
+  // highlighted as <mark>air_temp</mark>erature, the plain line is hidden
+  expect(searched).not.toContain("air_temperature");
 });
