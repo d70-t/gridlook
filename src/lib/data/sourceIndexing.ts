@@ -18,6 +18,7 @@ import {
   splitIcechunkStoreAndGroup,
 } from "./icechunkStore.ts";
 import { sortFinestFirst } from "./levels.ts";
+import { isLocalZarrSource } from "./localZarr.ts";
 import {
   groupArrayAssets,
   levelGeometryFromGrid,
@@ -771,6 +772,11 @@ export async function indexFromZarr(
   try {
     return await indexFromConsolidatedZarr(src, ZARR_FORMAT.V2);
   } catch {
+    if (isLocalZarrSource(src)) {
+      // A local directory can't be an Icechunk repo; probing one would fetch
+      // the synthetic zarr://local/ URL.
+      return indexFromConsolidatedZarr(src, ZARR_FORMAT.V3);
+    }
     try {
       return await indexFromConsolidatedZarr(src, ZARR_FORMAT.V3);
     } catch {

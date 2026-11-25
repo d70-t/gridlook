@@ -5,7 +5,10 @@ import CatalogEntryList from "./CatalogEntryList.vue";
 import CatalogPanel from "./CatalogPanel.vue";
 
 import { isNetCDFFile, registerLocalNetCDF } from "@/lib/data/localNetCDF.ts";
-import { registerLocalZarr } from "@/lib/data/localZarr.ts";
+import {
+  hasRootZarrMetadata,
+  registerLocalZarr,
+} from "@/lib/data/localZarr.ts";
 import { splitSourceType, withSourceType } from "@/lib/data/sourceType.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { ZARR_FORMAT, type TZarrFormat } from "@/lib/types/GlobeTypes.ts";
@@ -279,6 +282,17 @@ function onLocalZarrSelected(event: Event) {
   const files = input.files ? Array.from(input.files) : [];
   input.value = "";
   if (files.length === 0) {
+    return;
+  }
+  if (!hasRootZarrMetadata(files)) {
+    addToast("No Zarr metadata found", {
+      detail:
+        "The selected directory has no .zmetadata, .zgroup or zarr.json. " +
+        "Safari omits these hidden Zarr v2 files; use another browser or a " +
+        "consolidated Zarr v3 store.",
+      duration: 8000,
+      type: ToastType.DANGER,
+    });
     return;
   }
   location.hash = `#${registerLocalZarr(files)}${carriedParams()}`;

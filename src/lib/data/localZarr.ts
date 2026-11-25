@@ -2,8 +2,28 @@ import type * as zarr from "zarrita";
 
 const LOCAL_ZARR_PREFIX = "zarr://local/";
 
+// Gridlook reads consolidated stores only; `.zgroup`/`.zarray` still mark a
+// Zarr v2 root, so such a store fails later with a precise error instead.
+const ROOT_METADATA_FILES = new Set([
+  ".zmetadata",
+  ".zgroup",
+  ".zarray",
+  "zarr.json",
+]);
+
 let nextStoreId = 0;
 const stores = new Map<string, Map<string, File>>();
+
+/**
+ * Safari omits hidden files from directory selections, which drops all Zarr v2
+ * metadata (`.zmetadata`, `.zgroup`, ...). Without it the store is unreadable.
+ */
+export function hasRootZarrMetadata(files: File[]) {
+  return files.some((file) => {
+    const parts = file.webkitRelativePath.split("/");
+    return parts.length === 2 && ROOT_METADATA_FILES.has(parts[1]);
+  });
+}
 
 export function registerLocalZarr(files: File[]) {
   const baseDir = files[0].webkitRelativePath.split("/")[0];
