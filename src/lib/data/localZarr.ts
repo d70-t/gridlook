@@ -11,22 +11,43 @@ const ROOT_METADATA_FILES = new Set([
   "zarr.json",
 ]);
 
+export const LocalZarrSelection = {
+  OK: "ok",
+  // Nothing in the selection starts with ".": not a Zarr store, or the browser
+  // left hidden files out (observed in WebKit, which drops Zarr v2 metadata).
+  NO_HIDDEN_FILES: "no-hidden-files",
+  // Hidden files exist, but no metadata at the top: not a Zarr store, or e.g.
+  // the directory containing the store.
+  NO_ROOT_METADATA: "no-root-metadata",
+} as const;
+
+export type TLocalZarrSelection =
+  (typeof LocalZarrSelection)[keyof typeof LocalZarrSelection];
+
 let nextStoreId = 0;
 const stores = new Map<string, Map<string, File>>();
 
-/**
- * Safari omits hidden files from directory selections, which drops all Zarr v2
- * metadata (`.zmetadata`, `.zgroup`, ...). Without it the store is unreadable.
- */
-export function hasRootZarrMetadata(files: File[]) {
-  return files.some((file) => {
-    const parts = file.webkitRelativePath.split("/");
-    return parts.length === 2 && ROOT_METADATA_FILES.has(parts[1]);
-  });
+/** Name of the selected directory; browsers do not expose its full path. */
+export function localZarrDirName(files: File[]) {
+  return files[0].webkitRelativePath.split("/")[0];
+}
+
+export function checkLocalZarrSelection(files: File[]): TLocalZarrSelection {
+  let hasHiddenFile = false;
+  for (const file of files) {
+    const parts = file.webkitRelativePath.split("/").slice(1);
+    if (parts.length === 1 && ROOT_METADATA_FILES.has(parts[0])) {
+      return LocalZarrSelection.OK;
+    }
+    hasHiddenFile ||= parts.some((part) => part.startsWith("."));
+  }
+  return hasHiddenFile
+    ? LocalZarrSelection.NO_ROOT_METADATA
+    : LocalZarrSelection.NO_HIDDEN_FILES;
 }
 
 export function registerLocalZarr(files: File[]) {
-  const baseDir = files[0].webkitRelativePath.split("/")[0];
+  const baseDir = localZarrDirName(files);
   const fileMap = new Map<string, File>();
   for (const file of files) {
     const relativePath = file.webkitRelativePath.slice(baseDir.length + 1);

@@ -1,6 +1,10 @@
 import { expect, it } from "vitest";
 
-import { hasRootZarrMetadata } from "@/lib/data/localZarr.ts";
+import {
+  checkLocalZarrSelection,
+  LocalZarrSelection,
+  localZarrDirName,
+} from "@/lib/data/localZarr.ts";
 
 function localFiles(...paths: string[]) {
   return paths.map(
@@ -13,23 +17,31 @@ function localFiles(...paths: string[]) {
 }
 
 it("accepts Zarr v2 and v3 stores with root metadata", () => {
-  expect(
-    hasRootZarrMetadata(localFiles("ds.zarr/tas/0.0", "ds.zarr/.zmetadata"))
-  ).toBe(true);
-  expect(hasRootZarrMetadata(localFiles("ds.zarr/.zgroup"))).toBe(true);
-  expect(
-    hasRootZarrMetadata(localFiles("ds.zarr/tas/c/0/0", "ds.zarr/zarr.json"))
-  ).toBe(true);
+  for (const files of [
+    localFiles("ds.zarr/tas/0.0", "ds.zarr/.zmetadata"),
+    localFiles("ds.zarr/.zgroup"),
+    localFiles("ds.zarr/tas/c/0/0", "ds.zarr/zarr.json"),
+  ]) {
+    expect(checkLocalZarrSelection(files)).toBe(LocalZarrSelection.OK);
+  }
 });
 
-it("rejects a Zarr v2 store whose hidden files were dropped (Safari)", () => {
+it("reports a selection without any hidden files", () => {
+  // A Zarr v2 store whose dot-files are missing, or any non-Zarr directory.
   expect(
-    hasRootZarrMetadata(localFiles("ds.zarr/tas/0.0", "ds.zarr/tas/1.0"))
-  ).toBe(false);
+    checkLocalZarrSelection(localFiles("ds.zarr/tas/0.0", "ds.zarr/tas/1.0"))
+  ).toBe(LocalZarrSelection.NO_HIDDEN_FILES);
 });
 
-it("ignores metadata that is not at the store root", () => {
+it("reports hidden files without root metadata", () => {
+  // E.g. the directory containing the store.
   expect(
-    hasRootZarrMetadata(localFiles("ds.zarr/tas/.zarray", "ds.zarr/tas/0.0"))
-  ).toBe(false);
+    checkLocalZarrSelection(
+      localFiles("data/ds.zarr/.zmetadata", "data/ds.zarr/tas/0.0")
+    )
+  ).toBe(LocalZarrSelection.NO_ROOT_METADATA);
+});
+
+it("names the selected directory", () => {
+  expect(localZarrDirName(localFiles("ds.zarr/tas/0.0"))).toBe("ds.zarr");
 });
