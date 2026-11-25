@@ -29,6 +29,7 @@ export type TTimeInfo = {
 export type TVariableMetadata = {
   attrs: zarr.Attributes | null;
   dimensions: string[];
+  shape?: number[];
   dtype: string | null;
   error: string | null;
 };
@@ -61,3 +62,10 @@ export const InfoPanelTab = {
 } as const;
 
 export type TInfoPanelTab = (typeof InfoPanelTab)[keyof typeof InfoPanelTab];
+
+/** The first values of a variable, loaded on request from the Browse tab. */
+export type TVariableSample = {
+  // null while loading or after an error
+  values: string[] | null;
+  error: string | null;
+};
