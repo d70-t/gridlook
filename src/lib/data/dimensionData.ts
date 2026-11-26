@@ -1,7 +1,7 @@
 import * as zarr from "zarrita";
 
 import { currentLevel } from "./levels.ts";
-import { decodeTime } from "./timeHandling.ts";
+import { decodeTime, isTimeUnits } from "./timeHandling.ts";
 import { ZarrDataManager } from "./ZarrDataManager.ts";
 
 import type {
@@ -61,6 +61,15 @@ async function getTimeInfo(
       myDatasource,
       ZarrDataManager.resolveVariablePath(variable, "time")
     );
+    // Without "<unit> since <date>" (e.g. units "months") it is a plain axis.
+    if (!isTimeUnits(timevar.attrs.units)) {
+      return await getDimensionInfo(
+        myDatasource,
+        dimensionRanges[dimensionIndex],
+        index,
+        variable
+      );
+    }
     return {
       values: timevalues,
       current: decodeTime(timevalues[index], timevar.attrs),

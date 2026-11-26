@@ -35,7 +35,11 @@ import {
   hasLevels,
   levelLabel,
 } from "@/lib/data/levels.ts";
-import { decodeTime, isTimeCoordinate } from "@/lib/data/timeHandling.ts";
+import {
+  decodeTime,
+  isTimeCoordinate,
+  isTimeUnits,
+} from "@/lib/data/timeHandling.ts";
 import { getMissingValue, getFillValue } from "@/lib/data/variableDecoding.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import type { TDatasetSource, TSources } from "@/lib/types/GlobeTypes.ts";
@@ -203,7 +207,13 @@ async function fetchTimeData(
     return null;
   }
 
-  const units = (timeVar.attrs?.units as string) || "unknown";
+  // Without "<unit> since <date>" (e.g. units "months") time is a plain
+  // dimension and gets no section of its own.
+  if (!isTimeUnits(timeVar.attrs?.units)) {
+    return undefined;
+  }
+
+  const units = timeVar.attrs.units;
   const calendar = (timeVar.attrs?.calendar as string) || "standard";
   const numTimesteps = timeVar.shape[0];
 
@@ -288,7 +298,7 @@ async function getTimeDimensionInfo(varname: string, requestId: number) {
       ? await fetchTimeData(varSource, timeDimName, varname)
       : null;
     if (requestId === infoRequestId && varname === sourceVariable.value) {
-      timeInfo.value = info;
+      timeInfo.value = info ?? null;
       noTimeCoordinate.value = info === null;
     }
   } catch (err) {
