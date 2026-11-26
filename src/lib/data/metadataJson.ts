@@ -33,7 +33,7 @@ function describe(key: string, text: string, cause: unknown) {
   return `${MESSAGE_PREFIX} in "${key}": not valid JSON (${reason}).`;
 }
 
-export function assertMetadataJson(key: string, bytes: Uint8Array) {
+function assertMetadataJson(key: string, bytes: Uint8Array) {
   const text = new TextDecoder().decode(bytes);
   try {
     JSON.parse(text);
