@@ -24,7 +24,10 @@ import {
   type TTimeInfo,
 } from "./infoPanel/types.ts";
 
-import { getLatLonData } from "@/lib/data/coordinateVariables.ts";
+import {
+  getLatLonData,
+  hasTrailingLonLatDimensions,
+} from "@/lib/data/coordinateVariables.ts";
 import { GRID_TYPES, type T_GRID_TYPES } from "@/lib/data/gridTypeDetector.ts";
 import {
   coarsestLevel,
@@ -95,9 +98,15 @@ const variableStandardName = computed(
 const groupAttrs = ref<zarr.Attributes | null>(null);
 const groupAttrsChain = ref<TGroupInfo[]>([]);
 const dimensions = ref<TInfoDimension[]>([]);
-
 const latSlice = ref<TCoordinateSlice | null>(null);
 const latDimensions = ref<TInfoDimension[]>([]);
+const isLonLatOrder = computed(() =>
+  hasTrailingLonLatDimensions(dimensions.value.map(({ name }) => name))
+);
+// Only 1-D lat/lon axes are transposed; 2-D lat/lon share the data's order.
+const isTransposed = computed(
+  () => isLonLatOrder.value && latDimensions.value.length === 1
+);
 const latLength = ref<number | null>(null);
 const latMin = ref<number | null>(null);
 const latMax = ref<number | null>(null);
@@ -598,6 +607,22 @@ watch(
             :dim-indices="dimSlidersValues"
           />
           <DimensionsSection v-if="!showsChunks" :dimensions="dimensions" />
+          <div
+            v-if="isLonLatOrder"
+            class="notification is-warning is-light is-size-7 py-2 px-3"
+          >
+            Longitude comes before latitude in the dimensions. The CF
+            Conventions recommend the order time, height or depth, latitude,
+            longitude (<a
+              href="https://cfconventions.org/cf-conventions/cf-conventions.html#dimensions"
+              target="_blank"
+              rel="noopener noreferrer"
+              >section 2.4 Dimensions</a
+            >).
+            <template v-if="isTransposed">
+              The data is transposed to be displayed.
+            </template>
+          </div>
           <p
             v-if="
               timeInfo &&

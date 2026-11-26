@@ -33,6 +33,20 @@ function expandCoordinatesToMeshgrid(
   return { latitudes, longitudes };
 }
 
+/**
+ * One lat/lon pair per cell of data stored (…, lon, lat): unlike
+ * expandCoordinatesToMeshgrid, latitude varies fastest.
+ */
+export function expandLonMajorCells(lat: Float32Array, lon: Float32Array) {
+  const latitudes = new Float32Array(lat.length * lon.length);
+  const longitudes = new Float32Array(latitudes.length);
+  for (let i = 0; i < lon.length; i++) {
+    latitudes.set(lat, i * lat.length);
+    longitudes.fill(lon[i], i * lat.length, (i + 1) * lat.length);
+  }
+  return { latitudes, longitudes };
+}
+
 /** Selected index of each named dimension, e.g. { time: 3 }. */
 function getDimensionIndices(
   names: string[],

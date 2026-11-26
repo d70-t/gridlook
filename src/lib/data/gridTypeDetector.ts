@@ -134,6 +134,28 @@ function checkGaussianGrid(latitudes: Float64Array, longitudes: Float64Array) {
   );
 }
 
+// A dimension named lat or lon may index a 2-D coordinate of the same name,
+// e.g. lat(lon, lat) of a polar grid, which is curvilinear.
+async function isMultiDimensionalCoordinate(
+  datasources: TSources,
+  variable: string,
+  dimension: string
+) {
+  const level = currentLevel(datasources);
+  const path = ZarrDataManager.resolveVariablePath(variable, dimension);
+  try {
+    const coordinate = await ZarrDataManager.getVariableInfo(
+      level.datasources[path] ?? level.grid,
+      path,
+      datasources.zarr_format
+    );
+    return coordinate.shape.length > 1;
+  } catch {
+    // a dimension without a coordinate variable still counts by its name
+    return false;
+  }
+}
+
 // Check if grid is regular based on dimension names
 // Also accepts lat-only grids (e.g., zonally averaged data)
 async function checkRegularGridFromDimensions(
@@ -147,14 +169,20 @@ async function checkRegularGridFromDimensions(
 
   const latitudeIndex = dimensions.findIndex((dim) => isLatitudeName(dim));
   const longitudeIndex = dimensions.findIndex((dim) => isLongitudeName(dim));
-  const hasLatLon = latitudeIndex !== -1 && longitudeIndex !== -1;
-  const hasLatOnly = latitudeIndex !== -1 && longitudeIndex === -1;
-
-  if (hasLatLon || hasLatOnly) {
-    return GRID_TYPES.REGULAR;
+  if (latitudeIndex === -1) {
+    return null;
   }
-
-  return null;
+  const axes = [dimensions[latitudeIndex]];
+  if (longitudeIndex !== -1) {
+    axes.push(dimensions[longitudeIndex]);
+  }
+  const multiDimensional = await Promise.all(
+    axes.map((axis) =>
+      isMultiDimensionalCoordinate(datasources, varnameSelector, axis)
+    )
+  );
+  // Otherwise the lat/lon data decides, e.g. curvilinear.
+  return multiDimensional.includes(true) ? null : GRID_TYPES.REGULAR;
 }
 
 // Check if grid uses projected x/y coordinates (e.g. EPSG:3857 with spatial_ref)
