@@ -18,6 +18,7 @@ import {
   splitIcechunkStoreAndGroup,
 } from "./icechunkStore.ts";
 import { sortFinestFirst } from "./levels.ts";
+import { MetadataJsonError } from "./metadataJson.ts";
 import {
   groupArrayAssets,
   levelGeometryFromGrid,
@@ -751,6 +752,13 @@ async function indexFromConsolidatedZarr(
   return createIndex(root.attrs, datasources, src, format);
 }
 
+// Broken metadata is the answer, not a reason to probe other formats.
+function rethrowMetadataJsonError(error: unknown) {
+  if (error instanceof MetadataJsonError) {
+    throw error;
+  }
+}
+
 /** Without a `format`, the store is probed for Zarr v2, Zarr v3 and Icechunk. */
 export async function indexFromZarr(
   src: string,
@@ -770,10 +778,12 @@ export async function indexFromZarr(
   }
   try {
     return await indexFromConsolidatedZarr(src, ZARR_FORMAT.V2);
-  } catch {
+  } catch (error) {
+    rethrowMetadataJsonError(error);
     try {
       return await indexFromConsolidatedZarr(src, ZARR_FORMAT.V3);
-    } catch {
+    } catch (error) {
+      rethrowMetadataJsonError(error);
       // Some icechunk datasets do not use `.icechunk` suffix, so we try to detect
       // and read them with the icechunk reader as a fallback before giving up and
       // trying the JSON index.

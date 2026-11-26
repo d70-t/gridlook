@@ -31,6 +31,7 @@ import {
   isLocalNetCDFSource,
   isRemoteNetCDFSource,
 } from "@/lib/data/localNetCDF.ts";
+import { MetadataJsonError } from "@/lib/data/metadataJson.ts";
 import {
   indexFromIndex,
   indexFromNetCDF,
@@ -581,7 +582,7 @@ async function updateSrc(updateId: number) {
       sourceValid.value = true;
       prepareDefaults(src, index.value);
       break;
-    } else {
+    } else if (!(lastError instanceof MetadataJsonError)) {
       lastError = index.reason;
     }
   }
