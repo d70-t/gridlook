@@ -3236,11 +3236,27 @@ function measureToolbar() {
     }
     return n;
   };
-  // Padding and gaps; then the More button's room when anything is left.
-  const trace =
-    controlsEl.value?.querySelector<HTMLElement>(".analysis-trace-picker")
-      ?.offsetWidth ?? 0;
-  const room = bar.clientWidth - exporter - 40 - (trace ? trace + 6 : 0);
+  // Padding and gaps; the heatmap's own pickers (Trace, Line), which never
+  // move under More; then the More button's room when anything is left.
+  // At their full width (a hidden copy): they give way only once no tool is
+  // left on the line, and measuring them shrunk would bring tools back.
+  let fixed = 0;
+  for (const element of controlsEl.value?.querySelectorAll<HTMLElement>(
+    ":scope > .analysis-trace-picker, :scope > .analysis-vline"
+  ) ?? []) {
+    const copy = element.cloneNode(true) as HTMLElement;
+    const selects = element.querySelectorAll("select");
+    copy.querySelectorAll("select").forEach((select, k) => {
+      select.value = selects[k]?.value ?? select.value;
+    });
+    copy.setAttribute("aria-hidden", "true");
+    copy.style.cssText +=
+      ";position:absolute;visibility:hidden;pointer-events:none;left:-9999px;top:0;flex:none";
+    controlsEl.value!.append(copy);
+    fixed += copy.offsetWidth + 6;
+    copy.remove();
+  }
+  const room = bar.clientWidth - exporter - 40 - fixed;
   let n = count(room);
   let compact = false;
   if (
@@ -5468,6 +5484,20 @@ const method = computed(() => {
 .analysis-chart-controls > * {
   flex-shrink: 0;
 }
+/* The heatmap's own pickers never move under More: in a window too narrow
+   for them they give way (a shorter slider, a shortened choice) rather than
+   run under Export. */
+.analysis-chart-controls > .analysis-trace-picker,
+.analysis-chart-controls > .analysis-vline {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.analysis-chart-controls > .analysis-vline select {
+  min-width: 3em;
+  flex: 0 1 auto;
+  text-overflow: ellipsis;
+}
 .analysis-export {
   flex: 0 0 auto;
   margin-left: auto;
@@ -5989,7 +6019,8 @@ button.analysis-chip {
 }
 .analysis-trace-picker input {
   width: 80px;
-  flex: none;
+  flex: 0 1 80px;
+  min-width: 32px;
   margin: 0;
   accent-color: var(--plot-accent);
 }
@@ -6337,8 +6368,10 @@ button.analysis-chip {
 .analysis-companion {
   position: relative;
   display: flex;
+  /* In a narrow window the buttons go under the text, not over it. */
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 4px 8px;
   padding: 6px 10px 6px 12px;
   font-size: 0.74rem;
   border-top: 1px solid var(--plot-border);
@@ -6352,7 +6385,7 @@ button.analysis-chip {
   color: var(--plot-warn);
 }
 .analysis-companion-text {
-  flex: 1;
+  flex: 1 1 12em;
   min-width: 0;
 }
 
