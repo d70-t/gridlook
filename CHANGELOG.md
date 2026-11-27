@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.10.0](https://github.com/d70-t/gridlook/compare/v1.9.0...v1.10.0) (2026-11-27)
+
+
+### Features
+
+* replace multiscale level checkboxes with inline controls ([04e4e7e](https://github.com/d70-t/gridlook/commit/04e4e7e404544c6ca938b15aa18683e0c94c5772))
+* replace multiscale level checkboxes with inline controls ([6c6370c](https://github.com/d70-t/gridlook/commit/6c6370c4785b0c26f4c04b14eb4579fc9c1bb226))
+* **ui:** better variable search ([82fcb63](https://github.com/d70-t/gridlook/commit/82fcb63534f8056a74a55fa4328a02084a208134))
+* **ui:** better variable search ([a6a2cc5](https://github.com/d70-t/gridlook/commit/a6a2cc55844da3c6b3e83b6d112c43c567bc2f3d))
+
+
+### Bug Fixes
+
+* drop unused export of assertMetadataJson ([140e417](https://github.com/d70-t/gridlook/commit/140e417ad331562b5a9f5381ac9642ebd27d18d8))
+* **lib:** corrected view when lon appears before lat ([669b003](https://github.com/d70-t/gridlook/commit/669b003e2c66cad3ca8b8e6942c939d1284e3201))
+* **lib:** corrected view when lon appears before lat ([f1cdbad](https://github.com/d70-t/gridlook/commit/f1cdbad7d244bf3d6edef93dcfe59424796d24df))
+* name the file when Zarr metadata is not valid JSON ([6c75457](https://github.com/d70-t/gridlook/commit/6c754578368acda48d8c80ac21929459f8e4abfa))
+* name the file when Zarr metadata is not valid JSON ([79d1aa6](https://github.com/d70-t/gridlook/commit/79d1aa6708897ec757ffeab7d3977065f866bf7d))
+* read out proj_params for CRS-information ([743c590](https://github.com/d70-t/gridlook/commit/743c590ac0e20cc45addcfc195aa01cf86fc1c17))
+* treat time without "&lt;unit&gt; since &lt;date&gt;" units as a plain dimension ([d6b66e7](https://github.com/d70-t/gridlook/commit/d6b66e7e896d7036d53cbce84bcc7ce4f600737d))
+
 ## [1.9.0](https://github.com/d70-t/gridlook/compare/v1.8.1...v1.9.0) (2026-11-20)
 
 
