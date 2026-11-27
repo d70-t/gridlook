@@ -13,7 +13,7 @@ import proj4 from "proj4";
 
 import { AnalysisInputError } from "./analysisErrors.ts";
 import { axisSides, containingIndex, type TAxisLocator } from "./axisLocate.ts";
-import type { TAnalysisArray } from "./chunkVisitor.ts";
+import { type TAnalysisArray, yieldIfBusy } from "./chunkVisitor.ts";
 import { computedArray } from "./rotatedPole.ts";
 
 import { createCrsInverse } from "@/lib/data/crsInverse.ts";
@@ -180,7 +180,7 @@ export const REFINE_POINTS = 2 ** 16;
  * corners differ from their sides by less). Keyed by j × nx + i.
  */
 // eslint-disable-next-line max-lines-per-function
-function refinedAreas(
+async function refinedAreas(
   x: ArrayLike<number>,
   y: ArrayLike<number>,
   crs: string,
@@ -239,6 +239,9 @@ function refinedAreas(
       const k = Math.min(MAX_REFINEMENT, Math.ceil(size / stepMetres));
       if (used + 4 * k > REFINE_POINTS) {
         flush();
+        // A turn for the worker's messages (Stop among them) between
+        // batches.
+        await yieldIfBusy();
       }
       cells.push({ key: j * nx + i, k, from: used });
       for (let s = 0; s < k; s++) {
@@ -570,7 +573,7 @@ export function projectedCoordinateArrays(
     // circles between their corners.
     refinedAreas: async (apply: (key: number, area: number) => void) => {
       const { x, y, published } = await axesNow();
-      refinedAreas(x, y, crs, published, apply);
+      await refinedAreas(x, y, crs, published, apply);
     },
     // Points by their own x and y, against the cells' sides there.
     locate: {

@@ -7,7 +7,10 @@
 /** Each cell's [low, high] along an axis: published, else halfway. */
 export function axisSides(
   centres: ArrayLike<number>,
-  bounds?: ArrayLike<number>
+  bounds?: ArrayLike<number>,
+  /** A periodic axis's turn (360 for longitudes): sides taken near their
+   * centre, so [290°, 30°] about 0° is [−70°, 30°]. */
+  period?: number
 ) {
   const n = centres.length;
   const low = new Float64Array(n);
@@ -20,9 +23,9 @@ export function axisSides(
     const a = before ?? (after !== undefined ? 2 * c - after : c);
     const b = after ?? (before !== undefined ? 2 * c - before : c);
     const [halfLow, halfHigh] = a <= b ? [a, b] : [b, a];
-    const known = [bounds?.[2 * k], bounds?.[2 * k + 1]].filter(
-      (v): v is number => v !== undefined && Number.isFinite(v)
-    );
+    const known = [bounds?.[2 * k], bounds?.[2 * k + 1]]
+      .filter((v): v is number => v !== undefined && Number.isFinite(v))
+      .map((v) => (period ? v - period * Math.round((v - c) / period) : v));
     if (known.length === 2) {
       [low[k], high[k]] = known[0] <= known[1] ? known : [known[1], known[0]];
     } else if (known.length === 1) {

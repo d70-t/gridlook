@@ -1889,6 +1889,105 @@ export function emptyRegionNote(
   return undefined;
 }
 
+/**
+ * A native region's cells with the copies a halo or fold repeats them in:
+ * each copy is read as a point of its kept cell's weight, so a value missing
+ * in one copy is taken from another. Without copies, the selection as is.
+ */
+// eslint-disable-next-line max-lines-per-function
+async function withCellCopies(
+  context: TVariableContext,
+  selection: TRegionSelection,
+  signal?: AbortSignal
+): Promise<TRegionSelection & { classOf?: Int32Array }> {
+  const grid = context.grid;
+  const points = selection.points;
+  if (grid.kind !== ANALYSIS_GRID_KINDS.NATIVE || !points) {
+    return selection;
+  }
+  const copies = (await grid.geometry(signal)).copies;
+  if (!copies?.size) {
+    return selection;
+  }
+  const rank = grid.axes.length;
+  const count = points.positions.length / rank;
+  const shape = grid.shape;
+  const cellOf = (at: number) => {
+    let cell = 0;
+    for (let k = 0; k < rank; k++) {
+      cell = cell * shape[k] + points.positions[at * rank + k];
+    }
+    return cell;
+  };
+  const extra: number[] = [];
+  const owner: number[] = [];
+  for (let at = 0; at < count; at++) {
+    for (const copy of copies.get(cellOf(at)) ?? []) {
+      extra.push(...nativePositions(grid, copy));
+      owner.push(at);
+    }
+  }
+  if (!owner.length) {
+    return selection;
+  }
+  const positions = new Float64Array(points.positions.length + extra.length);
+  positions.set(points.positions);
+  positions.set(extra, points.positions.length);
+  const classOf = new Int32Array(count + owner.length).fill(-1);
+  owner.forEach((at, k) => {
+    classOf[at] = at;
+    classOf[count + k] = at;
+  });
+  const primary = (point: number) =>
+    point < count ? point : owner[point - count];
+  return {
+    ...selection,
+    points: { ...points, positions },
+    weightOf: (index, point) => selection.weightOf(index, primary(point)),
+    ...(selection.positionOf
+      ? {
+          positionOf: (index: Float64Array, point: number) =>
+            selection.positionOf!(index, primary(point)),
+        }
+      : {}),
+    classOf,
+  };
+}
+
+/**
+ * Per execution: whether a repeated cell already gave a value at these
+ * non-spatial indices (date, level, member). Copies are the same cell, so
+ * the first finite one read counts.
+ */
+function copyClaims(selection: TRegionSelection & { classOf?: Int32Array }) {
+  const classOf = selection.classOf;
+  if (!classOf) {
+    return () => false;
+  }
+  const spatial = new Set(selection.points!.dims);
+  const seen = new Map<number, Set<string>>();
+  return (index: Float64Array, point: number) => {
+    const cls = classOf[point];
+    if (cls < 0) {
+      return false;
+    }
+    let key = "";
+    for (let d = 0; d < index.length; d++) {
+      key += spatial.has(d) ? "" : `${index[d]},`;
+    }
+    let done = seen.get(cls);
+    if (!done) {
+      done = new Set();
+      seen.set(cls, done);
+    }
+    if (done.has(key)) {
+      return true;
+    }
+    done.add(key);
+    return false;
+  };
+}
+
 /** The cells of a region on any supported grid. */
 export async function regionSelection(
   context: TVariableContext,
@@ -2256,11 +2355,9 @@ export async function planRegionSeries(
   if (level !== undefined) {
     runs[context.vertical!.axis] = [[level, level + 1]];
   }
-  const selection = await queryRegionSelection(
+  const selection = await withCellCopies(
     context,
-    query.geometry,
-    runs,
-    counters,
+    await queryRegionSelection(context, query.geometry, runs, counters, signal),
     signal
   );
   const empty = emptyRegionNote(query.geometry, selection);
@@ -2358,6 +2455,8 @@ export async function planRegionSeries(
     },
     // eslint-disable-next-line max-lines-per-function
     async execute(signal, hooks) {
+      // One value of each repeated cell per date, whichever copy has it.
+      const claimed = copyClaims(selection);
       const started = performance.now();
       const timeAxis = context.time!.axis;
       const totals = {
@@ -2411,7 +2510,7 @@ export async function planRegionSeries(
                 return;
               }
               const w = selection.weightOf(index, point);
-              if (w === 0) {
+              if (w === 0 || claimed(index, point)) {
                 return;
               }
               const t = index[timeAxis];

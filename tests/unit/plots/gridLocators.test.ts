@@ -1,4 +1,4 @@
-/* eslint-disable camelcase -- CF metadata uses snake_case keys. */
+/* eslint-disable camelcase, max-lines-per-function -- CF fixtures per case. */
 import { expect, it } from "vitest";
 import * as zarr from "zarrita";
 
@@ -130,7 +130,7 @@ it("finds a one-sided halo whatever ghost coordinate is missing", async () => {
   }
 });
 
-async function geographic(rotated: boolean) {
+async function geographic(rotated: boolean, firstLeft = -70, lastRight = 290) {
   const s = await newStore();
   const [y, x] = rotated ? ["rlat", "rlon"] : ["lat", "lon"];
   const xs = [0, 90, 180, 270];
@@ -145,7 +145,13 @@ async function geographic(rotated: boolean) {
     units: rotated ? "degrees" : "degrees_east",
     bounds: "xb",
   });
-  await put(s, "xb", [4, 2], [x, "nv"], [-70, 30, 30, 120, 120, 205, 205, 290]);
+  await put(
+    s,
+    "xb",
+    [4, 2],
+    [x, "nv"],
+    [firstLeft, 30, 30, 120, 120, 205, 205, lastRight]
+  );
   await put(s, "time", [1], ["time"], [0], { units: "days since 2000-01-01" });
   if (rotated) {
     await put(s, "pole", [], [], [], {
@@ -260,4 +266,160 @@ it("refines projected cell areas only for areas, in bounded batches", async () =
   });
   expect(box.seen.length).toBeGreaterThan(0);
   expect(Math.max(...box.seen)).toBeLessThanOrEqual(REFINE_POINTS);
+});
+
+it("locates seam-crossing sides in any turn they are written in", async () => {
+  const lons = [
+    -65, -55, -40, 0, 15, 25, 32, 42, 55, 95, 180, 215, 280, 289, 295,
+  ];
+  const expected = lons.map((lon) => {
+    const x = ((((lon + 70) % 360) + 360) % 360) - 70;
+    return x < 30 ? 10 : x < 120 ? 20 : x < 205 ? 30 : 40;
+  });
+  for (const [left, right] of [
+    [-70, 290],
+    [290, 290],
+    [-70, -70],
+  ]) {
+    const c = await geographic(true, left, right);
+    const found: number[] = [];
+    for (const lon of lons) {
+      const plan = await planAnalysis(
+        c,
+        query({ kind: "point", lon, lat: 0 }),
+        new ReadContext()
+      );
+      found.push((await plan.execute()).values[0]);
+    }
+    expect(found, `${left}, ${right}`).toEqual(expected);
+  }
+});
+
+it("weighs a rotated grid's cells by their published sides", async () => {
+  const box = query({
+    kind: "box",
+    west: -180,
+    east: 180,
+    south: -85,
+    north: 85,
+  });
+  const mean = async (rotated: boolean) =>
+    (
+      await (
+        await planAnalysis(await geographic(rotated), box, new ReadContext())
+      ).execute()
+    ).values[0];
+  // Columns 100°, 90°, 85° and 85° wide.
+  expect(await mean(false)).toBeCloseTo(24.30556, 4);
+  expect(await mean(true)).toBeCloseTo(24.30556, 4);
+});
+
+it("counts a rotated grid's side reads before a point is planned", async () => {
+  const n = 8200;
+  const quote = async (chunk: number) => {
+    const s = await newStore();
+    const get = s.get.bind(s);
+    let reads = 0;
+    s.get = (key: string) => {
+      const hit = key.match(/^\/xb\/c\/(\d+)\/0$/);
+      if (!hit) {
+        return get(key);
+      }
+      reads++;
+      const start = Number(hit[1]) * chunk;
+      const sides = new Float64Array(chunk * 2);
+      for (let i = 0; i < chunk; i++) {
+        sides[2 * i] = -180 + ((start + i) * 360) / n;
+        sides[2 * i + 1] = -180 + ((start + i + 1) * 360) / n;
+      }
+      return new Uint8Array(sides.buffer);
+    };
+    await put(
+      s,
+      "rlon",
+      [n],
+      ["rlon"],
+      Array.from({ length: n }, (_, i) => -180 + ((i + 0.5) * 360) / n),
+      {
+        standard_name: "grid_longitude",
+        units: "degrees",
+        bounds: "xb",
+      }
+    );
+    await zarr.create(zarr.root(s).resolve("xb"), {
+      shape: [n, 2],
+      chunkShape: [chunk, 2],
+      dimensionNames: ["rlon", "nv"],
+      dtype: "float64",
+      fillValue: NaN,
+      attributes: {},
+    });
+    await put(s, "rlat", [2], ["rlat"], [0, 10], {
+      standard_name: "grid_latitude",
+      units: "degrees",
+      bounds: "yb",
+    });
+    await put(s, "yb", [2, 2], ["rlat", "nv"], [-5, 5, 5, 15]);
+    await put(s, "pole", [], [], [], {
+      grid_mapping_name: "rotated_latitude_longitude",
+      grid_north_pole_latitude: 90,
+      grid_north_pole_longitude: 180,
+      north_pole_grid_longitude: 0,
+    });
+    await put(s, "time", [1], ["time"], [0], {
+      units: "days since 2000-01-01",
+    });
+    await put(
+      s,
+      "v",
+      [1, 2, n],
+      ["time", "rlat", "rlon"],
+      Array(2 * n).fill(10),
+      {
+        units: "K",
+        grid_mapping: "pole",
+      }
+    );
+    const c = await context(s);
+    const point = query({ kind: "point", lon: 0, lat: 0 });
+    const plan = planAnalysis(c, point, new ReadContext());
+    return { plan, reads: () => reads };
+  };
+  const whole = await quote(n);
+  expect((await (await whole.plan).execute()).values[0]).toBe(10);
+  const split = await quote(1);
+  await expect(split.plan).rejects.toThrow(
+    /read 8,20\d stored coordinate chunks/
+  );
+  expect(split.reads()).toBe(0);
+});
+
+it("lets the worker take messages between refinement batches", async () => {
+  const { projectedCoordinateArrays } =
+    await import("@/lib/analysis/projectedGrid.ts");
+  const [nx, ny, circ] = [512, 256, 2 * Math.PI * 6378137];
+  const axis = (dim: string, length: number, step: number) => {
+    const values = Float64Array.from(
+      { length },
+      (_, i) => (i - length / 2 + 0.5) * step
+    );
+    return { dim, key: dim, length, metres: 1, values: async () => values };
+  };
+  const grid = projectedCoordinateArrays(
+    { x: axis("x", nx, circ / 512), y: axis("y", ny, circ / 4096) } as never,
+    "+proj=merc +a=6378137 +b=6378137 +units=m +no_defs",
+    "probe"
+  );
+  let count = 0;
+  let early = false;
+  const timer = new Promise<void>((resolve) =>
+    setTimeout(() => {
+      early = count < nx * ny;
+      resolve();
+    }, 0)
+  );
+  await grid.refinedAreas(() => count++);
+  await timer;
+  expect(count).toBe(nx * ny);
+  expect(early).toBe(true);
 });

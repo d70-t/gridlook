@@ -103,6 +103,7 @@ type TGeometrySource = {
   /** Points located by the grid's own 1-D axes (TFoundCoordinates). */
   locate?: TAxisLocator;
   refinedAreas?: TRefinedAreas;
+  axisAreas?: TRefinedAreas;
 };
 
 /** Cell areas from corners too large to keep, loaded for area plots. */
@@ -289,6 +290,11 @@ export type TNativeGeometry = {
    * once.
    */
   duplicates?: number;
+  /**
+   * Each kept cell's dropped copies: a value missing in the kept one may be
+   * measured in a copy (area series read both, counting one).
+   */
+  copies?: Map<number, number[]>;
   /** Nearest-neighbour spacing per site, computed on demand (degrees). */
   spacing: Float64Array;
 };
@@ -957,6 +963,8 @@ type TFoundCoordinates = {
   locate?: TAxisLocator;
   /** Areas of large cells along their true sides (projected grids). */
   refinedAreas?: TRefinedAreas;
+  /** Every cell's area from published 1-D sides (rotated grids). */
+  axisAreas?: TRefinedAreas;
 };
 
 /** Large cells' areas, keyed by row × columns + column along `dims`. */
@@ -1189,45 +1197,63 @@ async function rotatedCoordinates(
   if (!axes.lat || !axes.lon) {
     return undefined;
   }
-  // Read when the coordinates are first needed (after admission), and counted
-  // before.
-  const lazy = (axis: TAnalysisArray) => ({
-    dim: axis.dimensionNames[0],
-    key: axis.key,
-    length: axis.shape[0],
-    values: () => readAllShared(dataset, axis),
-    coldReads: () => (isDecoded(dataset, axis) ? 0 : chunkCount(axis)),
-    chunkBytes: chunkByteSize(axis),
-  });
-  const computed = trueCoordinates(
-    { lat: lazy(axes.lat), lon: lazy(axes.lon) },
-    pole
-  );
-  // Points located by their rotated coordinates, against the axes' published
-  // sides there.
-  const [rlat, rlon] = [axes.lat, axes.lon];
-  const sidesOf = async (axis: TAnalysisArray) => {
+  // Each axis's published sides, opened now: the locator reads them, so
+  // their chunks are counted with the axis's before admission.
+  const sidesArray = async (axis: TAnalysisArray) => {
     const name = axis.attrs.bounds;
     const bounds =
       typeof name === "string"
         ? await tryReferenced(dataset, axis, name, variable)
         : undefined;
-    const usable =
-      bounds?.shape.length === 2 &&
+    return bounds?.shape.length === 2 &&
       bounds.shape[0] === axis.shape[0] &&
-      bounds.shape[1] === 2;
+      bounds.shape[1] === 2
+      ? bounds
+      : undefined;
+  };
+  const [latSides, lonSides] = await Promise.all([
+    sidesArray(axes.lat),
+    sidesArray(axes.lon),
+  ]);
+  const cold = (array: TAnalysisArray | undefined) =>
+    !array || isDecoded(dataset, array) ? 0 : chunkCount(array);
+  // Read when the coordinates are first needed (after admission), and counted
+  // before.
+  const lazy = (axis: TAnalysisArray, sides?: TAnalysisArray) => ({
+    dim: axis.dimensionNames[0],
+    key: axis.key,
+    length: axis.shape[0],
+    values: () => readAllShared(dataset, axis),
+    coldReads: () => cold(axis) + cold(sides),
+    chunkBytes: chunkByteSize(axis),
+  });
+  const computed = trueCoordinates(
+    { lat: lazy(axes.lat, latSides), lon: lazy(axes.lon, lonSides) },
+    pole
+  );
+  // Points located by their rotated coordinates, against the axes' published
+  // sides there.
+  const [rlat, rlon] = [axes.lat, axes.lon];
+  const sidesOf = async (
+    axis: TAnalysisArray,
+    bounds?: TAnalysisArray,
+    period?: number
+  ) => {
     const [values, edges] = await Promise.all([
       readAllShared(dataset, axis),
-      usable
+      bounds
         ? readAllShared(dataset, bounds, undefined, axis.attrs)
         : undefined,
     ]);
-    return axisSides(values, edges);
+    return axisSides(values, edges, period);
   };
   const locate: TAxisLocator = {
     dims: [rlat.dimensionNames[0], rlon.dimensionNames[0]],
     make: async () => {
-      const [sy, sx] = await Promise.all([sidesOf(rlat), sidesOf(rlon)]);
+      const [sy, sx] = await Promise.all([
+        sidesOf(rlat, latSides),
+        sidesOf(rlon, lonSides, 360),
+      ]);
       const toRotated = trueToRotated(pole);
       return (lat: number, lon: number) => {
         const p = toRotated(lat, lon);
@@ -1243,6 +1269,31 @@ async function rotatedCoordinates(
     lat: { name: "latitude (from the rotated pole)", array: computed.lat },
     lon: { name: "longitude (from the rotated pole)", array: computed.lon },
     locate,
+    // Both axes' sides published: each cell is a band between two rotated
+    // parallels and meridians, its area unchanged by the rotation.
+    ...(latSides && lonSides
+      ? {
+          axisAreas: {
+            dims: locate.dims,
+            read: async (apply: (key: number, area: number) => void) => {
+              const [sy, sx] = await Promise.all([
+                sidesOf(rlat, latSides),
+                sidesOf(rlon, lonSides, 360),
+              ]);
+              const DEG = Math.PI / 180;
+              const sin = (v: number) =>
+                Math.sin(Math.max(-90, Math.min(90, v)) * DEG);
+              const nx = sx.low.length;
+              for (let j = 0; j < sy.low.length; j++) {
+                const band = sin(sy.high[j]) - sin(sy.low[j]);
+                for (let i = 0; i < nx; i++) {
+                  apply(j * nx + i, band * (sx.high[i] - sx.low[i]) * DEG);
+                }
+              }
+            },
+          },
+        }
+      : {}),
   };
 }
 
@@ -1658,6 +1709,7 @@ export async function resolveNativeGrid(
     measure,
     ...(found.locate ? { locate: found.locate } : {}),
     ...(found.refinedAreas ? { refinedAreas: found.refinedAreas } : {}),
+    ...(found.axisAreas && !bounds ? { axisAreas: found.axisAreas } : {}),
   };
   const cost = geometryCostOf([lat.array, lon.array, bounds?.lat, bounds?.lon]);
   const loader = geometryLoader(dataset, source, count, shape, family);
@@ -1667,9 +1719,11 @@ export async function resolveNativeGrid(
       ? `declared cell areas (${String(array.attrs.cell_measures)})`
       : bounds
         ? "spherical cell areas from the cell corners"
-        : areasOnly
-          ? "spherical cell areas from the cell corners (read once for the areas; the outlines are not kept)"
-          : undefined;
+        : found.axisAreas
+          ? "spherical cell areas from the rotated cells' published sides"
+          : areasOnly
+            ? "spherical cell areas from the cell corners (read once for the areas; the outlines are not kept)"
+            : undefined;
   return {
     kind: "native",
     family,
@@ -2726,9 +2780,10 @@ async function loadGeometry(
   }
   // Without corners, repeated centres are repeated cells; with corners,
   // only when their outlines match too (below).
+  const dropped = new Map<number, number>();
   let duplicates =
     shape.length === 2 && !source.bounds
-      ? dropFrameDuplicates(lat, lon, shape)
+      ? dropFrameDuplicates(lat, lon, shape, undefined, undefined, dropped)
       : 0;
   let outline: TNativeGeometry["outline"];
   let areas: Float64Array | undefined;
@@ -2786,7 +2841,8 @@ async function loadGeometry(
             mean[2] += c[2] / corners.length;
           }
           return mean;
-        }
+        },
+        dropped
       );
     }
     areas = new Float64Array(count);
@@ -2817,31 +2873,30 @@ async function loadGeometry(
   const nativeLocate = source.locate
     ? await nativeLocator(source.locate, source.nativeDims, shape)
     : undefined;
+  // Cells without corners but with published rotated sides: their areas.
+  if (!areas && source.axisAreas && shape.length === 2) {
+    const own = new Float64Array(count);
+    await placeAreas(source.axisAreas, source.nativeDims, shape, (cell, a) => {
+      own[cell] = a;
+    });
+    areas = own;
+  }
   // Large projected cells' areas along their own sides: refined when an area
   // plot first weighs them, not for a point.
   let refining: Promise<void> | undefined;
   const refine =
     areas && source.refinedAreas && shape.length === 2
       ? () =>
-          (refining ??= (async () => {
-            const { dims, read } = source.refinedAreas!;
-            const [rows, cols] = dims.map((dim) =>
-              source.nativeDims.indexOf(dim)
-            );
-            if (rows < 0 || cols < 0 || rows === cols) {
-              return;
-            }
-            const stride = [shape[1], 1];
-            const width = shape[cols];
-            await read((key, area) => {
-              const cell =
-                Math.floor(key / width) * stride[rows] +
-                (key % width) * stride[cols];
+          (refining ??= placeAreas(
+            source.refinedAreas!,
+            source.nativeDims,
+            shape,
+            (cell, area) => {
               if (areas[cell] > 0) {
                 areas[cell] = area;
               }
-            });
-          })())
+            }
+          ))
       : undefined;
   // A declared measure is read for area plots only (measureAreaLoader):
   // locating a point needs the centres alone.
@@ -2855,11 +2910,53 @@ async function loadGeometry(
       maxRadius,
       radii,
       invalid,
-      ...(duplicates ? { duplicates } : {}),
+      ...(duplicates ? { duplicates, copies: copiesByKept(dropped) } : {}),
       ...(nativeLocate ? { nativeLocate } : {}),
       ...(refine ? { refine } : {}),
     },
     source.lat.guard
+  );
+}
+
+/**
+ * Each kept cell's dropped copies, from each copy's keeper (a keeper later
+ * dropped in the other order hands its copies on).
+ */
+function copiesByKept(dropped: Map<number, number>) {
+  const out = new Map<number, number[]>();
+  for (const [copy, first] of dropped) {
+    let keep = first;
+    for (let hops = 0; dropped.has(keep) && hops < dropped.size; hops++) {
+      keep = dropped.get(keep)!;
+    }
+    const list = out.get(keep);
+    if (list) {
+      list.push(copy);
+    } else {
+      out.set(keep, [copy]);
+    }
+  }
+  return out;
+}
+
+/** Areas keyed along `areas.dims`, placed at each cell of the field's axes. */
+async function placeAreas(
+  areas: TRefinedAreas,
+  nativeDims: string[],
+  shape: number[],
+  place: (cell: number, area: number) => void
+) {
+  const [rows, cols] = areas.dims.map((dim) => nativeDims.indexOf(dim));
+  if (rows < 0 || cols < 0 || rows === cols) {
+    return;
+  }
+  const stride = [shape[1], 1];
+  const width = shape[cols];
+  await areas.read((key, area) =>
+    place(
+      Math.floor(key / width) * stride[rows] + (key % width) * stride[cols],
+      area
+    )
   );
 }
 
@@ -2893,7 +2990,11 @@ export async function nativeAreas(
   if (grid.cornerAreas) {
     return grid.cornerAreas.load(signal);
   }
-  await geometry.refine?.();
+  // Shared with other plots of the grid: a Stop leaves the wait, not the
+  // refinement the others may still need.
+  if (geometry.refine) {
+    await raceAbort(geometry.refine(), signal);
+  }
   return geometry.areas;
 }
 
@@ -3200,7 +3301,9 @@ export function dropFrameDuplicates(
    * A point a cell's outline is about, the same for its copies (their corners'
    * mean): cells at a pole are grouped by it, not all compared with all.
    */
-  about?: (at: number) => TVec3 | undefined
+  about?: (at: number) => TVec3 | undefined,
+  /** Filled with each dropped copy's kept cell. */
+  copies?: Map<number, number>
 ) {
   const grid = (at: number) => {
     const v = about?.(at);
@@ -3245,9 +3348,10 @@ export function dropFrameDuplicates(
       // To 1e-9°: copies are exact; centres 1e-7° apart are two cells.
       return `${Math.round(lat[at] * 1e9)},${Math.round(wrapped * 1e9)}`;
     },
-    drop: (at: number) => {
+    drop: (at: number, keep: number) => {
       lat[at] = Number.NaN;
       lon[at] = Number.NaN;
+      copies?.set(at, keep);
     },
   };
   // Either dimension may run along the rows: CF permits the transposed order. A
@@ -3272,7 +3376,7 @@ type TFrameCells = {
   /** The keys a copy of the cell may have (its own among them). */
   nearKeys: (at: number, key: string) => string[];
   keyOf: (at: number) => string | undefined;
-  drop: (at: number) => void;
+  drop: (at: number, keep: number) => void;
 };
 
 /**
@@ -3328,14 +3432,15 @@ function dropAlongRows(
 ) {
   const { matches, keyOf, nearKeys } = cells;
   let dropped = 0;
-  const drop = (at: number) => {
-    cells.drop(at);
+  const drop = (at: number, keep: number) => {
+    cells.drop(at, keep);
     dropped++;
   };
   const keepIn = (kept: Map<string, number[]>, at: number, key: string) => {
     for (const near of nearKeys(at, key)) {
-      if (kept.get(near)?.some((first) => matches(first, at))) {
-        drop(at);
+      const first = kept.get(near)?.find((cell) => matches(cell, at));
+      if (first !== undefined) {
+        drop(at, first);
         return;
       }
     }
@@ -3361,7 +3466,9 @@ function dropAlongRows(
       if (keys[p] === undefined || keys[q] === undefined) {
         continue;
       }
-      drop(index(j, Math.abs(p - middle) > Math.abs(q - middle) ? p : q));
+      const [gone, kept] =
+        Math.abs(p - middle) > Math.abs(q - middle) ? [p, q] : [q, p];
+      drop(index(j, gone), index(j, kept));
     }
   }
   // The fold: a frame row's cell repeating an earlier frame row's.
