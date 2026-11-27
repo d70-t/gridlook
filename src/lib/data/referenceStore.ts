@@ -130,11 +130,15 @@ function expandGen(spec: TReferenceSpec): TReferenceSpec {
       if (Array.isArray(d)) {
         return d;
       }
+      // Python's range(start, stop, step), descending too; a zero step
+      // names nothing.
       const out: number[] = [];
+      const step = d.step ?? 1;
+      const more = (v: number) => (step > 0 ? v < d.stop : v > d.stop);
       for (
         let v = d.start ?? 0;
-        v < d.stop && out.length <= 1e6;
-        v += d.step ?? 1
+        step && more(v) && out.length <= 1e6;
+        v += step
       ) {
         out.push(v);
       }

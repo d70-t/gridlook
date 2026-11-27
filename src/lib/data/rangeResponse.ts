@@ -310,14 +310,21 @@ async function lastBytes(
     cancel(response);
     throw new Error(`${whole}, ${declared} bytes).`);
   }
+  // Reserved before the body is taken: reads at once cannot each pass on
+  // the same balance. An unknown size is charged as it streams.
   const before = skipped.get(url) ?? 0;
-  if (before > SKIPPED_BYTES_PER_FILE) {
+  const reserved = declared === undefined ? 0 : Math.max(0, declared - n);
+  if (before + reserved > SKIPPED_BYTES_PER_FILE) {
     cancel(response);
     throw new Error(
       `${whole}); this file's server ignores range requests, and its reads have already skipped ${before} bytes (at most ${SKIPPED_BYTES_PER_FILE}).`
     );
   }
-  const ring = new Uint8Array(Math.max(1, n));
+  charge(url, reserved);
+  let charged = reserved;
+  // The last n bytes so far, as one buffer: each block is copied in whole.
+  const tail = new Uint8Array(Math.max(1, n));
+  let filled = 0;
   const reader = response.body!.getReader();
   let total = 0;
   try {
@@ -330,19 +337,31 @@ async function lastBytes(
       if (total > WHOLE_OBJECT_PREFIX) {
         throw new Error(`${whole}, past ${WHOLE_OBJECT_PREFIX} bytes).`);
       }
-      for (let k = 0; k < value.byteLength; k++) {
-        ring[(total - value.byteLength + k) % ring.length] = value[k];
+      if (value.byteLength >= tail.length) {
+        tail.set(value.subarray(value.byteLength - tail.length));
+      } else {
+        tail.copyWithin(0, value.byteLength);
+        tail.set(value, tail.length - value.byteLength);
+      }
+      filled = Math.min(tail.length, filled + value.byteLength);
+      const due = Math.max(0, total - n) - charged;
+      if (declared === undefined && due > 0) {
+        charge(url, due);
+        charged += due;
+        if ((skipped.get(url) ?? 0) > SKIPPED_BYTES_PER_FILE) {
+          throw new Error(
+            `${whole}); this file's server ignores range requests, and its reads have skipped more than ${SKIPPED_BYTES_PER_FILE} bytes.`
+          );
+        }
       }
     }
   } finally {
     void reader.cancel().catch(() => undefined);
-    charge(url, Math.max(0, total - n));
+    // What was skipped in the end: a shorter body gives back the rest.
+    charge(url, Math.max(0, total - n) - charged);
   }
   const kept = Math.min(n, total);
-  const out = new Uint8Array(kept);
-  for (let k = 0; k < kept; k++) {
-    out[k] = ring[(total - kept + k) % ring.length];
-  }
+  const out = tail.slice(tail.length - Math.min(filled, kept));
   return new Response(out, {
     status: 206,
     headers: {

@@ -198,3 +198,40 @@ it("an HTTP-encoded body counts at most its declared transfer", async () => {
   await read.arrayBuffer();
   expect(counted).toBe(1052);
 });
+
+it("concurrent whole-file suffixes reserve their skip before the body", async () => {
+  const size = 48 * 2 ** 20;
+  const block = new Uint8Array(2 ** 20).fill(7);
+  const body = () => {
+    let sent = 0;
+    return new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        controller.enqueue(block);
+        sent += block.length;
+        if (sent >= size) {
+          controller.close();
+        }
+      },
+    });
+  };
+  const outcomes = await Promise.all(
+    Array.from({ length: 8 }, () =>
+      exactSuffix(
+        file,
+        1,
+        new Response(body(), {
+          status: 200,
+          headers: { "Content-Length": String(size) },
+        })
+      ).then(
+        async (r) => Array.from(new Uint8Array(await r.arrayBuffer())),
+        () => "refused"
+      )
+    )
+  );
+  const passed = outcomes.filter((o) => o !== "refused");
+  // Five 48 MiB skips fit the 256 MiB allowance; the sixth does not.
+  expect(passed).toHaveLength(Math.floor(SKIPPED_BYTES_PER_FILE / size));
+  expect(passed).toEqual(passed.map(() => [7]));
+});
