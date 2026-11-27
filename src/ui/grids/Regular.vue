@@ -27,6 +27,7 @@ import {
   getCRSWkt,
   hasLengthUnitCoordinates,
   hasRotatedLatLonMismatch,
+  hasTrailingLonLatDimensions,
   hasTrailingProjectedXYDimensions,
   isLatitudeName,
   isLongitudeName,
@@ -36,7 +37,10 @@ import {
   projectXYGridToLonLat,
 } from "@/lib/data/coordinateVariables.ts";
 import { downsampleDataTexture } from "@/lib/data/dataTexture.ts";
-import { buildDimensionRangesAndIndices } from "@/lib/data/dimensionHandling.ts";
+import {
+  buildDimensionRangesAndIndices,
+  transposeLastTwoDimensions,
+} from "@/lib/data/dimensionHandling.ts";
 import {
   coarsestLevel,
   coarsestLevelOf,
@@ -67,8 +71,10 @@ import {
 } from "@/lib/data/viewWindow.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import {
+  getGridVariableChunk,
   getGridVariableData,
   terminateGridDataWorker,
+  type TGridDataRequest,
 } from "@/lib/grids/gridDataWorkerClient.ts";
 import {
   GridTextureExportUserDataKey,
@@ -153,6 +159,8 @@ let gridWindow: TRegularWindow | null | undefined;
 // the window the RGB composite was last read for
 let rgbWindow: typeof gridWindow;
 const isProjectedGrid = ref(false);
+// Data stored (…, lon, lat) instead of CF's (…, lat, lon): read transposed.
+let isLonLatOrder = false;
 let projectedGrid: TProjectedVolumeGrid | undefined;
 // Converts native axis coordinates (rotated pole or projected x/y) to lon/lat
 let nativeProjection: TProjectionConverter | undefined;
@@ -375,12 +383,14 @@ async function getDefaultAnchorCRS(dimensions: string[]) {
   return DEFAULT_ANCHOR_CRS;
 }
 
+// eslint-disable-next-line max-lines-per-function
 async function getDims() {
   const dimensions = await ZarrDataManager.getDimensionNames(
     props.datasources!,
     varnameSelector.value
   );
   selectedDimensionNames.value = dimensions;
+  isLonLatOrder = hasTrailingLonLatDimensions(dimensions);
 
   const lastDim = dimensions[dimensions.length - 1];
   const secondLastDim = dimensions[dimensions.length - 2];
@@ -407,7 +417,11 @@ async function getDims() {
     longitudes.value = Float32Array.from({ length: 360 }, (_, i) => i - 179.5);
   } else {
     const [{ x, y }, crsWkt] = await Promise.all([
-      loadGridAxes(props.datasources!, varnameSelector.value, dimensions),
+      loadGridAxes(
+        props.datasources!,
+        varnameSelector.value,
+        latLonOrder(dimensions)
+      ),
       isProjectedXY || props.isRotated
         ? getCRSWkt(props.datasources!, varnameSelector.value)
         : null,
@@ -428,6 +442,26 @@ async function getDims() {
     longitudes.value = new Float32Array(new Set(coordinates.longitudes));
     latitudes.value = new Float32Array(new Set(coordinates.latitudes));
   }
+}
+
+/** The dimensions with the trailing (lon, lat) swapped to (lat, lon). */
+function latLonOrder<T>(items: T[]) {
+  return isLonLatOrder
+    ? [...items.slice(0, -2), items.at(-1)!, items.at(-2)!]
+    : items;
+}
+
+// ponytail: RGB channels and the backdrop are assumed to share the selected
+// variable's dimension order.
+async function getLatLonOrderedData(request: TGridDataRequest) {
+  if (!isLonLatOrder) {
+    return castDataVarToFloat32(await getGridVariableData(request));
+  }
+  const { data, shape } = await getGridVariableChunk({
+    ...request,
+    selection: latLonOrder(request.selection),
+  });
+  return transposeLastTwoDimensions(castDataVarToFloat32(data), shape);
 }
 
 // x/y axes in projection units (e.g. metres): must not be wrapped like degrees
@@ -1076,7 +1110,7 @@ function fetchRegularGridVariableData(
   selection: (number | null | zarr.Slice)[],
   variable = varnameSelector.value
 ) {
-  return getGridVariableData({
+  return getLatLonOrderedData({
     source: ZarrDataManager.getDatasetSource(
       props.datasources!,
       varnameSelector.value
@@ -1200,8 +1234,8 @@ async function loadBackdrop(indices: (number | null | zarr.Slice)[]) {
     return undefined;
   }
   const [{ x, y }, values] = await Promise.all([
-    loadGridAxes(coarse, variable, selectedDimensionNames.value),
-    getGridVariableData({
+    loadGridAxes(coarse, variable, latLonOrder(selectedDimensionNames.value)),
+    getLatLonOrderedData({
       source: ZarrDataManager.getDatasetSource(coarse, variable),
       variable,
       format: sources.zarr_format,

@@ -2,6 +2,26 @@ import * as zarr from "zarrita";
 
 import type { TDimensionRange } from "@/lib/types/GlobeTypes.ts";
 
+/** Swap the last two axes of a C-ordered array, e.g. (lon, lat) to (lat, lon). */
+export function transposeLastTwoDimensions(
+  data: Float32Array,
+  shape: number[]
+) {
+  const rows = shape.at(-2) ?? 1;
+  const columns = shape.at(-1) ?? 1;
+  const plane = rows * columns;
+  const transposed = new Float32Array(data.length);
+  for (let offset = 0; offset < data.length; offset += plane) {
+    for (let row = 0; row < rows; row++) {
+      for (let column = 0; column < columns; column++) {
+        transposed[offset + column * rows + row] =
+          data[offset + row * columns + column];
+      }
+    }
+  }
+  return transposed;
+}
+
 /**
  * Resolves a dimension index from the URL. Negative indices count back from
  * maxBound (-1 is the latest available index). The result is clamped to the

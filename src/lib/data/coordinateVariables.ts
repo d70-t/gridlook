@@ -6,6 +6,7 @@ import {
   projectGridToLonLat,
   type TProjectedGridCoordinates,
 } from "./crsInverse.ts";
+import { expandLonMajorCells } from "./irregularGridHelpers.ts";
 import { currentLevel } from "./levels.ts";
 import { getProjectedGrid } from "./projectedGridCache.ts";
 import { isTimeCoordinate } from "./timeHandling.ts";
@@ -630,6 +631,18 @@ export function isLongitudeName(name: string) {
   );
 }
 
+/**
+ * Dimensions ending in (lon, lat): CF recommends latitude before longitude
+ * (T, Z, Y, X, https://cfconventions.org/cf-conventions/cf-conventions.html#dimensions).
+ */
+export function hasTrailingLonLatDimensions(dimensions: string[]) {
+  return (
+    dimensions.length >= 2 &&
+    isLongitudeName(dimensions.at(-2)!) &&
+    isLatitudeName(dimensions.at(-1)!)
+  );
+}
+
 export function isLatitudeVariable(name: string, attrs: unknown) {
   const variableName = getVariableLocalName(name);
   return (
@@ -1052,6 +1065,40 @@ async function getLatLonOrReprojectedAxesData(
   return coordinates;
 }
 
+// 1-D lat/lon of data stored with longitude before latitude, e.g.
+// (time, lon, lat): one pair per cell in the order of the data.
+function toLonMajorCells(coordinates: TLatLonData, dimensions: string[]) {
+  const [latitudeDimension] = coordinates.latitudesAttrs.dimensionNames ?? [];
+  const [longitudeDimension] =
+    coordinates.longitudesAttrs?.dimensionNames ?? [];
+  const latitudeIndex = dimensions.indexOf(latitudeDimension);
+  const longitudeIndex = dimensions.indexOf(longitudeDimension);
+  if (
+    coordinates.latitudes.shape.length !== 1 ||
+    coordinates.longitudes?.shape.length !== 1 ||
+    latitudeIndex === -1 ||
+    longitudeIndex === -1 ||
+    longitudeIndex > latitudeIndex
+  ) {
+    return coordinates;
+  }
+  const { latitudes, longitudes } = expandLonMajorCells(
+    castDataVarToFloat32(coordinates.latitudes.data),
+    castDataVarToFloat32(coordinates.longitudes.data)
+  );
+  const shape = [
+    coordinates.longitudes.shape[0],
+    coordinates.latitudes.shape[0],
+  ];
+  const dimensionNames = [longitudeDimension, latitudeDimension];
+  return {
+    latitudesAttrs: { ...coordinates.latitudesAttrs, dimensionNames },
+    latitudes: createFloat32Chunk(latitudes, shape),
+    longitudesAttrs: { ...coordinates.longitudesAttrs, dimensionNames },
+    longitudes: createFloat32Chunk(longitudes, shape),
+  };
+}
+
 /**
  * Lat/lon for the irregular grids: like getLatLonData, but grids with a CRS
  * and only 1-D axes get one reprojected lat/lon pair per cell. Grid detection
@@ -1064,10 +1111,11 @@ export async function getIrregularLatLonData(
   datavar: zarr.Array<zarr.DataType, zarr.AsyncReadable>,
   datasources: TSources | undefined
 ) {
-  const [coordinates, dimensions] = await Promise.all([
+  const [axesOrCells, dimensions] = await Promise.all([
     getLatLonOrReprojectedAxesData(variable, datavar, datasources),
     ZarrDataManager.getDimensionNames(datasources!, variable),
   ]);
+  const coordinates = toLonMajorCells(axesOrCells, dimensions);
   const timeDimensions = await findCoordinateTimeDimensions(
     datasources!,
     variable,

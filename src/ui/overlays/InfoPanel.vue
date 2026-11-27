@@ -24,7 +24,10 @@ import {
   type TTimeInfo,
 } from "./infoPanel/types.ts";
 
-import { getLatLonData } from "@/lib/data/coordinateVariables.ts";
+import {
+  getLatLonData,
+  hasTrailingLonLatDimensions,
+} from "@/lib/data/coordinateVariables.ts";
 import { GRID_TYPES, type T_GRID_TYPES } from "@/lib/data/gridTypeDetector.ts";
 import {
   coarsestLevel,
@@ -32,7 +35,11 @@ import {
   hasLevels,
   levelLabel,
 } from "@/lib/data/levels.ts";
-import { decodeTime, isTimeCoordinate } from "@/lib/data/timeHandling.ts";
+import {
+  decodeTime,
+  isTimeCoordinate,
+  isTimeUnits,
+} from "@/lib/data/timeHandling.ts";
 import { getMissingValue, getFillValue } from "@/lib/data/variableDecoding.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import type { TDatasetSource, TSources } from "@/lib/types/GlobeTypes.ts";
@@ -95,9 +102,15 @@ const variableStandardName = computed(
 const groupAttrs = ref<zarr.Attributes | null>(null);
 const groupAttrsChain = ref<TGroupInfo[]>([]);
 const dimensions = ref<TInfoDimension[]>([]);
-
 const latSlice = ref<TCoordinateSlice | null>(null);
 const latDimensions = ref<TInfoDimension[]>([]);
+const isLonLatOrder = computed(() =>
+  hasTrailingLonLatDimensions(dimensions.value.map(({ name }) => name))
+);
+// Only 1-D lat/lon axes are transposed; 2-D lat/lon share the data's order.
+const isTransposed = computed(
+  () => isLonLatOrder.value && latDimensions.value.length === 1
+);
 const latLength = ref<number | null>(null);
 const latMin = ref<number | null>(null);
 const latMax = ref<number | null>(null);
@@ -194,7 +207,13 @@ async function fetchTimeData(
     return null;
   }
 
-  const units = (timeVar.attrs?.units as string) || "unknown";
+  // Without "<unit> since <date>" (e.g. units "months") time is a plain
+  // dimension and gets no section of its own.
+  if (!isTimeUnits(timeVar.attrs?.units)) {
+    return undefined;
+  }
+
+  const units = timeVar.attrs.units;
   const calendar = (timeVar.attrs?.calendar as string) || "standard";
   const numTimesteps = timeVar.shape[0];
 
@@ -279,7 +298,7 @@ async function getTimeDimensionInfo(varname: string, requestId: number) {
       ? await fetchTimeData(varSource, timeDimName, varname)
       : null;
     if (requestId === infoRequestId && varname === sourceVariable.value) {
-      timeInfo.value = info;
+      timeInfo.value = info ?? null;
       noTimeCoordinate.value = info === null;
     }
   } catch (err) {
@@ -598,6 +617,22 @@ watch(
             :dim-indices="dimSlidersValues"
           />
           <DimensionsSection v-if="!showsChunks" :dimensions="dimensions" />
+          <div
+            v-if="isLonLatOrder"
+            class="notification is-warning is-light is-size-7 py-2 px-3"
+          >
+            Longitude comes before latitude in the dimensions. The CF
+            Conventions recommend the order time, height or depth, latitude,
+            longitude (<a
+              href="https://cfconventions.org/cf-conventions/cf-conventions.html#dimensions"
+              target="_blank"
+              rel="noopener noreferrer"
+              >section 2.4 Dimensions</a
+            >).
+            <template v-if="isTransposed">
+              The data is transposed to be displayed.
+            </template>
+          </div>
           <p
             v-if="
               timeInfo &&

@@ -298,3 +298,29 @@ it("returns curvilinear for 2-D lat/lon with a time dimension (WRF Mercator)", a
 
   await expect(detectGridType(sources)).resolves.toBe(GRID_TYPES.CURVILINEAR);
 });
+
+it("returns curvilinear for dimensions named lat/lon indexing 2-D lat/lon", async () => {
+  // e.g. a polar grid with lat(lon, lat) and lon(lon, lat)
+  const sources = createSources(["lon", "lat"]);
+  vi.mocked(ZarrDataManager.getVariableInfo).mockImplementation(
+    async (_source, variable) => {
+      if (variable === "lat" || variable === "lon") {
+        return { ...createArray(), shape: [2, 2] } as Awaited<
+          ReturnType<typeof ZarrDataManager.getVariableInfo>
+        >;
+      }
+      if (variable === "vertex_of_cell") {
+        throw new Error("No triangular grid metadata");
+      }
+      return createArray();
+    }
+  );
+  vi.mocked(getLatLonData).mockResolvedValue({
+    latitudesAttrs: { dimensionNames: ["lon", "lat"] },
+    latitudes: createChunk(new Float64Array([-40, -41, -42, -43]), [2, 2]),
+    longitudesAttrs: { dimensionNames: ["lon", "lat"] },
+    longitudes: createChunk(new Float64Array([0, 90, 180, 270]), [2, 2]),
+  } as Awaited<ReturnType<typeof getLatLonData>>);
+
+  await expect(detectGridType(sources)).resolves.toBe(GRID_TYPES.CURVILINEAR);
+});
