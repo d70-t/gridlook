@@ -24,8 +24,10 @@ import {
 import {
   matchMode,
   observationKeys,
+  clockBoundsUnread,
   overCells,
   physicalClock,
+  withCycles,
   unknownCell,
 } from "./companionAlign.ts";
 import { nativeAreas, readAllShared, sameCellOutlines } from "./nativeGrid.ts";
@@ -328,13 +330,14 @@ function timeRows(
   // failed read): their support is unknown, so no row pairs.
   const unread = [own, other].find(
     (c, at) =>
-      c.time?.boundsUnread &&
+      c.time &&
+      clockBoundsUnread(c.time) &&
       !(at ? mb === "point" : ma === "point") &&
       !((at ? mb : ma) === undefined && c.quantity === "intensive") &&
-      !c.time.bounds?.some(Number.isFinite)
+      !physicalClock(c.time).bounds?.some(Number.isFinite)
   );
   if (unread) {
-    return { reason: unread.time!.boundsUnread! };
+    return { reason: clockBoundsUnread(unread.time!)! };
   }
   const [ca, cb] = [overCells(a), overCells(b)];
   if (ca !== cb) {
@@ -374,7 +377,9 @@ function timeRows(
   ) {
     return cached.rows;
   }
-  const rows = sameAxisRows(a, b, mode) ?? keyedRows(a, b, mode);
+  const rows = cycled(own, other)
+    ? keyedRows(a, b, mode, own, other)
+    : (sameAxisRows(a, b, mode) ?? keyedRows(a, b, mode));
   const byPartner = rowCache.get(a.raw) ?? new WeakMap();
   byPartner.set(b.raw, {
     mode,
@@ -401,8 +406,24 @@ function anyRow(rows: Int32Array) {
 const anyRows = new WeakMap<Int32Array, boolean>();
 
 /** Rows by calendar keys: any two axes the calendar decodes or not. */
-function keyedRows(a: TReadings, b: TReadings, mode: "instants" | "intervals") {
-  const [x, y] = [observationKeys(a, mode), observationKeys(b, mode)];
+/** Both dated by valid times beside initializations: rows are of one run. */
+const cycled = (a: TVariableContext, b: TVariableContext) =>
+  [a, b].every((c) => c.time?.valid?.length === c.time?.raw.length);
+
+function keyedRows(
+  a: TReadings,
+  b: TReadings,
+  mode: "instants" | "intervals",
+  own?: TVariableContext,
+  other?: TVariableContext
+) {
+  const [x, y] =
+    own && other
+      ? [
+          withCycles(observationKeys(a, mode), own.time!, other.time),
+          withCycles(observationKeys(b, mode), other.time!, own.time),
+        ]
+      : [observationKeys(a, mode), observationKeys(b, mode)];
   // Each observation's one row of the partner; repeated ones name none.
   const theirs = new Map<string, number>();
   y.forEach((k, at) => {

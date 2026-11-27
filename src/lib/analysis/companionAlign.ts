@@ -245,6 +245,45 @@ export function physicalClock(time: {
     : { raw: time.raw, bounds: time.bounds };
 }
 
+type TClockAxis = Parameters<typeof physicalClock>[0] & {
+  units?: string;
+  calendar?: string;
+  boundsUnread?: string;
+  validBoundsUnread?: string;
+};
+
+/** Why the cells of the clock rows are matched by are unknown, if they are. */
+export function clockBoundsUnread(time: TClockAxis) {
+  return time.valid?.length === time.raw.length
+    ? time.validBoundsUnread
+    : time.boundsUnread;
+}
+
+/**
+ * Keys extended by each row's forecast initialization when both axes date
+ * their rows by valid times beside initializations: a vector or a pair is
+ * of one run, so a 48-hour U and a 72-hour V valid at the same hour are
+ * other forecasts. Either side without initializations keeps its keys.
+ */
+export function withCycles(
+  keys: string[],
+  time: TClockAxis,
+  partner: TClockAxis | undefined
+) {
+  const dated = (t: TClockAxis | undefined) =>
+    Boolean(t?.valid && t.valid.length === t.raw.length);
+  if (!dated(time) || !dated(partner)) {
+    return keys;
+  }
+  const cycles = observationKeys(
+    { raw: time.raw, units: time.units, calendar: time.calendar },
+    "instants"
+  );
+  return keys.map((key, at) =>
+    unknownCell(key) ? key : `${key}@${cycles[at]}`
+  );
+}
+
 /**
  * Whether values may be a statistic over their vertical cells: as their cell
  * methods say for that dimension; without one, an intensive quantity is a
@@ -408,16 +447,18 @@ export function alignTo(
   // Statistics over cells whose bounds could not be read: which interval each
   // value covers is unknown, so none is paired. With some rows' bounds known,
   // those pair and the rest match nothing.
+  // The cells of the clock matched by: published valid times' own bounds.
   const unread = [shown, other].find(
     (r) =>
-      r.time?.boundsUnread &&
+      r.time &&
+      clockBoundsUnread(r.time) &&
       !atInstants(withMethods(r)) &&
-      !r.time.bounds?.some(Number.isFinite)
+      !physicalClock(r.time).bounds?.some(Number.isFinite)
   );
   if (unread) {
     return {
       // "its declared bounds tb could not be read", of either side.
-      reason: `${unread === shown ? "this plot's time: " : ""}${unread.time!.boundsUnread}`,
+      reason: `${unread === shown ? "this plot's time: " : ""}${clockBoundsUnread(unread.time!)}`,
     };
   }
   const [a, b] = [shown.fixedLevel, other.fixedLevel];
@@ -452,6 +493,10 @@ export function alignTo(
   );
   const own = sampleKeys(shown, cells, layers);
   const theirs = sampleKeys(other, cells, layers);
+  if (own?.by === "times" && theirs?.by === "times") {
+    own.keys = withCycles(own.keys, shown.time!, other.time);
+    theirs.keys = withCycles(theirs.keys, other.time!, shown.time);
+  }
   if (own && theirs && own.by === theirs.by) {
     const index = matchIndex(own.keys, theirs.keys);
     let matched = 0;
@@ -965,9 +1010,18 @@ function partnerTimes(
   partner: TAxes
 ): string | undefined {
   if (own.time && partner.time) {
+    // By the clock the reads are matched by, and each row's run.
+    const [mine, them] = [own.time, partner.time].map((t) => ({
+      ...t,
+      ...physicalClock(t),
+    }));
+    const runs = withCycles(["x"], own.time, partner.time)[0] !== "x";
     // The same rule as the join after reading: decided from the bounds and
     // cell methods alone, before any partner field read.
-    if (sameTimeAxis(own.time, partner.time)) {
+    if (
+      sameTimeAxis(mine, them) &&
+      (!runs || sameTimeAxis(own.time, partner.time))
+    ) {
       sameAxisTimes(next, query, partner.time.chunk ?? 1);
       const fixed = query.fixed[own.time.dimension];
       // One known, unrepeated date: equal axes do not make a missing or
@@ -983,9 +1037,17 @@ function partnerTimes(
       }
       return undefined;
     }
-    const mode = matchMode(own.time, partner.time);
-    const keys = observationKeys(own.time, mode);
-    const theirs = observationKeys(partner.time, mode);
+    const mode = matchMode(mine, them);
+    const keys = withCycles(
+      observationKeys(mine, mode),
+      own.time,
+      partner.time
+    );
+    const theirs = withCycles(
+      observationKeys(them, mode),
+      partner.time,
+      own.time
+    );
     if (query.time) {
       // The plot's own dates, in one slice or several (timeSelection.ts).
       const wanted = new Set(rowIndices(query.time).map((at) => keys[at]));

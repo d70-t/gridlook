@@ -593,6 +593,12 @@ export class AnalysisRunner {
         // What each step is (an instant, or a statistic over its cell):
         // partners are matched by it before reading.
         ...(time.bounds ? { bounds: time.bounds } : {}),
+        // Published valid times and their cells: partners pair by them.
+        ...(time.valid ? { valid: time.valid } : {}),
+        ...(time.validBounds ? { validBounds: time.validBounds } : {}),
+        ...(time.validBoundsUnread
+          ? { validBoundsUnread: time.validBoundsUnread }
+          : {}),
         ...(context.cellMethods ? { cellMethods: context.cellMethods } : {}),
         ...(context.quantity ? { quantity: context.quantity } : {}),
         // Its own reads (stamps and bounds), said apart in Method.
