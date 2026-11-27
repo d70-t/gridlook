@@ -229,6 +229,7 @@ function forecastColumns(result: TAnalysisResult) {
   };
 }
 
+// eslint-disable-next-line max-lines-per-function
 function sectionTable(result: TAnalysisResult, header: string): TResultTable {
   const samples = result.samples!;
   const place = (s: number) => [
@@ -268,14 +269,17 @@ function sectionTable(result: TAnalysisResult, header: string): TResultTable {
         k,
         result.columnVertical ? result.columnVertical[at] : vertical.values[k],
         result.values[at],
-        // A section stopped part way: cells not read yet say so.
-        result.partial?.chunks && !result.cellRead?.[at]
-          ? VALUE_STATUS.UNREAD
-          : Number.isNaN(result.values[at])
-            ? samples.status[s] === "ok" || result.partial?.chunks
-              ? VALUE_STATUS.MISSING
-              : samples.status[s]
-            : VALUE_STATUS.OK,
+        // A section stopped part way: cells not read yet say so; a station
+        // outside the grid has no stored cell, read or not.
+        samples.status[s] === SAMPLE_STATUS.OUTSIDE
+          ? SAMPLE_STATUS.OUTSIDE
+          : result.partial?.chunks && !result.cellRead?.[at]
+            ? VALUE_STATUS.UNREAD
+            : Number.isNaN(result.values[at])
+              ? samples.status[s] === "ok" || result.partial?.chunks
+                ? VALUE_STATUS.MISSING
+                : samples.status[s]
+              : VALUE_STATUS.OK,
       ];
     },
   };

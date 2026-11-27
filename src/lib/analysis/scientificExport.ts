@@ -568,16 +568,19 @@ function shapeArrays(
           "status",
           ["sample", level],
           // A section stopped part way: cell by cell, unread as such, a column
-          // read in part not missing as a whole.
+          // read in part not missing as a whole. A station outside the grid
+          // has no stored cell whatever was read: known before any read.
           values.map((value, at) =>
-            result.partial?.chunks && !result.cellRead?.[at]
-              ? STATUS_FLAGS.NOT_READ
-              : Number.isNaN(value)
-                ? result.partial?.chunks
-                  ? STATUS_FLAGS.MISSING
-                  : sampleStatus(s.status[Math.floor(at / nk)]) ||
-                    STATUS_FLAGS.MISSING
-                : STATUS_FLAGS.OK
+            s.status[Math.floor(at / nk)] === SAMPLE_STATUS.OUTSIDE
+              ? STATUS_FLAGS.NO_STORED_CELL
+              : result.partial?.chunks && !result.cellRead?.[at]
+                ? STATUS_FLAGS.NOT_READ
+                : Number.isNaN(value)
+                  ? result.partial?.chunks
+                    ? STATUS_FLAGS.MISSING
+                    : sampleStatus(s.status[Math.floor(at / nk)]) ||
+                      STATUS_FLAGS.MISSING
+                  : STATUS_FLAGS.OK
           )
         ),
         ...scalarTime(result),

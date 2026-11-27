@@ -160,3 +160,56 @@ it("interim48: the fallback's limit holds under python -O and only transport err
   expect(script).not.toContain("except Exception");
   expect(script).toContain("except (OSError, ValueError):");
 });
+
+// A server whose file is republished after the first reply: "same" keeps
+// it, "drop" stops naming its ETag, "swap" names another one and answers
+// 412 to an If-Match for the old one.
+const REPUBLISH = String.raw`
+import io, sys, threading
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+block, mode = sys.argv[1], sys.argv[2]
+data, state = bytes(range(64)), {"replies": 0}
+class H(SimpleHTTPRequestHandler):
+    def log_message(self, *a): pass
+    def send_head(self):
+        first = state["replies"] == 0
+        state["replies"] += 1
+        tag = '"A"' if first or mode == "same" else ('"B"' if mode == "swap" else None)
+        wanted = self.headers.get("If-Match")
+        if wanted and tag != wanted:
+            self.send_response(412)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return io.BytesIO(b"")
+        a, b = (int(x) for x in self.headers["Range"].split("=")[1].split("-"))
+        self.send_response(206)
+        self.send_header("Content-Range", f"bytes {a}-{b}/{len(data)}")
+        if tag:
+            self.send_header("ETag", tag)
+        self.send_header("Content-Length", str(b - a + 1))
+        self.end_headers()
+        return io.BytesIO(data[a:b + 1])
+s = ThreadingHTTPServer(("127.0.0.1", 0), H)
+threading.Thread(target=s.serve_forever, daemon=True).start()
+env = {}
+exec("\n".join(l.removeprefix("# ") for l in block.split("\n")), env)
+ranges = env["Ranges"](f"http://127.0.0.1:{s.server_port}/f.nc")
+try:
+    print("read", list(ranges.get(1, 4)[0]))
+except ValueError as error:
+    print("refused", error)
+`;
+
+it("binds the recipe's later range reads to the first reply's validator", () => {
+  const lines = exampleScript().split("\n");
+  const from = lines.findIndex((l) => l.startsWith("# import io, re"));
+  const to = lines.findIndex((l) => l.startsWith("# url = "));
+  const block = lines.slice(from, to).join("\n");
+  const run = (mode: string) =>
+    execFileSync("python3", ["-I", "-c", REPUBLISH, block, mode], {
+      encoding: "utf8",
+    }).trim();
+  expect(run("same")).toBe("read [1, 2, 3, 4]");
+  expect(run("drop")).toBe("refused the file changed while it was read");
+  expect(run("swap")).toBe("refused the file changed while it was read");
+});
