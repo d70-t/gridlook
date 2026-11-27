@@ -439,3 +439,27 @@ export function drawArrow(
   }
   stroke(style.color, style.width ?? 1.2);
 }
+
+/**
+ * Levels thinned along a representative column: per level, the one nearest the
+ * middle with a position there (a column without coordinates, outside the
+ * grid, hides only its own barbs).
+ */
+export function barbLevels(
+  ns: number,
+  nk: number,
+  yOf: (s: number, k: number) => number
+) {
+  const middle = Math.floor(ns / 2);
+  return Array.from({ length: nk }, (_, k) => {
+    for (let d = 0; d <= ns; d++) {
+      for (const s of [middle - d, middle + d]) {
+        const y = s >= 0 && s < ns ? yOf(s, k) : Number.NaN;
+        if (Number.isFinite(y)) {
+          return y;
+        }
+      }
+    }
+    return Number.NaN;
+  });
+}

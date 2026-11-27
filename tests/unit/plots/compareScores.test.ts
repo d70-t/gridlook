@@ -333,6 +333,10 @@ describe("review of interim43: the tropopause search on many levels", () => {
         if (z[at] < 5000 || lapse(at + 1) > 2) {
           continue;
         }
+        // Nothing sampled in the 2 km above: not testable, nor anything higher.
+        if (z[at + 1] - z[at] >= 2000) {
+          return undefined;
+        }
         let end = at + 1;
         while (end < z.length && z[end] - z[at] < 2000) {
           end++;

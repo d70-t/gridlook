@@ -436,3 +436,11 @@ it("preserves the direction of displayed currents when thinning hides a stronger
     [30, 0, 45, 0],
   ]);
 });
+
+it("places a section's barb levels by any column with coordinates", async () => {
+  const { barbLevels } = await import("@/ui/analysis/windBarbs.ts");
+  // Nine columns, five levels at y = 10k; the middle column has none.
+  const yOf = (s: number, k: number) => (s === 4 ? NaN : 10 * k);
+  expect(barbLevels(9, 5, yOf)).toEqual([0, 10, 20, 30, 40]);
+  expect(barbLevels(9, 5, () => NaN).every(Number.isNaN)).toBe(true);
+});

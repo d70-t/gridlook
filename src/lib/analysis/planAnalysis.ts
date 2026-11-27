@@ -210,7 +210,7 @@ export async function planAnalysis(
       read,
       areaReads,
       signal,
-      { held: areaBytes, decoded: areaDecoded },
+      { held: areaBytes, decoded: areaDecoded, coordinates: locatorFetch },
       partner,
       (signal) => areas?.verify?.(signal)
     );
@@ -318,7 +318,10 @@ function deferredPlan(
    * What weighing the cells first decodes (their areas), if anything, and
    * the memory that pass holds.
    */
-  areas = { held: 0, decoded: 0 },
+  areas: { held: number; decoded: number; coordinates?: number } = {
+    held: 0,
+    decoded: 0,
+  },
   partner?: TVariableContext,
   /** What is checked first once confirmed (a sibling's coordinates). */
   before?: (signal?: AbortSignal) => Promise<void> | undefined
@@ -340,8 +343,8 @@ function deferredPlan(
       needsConfirmation: true,
       notes: [
         areaBytes
-          ? `Weighing the cells first reads their areas: ${count(geometryReads)} chunks decoding about ${mib(areas.decoded)}${areaBytes > areas.decoded ? `, up to about ${mib(areaBytes)} in memory while they are read` : ""}; the field reads are counted once the cells are known.`
-          : `Locating cells first reads ${count(geometryReads)} coordinate chunks${grid.kind === ANALYSIS_GRID_KINDS.NATIVE && grid.geometryBytes > MODEST_BYTES ? ` and holds about ${mib(grid.geometryBytes)} of coordinates and outlines in memory` : ""}; the field reads are counted once the cells are known.`,
+          ? `Weighing the cells first reads their areas: ${count(geometryReads)} chunks decoding about ${mib(areas.decoded - (areas.coordinates ?? 0))}${areas.coordinates ? `, and about ${mib(areas.coordinates)} of stored coordinates` : ""}${areaBytes > areas.decoded ? `, up to about ${mib(areaBytes)} in memory while they are read` : ""}; the field reads are counted once the cells are known.`
+          : `Locating cells first reads ${count(geometryReads)} coordinate chunks${areas.coordinates ? ` (about ${mib(areas.coordinates)} stored, shard indexes included)` : ""}${grid.kind === ANALYSIS_GRID_KINDS.NATIVE && grid.geometryBytes > MODEST_BYTES ? ` and holds about ${mib(grid.geometryBytes)} of coordinates and outlines in memory` : ""}; the field reads are counted once the cells are known.`,
       ],
     },
     async execute(signal, hooks) {

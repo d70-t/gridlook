@@ -167,7 +167,11 @@ export function readingParts(
 }
 
 /** The longest part, in time steps (for memory estimates). */
-function longestPart(context: TVariableContext, start: number, stop: number) {
+export function longestPart(
+  context: TVariableContext,
+  start: number,
+  stop: number
+) {
   return Math.max(0, ...timeParts(context, start, stop).map(([a, b]) => b - a));
 }
 
@@ -1080,6 +1084,63 @@ function indexDims(context: TVariableContext) {
   }
 }
 
+/**
+ * The runs of each halo or fold copy of a located cell: `runs` at the copy's
+ * place, to read where the cell and the copies before it are missing.
+ */
+export function copyRunsOf(
+  context: TVariableContext,
+  runs: TIndexRuns[],
+  located: { copies?: number[][] }
+) {
+  return (located.copies ?? []).map((positions) => {
+    const own = runs.map((r) => r.slice());
+    setSpatialRuns(context, own, positions);
+    return own;
+  });
+}
+
+/** Runs covering every one of `lists` along each dimension, merged. */
+function unitedRuns(lists: TIndexRuns[][]): TIndexRuns[] {
+  return lists[0].map((_, d) => {
+    const all = lists
+      .flatMap((runs) => runs[d])
+      .map(([a, b]) => [a, b] as [number, number])
+      .sort((x, y) => x[0] - y[0]);
+    const out: TIndexRuns = [];
+    for (const [a, b] of all) {
+      const last = out[out.length - 1];
+      if (last && a <= last[1]) {
+        last[1] = Math.max(last[1], b);
+      } else {
+        out.push([a, b]);
+      }
+    }
+    return out;
+  });
+}
+
+/**
+ * A located cell's values, then each copy's where those before it left them
+ * missing, one copy after another: the first valid copy gives each value,
+ * whichever chunk arrives first. `visit` reads one cell's runs; with `fill`,
+ * only into missing values.
+ */
+export async function withCopies(
+  runs: TIndexRuns[],
+  copies: TIndexRuns[][],
+  missing: () => boolean,
+  visit: (runs: TIndexRuns[], fill: boolean) => Promise<unknown>
+) {
+  await visit(runs, false);
+  for (const copy of copies) {
+    if (!missing()) {
+      return;
+    }
+    await visit(copy, true);
+  }
+}
+
 export function setSpatialRuns(
   context: TVariableContext,
   runs: TIndexRuns[],
@@ -1128,13 +1189,7 @@ export async function planPointSeries(
     setSpatialRuns(context, runs, located.positions);
   }
   // Each copy of the cell, read only where the ones before it are missing.
-  const copyRuns = ("copies" in located ? (located.copies ?? []) : []).map(
-    (positions) => {
-      const own = runs.map((r) => r.slice());
-      setSpatialRuns(context, own, positions);
-      return own;
-    }
-  );
+  const copyRuns = copyRunsOf(context, runs, located);
   const chunks = located.positions.length
     ? countChunks(context, runs) +
       copyRuns.reduce((n, r) => n + countChunks(context, r), 0)
@@ -1144,7 +1199,10 @@ export async function planPointSeries(
   return {
     estimate: {
       ...estimateFor(context, chunks, nt, layout ? [layout] : []),
-      ...(located.positions.length ? { shardRuns: { own: runs } } : {}),
+      // Every shard a copy's fallback may reach, priced with the cell's.
+      ...(located.positions.length
+        ? { shardRuns: { own: unitedRuns([runs, ...copyRuns]) } }
+        : {}),
     },
     // eslint-disable-next-line max-lines-per-function
     async execute(signal, hooks) {
@@ -1190,13 +1248,12 @@ export async function planPointSeries(
               counters,
               partSignal
             );
-          await visit(runs, false);
-          for (const list of copyRuns) {
-            if (!values.slice(from - start, until - start).some(Number.isNaN)) {
-              break;
-            }
-            await visit(list, true);
-          }
+          await withCopies(
+            runs,
+            copyRuns,
+            () => values.slice(from - start, until - start).some(Number.isNaN),
+            visit
+          );
         },
         async (part, publish) => {
           if (part + 1 < parts.length) {
@@ -1999,7 +2056,7 @@ export async function withCellCopies(
  * the order chunks arrive in does not change the answer.
  */
 export function copyPicker(
-  selection: TRegionSelection & { classOf?: Int32Array },
+  selection: { classOf?: Int32Array },
   length: number
 ) {
   const classOf = selection.classOf;
@@ -2054,7 +2111,7 @@ export function copyPicker(
 
 /** The bytes a copy picker holds over `length` steps, with their sums. */
 export function copyPickerBytes(
-  selection: TRegionSelection & { classOf?: Int32Array },
+  selection: { classOf?: Int32Array },
   length: number
 ) {
   const classOf = selection.classOf;
@@ -2433,6 +2490,101 @@ function orderedFolder(
   };
 }
 
+/**
+ * A vector component's repeated cells over one part of its dates: each cell's
+ * own value from its first valid copy, kept where the partner has a valid value
+ * on any copy of the same cell at the same instant (U stored on one copy and V
+ * on another are one cell's wind). As [kept point, step in the part, value].
+ */
+// eslint-disable-next-line max-lines-per-function
+async function jointCopies(
+  read: ReadContext,
+  pair: {
+    context: TVariableContext;
+    partner: TVariableContext;
+    selection: TRegionSelection & { classOf?: Int32Array };
+    rows: Int32Array;
+  },
+  partnerRunsOf: TIndexRuns[],
+  [from, until]: [number, number],
+  counters: TWorkCounters,
+  signal?: AbortSignal
+) {
+  const { context, partner, selection, rows } = pair;
+  const classOf = selection.classOf!;
+  const points = selection.points!;
+  const rank = points.dims.length;
+  const members = Array.from(classOf).flatMap((cls, point) =>
+    cls >= 0 ? [point] : []
+  );
+  const positions = new Float64Array(members.length * rank);
+  members.forEach((point, m) => {
+    for (let d = 0; d < rank; d++) {
+      positions[m * rank + d] = points.positions[point * rank + d];
+    }
+  });
+  const only = { dims: points.dims, positions };
+  const timeAxis = context.time!.axis;
+  const length = until - from;
+  const own = new Float64Array(members.length * length).fill(Number.NaN);
+  const valid = new Uint8Array(members.length * length);
+  // Own rows by the partner's row they are matched with.
+  const byRow = new Map<number, number[]>();
+  for (let t = from; t < until; t++) {
+    if (rows[t] >= 0) {
+      byRow.set(rows[t], [...(byRow.get(rows[t]) ?? []), t - from]);
+    }
+  }
+  await visitRuns(
+    read,
+    context.array,
+    context.codec,
+    selection.runs.map((r, d) => (d === timeAxis ? [[from, until]] : r)),
+    (_, index, value, m) => {
+      own[m * length + index[timeAxis] - from] = value;
+    },
+    counters,
+    signal,
+    undefined,
+    only
+  );
+  const partnerTime = partner.time!.axis;
+  await visitRuns(
+    read,
+    partner.array,
+    partner.codec,
+    partnerRunsOf.map((r, d) =>
+      d === partnerTime ? partnerRuns(rows, [[from, until]]) : r
+    ),
+    (_, index, value, m) => {
+      if (!Number.isNaN(value)) {
+        for (const k of byRow.get(index[partnerTime]) ?? []) {
+          valid[m * length + k] = 1;
+        }
+      }
+    },
+    counters,
+    signal,
+    undefined,
+    only
+  );
+  // Members of a class in point order: the kept cell, then its copies.
+  const byClass = new Map<number, number[]>();
+  members.forEach((point, m) =>
+    byClass.set(classOf[point], [...(byClass.get(classOf[point]) ?? []), m])
+  );
+  const pairs: [number, number, number][] = [];
+  for (const [kept, list] of byClass) {
+    for (let k = 0; k < length; k++) {
+      const first = list.find((m) => !Number.isNaN(own[m * length + k]));
+      if (first !== undefined && list.some((m) => valid[m * length + k])) {
+        pairs.push([kept, k, own[first * length + k]]);
+      }
+    }
+  }
+  return pairs;
+}
+
 /** One weighted value into a chunk's sums. */
 function addValue(acc: TChunkSums, k: number, value: number, w: number) {
   addMoment(acc, k, value, w);
@@ -2612,6 +2764,7 @@ export async function planRegionSeries(
         parts.length,
         REGION_LOOKAHEAD,
         signal,
+        // eslint-disable-next-line max-lines-per-function
         async (part, partSignal) => {
           // The spatial runs as they are (their chunk directory is built
           // once for every part); only the time run is the part's own.
@@ -2626,8 +2779,12 @@ export async function planRegionSeries(
             counters
           );
           // One value of each repeated cell per date: its first valid copy.
+          // A vector component's repeated cells are read apart, unmasked.
           const [from, until] = parts[part];
-          const picked = copyPicker(selection, until - from);
+          const picked = joint
+            ? undefined
+            : copyPicker(selection, until - from);
+          const apart = joint ? selection.classOf : undefined;
           await visitRuns(
             read,
             visited,
@@ -2635,7 +2792,11 @@ export async function planRegionSeries(
             partRuns,
             (ordinal, index, value, point) => {
               const t = index[timeAxis];
-              if (picked?.hold(point, t - from, value) || Number.isNaN(value)) {
+              if (
+                (apart && apart[point] >= 0) ||
+                picked?.hold(point, t - from, value) ||
+                Number.isNaN(value)
+              ) {
                 return;
               }
               const w = selection.weightOf(index, point);
@@ -2652,6 +2813,26 @@ export async function planRegionSeries(
           );
           if (picked) {
             folder.whole((acc) => addPicked(acc, picked, selection));
+          }
+          if (apart && partnerTerm) {
+            const pairs = await jointCopies(
+              read,
+              { context, partner: joint!, selection, rows: rows! },
+              partnerTerm.runs,
+              [from, until],
+              counters,
+              partSignal
+            );
+            folder.whole((acc) =>
+              pairs.forEach(([point, k, value]) =>
+                addValue(
+                  acc,
+                  k,
+                  value,
+                  selection.weightOf(new Float64Array(0), point)
+                )
+              )
+            );
           }
         },
         async (part, publish) => {
@@ -3035,6 +3216,8 @@ export async function planProfile(
   if (located.positions.length) {
     setSpatialRuns(context, runs, located.positions);
   }
+  // Each copy of the cell, read only where the ones before it are missing.
+  const copyRuns = copyRunsOf(context, runs, located);
   // Formula terms are auxiliary reads: planned now, counted in the estimate.
   const termPlans =
     vertical.kind === VERTICAL_KINDS.FORMULA && located.positions.length
@@ -3046,29 +3229,41 @@ export async function planProfile(
   return {
     estimate: estimateFor(
       context,
-      (located.positions.length ? countChunks(context, runs) : 0) +
-        termChunks(termPlans),
+      (located.positions.length
+        ? countChunks(context, runs) +
+          copyRuns.reduce((n, r) => n + countChunks(context, r), 0)
+        : 0) + termChunks(termPlans),
       nk,
       notes,
       0,
       termPlans
     ),
 
+    // eslint-disable-next-line max-lines-per-function
     async execute(signal) {
       const started = performance.now();
       const values = new Array<number>(nk).fill(Number.NaN);
       let columnZ: number[] | undefined;
       if (located.positions.length) {
-        await visitRuns(
-          read,
-          context.array,
-          context.codec,
+        await withCopies(
           runs,
-          (_, index, value) => {
-            values[index[vertical.axis]] = value;
-          },
-          counters,
-          signal
+          copyRuns,
+          () => values.some(Number.isNaN),
+          (list, fill) =>
+            visitRuns(
+              read,
+              context.array,
+              context.codec,
+              list,
+              (_, index, value) => {
+                const k = index[vertical.axis];
+                if (!fill || Number.isNaN(values[k])) {
+                  values[k] = value;
+                }
+              },
+              counters,
+              signal
+            )
         );
         if (termPlans.length) {
           const terms = await readFormulaTerms(
@@ -3131,6 +3326,8 @@ async function sectionColumns(
   const keys: (number[] | undefined)[] = [];
   const cells: string[] = [];
   const index: string[][] = [];
+  // Each kept native column's halo or fold copies, by its key.
+  const copies = new Map<string, number[][]>();
   if (grid.kind === ANALYSIS_GRID_KINDS.HEALPIX) {
     const coords = new Float64Array(points.length * 2);
     points.forEach((point, at) => {
@@ -3163,6 +3360,14 @@ async function sectionColumns(
     for (const point of points) {
       const hit = locateNative(grid, geometry, point.lat, point.lon);
       keys.push(hit.cell >= 0 ? nativePositions(grid, hit.cell) : undefined);
+      const repeated =
+        hit.cell >= 0 ? geometry.copies?.get(hit.cell) : undefined;
+      if (repeated?.length) {
+        copies.set(
+          columnKey(nativePositions(grid, hit.cell)),
+          repeated.map((copy) => nativePositions(grid, copy))
+        );
+      }
       cells.push(
         hit.cell >= 0 ? nativeCellId(grid, context.dims, hit.cell) : ""
       );
@@ -3178,7 +3383,35 @@ async function sectionColumns(
     keys,
     cells,
     index: { dims: indexDims(context), values: index },
+    copies,
   };
+}
+
+/**
+ * A section's columns with their halo or fold copies, all to read: each kept
+ * column's copy keys in order (a value missing in the column is taken from the
+ * first copy that has it).
+ */
+export function withSectionCopies(
+  unique: Map<string, number[]>,
+  copies: Map<string, number[][]>
+) {
+  const all = new Map(unique);
+  const copiesOf = new Map<string, string[]>();
+  for (const [key, list] of copies) {
+    if (unique.has(key)) {
+      copiesOf.set(
+        key,
+        list.map((column) => {
+          const name = columnKey(column);
+          all.set(name, column);
+          return name;
+        })
+      );
+    }
+  }
+  const copyKeys = new Set([...copiesOf.values()].flat());
+  return { all, copiesOf, copyKeys };
 }
 
 function runsOf(values: number[]): TIndexRuns {
@@ -3313,6 +3546,30 @@ export async function preparedSectionColumns(
 }
 
 /**
+ * Each kept column's missing values from its copies, the first valid one in
+ * order; the copies' own columns dropped.
+ */
+function fillFromCopies(
+  byColumn: Map<string, Float64Array>,
+  copiesOf: Map<string, string[]>,
+  nk: number
+) {
+  for (const [key, names] of copiesOf) {
+    const column = byColumn.get(key) ?? new Float64Array(nk).fill(Number.NaN);
+    for (let k = 0; k < nk; k++) {
+      for (const name of names) {
+        if (!Number.isNaN(column[k])) {
+          break;
+        }
+        column[k] = byColumn.get(name)?.[k] ?? Number.NaN;
+      }
+    }
+    byColumn.set(key, column);
+    names.forEach((name) => byColumn.delete(name));
+  }
+}
+
+/**
  * A section along a path. With a vertical axis it is a curtain of
  * sample × level values; without one, a path of one value per sample.
  */
@@ -3354,7 +3611,8 @@ export async function planSection(
   if (vertical) {
     baseRuns[vertical.axis] = [[0, nk]];
   }
-  const selection = sectionSelection(context, unique, baseRuns);
+  const { all, copiesOf, copyKeys } = withSectionCopies(unique, columns.copies);
+  const selection = sectionSelection(context, all, baseRuns);
   const termPlans =
     vertical?.kind === VERTICAL_KINDS.FORMULA && unique.size
       ? await planFormulaTerms(context, query, [...unique.values()], timeIndex)
@@ -3453,8 +3711,11 @@ export async function planSection(
             }
             const k = vertical ? index[vertical.axis] : 0;
             column[k] = value;
-            if (streamed && !countOnly) {
-              for (const s of samplesOf.get(key) ?? []) {
+            // A copy's value is shown where its column has none yet; the
+            // first valid one in order is kept at the end.
+            const shownAt = copyKeys.has(key) ? undefined : key;
+            if (streamed && !countOnly && shownAt) {
+              for (const s of samplesOf.get(shownAt) ?? []) {
                 fresh.at.push(s * nk + k);
                 fresh.values.push(value);
               }
@@ -3489,6 +3750,7 @@ export async function planSection(
           ])
         );
       }
+      fillFromCopies(byColumn, copiesOf, nk);
       const { values, columnZ, status } = collect(byColumn, zByColumn);
       counters.totalMs = performance.now() - started;
       return assemble(values, columnZ, status);

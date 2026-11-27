@@ -165,14 +165,15 @@ describe("area means on a grid whose outlines are too large to hold", () => {
       geometry: { kind: "box", ...box },
       time: { start: 0, stop: 2 },
     } as never;
-    // Asked first: the two corner chunks decode about 203 MiB; the pass holds
+    // Asked first: the two corner chunks decode about 203 MiB (and the centres
+    // 13 MiB stored); the pass holds
     // up to about 507 MiB.
     const asked = await planAnalysis(context, boxQuery, new ReadContext());
     expect(asked.estimate.needsConfirmation).toBe(true);
-    expect(Math.round(asked.estimate.decodedBytes / 2 ** 20)).toBe(203);
+    expect(Math.round(asked.estimate.decodedBytes / 2 ** 20)).toBe(215);
     expect(Math.round(asked.estimate.workingBytes / 2 ** 20)).toBe(507);
     expect(asked.estimate.notes.join(" ")).toMatch(
-      /decoding about 203 MiB, up to about 507 MiB in memory/
+      /decoding about 203 MiB, and about 13 MiB of stored coordinates, up to about 507 MiB in memory/
     );
     const planned = await planAnalysis(
       context,

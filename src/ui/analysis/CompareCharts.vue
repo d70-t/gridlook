@@ -67,11 +67,22 @@ function biasView() {
     lines: true,
     series: props.rows.map((row) => {
       const bias = biasSeries(row.pair);
-      return bias.keys.map((key, at) => ({
-        x: days(key),
-        y: bias.values[at],
-        tag: stamps.get(key) ?? key,
-      }));
+      const breaks = ("breaks" in row.pair ? row.pair.breaks : []) as boolean[];
+      // A missing value between two pairs breaks the line there: no
+      // difference is known across it.
+      return bias.keys.flatMap((key, at) => {
+        const point = {
+          x: days(key),
+          y: bias.values[at],
+          tag: stamps.get(key) ?? key,
+        };
+        return breaks[at]
+          ? [
+              { x: (days(bias.keys[at - 1]) + point.x) / 2, y: NaN, tag: "" },
+              point,
+            ]
+          : [point];
+      });
     }),
     zero: true,
     oneToOne: false,
@@ -157,7 +168,11 @@ const xTicks = computed(() => {
     const positions = d.keys.map(days);
     const [first, last] = [positions[0], positions[positions.length - 1]];
     const labels = shortStamps(d.keys);
-    const longest = Math.max(...labels.map((label) => label.length));
+    // A loop, not a spread: 130,000 labels overflow the call stack.
+    let longest = 0;
+    for (const label of labels) {
+      longest = Math.max(longest, label.length);
+    }
     const count = Math.max(
       2,
       Math.min(5, Math.floor(plotW / (longest * 8 + 16)))
@@ -233,17 +248,26 @@ const drawn = computed(() => {
       ).kept;
   return series.map((points, at) => {
     const line = lines ? thinLine(points, sx) : [];
-    const marks = lines
-      ? points.length <= 60
-        ? points
-        : []
-      : scattered![at].map((k) => points[k]);
+    const marks = (
+      lines
+        ? points.length <= 60
+          ? points
+          : []
+        : scattered![at].map((k) => points[k])
+    ).filter((p) => Number.isFinite(p.y));
+    // A point without a value lifts the pen: the next starts a new subpath.
+    let pen = false;
     return {
       path: line
-        .map(
-          (p, k) =>
-            `${k ? "L" : "M"}${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`
-        )
+        .map((p) => {
+          if (!Number.isFinite(p.y)) {
+            pen = false;
+            return "";
+          }
+          const move = pen ? "L" : "M";
+          pen = true;
+          return `${move}${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`;
+        })
         .join(""),
       dots: dotsPath(
         marks.map((p) => ({ x: sx(p.x), y: sy(p.y) })),
@@ -268,11 +292,16 @@ const hover = ref<{
 }>();
 /** Within this many drawn units of the pointer, a mark is read out. */
 const REACH = 28;
-/** Each plot's point index by its x, for the date under the pointer. */
+/**
+ * Each plot's point indices by their x, for the date under the pointer (two
+ * intervals ending at one time share an x).
+ */
 const byX = computed(() =>
-  data.value?.series.map(
-    (points) => new Map(points.map((p, k) => [p.x, k] as const))
-  )
+  data.value?.series.map((points) => {
+    const index = new Map<number, number[]>();
+    points.forEach((p, k) => index.set(p.x, [...(index.get(p.x) ?? []), k]));
+    return index;
+  })
 );
 function nearestDate(px: number) {
   let best: { x: number; gap: number } | undefined;
@@ -285,17 +314,29 @@ function nearestDate(px: number) {
   }
   return best && best.gap < REACH ? best.x : undefined;
 }
-/** The plots' marks at a date, where they have one. */
-function marksAt(x: number | undefined): [number, number][] {
+/**
+ * The plots' marks at a date, where they have one: of several at that date,
+ * the one nearest the pointer's height.
+ */
+function marksAt(x: number | undefined, py: number): [number, number][] {
   const d = data.value!;
   if (x === undefined) {
     return [];
   }
   return byX.value!.flatMap((index, at) => {
-    const k = index.get(x);
-    return k !== undefined && Number.isFinite(d.series[at][k].y)
-      ? [[at, k] as [number, number]]
-      : [];
+    const valid = (index.get(x) ?? []).filter((k) =>
+      Number.isFinite(d.series[at][k].y)
+    );
+    const k = valid.reduce<number | undefined>(
+      (best, k) =>
+        best === undefined ||
+        Math.abs(sy(d.series[at][k].y) - py) <
+          Math.abs(sy(d.series[at][best].y) - py)
+          ? k
+          : best,
+      undefined
+    );
+    return k === undefined ? [] : [[at, k] as [number, number]];
   });
 }
 function nearestMark(pt: { x: number; y: number }) {
@@ -327,7 +368,7 @@ function onMove(event: PointerEvent) {
   let [cx, cy] = [pt.x, pt.y];
   if (d.keys.length) {
     const x = nearestDate(pt.x);
-    marks = marksAt(x);
+    marks = marksAt(x, pt.y);
     cx = x === undefined ? cx : sx(x);
   } else {
     const best = nearestMark(pt);

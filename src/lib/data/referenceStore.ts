@@ -67,53 +67,130 @@ const TEMPLATE = /{{\s*([A-Za-z_][A-Za-z0-9_]*)\s*}}/g;
 /** Any `{{ … }}`: a generator's fields may be integer arithmetic. */
 const EXPRESSION = /{{([^{}]*)}}/g;
 
+/** An expression's value: an exact integer, or a float (from `/`). */
+type TValue = bigint | number;
+
 /**
- * Integer arithmetic over named values (`i * 4096 + 64`, `(i // 2) % 3`),
- * as kerchunk generators write their fields; undefined if it is anything else.
+ * Arithmetic over named values (`i * 4096 + 64`, `(i // 2) % 3`, `i / 2`), as
+ * kerchunk generators write their fields and Python evaluates them: integers
+ * exact at any size, `/` a float written as Python writes one (`0.0`), and
+ * `"%02d" | format(i)`; undefined if it is anything else.
  */
-function arithmetic(text: string, scope: Record<string, string>) {
+function arithmetic(
+  text: string,
+  scope: Record<string, string>
+): string | undefined {
+  const formatted =
+    /^\s*(?:"([^"]*)"|'([^']*)')\s*\|\s*format\((.*)\)\s*$/.exec(text);
+  if (formatted) {
+    const value = arithmetic(formatted[3], scope);
+    return value === undefined
+      ? undefined
+      : printf(formatted[1] ?? formatted[2], value);
+  }
+  const v = evaluate(text, scope);
+  if (typeof v === "bigint") {
+    return v.toString();
+  }
+  return v !== undefined && Number.isFinite(v)
+    ? Number.isInteger(v)
+      ? `${v}.0`
+      : String(v)
+    : undefined;
+}
+
+/** An arithmetic expression's value, or undefined if it is not one. */
+function evaluate(text: string, scope: Record<string, string>) {
   const tokens = text.match(/\/\/|[-+*/%()]|\d+|[A-Za-z_]\w*|\S/g) ?? [];
   let at = 0;
-  const atom = (): number => {
+  const atom = (): TValue | undefined => {
     const t = tokens[at++];
     if (t === "(") {
       const v = sum();
-      return tokens[at++] === ")" ? v : NaN;
+      return tokens[at++] === ")" ? v : undefined;
     }
     if (t === "-") {
-      return -atom();
+      const v = atom();
+      return v === undefined ? undefined : -v;
     }
     if (t !== undefined && /^\d+$/.test(t)) {
-      return Number(t);
+      return BigInt(t);
     }
     return t !== undefined && t in scope && /^-?\d+$/.test(scope[t])
-      ? Number(scope[t])
-      : NaN;
+      ? BigInt(scope[t])
+      : undefined;
   };
-  const product = (): number => {
+  const product = (): TValue | undefined => {
     let v = atom();
-    while (["*", "/", "//", "%"].includes(tokens[at])) {
-      const [op, w] = [tokens[at++], atom()];
-      v =
-        op === "*"
-          ? v * w
-          : op === "/"
-            ? v / w
-            : op === "//"
-              ? Math.floor(v / w)
-              : v - w * Math.floor(v / w);
+    while (v !== undefined && ["*", "/", "//", "%"].includes(tokens[at])) {
+      const op = tokens[at++];
+      const w = atom();
+      v = w === undefined ? undefined : apply(op, v, w);
     }
     return v;
   };
-  const sum = (): number => {
+  const sum = (): TValue | undefined => {
     let v = product();
-    while (tokens[at] === "+" || tokens[at] === "-") {
-      v = tokens[at++] === "+" ? v + product() : v - product();
+    while (v !== undefined && (tokens[at] === "+" || tokens[at] === "-")) {
+      const op = tokens[at++];
+      const w = product();
+      v = w === undefined ? undefined : apply(op, v, w);
     }
     return v;
   };
   const v = sum();
-  return at === tokens.length && Number.isFinite(v) ? String(v) : undefined;
+  return at === tokens.length ? v : undefined;
+}
+
+/** One operation, as Python does it: floor division and modulo for integers. */
+function apply(op: string, a: TValue, b: TValue): TValue | undefined {
+  if (op === "/") {
+    return Number(b) === 0 ? undefined : Number(a) / Number(b);
+  }
+  if (typeof a === "bigint" && typeof b === "bigint") {
+    if (op === "+" || op === "-" || op === "*") {
+      return op === "+" ? a + b : op === "-" ? a - b : a * b;
+    }
+    if (b === 0n) {
+      return undefined;
+    }
+    const floor = a / b - (a % b !== 0n && a < 0n !== b < 0n ? 1n : 0n);
+    return op === "//" ? floor : a - b * floor;
+  }
+  const [x, y] = [Number(a), Number(b)];
+  return op === "+"
+    ? x + y
+    : op === "-"
+      ? x - y
+      : op === "*"
+        ? x * y
+        : op === "//"
+          ? Math.floor(x / y)
+          : x - y * Math.floor(x / y);
+}
+
+/** `%d`, `%i`, `%5d`, `%05d` and `%s` of one value; undefined otherwise. */
+function printf(format: string, value: string) {
+  let used = false;
+  const out = format.replace(/%(0?)(\d*)([dis%])/g, (_, zero, width, kind) => {
+    if (kind === "%") {
+      return "%";
+    }
+    used = true;
+    const text =
+      kind === "s"
+        ? value
+        : /^-?\d+(\.0)?$/.test(value)
+          ? value.replace(/\.0$/, "")
+          : "";
+    const negative = text.startsWith("-");
+    const digits = negative ? text.slice(1) : text;
+    const pad = Math.max(0, Number(width || 0) - text.length);
+    return zero && kind !== "s"
+      ? `${negative ? "-" : ""}${"0".repeat(pad)}${digits}`
+      : `${" ".repeat(pad)}${text}`;
+  });
+  return used ? out : undefined;
 }
 
 /**
@@ -323,22 +400,11 @@ async function fetchReferenced(
         headers: { "Content-Length": String(range.end - range.start + 1) },
       });
     }
-    asked = new Request(asked);
-    asked.headers.delete("Range");
-    // A store without HEAD (405) or without a length: no length given, so the
-    // reader asks for the suffix by GET. So too with a content coding (gzip):
-    // the length is the coded body's, not the object's an index ends.
-    const head = await storeRequests.fetch(asked, init);
-    const coding = head.headers.get("Content-Encoding")?.trim().toLowerCase();
-    if (
-      !head.ok ||
-      head.headers.get("Content-Length") === null ||
-      (coding && coding !== "identity")
-    ) {
-      void head.body?.cancel().catch(() => undefined);
-      return new Response(null, { status: 200 });
-    }
-    return head;
+    // A `[url]` one: no length given, so the reader asks for its suffix by
+    // GET and checks it. A HEAD's length may be of a content-coded body
+    // (gzip) whose coding a cross-origin reply does not let the page see, and
+    // a suffix located by it would be other bytes than the index.
+    return new Response(null, { status: 200 });
   }
   if (range && wholeRef) {
     asked = new Request(asked);

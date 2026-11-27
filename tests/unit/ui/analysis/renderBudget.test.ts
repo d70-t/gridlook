@@ -201,3 +201,62 @@ describe("scatter and Compare charts at supported sizes", () => {
     expect(html.split("<circle").length - 1).toBe(0);
   });
 });
+
+// eslint-disable-next-line max-lines-per-function
+describe("bias over time", () => {
+  const hours = Array.from(
+    { length: 12 },
+    (_, i) => `2000-01-01 ${String(i).padStart(2, "0")}:00:00`
+  );
+  const render = async (pair: ReturnType<typeof pairSeries>) =>
+    renderToString(
+      createSSRApp({
+        render: () =>
+          h(CompareCharts, {
+            view: "bias",
+            rows: [
+              {
+                label: "P2",
+                colour: "#000",
+                pair,
+                stats: taylorStats(pair.reference, pair.other)!,
+              },
+            ],
+            referenceLabel: "P1",
+            units: "K",
+          }),
+      })
+    );
+
+  it("breaks its line at dates known to be missing", async () => {
+    const pair = pairSeries(
+      { dates: hours, values: hours.map(() => 280) },
+      {
+        dates: hours,
+        values: hours.map((_, i) => (i >= 2 && i <= 9 ? NaN : 281)),
+      }
+    );
+    expect(pair.keys).toHaveLength(4);
+    const html = await render(pair);
+    // The line: the one path of four points' moves and lines.
+    const paths = [...html.matchAll(/ d="(M[^"]*)"/g)].map((m) => m[1]);
+    const line = paths.find((d) => (d.match(/[ML]/g) ?? []).length === 4);
+    expect(line?.match(/M/g)).toHaveLength(2);
+    expect(html).not.toContain("NaN");
+  });
+
+  it("labels the dates of a long comparison without overflowing the stack", async () => {
+    const n = 130_000;
+    const dates = Array.from({ length: n }, (_, i) =>
+      new Date(Date.UTC(2000, 0, 1) + i * 3_600_000)
+        .toISOString()
+        .slice(0, 19)
+        .replace("T", " ")
+    );
+    const pair = pairSeries(
+      { dates, values: dates.map(() => 1) },
+      { dates, values: dates.map(() => 2) }
+    );
+    await expect(render(pair)).resolves.toContain("<svg");
+  });
+});

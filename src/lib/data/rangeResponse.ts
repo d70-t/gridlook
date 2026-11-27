@@ -298,7 +298,6 @@ export async function exactSuffix(
  * block copied in at most two pieces, and what passes is charged to the file's
  * skipped tally.
  */
-// eslint-disable-next-line max-lines-per-function
 async function lastBytes(
   url: string,
   n: number,
@@ -310,6 +309,41 @@ async function lastBytes(
   const coding = response.headers.get("Content-Encoding")?.trim().toLowerCase();
   const declared =
     coding && coding !== "identity" ? undefined : declaredLength(response);
+  if (declared !== undefined) {
+    return streamedTail(url, n, response, asked, declared);
+  }
+  // Of unknown size, charged as it streams: one at a time per file, so the
+  // allowance is spent on reads that finish, not shared out among readers
+  // that all run out.
+  const previous = unsizedReads.get(url) ?? Promise.resolve();
+  const turn = previous.then(() =>
+    streamedTail(url, n, response, asked, undefined)
+  );
+  const settled = turn.then(
+    () => undefined,
+    () => undefined
+  );
+  unsizedReads.set(url, settled);
+  void settled.then(() => {
+    if (unsizedReads.get(url) === settled) {
+      unsizedReads.delete(url);
+    }
+    return undefined;
+  });
+  return turn;
+}
+
+/** Per file, the last whole-file suffix of unknown size being read. */
+const unsizedReads = new Map<string, Promise<void>>();
+
+// eslint-disable-next-line max-lines-per-function
+async function streamedTail(
+  url: string,
+  n: number,
+  response: Response,
+  asked: string,
+  declared: number | undefined
+) {
   const whole = `${asked} with HTTP 200 (the whole file`;
   if (declared !== undefined && declared > WHOLE_OBJECT_PREFIX) {
     cancel(response);

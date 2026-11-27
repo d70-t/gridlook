@@ -276,6 +276,11 @@ function tropopause(
     if (!high || lapse(at, at + 1) > 2) {
       continue;
     }
+    // No level with a value within the 2 km above: the criterion cannot be
+    // tested there, and no higher level is the lowest that meets it.
+    if (z[at + 1] - z[at] >= 2000) {
+      return undefined;
+    }
     // Every level within 2 km above, and the point 2 km above itself
     // (interpolated): the mean lapse rate stays ≤ 2 K/km. A profile that does
     // not reach 2 km above cannot confirm it. The end moves up with the
@@ -380,11 +385,22 @@ function quantity(column: TColumn) {
     (unknownScale && !/anomal/.test(column.standardName?.toLowerCase() ?? ""))
       ? undefined
       : temperatureDifference(column);
+  // A temperature that is not the medium's own (its dew or frost point, its
+  // freezing or boiling point, a brightness temperature): none of its
+  // diagnostics, whatever its units.
+  const other =
+    /dew_point|frost_point|wet_bulb|freezing|melting|boiling|brightness|equivalent/.test(
+      named
+    );
   return {
     // An anomaly is no temperature: no isotherm, mixed layer or tropopause of
     // it.
     temperature:
-      isTemperature(column) && !difference && !dispersion && !unknownScale,
+      isTemperature(column) &&
+      !difference &&
+      !dispersion &&
+      !unknownScale &&
+      !other,
     difference,
     // The standard name decides when there is one: a long name's words are no
     // quantity.

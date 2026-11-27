@@ -106,25 +106,43 @@ async function grid(
   xs: number[],
   bounds: number[],
   values: number[],
-  layout: TLayout = "ordinary"
+  layout: TLayout = "ordinary",
+  projected = false
 ) {
   const s: TStore = new Map();
   await zarr.create(zarr.root(s), { attributes: {} });
-  const [y, x] = rotated ? ["rlat", "rlon"] : ["lat", "lon"];
+  const [y, x] = projected
+    ? ["y", "x"]
+    : rotated
+      ? ["rlat", "rlon"]
+      : ["lat", "lon"];
   await put(s, y, [2], [y], [0, 10], {
-    standard_name: rotated ? "grid_latitude" : "latitude",
-    units: rotated ? "degrees" : "degrees_north",
+    standard_name: projected
+      ? "projection_y_coordinate"
+      : rotated
+        ? "grid_latitude"
+        : "latitude",
+    units: projected ? "m" : rotated ? "degrees" : "degrees_north",
     bounds: "yb",
   });
   await put(s, "yb", [2, 2], [y, "nv"], [-5, 5, 5, 15]);
   await put(s, x, [xs.length], [x], xs, {
-    standard_name: rotated ? "grid_longitude" : "longitude",
-    units: rotated ? "degrees" : "degrees_east",
+    standard_name: projected
+      ? "projection_x_coordinate"
+      : rotated
+        ? "grid_longitude"
+        : "longitude",
+    units: projected ? "m" : rotated ? "degrees" : "degrees_east",
     bounds: "xb",
   });
   await put(s, "xb", [xs.length, 2], [x, "nv"], bounds);
   await put(s, "time", [1], ["time"], [0], { units: "days since 2000-01-01" });
-  if (rotated) {
+  if (projected) {
+    await put(s, "pole", [], [], [], {
+      grid_mapping_name: "mercator",
+      proj4: "+proj=merc +a=6378137 +b=6378137 +units=m +no_defs",
+    });
+  } else if (rotated) {
     await put(s, "pole", [], [], [], {
       grid_mapping_name: "rotated_latitude_longitude",
       grid_north_pole_latitude: 90,
@@ -134,7 +152,7 @@ async function grid(
   }
   await put(s, "v", [1, 2, xs.length], ["time", y, x], [...values, ...values], {
     units: "K",
-    ...(rotated ? { grid_mapping: "pole" } : {}),
+    ...(rotated || projected ? { grid_mapping: "pole" } : {}),
   });
   relayout(s, layout, bounds);
   let fetched = 0;
@@ -195,6 +213,27 @@ it("prices a rotated locator's stored sides before reading them", async () => {
     )
   ).estimate;
   expect(quote.decodedBytes).toBeGreaterThanOrEqual(8 * 2 ** 20);
+});
+
+it("prices a projected grid's stored axis bounds before reading them", async () => {
+  const x = Array.from({ length: 10 }, (_, i) => -4500 + 1000 * i);
+  const sharded = await grid(
+    false,
+    x,
+    x.flatMap((a) => [a - 500, a + 500]),
+    x.map(() => 10),
+    "ten-shards",
+    true
+  );
+  const plan = await planAnalysis(
+    sharded.c,
+    query({ kind: "point", lon: 0, lat: 0 }),
+    new ReadContext()
+  );
+  expect(plan.estimate.needsConfirmation).toBe(true);
+  expect(plan.estimate.decodedBytes).toBeGreaterThanOrEqual(80 * 2 ** 20);
+  expect(sharded.fetched()).toBe(0);
+  expect((await plan.execute()).values).toEqual([10]);
 });
 
 it.each([

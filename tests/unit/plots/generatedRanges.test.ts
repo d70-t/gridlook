@@ -80,3 +80,75 @@ it("refuses a generator with a step of zero", async () => {
     /step of 0/
   );
 });
+
+// eslint-disable-next-line max-lines-per-function
+it("names generated objects and offsets as Python evaluates their templates", async () => {
+  const root = "https://example.test/";
+  const objects: Record<string, number[]> = {
+    "run0.0": [45, 68],
+    "run1.0": [45, 68],
+    run0: [97, 98],
+    run1: [97, 98],
+    run00: [45, 68],
+    run01: [45, 68],
+    file: [45, 68],
+  };
+  for (const [name, dimension, url, offset] of [
+    ["division", { start: 0, stop: 2, step: 1 }, "run{{ i / 1 }}", "{{i}}"],
+    [
+      "format",
+      { start: 1, stop: -1, step: -1 },
+      'run{{ "%02d" | format(i) }}',
+      "{{i}}",
+    ],
+    [
+      "large",
+      { start: 0, stop: 2, step: 1 },
+      "file",
+      "{{ (1700000000000000000 + i) - 1700000000000000000 }}",
+    ],
+  ] as const) {
+    const manifest = `${root}${name}.json`;
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+      const request = new Request(input);
+      if (request.url === manifest) {
+        return Response.json({
+          version: 1,
+          refs: {
+            "zarr.json": JSON.stringify({
+              zarr_format: 3,
+              node_type: "group",
+              attributes: {},
+            }),
+            "t/zarr.json": meta,
+          },
+          gen: [
+            {
+              key: "t/c/{{i}}",
+              url: root + url,
+              dimensions: { i: dimension },
+              offset,
+              length: "1",
+            },
+          ],
+        });
+      }
+      const row = objects[request.url.slice(root.length)];
+      const [, a] = /^bytes=(\d+)-/.exec(request.headers.get("Range")!)!;
+      return new Response(Uint8Array.of(row[Number(a)]), {
+        status: 206,
+        headers: { "Content-Range": `bytes ${a}-${a}/2` },
+      });
+    });
+    const store = await createReferenceStore(`reference+${manifest}`, {
+      fresh: true,
+    });
+    const array = await zarr.open(zarr.root(store).resolve("t"), {
+      kind: "array",
+    });
+    expect(
+      Array.from((await zarr.get(array)).data as Uint8Array),
+      name
+    ).toEqual([45, 68]);
+  }
+});

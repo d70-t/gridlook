@@ -32,11 +32,14 @@ import {
   columnVertical,
   copyPicker,
   copyPickerBytes,
+  copyRunsOf,
+  withSectionCopies,
   estimateFor,
   JOBS_PER_BATCH,
   levelIndex,
   layoutNote,
   levelNote,
+  longestPart,
   locatePoint,
   planFormulaTerms,
   preparedSectionColumns,
@@ -58,6 +61,7 @@ import {
   timeRange,
   verticalOf,
   withCellCopies,
+  withCopies,
   type TPlannedAnalysis,
 } from "./operations.ts";
 import { REGION_KINDS, coverHealpixRegion } from "./regionCover.ts";
@@ -307,6 +311,8 @@ export async function planTimeDepth(
   if (located.positions.length) {
     setSpatialRuns(context, runs, located.positions);
   }
+  // Each copy of the cell, read only where the ones before it are missing.
+  const copyRuns = copyRunsOf(context, runs, located);
   // Physical levels from formula terms are used when they do not vary with
   // time; otherwise the axis is labelled as model levels.
   let termPlans =
@@ -321,7 +327,11 @@ export async function planTimeDepth(
   }
   const chunks =
     (located.positions.length
-      ? countRunChunks(runs, context.array.chunks)
+      ? countRunChunks(runs, context.array.chunks) +
+        copyRuns.reduce(
+          (n, r) => n + countRunChunks(r, context.array.chunks),
+          0
+        )
       : 0) + termChunks(termPlans);
   // Values per time step: a whole column shares each chunk's cost.
   const layout = layoutNote(context, chunks, nt);
@@ -410,18 +420,29 @@ export async function planTimeDepth(
         (part, partSignal) => {
           // The spatial runs as they are (their chunk directory is built
           // once for every part); only the time run is the part's own.
-          const partRuns = runs.map((r, d) => (d === timeAxis ? [part] : r));
-          return visitRuns(
-            read,
-            context.array,
-            context.codec,
-            partRuns,
-            (_, index, value) => {
-              values[(index[timeAxis] - start) * nk + index[vertical.axis]] =
-                value;
-            },
-            counters,
-            partSignal
+          const partOf = (list: typeof runs) =>
+            list.map((r, d) => (d === timeAxis ? [part] : r));
+          const [from, to] = [(part[0] - start) * nk, (part[1] - start) * nk];
+          return withCopies(
+            runs,
+            copyRuns,
+            () => values.slice(from, to).some(Number.isNaN),
+            (list, fill) =>
+              visitRuns(
+                read,
+                context.array,
+                context.codec,
+                partOf(list),
+                (_, index, value) => {
+                  const at =
+                    (index[timeAxis] - start) * nk + index[vertical.axis];
+                  if (!fill || Number.isNaN(values[at])) {
+                    values[at] = value;
+                  }
+                },
+                counters,
+                partSignal
+              )
           );
         },
         (from, to) => ({
@@ -439,6 +460,11 @@ export async function planTimeDepth(
 // --------------------------------------------------------- band/sector means
 
 type TBins = {
+  /**
+   * Per point, its repeated cell's kept point, or −1 (halo or fold copies
+   * appended after the kept cells, read where those are missing).
+   */
+  classOf?: Int32Array;
   /** Bin of each selected cell (by point) or by index. */
   binOf: (index: Float64Array, point: number) => number;
   weightOf: (index: Float64Array, point: number) => number;
@@ -941,10 +967,25 @@ async function nativeBins(
     ? await nativeAreas(grid, geometry, signal)
     : undefined;
   const rank = grid.axes.length;
-  const positions = new Float64Array(cells.length * rank);
-  const bins = new Int32Array(cells.length);
-  const weights = new Float64Array(cells.length);
+  // Each cell's halo or fold copies, after the cells: one physical cell, its
+  // value from the first copy that has one, its area likewise.
+  const copies = cells.flatMap((cell, at) =>
+    (geometry.copies?.get(cell) ?? []).map((copy) => [at, copy] as const)
+  );
+  const total = cells.length + copies.length;
+  const positions = new Float64Array(total * rank);
+  const bins = new Int32Array(total);
+  const weights = new Float64Array(total);
   const binWeight = new Float64Array(layout.nbins);
+  const areaOf = (cell: number) => {
+    for (const c of [cell, ...(geometry.copies?.get(cell) ?? [])]) {
+      const w = areas?.[c] ?? 0;
+      if (Number.isFinite(w) && w > 0) {
+        return w;
+      }
+    }
+    return 0;
+  };
   let unweighed = 0;
   cells.forEach((cell, at) => {
     nativePositions(grid, cell).forEach(
@@ -953,7 +994,7 @@ async function nativeBins(
     const bin = layout.binOf(
       layout.offsetOf(geometry.lat[cell], geometry.lon[cell])
     );
-    const w = areas?.[cell] ?? 0;
+    const w = areaOf(cell);
     bins[at] = bin;
     weights[at] = Number.isFinite(w) && w > 0 && bin >= 0 ? w : 0;
     unweighed += areas && bin >= 0 && !weights[at] ? 1 : 0;
@@ -961,7 +1002,18 @@ async function nativeBins(
       binWeight[bin] += weights[at];
     }
   });
+  const classOf = copies.length ? new Int32Array(total).fill(-1) : undefined;
+  copies.forEach(([kept, copy], k) => {
+    const at = cells.length + k;
+    nativePositions(grid, copy).forEach(
+      (p, d) => (positions[at * rank + d] = p)
+    );
+    [bins[at], weights[at]] = [bins[kept], weights[kept]];
+    classOf![kept] = kept;
+    classOf![at] = kept;
+  });
   return {
+    ...(classOf ? { classOf } : {}),
     binOf: (_, point) => bins[point],
     ...(unweighed ? { unweighed } : {}),
     weightOf: (_, point) => weights[point],
@@ -1308,6 +1360,12 @@ export async function planHovmollerBand(
       // one chunk can touch, capacity grown ×2, plus the slot index.
       accumulatorBytes(chunks, Math.min(chunkT, nt), width, context) +
         (bins.retainedBytes ?? 0) +
+        // Repeated cells' values held while each part in flight is read.
+        REGION_LOOKAHEAD *
+          copyPickerBytes(
+            bins,
+            Math.min(nt, longestPart(context, start, stop))
+          ) +
         runSelectionBytes(bins.runs) +
         (bins.points ? pointSelectionBytes(bins.points) : 0)
     ),
@@ -1374,6 +1432,8 @@ export async function planHovmollerBand(
           const partRuns = bins.runs.map((r, d) =>
             d === timeAxis ? [part] : r
           );
+          // One value of each repeated cell per date: its first valid copy.
+          const picked = copyPicker(bins, part[1] - part[0]);
           await visitRuns(
             read,
             context.array,
@@ -1381,7 +1441,11 @@ export async function planHovmollerBand(
             partRuns,
             (ordinal, index, value, point) => {
               const bin = bins.binOf(index, point);
-              if (Number.isNaN(value) || bin < 0) {
+              if (
+                bin < 0 ||
+                picked?.hold(point, index[timeAxis] - part[0], value) ||
+                Number.isNaN(value)
+              ) {
                 return;
               }
               const w = bins.weightOf(index, point);
@@ -1392,6 +1456,16 @@ export async function planHovmollerBand(
             fold.done,
             bins.points
           );
+          const none = new Float64Array(0);
+          picked?.each((point, k, value) => {
+            const w = bins.weightOf(none, point);
+            if (!Number.isNaN(value) && w > 0) {
+              const at =
+                (part[0] + k - start) * width + bins.binOf(none, point);
+              sum[at] += w * value;
+              weight[at] += w;
+            }
+          });
         },
         (from, to) => ({
           values: Array.from({ length: to - from }, (_, k) => mean(from + k)),
@@ -1449,12 +1523,14 @@ export async function planHovmollerPath(
   if (level !== undefined) {
     base[context.vertical!.axis] = [[level, level + 1]];
   }
-  const selection = sectionSelection(context, unique, base);
+  const { all, copiesOf, copyKeys } = withSectionCopies(unique, columns.copies);
+  const selection = sectionSelection(context, all, base);
   const chunks = selection
     ? countRunChunks(selection.runs, context.array.chunks, selection.points)
     : 0;
   return {
-    estimate: estimateFor(context, chunks, nt * ns, []),
+    // The copies' values are held per part until their columns are filled.
+    estimate: estimateFor(context, chunks, nt * ns, [], copyKeys.size * nt * 8),
     // eslint-disable-next-line max-lines-per-function
     async execute(signal, hooks) {
       const started = performance.now();
@@ -1509,21 +1585,33 @@ export async function planHovmollerPath(
         ns,
         signal,
         hooks,
-        (part, partSignal) => {
+        async (part, partSignal) => {
           // The spatial runs as they are (their chunk directory is built
           // once for every part); only the time run is the part's own.
           const partRuns = selection!.runs.map((r, d) =>
             d === timeAxis ? [part] : r
           );
-          return visitRuns(
+          // Copies' values by copy and date, until the part is read.
+          const held = new Map<string, Float64Array>();
+          const rows = part[1] - part[0];
+          await visitRuns(
             read,
             context.array,
             context.codec,
             partRuns,
             (_, index, value) => {
+              const key = sampleColumnKey(context, index);
+              if (copyKeys.has(key)) {
+                let column = held.get(key);
+                if (!column) {
+                  column = new Float64Array(rows).fill(Number.NaN);
+                  held.set(key, column);
+                }
+                column[index[timeAxis] - part[0]] = value;
+                return;
+              }
               const row = (index[timeAxis] - start) * ns;
-              for (const s of samplesOf.get(sampleColumnKey(context, index)) ??
-                []) {
+              for (const s of samplesOf.get(key) ?? []) {
                 values[row + s] = value;
               }
             },
@@ -1532,6 +1620,20 @@ export async function planHovmollerPath(
             undefined,
             selection!.points
           );
+          // Each kept column's missing dates from its first valid copy.
+          for (const [key, names] of copiesOf) {
+            for (let t = 0; t < rows; t++) {
+              const row = (part[0] + t - start) * ns;
+              for (const s of samplesOf.get(key) ?? []) {
+                for (const name of names) {
+                  if (!Number.isNaN(values[row + s])) {
+                    break;
+                  }
+                  values[row + s] = held.get(name)?.[t] ?? Number.NaN;
+                }
+              }
+            }
+          }
         },
         (from, to) => ({
           values: values.slice(from, to),
@@ -1691,7 +1793,13 @@ export async function planDistribution(
       chunks,
       nbins,
       empty ? [empty] : [],
-      selection.storedCells * 16 +
+      // The values and weights kept, the selection's points (and their
+      // chunk groups), each cell's weight and centre, the mapped cells.
+      selection.storedCells * (16 + 24) +
+        (selection.points ? pointSelectionBytes(selection.points) : 0) +
+        (selection.positionOf && selection.storedCells <= MAX_FIELD_CELLS
+          ? selection.storedCells * 3 * 8
+          : 0) +
         runSelectionBytes(selection.runs) +
         copyPickerBytes(selection, 1)
     ),

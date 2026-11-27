@@ -1318,6 +1318,7 @@ function observedAxis(
  * field: an ensemble member by its identifier, as CF's `realization`.
  */
 
+// eslint-disable-next-line max-lines-per-function
 function withSelections(result: TAnalysisResult, arrays: TExportArray[]) {
   let out = arrays;
   for (const chosen of result.selections ?? []) {
@@ -1355,6 +1356,27 @@ function withSelections(result: TAnalysisResult, arrays: TExportArray[]) {
     const scalar = memberScalar(chosen, name);
     addCoordinate(valueArray(out), name);
     out = [...out, scalar];
+    // Whether the identifier is known, apart from it: a missing one stored as
+    // its type's fill can equal a real identifier (−9223372036854775806 is a
+    // valid int64).
+    if (chosen.id !== undefined || chosen.idMissing) {
+      const known = freeName(out, `${name}_known`);
+      addCoordinate(valueArray(out), known);
+      out = [
+        ...out,
+        {
+          name: known,
+          dims: [],
+          type: "i4",
+          data: Int32Array.of(chosen.idMissing ? 0 : 1),
+          attrs: {
+            long_name: `whether ${name} is the source's identifier`,
+            flag_values: [0, 1],
+            flag_meanings: "missing_in_source known",
+          },
+        },
+      ];
+    }
   }
   return out;
 }

@@ -13,6 +13,7 @@ import {
   durationSeconds,
   encodeTimeValue,
   parseTimeAxis,
+  timeLabels,
 } from "@/lib/analysis/calendar.ts";
 import {
   cellMethodSteps,
@@ -333,8 +334,33 @@ function pairObservations(reference: TDatedSeries, other: TDatedSeries) {
         Number.isFinite(other.values[partner])
     )
     .sort((x, y) => a.raw[x.index] - a.raw[y.index]);
+  // A pair after reference rows that make none (missing, unmatched): the line
+  // of their differences breaks there.
+  const order = a.raw
+    .map((_, index) => index)
+    .sort((x, y) => a.raw[x] - a.raw[y]);
+  const rank = new Map(order.map((index, k) => [index, k]));
+  // Each cell's ends as dates, all decoded at once.
+  const cells =
+    mode === "intervals" && a.bounds
+      ? timeLabels({ raw: a.bounds, units: a.units, calendar: a.calendar })
+      : undefined;
   return {
     keys: rows.map(({ index }) => preciseLabel(reference, index)),
+    breaks: rows.map(
+      ({ index }, k) =>
+        k > 0 && rank.get(index)! - rank.get(rows[k - 1].index)! > 1
+    ),
+    // Each pair's cell, its start and end: two intervals ending at one time
+    // are told apart by them.
+    ...(cells
+      ? {
+          cells: rows.map(({ index }) => [
+            cells[2 * index],
+            cells[2 * index + 1],
+          ]),
+        }
+      : {}),
     by: mode === "intervals" ? ("interval" as const) : ("time" as const),
     calendar: reference.calendar,
     reference: rows.map(({ index }) => reference.values[index]),
@@ -498,8 +524,21 @@ function pairAt(
   const b = keyed(other, length);
   const order = byTime(reference.calendar);
   const keys = [...a.keys()].filter((key) => b.has(key)).sort(order);
+  // Every date either series names, valued or not: a pair after dates that
+  // make none breaks the line of differences.
+  const named = [
+    ...new Set(
+      [...reference.dates, ...other.dates]
+        .filter(Boolean)
+        .map((date) => date.slice(0, length))
+    ),
+  ].sort(order);
+  const rank = new Map(named.map((key, k) => [key, k]));
   return {
     keys,
+    breaks: keys.map(
+      (key, k) => k > 0 && rank.get(key)! - rank.get(keys[k - 1])! > 1
+    ),
     by,
     calendar: reference.calendar,
     reference: keys.map((key) => a.get(key)!),
@@ -880,6 +919,8 @@ function* pairRows(
   reference: { label: string; units?: string }
 ) {
   const converted = convertedColumn(rows);
+  // Interval pairs with their cells' ends.
+  const cells = rows.some((row) => "cells" in row.pair && row.pair.cells);
   yield [
     "plot",
     "reference_plot",
@@ -889,13 +930,26 @@ function* pairRows(
     withUnits("plot_value", reference.units),
     withUnits("difference", reference.units),
     ...converted,
+    ...(cells ? ["cell_start", "cell_end"] : []),
   ];
   for (const row of rows) {
     const { keys, by } = row.pair;
     const from = converted.length ? [row.from] : [];
+    const own =
+      "cells" in row.pair ? (row.pair.cells as string[][]) : undefined;
     for (let at = 0; at < keys.length; at++) {
       const [r, o] = [row.pair.reference[at], row.pair.other[at]];
-      yield [row.label, reference.label, keys[at], by, r, o, o - r, ...from];
+      yield [
+        row.label,
+        reference.label,
+        keys[at],
+        by,
+        r,
+        o,
+        o - r,
+        ...from,
+        ...(cells ? (own?.[at] ?? ["", ""]) : []),
+      ];
     }
   }
 }

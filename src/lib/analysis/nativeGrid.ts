@@ -1139,7 +1139,15 @@ async function projectedCoordinates(
     lon: { name: `longitude (from x/y, ${name}${edges})`, array: computed.lon },
     bounds: computed.bounds,
     projection: name,
-    locate: computed.locate,
+    // Its x/y axes and their bounds, read before a point is located.
+    locate: {
+      ...computed.locate,
+      coldBytes: () =>
+        [x, bx, y, by].reduce(
+          (total, array) => total + storedColdBytes(dataset, array),
+          0
+        ),
+    },
     refinedAreas: {
       dims: computed.locate.dims,
       read: computed.refinedAreas,
@@ -1220,10 +1228,8 @@ async function rotatedCoordinates(
   ]);
   const cold = (array: TAnalysisArray | undefined) =>
     !array || isDecoded(dataset, array) ? 0 : chunkCount(array);
-  // What those reads fetch: whole declared chunks and their shard indexes.
   const coldBytes = (array: TAnalysisArray | undefined) =>
-    cold(array) &&
-    cold(array) * chunkByteSize(array!) + wholeIndexBytes(array!);
+    storedColdBytes(dataset, array);
   // Read when the coordinates are first needed (after admission), and counted
   // before.
   const lazy = (axis: TAnalysisArray, sides?: TAnalysisArray) => ({
@@ -2064,8 +2070,14 @@ function geometryLoader(
     geometryReady: () => geometryCache.get(key)?.bytes !== undefined,
     // Reads still to make: none while loaded or being loaded by another
     // plot; otherwise only arrays whose decoded values are not shared yet.
+    // Their stored bytes and shard indexes, an axis locator's sides too.
     geometryBytesNow: () =>
-      geometryCache.has(key) ? 0 : (source.locate?.coldBytes?.() ?? 0),
+      geometryCache.has(key)
+        ? 0
+        : sourceArrays(source).reduce(
+            (total, array) => total + storedColdBytes(dataset, array),
+            source.locate?.coldBytes?.() ?? 0
+          ),
     geometryReadsNow: () =>
       geometryCache.has(key)
         ? 0
@@ -2095,6 +2107,20 @@ function sourceArrays(source: TGeometrySource) {
     source.mesh?.faceLon,
     // A measure is read for area plots only (measureAreaLoader).
   ].filter((array): array is TAnalysisArray => Boolean(array));
+}
+
+/**
+ * What reading a stored array whole fetches while it is not decoded yet: its
+ * whole declared chunks (padding included) and the shard indexes in front of
+ * them. Nothing for a computed one (its stored arrays say theirs).
+ */
+function storedColdBytes(
+  dataset: TAnalysisDataset,
+  array: TAnalysisArray | undefined
+) {
+  return !array || array.coldReads || isDecoded(dataset, array)
+    ? 0
+    : chunkCount(array) * chunkByteSize(array) + wholeIndexBytes(array);
 }
 
 function chunkCount(array: TAnalysisArray) {

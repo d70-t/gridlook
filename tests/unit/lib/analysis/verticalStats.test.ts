@@ -356,3 +356,52 @@ describe("review of interim37: column diagnostics of what was measured", () => {
     ).toBeUndefined();
   });
 });
+
+describe("vertical statistics of the quantity measured", () => {
+  const pressure = [1000, 925, 850, 700, 500, 400, 300, 250, 200, 150, 100, 50];
+  it("finds no tropopause in a dew point", () => {
+    const dew = [268, 255, 243, 230, 219, 210, 201, 176, 176, 176, 176, 176];
+    const stats = verticalStatistics({
+      z: pressure,
+      values: dew,
+      zUnits: "hPa",
+      positive: "down",
+      units: "K",
+      standardName: "dew_point_temperature",
+    });
+    expect(stat(stats, "tropopause")).toBeUndefined();
+  });
+
+  it("gives no marine diagnostics of the freezing point of sea water", () => {
+    const z = [0, 10, 100, 300, 500, 700];
+    const stats = verticalStatistics({
+      z,
+      values: z.map((d) => -1.9 - 0.00075 * d),
+      zUnits: "m",
+      positive: "down",
+      units: "degC",
+      standardName: "freezing_temperature_of_sea_water",
+    });
+    for (const id of ["mld", "thermocline", "heat-700"]) {
+      expect(stat(stats, id), id).toBeUndefined();
+    }
+  });
+
+  it("finds no tropopause where no level samples the 2 km above it", () => {
+    const z = [0, 5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000];
+    const T = [288, 255.5, 247.5, 249.5, 251, 251, 251, 251, 251];
+    const column = (values: number[]) =>
+      verticalStatistics({
+        z,
+        values,
+        zUnits: "m",
+        positive: "up",
+        units: "K",
+        standardName: "air_temperature",
+      });
+    expect(stat(column(T), "tropopause")?.value).toBe(6000);
+    // 6 and 7 km missing: 5 km's own 2 km cannot be tested.
+    const gap = T.map((t, k) => (k === 2 || k === 3 ? NaN : t));
+    expect(stat(column(gap), "tropopause")).toBeUndefined();
+  });
+});

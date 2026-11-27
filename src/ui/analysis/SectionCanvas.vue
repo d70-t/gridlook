@@ -19,7 +19,7 @@ import {
   edgesFromBounds,
   layerSpans,
 } from "./pathMarks.ts";
-import { drawBarbGrid, windLine } from "./windBarbs.ts";
+import { barbLevels, drawBarbGrid, windLine } from "./windBarbs.ts";
 
 import {
   ANALYSIS_KINDS,
@@ -608,7 +608,8 @@ function hoverAt(event: PointerEvent) {
   const p = prepared;
   const element = canvas.value;
   hover.value = undefined;
-  if (!p || !element || p.value.empty) {
+  // An empty field still reads its cells' status and the wind there.
+  if (!p || !element || (p.value.empty && !props.wind)) {
     return;
   }
   const rect = element.getBoundingClientRect();
@@ -710,7 +711,11 @@ function drawColourBar(
     context.fillStyle = missing;
     context.fillRect(barX, MARGIN.top, 12, 12);
     context.fillStyle = muted;
-    context.fillText("No data", barX - 2, MARGIN.top + 26);
+    context.fillText(
+      props.result.partial ? "Not read yet" : "No data",
+      barX - 2,
+      MARGIN.top + 26
+    );
     return;
   }
   // Distinct entries: a stored cell without a value, and no stored cell;
@@ -858,8 +863,11 @@ function drawOn(
     context.fillStyle = plotColor(element, "--plot-muted", "#4b5563");
     context.font = "12px sans-serif";
     context.textAlign = "center";
+    // Still being read is not read and missing.
     context.fillText(
-      "No valid values along this path at this time.",
+      props.result.partial
+        ? "No values along this path read yet."
+        : "No valid values along this path at this time.",
       MARGIN.left + plotW / 2,
       MARGIN.top + plotH / 2
     );
@@ -871,8 +879,9 @@ function drawOn(
       ratio,
       hatch: plotColor(element, "--plot-muted", "#64748b"),
     });
-    drawWind(context, px, py, element, { plotW, plotH });
   }
+  // The wind has its own values: drawn whether or not the field has any.
+  drawWind(context, px, py, element, { plotW, plotH });
   drawAxes(context, p, { width, height, plotW, plotH }, px, py);
   drawColourBar(context, p, plotH, width, missing);
 }
@@ -910,8 +919,7 @@ function drawWind(
     .map((d) => inside(px(d), MARGIN.left, frame.plotW));
   const yOf = (s: number, k: number) =>
     inside(py(levelOf(s, k)), MARGIN.top, frame.plotH);
-  // Levels thinned along a representative (middle) column.
-  const ys = Array.from({ length: nk }, (_, k) => yOf(Math.floor(ns / 2), k));
+  const ys = barbLevels(ns, nk, yOf);
   drawBarbGrid(
     context,
     {

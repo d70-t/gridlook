@@ -68,8 +68,9 @@ it("a referenced shard's trailing index is read against the reference's length",
   seen.length = 0;
   const whole = await store({ w: [file] }, seen);
   const end = await whole.getRange!("/w", { suffixLength: 4 });
+  // Asked as a suffix: a HEAD's length may be of a coded body.
   expect(Array.from(end!)).toEqual([34, 35, 36, 37]);
-  expect(seen).toEqual(["HEAD -", "GET bytes=34-37"]);
+  expect(seen).toEqual(["GET bytes=-4"]);
 });
 
 it("a whole-object suffix of unknown length is asked and checked as one", async () => {
@@ -353,5 +354,36 @@ it("a whole-file suffix holds no more than the file it ends", async () => {
     globalThis.Uint8Array = U8;
   }
   expect((await out.arrayBuffer()).byteLength).toBe(size);
-  expect(allocated).toBeLessThan(4 * size);
+  // The ring, the bytes returned and the runtime's own copies of a 64 KiB
+  // body: nothing near the 32 MiB asked for.
+  expect(allocated).toBeLessThan(8 * size);
+});
+
+it("concurrent whole-file suffixes of unknown size finish within the allowance", async () => {
+  resetSkippedBytes();
+  const size = 48 * 2 ** 20;
+  const block = new Uint8Array(2 ** 20).fill(7);
+  const body = () => {
+    let sent = 0;
+    return new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        controller.enqueue(block);
+        sent += block.length;
+        if (sent >= size) {
+          controller.close();
+        }
+      },
+    });
+  };
+  const outcomes = await Promise.all(
+    Array.from({ length: 8 }, () =>
+      exactSuffix(file, 1, new Response(body(), { status: 200 })).then(
+        () => "read",
+        () => "refused"
+      )
+    )
+  );
+  // Five 48 MiB skips fit the 256 MiB allowance, read one after another.
+  expect(outcomes.filter((o) => o === "read")).toHaveLength(5);
 });

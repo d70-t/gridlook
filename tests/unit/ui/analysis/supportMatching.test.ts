@@ -179,3 +179,32 @@ it("independent review of interim41: an undated row of a two-axis result pairs n
   expect(paired.values.slice(2, 4).every(Number.isNaN)).toBe(true);
   expect(paired.values.filter(Number.isFinite)).toHaveLength(4);
 });
+
+it("keeps the cells of interval pairs ending at one time in the CSV", async () => {
+  const { compareViewCsv } = await import("@/ui/analysis/compare.ts");
+  // Two sums ending at 1 Jan 01:00, over one hour and over two.
+  const hour = 1 / 24;
+  const series = (values: number[]) => ({
+    dates: ["2001-01-01 01:00:00", "2001-01-01 01:00:00"],
+    values,
+    time: {
+      raw: [hour, hour],
+      units,
+      calendar: "standard",
+      bounds: [0, hour, -hour, hour],
+      cellMethods: "time: sum",
+      dimension: "time",
+    },
+  });
+  const pair = pairSeries(series([1, 10]), series([3, 18]));
+  expect(pair.reference).toEqual([1, 10]);
+  const csv = compareViewCsv(
+    "bias",
+    [{ label: "P2", colour: "#000", pair } as never],
+    "P1"
+  ).split("\n");
+  expect(csv[0]).toMatch(/,cell_start,cell_end$/);
+  // Each row its own cell: one hour, then two.
+  expect(csv[1]).toMatch(/,2,2001-01-01 00:00(:00)?,2001-01-01 01:00(:00)?$/);
+  expect(csv[2]).toMatch(/,8,2000-12-31 23:00(:00)?,2001-01-01 01:00(:00)?$/);
+});

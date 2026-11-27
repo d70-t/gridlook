@@ -287,3 +287,61 @@ it("refuses a file republished while the recipe opens it, without reading it who
     "False",
   ]);
 });
+
+// An origin that answers the first byte range with ETag "A", then ignores
+// ranges (200, the whole file) and is republished as "B" before the
+// recipe's whole-file read.
+const REPUBLISHED_WHOLE = String.raw`
+import io, sys, threading
+from types import SimpleNamespace
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+block = sys.argv[1]
+state, seen = {"replies": 0}, []
+class H(SimpleHTTPRequestHandler):
+    def log_message(self, *a): pass
+    def send_head(self):
+        first = state["replies"] == 0
+        state["replies"] += 1
+        tag = '"A"' if state["replies"] <= 2 else '"B"'
+        wanted = self.headers.get("If-Match")
+        seen.append(wanted or "-")
+        if wanted and wanted != tag:
+            self.send_response(412)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return io.BytesIO(b"")
+        data = bytes(range(64)) if tag == '"A"' else bytes(range(100, 164))
+        body = data[0:1] if first else data
+        self.send_response(206 if first else 200)
+        if first:
+            self.send_header("Content-Range", f"bytes 0-0/{len(data)}")
+        self.send_header("ETag", tag)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        return io.BytesIO(body)
+s = ThreadingHTTPServer(("127.0.0.1", 0), H)
+threading.Thread(target=s.serve_forever, daemon=True).start()
+url = f"http://127.0.0.1:{s.server_port}/f.nc"
+code = "\n".join(l.removeprefix("# ") for l in block.split("\n"))
+xr = SimpleNamespace(open_dataset=lambda f, *a, **k: f.read(8))
+try:
+    exec(code.replace(${JSON.stringify(JSON.stringify(URL))}, repr(url)), {"xr": xr})
+    print("opened")
+except RuntimeError as error:
+    print("refused", error)
+print(seen[-1])
+`;
+
+it("reads the whole file only as the publication its ranges began on", () => {
+  const lines = exampleScript().split("\n");
+  const from = lines.findIndex((l) => l.startsWith("# import io, re"));
+  const to = lines.findIndex((l) => l.includes("ds = xr.open_dataset(whole"));
+  const block = lines.slice(from, to + 1).join("\n");
+  const out = execFileSync("python3", ["-I", "-c", REPUBLISHED_WHOLE, block], {
+    encoding: "utf8",
+  });
+  expect(out.trim().split("\n")).toEqual([
+    "refused the file was republished while it was opened; open it again",
+    '"A"',
+  ]);
+});

@@ -116,7 +116,7 @@ it("review of interim45: a remote NetCDF recipe reads the whole file when the se
   );
   expect(script).toContain("# except (OSError, ValueError):");
   expect(script).toContain(
-    "#     with urllib.request.urlopen(url) as response:"
+    "#         response = urllib.request.urlopen(urllib.request.Request(url, headers=headers))"
   );
   expect(script).toContain("#     ds = xr.open_dataset(whole)");
   expect(script).toContain("#     limit, total = 4 * 1024**3, 0");

@@ -317,6 +317,15 @@ it("a member named by its declared missing value matches none and exports missin
   ).arrays.find((a) => a.attrs.gridlook_index === 1 && a.dims.length === 0)!;
   expect(member.type).toBe(known.type);
   expect(member.attrs.long_name).toMatch(/missing in the source/);
+  // Told apart from a real identifier equal to the fill by a flag beside it.
+  const flag = (arrays: ReturnType<typeof exportModel>["arrays"]) =>
+    Array.from(
+      arrays.find((a) => a.name.endsWith("_known"))!.data as Int32Array
+    );
+  expect(flag(exportModel(r).arrays)).toEqual([0]);
+  expect(
+    flag(exportModel(await run(source, point("rain", { member: 1 }))).arrays)
+  ).toEqual([1]);
   // Member 1 (stored 1 + 100) still pairs with the peer's 101.
   const one = partnerQuery(
     point("rain", { member: 1 }) as never,
