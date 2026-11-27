@@ -144,6 +144,14 @@ export function continueResult(
             prefix.time.valid && rest.time.valid
               ? byRow(prefix.time.valid, rest.time.valid)
               : undefined,
+          validBounds:
+            prefix.time.validBounds && rest.time.validBounds
+              ? byRow(prefix.time.validBounds, rest.time.validBounds, 2)
+              : undefined,
+          references:
+            prefix.time.references && rest.time.references
+              ? byRow(prefix.time.references, rest.time.references)
+              : undefined,
         }
       : prefix.time;
   const query =
@@ -218,6 +226,15 @@ export function extendResult(
         kept.time.valid && piece.time.valid
           ? join(kept.time.valid, piece.time.valid)
           : undefined,
+      // Every per-date coordinate, as the dates (a one-shot read's).
+      validBounds:
+        kept.time.validBounds && piece.time.validBounds
+          ? join(kept.time.validBounds, piece.time.validBounds)
+          : undefined,
+      references:
+        kept.time.references && piece.time.references
+          ? join(kept.time.references, piece.time.references)
+          : undefined,
     };
   return {
     ...kept,
@@ -290,6 +307,9 @@ export function extendJoiner(kept: TAnalysisResult) {
     write(last.cellCoverage, piece.cellCoverage);
     write(last.time?.raw, piece.time?.raw);
     write(last.time?.bounds, piece.time?.bounds);
+    write(last.time?.valid, piece.time?.valid);
+    write(last.time?.validBounds, piece.time?.validBounds);
+    write(last.time?.references, piece.time?.references);
     high = Math.max(high, to);
     last = {
       ...last,
@@ -335,6 +355,12 @@ export function rowsBetween(result: TAnalysisResult, from: number, to: number) {
               : {}),
             ...(result.time.valid
               ? { valid: result.time.valid.slice(from, to) }
+              : {}),
+            ...(result.time.validBounds
+              ? { validBounds: result.time.validBounds.slice(from * 2, to * 2) }
+              : {}),
+            ...(result.time.references
+              ? { references: result.time.references.slice(from, to) }
               : {}),
           },
         }
@@ -453,6 +479,9 @@ export function continueJoiner(prefix: TAnalysisResult) {
     tail(last.cellCoverage, rest.cellCoverage);
     tail(last.time?.raw, rest.time?.raw);
     tail(last.time?.bounds, rest.time?.bounds);
+    tail(last.time?.valid, rest.time?.valid);
+    tail(last.time?.validBounds, rest.time?.validBounds);
+    tail(last.time?.references, rest.time?.references);
     const before = prefix.partial?.done ?? 0;
     last = {
       ...last,

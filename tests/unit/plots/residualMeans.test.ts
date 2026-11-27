@@ -48,6 +48,43 @@ it("withholds each day of a residual that only its whole determines", () => {
     // The three days together are known.
     expect(running(cells, 3)[3]).toBeCloseTo(290);
   }
+  // None of them measured: only their three-day mean is known.
+  const coarse: TCell[] = [
+    ...Array.from({ length: 7 }, (_, i): TCell => [
+      i,
+      i + 1,
+      i < 2 || i > 4 ? 290 : NaN,
+    ]),
+    [2, 5, 290],
+  ];
+  expect(running(coarse, 1).slice(2, 5)).toEqual([NaN, NaN, NaN]);
+  expect(running(coarse, 3)[3]).toBeCloseTo(290);
+});
+
+it("builds no range tables for a series without residual groups", () => {
+  const n = 131_072;
+  const raw = Array.from({ length: n }, (_, i) => i + 0.5);
+  const F = Float64Array;
+  let bytes = 0;
+  try {
+    globalThis.Float64Array = new Proxy(F, {
+      construct(t, args, target) {
+        const made = Reflect.construct(t, args, target) as Float64Array;
+        bytes += made.byteLength;
+        return made;
+      },
+    }) as typeof Float64Array;
+    const out = runningMeanOverCells(
+      raw.map(() => 285),
+      raw,
+      raw.flatMap((t) => [t - 0.5, t + 0.5]),
+      7
+    );
+    expect(out?.[n / 2]).toBe(285);
+  } finally {
+    globalThis.Float64Array = F;
+  }
+  expect(bytes).toBeLessThan(8 * 2 ** 20);
 });
 
 it("checks grouped residuals in a wide window without scanning them", () => {

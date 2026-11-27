@@ -757,7 +757,7 @@ export function runningMeanOverCells(
   const n = Math.max(1, Math.round(window));
   const before = (Math.floor((n - 1) / 2) + 0.5) * step;
   const after = (n - 1 - Math.floor((n - 1) / 2) + 0.5) * step;
-  const cells = disjointCells(values, order, bounds, step);
+  const cells = disjointCells(values, order, bounds);
   const out = new Array<number>(values.length).fill(Number.NaN);
   for (const at of order) {
     const [from, to] = [raw[at] - before, raw[at] + after];
@@ -791,6 +791,10 @@ type TNest = {
   integral?: number;
 };
 
+/** A cell longer than this many typical cells is kept whole (months vary
+ * 28–31 days). */
+const WHOLE = 1.5;
+
 /**
  * Relative difference within which a coarse mean agrees with its tiles:
  * float32's rounding.
@@ -807,7 +811,11 @@ const AGREEMENT = 2 ** -23;
  * of the nested lists, linear in the cells.
  */
 // eslint-disable-next-line max-lines-per-function
-function resolvedNesting(list: TCell[], step: number): TCell[] {
+function resolvedNesting(list: TCell[]): TCell[] {
+  // The series' own support: its typical cell, not its stamps' spacing (a
+  // two-day mean among days puts a stamp half a day from another).
+  const lengths = list.map((c) => c.high - c.low).sort((a, b) => a - b);
+  const step = lengths[Math.floor(lengths.length / 2)] ?? 0;
   // The containment forest, in list order (which is its pre-order).
   const nodes: TNest[] = [];
   const roots: TNest[] = [];
@@ -866,10 +874,9 @@ function resolvedNesting(list: TCell[], step: number): TCell[] {
       continue;
     }
     const v = (outer.v * length - integral) / rest;
-    // One gap of the series' step is a known cell like any other; a longer
-    // one, or several, only as a whole.
-    const group =
-      gaps.length > 1 || rest > step * (1 + 1e-9) ? ++groups : undefined;
+    // One gap of about the series' typical cell is a known cell like any
+    // other; a longer one, or several, only as a whole.
+    const group = gaps.length > 1 || rest > WHOLE * step ? ++groups : undefined;
     const filled: TCell[] = gaps.map(([low, high]) => ({
       low,
       high,
@@ -900,7 +907,13 @@ function resolvedNesting(list: TCell[], step: number): TCell[] {
     } else if (item.kind === "ambiguous") {
       out.push({ ...item.cell, ambiguous: true });
     } else if (item.kind === "leaf") {
-      out.push(item.cell);
+      // A mean well past the series' typical cell, with nothing finer inside
+      // it, is known only as a whole: a narrower window over it is not.
+      out.push(
+        item.cell.high - item.cell.low > WHOLE * step
+          ? { ...item.cell, group: ++groups }
+          : item.cell
+      );
     } else {
       for (let k = item.parts!.length - 1; k >= 0; k--) {
         pending.push(item.parts![k]);
@@ -922,9 +935,7 @@ function resolvedNesting(list: TCell[], step: number): TCell[] {
 function disjointCells(
   values: ArrayLike<number>,
   order: number[],
-  bounds: number[],
-  /** The series' typical step, in the bounds' units. */
-  step: number
+  bounds: number[]
 ) {
   const list: TCell[] = [];
   for (const at of order) {
@@ -945,8 +956,7 @@ function disjointCells(
           c.high === list[k - 1].high &&
           c.v === list[k - 1].v
         )
-    ),
-    step
+    )
   );
   const n = cells.length;
   const reach = new Float64Array(n);
@@ -986,14 +996,20 @@ function disjointCells(
       );
     }
   }
-  const starts = rangeTable(
-    cells.map((c) => (c.group ? spans.get(c.group)![0] : Infinity)),
-    Math.min
-  );
-  const ends = rangeTable(
-    cells.map((c) => (c.group ? spans.get(c.group)![1] : -Infinity)),
-    Math.max
-  );
+  // Without groups (most series), no tables: two lookups that always pass.
+  const grouped = spans.size > 0;
+  const starts = !grouped
+    ? () => Infinity
+    : rangeTable(
+        cells.map((c) => (c.group ? spans.get(c.group)![0] : Infinity)),
+        Math.min
+      );
+  const ends = !grouped
+    ? () => -Infinity
+    : rangeTable(
+        cells.map((c) => (c.group ? spans.get(c.group)![1] : -Infinity)),
+        Math.max
+      );
   for (let k = 0; k < n; k++) {
     const w = cells[k].high - cells[k].low;
     flagged[k + 1] = flagged[k] + overlaps[k];

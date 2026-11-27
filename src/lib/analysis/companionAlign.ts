@@ -225,6 +225,24 @@ function occurrences(keys: string[], other: string[]) {
 const sameList = (a: readonly unknown[] = [], b: readonly unknown[] = []) =>
   a.length === b.length && a.every((value, at) => value === b[at]);
 
+/** A result's time axis with its scalar forecast reference, if any. */
+function runAxis(r: TAnalysisResult) {
+  return (
+    r.time && {
+      ...r.time,
+      ...(r.referenceTime
+        ? {
+            run: {
+              value: r.referenceTime.value,
+              units: r.referenceTime.units,
+              calendar: r.referenceTime.calendar,
+            },
+          }
+        : {}),
+    }
+  );
+}
+
 /** A result's time axis with its variable's cell methods. */
 function withMethods(r: TAnalysisResult): TTime {
   return { ...r.time!, cellMethods: r.cellMethods, ...physicalClock(r.time!) };
@@ -250,6 +268,10 @@ type TClockAxis = Parameters<typeof physicalClock>[0] & {
   calendar?: string;
   boundsUnread?: string;
   validBoundsUnread?: string;
+  /** Valid times: each row's own initialization, in the axis' units. */
+  references?: number[];
+  /** One initialization for every row (a scalar reference time). */
+  run?: { value: number; units?: string; calendar?: string };
 };
 
 /** Why the cells of the clock rows are matched by are unknown, if they are. */
@@ -259,30 +281,83 @@ export function clockBoundsUnread(time: TClockAxis) {
     : time.boundsUnread;
 }
 
+/** Whether an axis says which forecast run each row is of. */
+export function hasRuns(t: TClockAxis | undefined) {
+  return Boolean(
+    t &&
+    (t.valid?.length === t.raw.length ||
+      t.references?.length === t.raw.length ||
+      t.run)
+  );
+}
+
 /**
- * Keys extended by each row's forecast initialization when both axes date
- * their rows by valid times beside initializations: a vector or a pair is
- * of one run, so a 48-hour U and a 72-hour V valid at the same hour are
- * other forecasts. Either side without initializations keeps its keys.
+ * Each row's forecast initialization as a key, whichever CF form gives it:
+ * the reference axis beside published valid times, a reference time per
+ * valid time, or one scalar reference time. Kept per axis.
+ */
+function runKeys(t: TClockAxis): string[] {
+  if (t.valid?.length === t.raw.length) {
+    return observationKeys(
+      { raw: t.raw, units: t.units, calendar: t.calendar },
+      "instants"
+    );
+  }
+  if (t.references?.length === t.raw.length) {
+    return observationKeys(
+      { raw: t.references, units: t.units, calendar: t.calendar },
+      "instants"
+    );
+  }
+  const { value, units, calendar } = t.run!;
+  const kept = scalarRuns.get(t.raw);
+  if (kept?.value === value && kept.units === units) {
+    return kept.keys;
+  }
+  const [key] = observationKeys(
+    { raw: [value], units, calendar: calendar ?? t.calendar },
+    "instants"
+  );
+  const keys = new Array<string>(t.raw.length).fill(key);
+  scalarRuns.set(t.raw, { value, units, keys });
+  return keys;
+}
+const scalarRuns = new WeakMap<
+  object,
+  { value: number; units?: string; keys: string[] }
+>();
+
+/**
+ * Keys extended by each row's forecast run when both axes say it: a vector
+ * or a pair is of one run, so a 48-hour U and a 72-hour V valid at the same
+ * hour are other forecasts. Either side without runs keeps its keys. The
+ * joined keys are kept per pair of key arrays, so a partial update reuses
+ * the alignment built for them.
  */
 export function withCycles(
   keys: string[],
   time: TClockAxis,
   partner: TClockAxis | undefined
 ) {
-  const dated = (t: TClockAxis | undefined) =>
-    Boolean(t?.valid && t.valid.length === t.raw.length);
-  if (!dated(time) || !dated(partner)) {
+  if (!hasRuns(time) || !hasRuns(partner)) {
     return keys;
   }
-  const cycles = observationKeys(
-    { raw: time.raw, units: time.units, calendar: time.calendar },
-    "instants"
-  );
-  return keys.map((key, at) =>
-    unknownCell(key) ? key : `${key}@${cycles[at]}`
-  );
+  const cycles = runKeys(time);
+  let byCycles = joinedKeys.get(keys);
+  if (!byCycles) {
+    byCycles = new WeakMap();
+    joinedKeys.set(keys, byCycles);
+  }
+  let joined = byCycles.get(cycles);
+  if (!joined) {
+    joined = keys.map((key, at) =>
+      unknownCell(key) ? key : `${key}@${cycles[at]}`
+    );
+    byCycles.set(cycles, joined);
+  }
+  return joined;
 }
+const joinedKeys = new WeakMap<string[], WeakMap<string[], string[]>>();
 
 /**
  * Whether values may be a statistic over their vertical cells: as their cell
@@ -494,8 +569,9 @@ export function alignTo(
   const own = sampleKeys(shown, cells, layers);
   const theirs = sampleKeys(other, cells, layers);
   if (own?.by === "times" && theirs?.by === "times") {
-    own.keys = withCycles(own.keys, shown.time!, other.time);
-    theirs.keys = withCycles(theirs.keys, other.time!, shown.time);
+    const [mine, them] = [runAxis(shown), runAxis(other)];
+    own.keys = withCycles(own.keys, mine!, them);
+    theirs.keys = withCycles(theirs.keys, them!, mine);
   }
   if (own && theirs && own.by === theirs.by) {
     const index = matchIndex(own.keys, theirs.keys);
@@ -1015,7 +1091,7 @@ function partnerTimes(
       ...t,
       ...physicalClock(t),
     }));
-    const runs = withCycles(["x"], own.time, partner.time)[0] !== "x";
+    const runs = hasRuns(own.time) && hasRuns(partner.time);
     // The same rule as the join after reading: decided from the bounds and
     // cell methods alone, before any partner field read.
     if (

@@ -25,6 +25,7 @@ import {
   matchMode,
   observationKeys,
   clockBoundsUnread,
+  hasRuns,
   overCells,
   physicalClock,
   withCycles,
@@ -408,7 +409,14 @@ const anyRows = new WeakMap<Int32Array, boolean>();
 /** Rows by calendar keys: any two axes the calendar decodes or not. */
 /** Both dated by valid times beside initializations: rows are of one run. */
 const cycled = (a: TVariableContext, b: TVariableContext) =>
-  [a, b].every((c) => c.time?.valid?.length === c.time?.raw.length);
+  hasRuns(runAxis(a)) && hasRuns(runAxis(b));
+
+/** A context's time axis with its scalar forecast reference, if any. */
+const runAxis = (c: TVariableContext) =>
+  c.time && {
+    ...c.time,
+    ...(c.scalarReference ? { run: c.scalarReference } : {}),
+  };
 
 function keyedRows(
   a: TReadings,
@@ -420,8 +428,8 @@ function keyedRows(
   const [x, y] =
     own && other
       ? [
-          withCycles(observationKeys(a, mode), own.time!, other.time),
-          withCycles(observationKeys(b, mode), other.time!, own.time),
+          withCycles(observationKeys(a, mode), runAxis(own)!, runAxis(other)),
+          withCycles(observationKeys(b, mode), runAxis(other)!, runAxis(own)),
         ]
       : [observationKeys(a, mode), observationKeys(b, mode)];
   // Each observation's one row of the partner; repeated ones name none.

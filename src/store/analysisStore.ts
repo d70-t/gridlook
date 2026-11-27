@@ -1468,13 +1468,24 @@ async function queryFor(
  * Both components at the plot's own samples (matched by time or level,
  * not by index) and in the eastward one's units; or why they cannot be.
  */
+// eslint-disable-next-line max-lines-per-function
 export function windAt(
   shown: TAnalysisResult,
   pair: { u: string; v: string },
   u: TAnalysisResult,
   v: TAnalysisResult
 ) {
-  const [au, av] = [alignTo(shown, u), alignTo(shown, v)];
+  // The two components of one vector with each other first (their run,
+  // times and support), then on the plotted series: plotted temperature
+  // must not pair U and V of different forecasts.
+  const vu = shown === u ? undefined : alignTo(u, v);
+  if (vu && "reason" in vu) {
+    return `${pair.u} and ${pair.v} cannot be drawn as one vector: ${vu.reason}.`;
+  }
+  const [au, av] = [
+    alignTo(shown, u),
+    alignTo(shown, vu ? { ...u, values: vu.values } : v),
+  ];
   if ("reason" in au || "reason" in av) {
     const why = "reason" in au ? au.reason : (av as { reason: string }).reason;
     return `${pair.u} and ${pair.v} cannot be drawn with this plot: ${why}.`;
@@ -1636,10 +1647,6 @@ async function windComponents(
       return;
     }
     const [u, v] = latest;
-    // Only a pairing counts against the interval.
-    if (u && v) {
-      reported = performance.now();
-    }
     const share = latest.map((r, at) =>
       finished[at]
         ? 1
@@ -1648,6 +1655,11 @@ async function windComponents(
           : 0
     );
     const both = u && v ? windAt(shown, pair, u, v) : undefined;
+    // Only a pairing counts, from its end: a long one is not run again at
+    // once.
+    if (u && v) {
+      reported = performance.now();
+    }
     onUpdate?.({
       results: typeof both === "object" ? both : undefined,
       progress: {
@@ -1720,16 +1732,16 @@ async function windComponents(
   return both;
 }
 
+/** The least time between two wind pairings of a long series while reading. */
+const WIND_REPORT_MS = 100;
+const WIND_REPORT_ROWS = 4096;
+
 /**
  * What the plot's overlays (barbs' components, a scatter partner) read for a
  * request of `time`: the stored chunks of each component that the new dates
  * touch and the shown ones did not, at the component's price a chunk. Undefined
  * when a component's price is not known yet.
  */
-/** The least time between two wind pairings of a long series while reading. */
-const WIND_REPORT_MS = 100;
-const WIND_REPORT_ROWS = 4096;
-
 export function overlayBytes(
   w: TPlotWindow,
   time: NonNullable<TAnalysisQuery["time"]>,
@@ -1801,6 +1813,9 @@ const windRead = new Map<
 const windGenerations = new Map<string, number>();
 
 /** Unsubscribe a window's companions; the last subscriber stops a run. */
+/** How often each owner's companion reads were let go: a piece loop stops. */
+const releases = new Map<string, number>();
+
 function releaseCompanions(id: string, purpose?: TCompanionPurpose) {
   if (!purpose) {
     windRead.delete(`${id}:wind`);
@@ -1814,6 +1829,7 @@ function releaseCompanions(id: string, purpose?: TCompanionPurpose) {
     return;
   }
   const owner = `${id}:${purpose}`;
+  releases.set(owner, (releases.get(owner) ?? 0) + 1);
   chunkPrices.delete(owner);
   // A load waiting for its Read ends here, unread.
   const gate = memberGates.get(owner);
@@ -1867,6 +1883,41 @@ async function partnerResult(
     return { ...joinInOrder(segments), query };
   }
   return piecewiseResult(owner, source, query, onPartial);
+}
+
+/**
+ * Results in order, joined only when shown, and a long one shown at most every
+ * WIND_REPORT_MS: n pieces of a long series cost a bounded number of joins of
+ * it, not n.
+ */
+function growingJoin() {
+  let joined: TAnalysisResult | undefined;
+  let pending: TAnalysisResult[] = [];
+  let rows = 0;
+  let shown = -Infinity;
+  return {
+    add(result: TAnalysisResult) {
+      pending.push(result);
+      rows += result.values.length;
+    },
+    /** Everything added so far, as one result. */
+    now() {
+      if (pending.length) {
+        joined = joinInOrder([...(joined ? [joined] : []), ...pending]);
+        pending = [];
+      }
+      return joined;
+    },
+    /** Whether a publication with `more` rows besides is due now. */
+    due(more = 0) {
+      const at = performance.now();
+      if (rows + more > WIND_REPORT_ROWS && at - shown < WIND_REPORT_MS) {
+        return false;
+      }
+      shown = at;
+      return true;
+    },
+  };
 }
 
 /**
@@ -1941,7 +1992,7 @@ export async function grownSegments(
   if (onPartial && keptRows && plan.some((step) => !("values" in step))) {
     onPartial(keptRows);
   }
-  let head: TAnalysisResult | undefined;
+  const head = growingJoin();
   for (const [at, step] of plan.entries()) {
     const segment =
       "values" in step
@@ -1949,18 +2000,30 @@ export async function grownSegments(
         : await read(
             step,
             onPartial &&
-              ((partial) =>
+              ((partial) => {
+                const rest = after(at + 1);
+                if (
+                  !head.due(
+                    partial.values.length + (rest[0]?.values.length ?? 0)
+                  )
+                ) {
+                  return;
+                }
+                const before = head.now();
                 onPartial({
                   ...joinInOrder([
-                    ...(head ? [head] : []),
+                    ...(before ? [before] : []),
                     partial,
-                    ...after(at + 1),
+                    ...rest,
                   ]),
                   partial: partial.partial,
-                }))
+                });
+              })
           );
     segments.push(segment);
-    head = onPartial ? (head ? joinInOrder([head, segment]) : segment) : head;
+    if (onPartial) {
+      head.add(segment);
+    }
   }
   return segments;
 }
@@ -2026,16 +2089,25 @@ async function piecewiseResult(
   // already read stay published with the one being read, joined as one
   // result grown a piece at a time.
   const parts: TAnalysisResult[] = [];
-  let done: TAnalysisResult | undefined;
+  const done = growingJoin();
+  const released = releases.get(owner) ?? 0;
   for (const [k, q] of queries.entries()) {
+    // Let go while a sibling kept the last piece alive: no later piece starts.
+    if ((releases.get(owner) ?? 0) !== released) {
+      throw new DOMException("Aborted", "AbortError");
+    }
     const part = await companionResult(
       owner,
       source,
       q,
       onPartial &&
-        ((partial) =>
+        ((partial) => {
+          if (!done.due(partial.values.length)) {
+            return;
+          }
+          const before = done.now();
           onPartial({
-            ...(done ? joinInOrder([done, partial]) : partial),
+            ...(before ? joinInOrder([before, partial]) : partial),
             partial: partial.partial && {
               ...partial.partial,
               done:
@@ -2046,10 +2118,26 @@ async function piecewiseResult(
                 ),
               total: queries.length * PIECE_SCALE,
             },
-          }))
+          });
+        })
     );
     parts.push(part);
-    done = onPartial ? (done ? joinInOrder([done, part]) : part) : undefined;
+    // Published as soon as it is in, a cached piece too: its pairs show while
+    // the next piece is read.
+    if (onPartial) {
+      done.add(part);
+      if (k + 1 < queries.length && done.due()) {
+        const sofar = done.now()!;
+        onPartial({
+          ...sofar,
+          partial: {
+            done: (k + 1) * PIECE_SCALE,
+            total: queries.length * PIECE_SCALE,
+            readUntil: sofar.values.length,
+          },
+        });
+      }
+    }
   }
   // Each piece as of now: one read before a publication of its dates is stale
   // even if it finished first.

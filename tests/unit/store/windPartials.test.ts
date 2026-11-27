@@ -416,26 +416,28 @@ it("does not advertise zero additional wind bytes while waiting for approval", a
   expect(overlayBytes(w, { start: 0, stop: 32 })).toBeGreaterThan(0);
 });
 
+/** A point series of `dates`, its values the dates themselves. */
+const series = (dates: number[]) =>
+  ({
+    values: [...dates],
+    time: {
+      dimension: "time",
+      raw: [...dates],
+      units: "hours since 2000-01-01",
+      calendar: "standard",
+    },
+    kind: "point-series",
+    units: "m s-1",
+    shape: [dates.length],
+    dims: ["time"],
+    query: { variable: "v" },
+    notes: [],
+    counters: {},
+  }) as never;
+
 it("publishes a sparse extension's partials in time linear in its rows", async () => {
   const { grownSegments, joinInOrder } =
     await import("@/store/analysisStore.ts");
-  const series = (dates: number[]) =>
-    ({
-      values: [...dates],
-      time: {
-        dimension: "time",
-        raw: [...dates],
-        units: "hours since 2000-01-01",
-        calendar: "standard",
-      },
-      kind: "point-series",
-      units: "m s-1",
-      shape: [dates.length],
-      dims: ["time"],
-      query: { variable: "v" },
-      notes: [],
-      counters: {},
-    }) as never;
   // 512 kept three-hour groups, 512 new ones, each new one partial first.
   const all = Array.from({ length: 1024 }, (_, i) => ({
     start: 6 * i,
@@ -467,3 +469,36 @@ it("publishes a sparse extension's partials in time linear in its rows", async (
   expect(published).toBe(513);
   expect(performance.now() - started).toBeLessThan(250);
 });
+
+it.each([false, true])(
+  "publishes a long sparse extension without joining it once a piece; backward=%s",
+  async (backward) => {
+    const { grownSegments, joinInOrder } =
+      await import("@/store/analysisStore.ts");
+    // 4,096 kept three-hour groups and 4,096 new ones.
+    const all = Array.from({ length: 8192 }, (_, i) => ({
+      start: 6 * i,
+      stop: 6 * i + 3,
+      chunk: 1,
+    }));
+    const old = backward ? all.slice(4096) : all.slice(0, 4096);
+    const dates = (o: { start: number }) => [o.start, o.start + 1, o.start + 2];
+    let shown = 0;
+    const parts = await grownSegments(
+      series(old.flatMap(dates)),
+      old,
+      all,
+      async (piece, publish) => {
+        publish?.({
+          ...(series([piece.start, NaN, NaN]) as object),
+          partial: { done: 1, total: 3 },
+        } as never);
+        return series(dates(piece));
+      },
+      (partial) => (shown += partial.values.length)
+    );
+    expect(joinInOrder(parts).values).toEqual(all.flatMap(dates));
+    // Once a piece, every partial would carry 100 million rows in all.
+    expect(shown).toBeLessThan(4_000_000);
+  }
+);

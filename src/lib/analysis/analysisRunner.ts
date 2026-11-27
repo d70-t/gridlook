@@ -599,6 +599,9 @@ export class AnalysisRunner {
         ...(time.validBoundsUnread
           ? { validBoundsUnread: time.validBoundsUnread }
           : {}),
+        // Each row's forecast run, in whichever form the source gives it.
+        ...(time.references ? { references: time.references } : {}),
+        ...(context.scalarReference ? { run: context.scalarReference } : {}),
         ...(context.cellMethods ? { cellMethods: context.cellMethods } : {}),
         ...(context.quantity ? { quantity: context.quantity } : {}),
         // Its own reads (stamps and bounds), said apart in Method.

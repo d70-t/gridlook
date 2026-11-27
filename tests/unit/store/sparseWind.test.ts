@@ -212,3 +212,90 @@ it.each([false, true])(
     expect(dates).toBe(6);
   }
 );
+
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+function gate() {
+  let release!: () => void;
+  const wait = new Promise<void>((resolve) => (release = resolve));
+  return { wait, release };
+}
+
+function routePair(a: ReturnType<typeof sparseWind>, name: string) {
+  const route = { store: "https://example.org/" + name + ".zarr", dataset: "" };
+  a.setActiveSource(source, ref, "regional catalogue", {
+    uas: route,
+    vas: route,
+  });
+}
+
+function pairedDates(a: ReturnType<typeof sparseWind>) {
+  const r = a.windows[0].companions?.wind?.results;
+  return (
+    r?.u.values.flatMap((x, i) =>
+      Number.isFinite(x) && Number.isFinite(r.v.values[i]) ? [i] : []
+    ) ?? []
+  );
+}
+
+it("starts no later piece of a shared sparse wind once both windows stop", async () => {
+  const id = "stop";
+  const a = sparseWind(id, [0, 1, 100, 101, 200, 201, 300, 301], 51);
+  routePair(a, id);
+  a.setComputeMode("auto");
+  a.windows.push({ ...a.windows[0], id: "stop-other" });
+  const run = client.executeRun.getMockImplementation()!;
+  const gates = [gate(), gate(), gate(), gate()];
+  const started = new Map<number, number>();
+  client.executeRun.mockImplementation(async (key: string) => {
+    const r = await run(key);
+    const at = r.query.time.start;
+    started.set(at, (started.get(at) ?? 0) + 1);
+    await gates[Math.floor(at / 100)].wait;
+    return r;
+  });
+  const pending = [a.loadWind(id), a.loadWind("stop-other")];
+  await vi.waitFor(() => expect(started.get(0)).toBe(2));
+  await flush();
+  a.setWind(id, false);
+  gates[0].release();
+  await vi.waitFor(() => expect(started.get(100)).toBe(2));
+  await flush();
+  a.setWind("stop-other", false);
+  gates.forEach((g) => g.release());
+  await Promise.all(pending);
+  expect(a.windows.every((w) => !w.companions?.wind)).toBe(true);
+  expect([started.get(200), started.get(300)]).toEqual([undefined, undefined]);
+});
+
+it("shows cached sparse wind pieces while the next piece is read", async () => {
+  const id = "warm";
+  const dates = [0, 1, 100, 101, 200, 201];
+  const a = sparseWind(id, dates, 52);
+  routePair(a, id);
+  a.setComputeMode("auto");
+  await a.loadWind(id);
+  const seed = sparseWind("warm-seed", dates.slice(0, 4), 52);
+  routePair(seed, id);
+  seed.setComputeMode("auto");
+  seed.windows[0].windChoice = { u: "uas", v: "vas_alt" };
+  await seed.loadWind("warm-seed");
+  const plain = client.executeRun.getMockImplementation()!;
+  const [hold, entered] = [gate(), gate()];
+  client.executeRun.mockImplementation(async (key: string) => {
+    const r = await plain(key);
+    if (r.query.variable === "vas_alt" && r.query.time.start === 200) {
+      entered.release();
+      await hold.wait;
+    }
+    return r;
+  });
+  a.windows[0].windChoice = { u: "uas", v: "vas_alt" };
+  const pending = a.loadWind(id);
+  await entered.wait;
+  await flush();
+  expect(pairedDates(a)).toEqual([0, 1, 2, 3]);
+  hold.release();
+  await pending;
+  expect(pairedDates(a)).toEqual([0, 1, 2, 3, 4, 5]);
+});
