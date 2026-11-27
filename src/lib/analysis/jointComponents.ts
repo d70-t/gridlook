@@ -639,6 +639,11 @@ export async function jointAlignment(
   ) {
     return { reason: "their dimensions differ" };
   }
+  // Clocks that disagree: which observation a row is, is not known.
+  const clock = own.time.clockProblem ?? other.time.clockProblem;
+  if (clock) {
+    return { reason: clock };
+  }
   const cells = await cellsProblem(own, other, signal);
   if (cells) {
     return { reason: cells };

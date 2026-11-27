@@ -484,6 +484,15 @@ it.each([false, true])(
     const old = backward ? all.slice(4096) : all.slice(0, 4096);
     const dates = (o: { start: number }) => [o.start, o.start + 1, o.start + 2];
     let shown = 0;
+    // Values copied by slicing while it is read: the kept rows are sliced
+    // only for what is shown.
+    let sliced = 0;
+    const slice = Array.prototype.slice;
+    Array.prototype.slice = function (this: unknown[], ...args) {
+      const out = slice.apply(this, args as never) as unknown[];
+      sliced += out.length;
+      return out;
+    };
     const parts = await grownSegments(
       series(old.flatMap(dates)),
       old,
@@ -496,9 +505,52 @@ it.each([false, true])(
         return series(dates(piece));
       },
       (partial) => (shown += partial.values.length)
-    );
+    ).finally(() => (Array.prototype.slice = slice));
     expect(joinInOrder(parts).values).toEqual(all.flatMap(dates));
     // Once a piece, every partial would carry 100 million rows in all.
     expect(shown).toBeLessThan(4_000_000);
+    expect(sliced).toBeLessThan(4_000_000);
   }
 );
+
+it("shows a burst's last pairs on a long series after the worker goes quiet", async () => {
+  const n = 4097;
+  const dates = Array.from({ length: n }, (_, i) => i);
+  const id = "burst";
+  const a = sparseWind(id, dates, 31);
+  routePair(a, id);
+  a.setComputeMode("auto");
+  configureWindWorker(dates);
+  await a.loadWind(id);
+  const plain = client.executeRun.getMockImplementation()!;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  let burst!: () => void;
+  const sent = new Promise<void>((resolve) => (burst = resolve));
+  client.executeRun.mockImplementation(async (run: string, _src, onPart) => {
+    const full = await plain(run);
+    if (full.query.variable === "other_v") {
+      const values = Array(n).fill(NaN);
+      // Eight dates at once, then nothing until the read ends.
+      for (let j = 0; j < 8; j++) {
+        values[j] = 10 + j;
+        onPart?.({
+          ...full,
+          values: values.slice(),
+          partial: { done: j + 1, total: n, readUntil: j },
+        });
+      }
+      burst();
+      await gate;
+    }
+    return full;
+  });
+  a.windows[0].windChoice = { u: "uas", v: "other_v" };
+  const pending = a.loadWind(id);
+  await sent;
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  expect(finiteDates(a)).toHaveLength(8);
+  release();
+  await pending;
+  expect(finiteDates(a)).toHaveLength(n);
+});

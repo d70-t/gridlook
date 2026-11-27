@@ -811,11 +811,7 @@ const AGREEMENT = 2 ** -23;
  * of the nested lists, linear in the cells.
  */
 // eslint-disable-next-line max-lines-per-function
-function resolvedNesting(list: TCell[]): TCell[] {
-  // The series' own support: its typical cell, not its stamps' spacing (a
-  // two-day mean among days puts a stamp half a day from another).
-  const lengths = list.map((c) => c.high - c.low).sort((a, b) => a - b);
-  const step = lengths[Math.floor(lengths.length / 2)] ?? 0;
+function resolvedNesting(list: TCell[], step: number): TCell[] {
   // The containment forest, in list order (which is its pre-order).
   const nodes: TNest[] = [];
   const roots: TNest[] = [];
@@ -938,14 +934,24 @@ function disjointCells(
   bounds: number[]
 ) {
   const list: TCell[] = [];
+  // The series' own support: its typical cell, missing ones included (nine
+  // missing days beside three three-day means are a daily series), not its
+  // stamps' spacing (a two-day mean among days puts a stamp half a day from
+  // another).
+  const lengths: number[] = [];
   for (const at of order) {
     const v = values[at];
     const [p, q] = [bounds[2 * at], bounds[2 * at + 1]];
     const [low, high] = [Math.min(p, q), Math.max(p, q)];
-    if (Number.isFinite(v) && Number.isFinite(low + high) && high > low) {
-      list.push({ low, high, v });
+    if (Number.isFinite(low + high) && high > low) {
+      lengths.push(high - low);
+      if (Number.isFinite(v)) {
+        list.push({ low, high, v });
+      }
     }
   }
+  lengths.sort((a, b) => a - b);
+  const step = lengths[Math.floor(lengths.length / 2)] ?? 0;
   list.sort((x, y) => x.low - y.low || y.high - x.high || x.v - y.v);
   const cells = resolvedNesting(
     list.filter(
@@ -956,7 +962,8 @@ function disjointCells(
           c.high === list[k - 1].high &&
           c.v === list[k - 1].v
         )
-    )
+    ),
+    step
   );
   const n = cells.length;
   const reach = new Float64Array(n);
@@ -982,10 +989,11 @@ function disjointCells(
       reach[k] = reach[k - 1];
     }
   }
-  // Each group's span: a window takes it whole or not at all. Per cell, its
-  // group's lowest start and highest end (±Infinity ungrouped), with sparse
-  // tables for their range minimum and maximum: one window's check is two
-  // lookups, however many groups it holds.
+  // Each group's span: a window takes it whole or not at all. Per grouped
+  // cell, its group's lowest start and highest end, with sparse tables over
+  // the grouped cells only for their range minimum and maximum: one window's
+  // check is two lookups however many groups it holds, and the tables grow
+  // with the grouped cells, not the series.
   const spans = new Map<number, [number, number]>();
   for (const { group, low, high } of cells) {
     if (group) {
@@ -996,20 +1004,25 @@ function disjointCells(
       );
     }
   }
-  // Without groups (most series), no tables: two lookups that always pass.
-  const grouped = spans.size > 0;
-  const starts = !grouped
-    ? () => Infinity
-    : rangeTable(
-        cells.map((c) => (c.group ? spans.get(c.group)![0] : Infinity)),
-        Math.min
-      );
-  const ends = !grouped
-    ? () => -Infinity
-    : rangeTable(
-        cells.map((c) => (c.group ? spans.get(c.group)![1] : -Infinity)),
-        Math.max
-      );
+  const grouped = cells.flatMap((c, k) => (c.group ? [k] : []));
+  const at = Float64Array.from(grouped);
+  const starts = rangeTable(
+    grouped.map((k) => spans.get(cells[k].group!)![0]),
+    Math.min
+  );
+  const ends = rangeTable(
+    grouped.map((k) => spans.get(cells[k].group!)![1]),
+    Math.max
+  );
+  /** Whether a group among cells `first..last` reaches past [from, to]. */
+  const cut = (first: number, last: number, from: number, to: number) => {
+    if (!grouped.length) {
+      return false;
+    }
+    const a = above(at, first - 0.5);
+    const b = above(at, last) - 1;
+    return a <= b && (starts(a, b) < from || ends(a, b) > to);
+  };
   for (let k = 0; k < n; k++) {
     const w = cells[k].high - cells[k].low;
     flagged[k + 1] = flagged[k] + overlaps[k];
@@ -1017,8 +1030,8 @@ function disjointCells(
     sumVW[k + 1] = sumVW[k] + cells[k].v * w;
   }
   /** First index with `array[k] > x` (array ascending). */
-  const above = (array: Float64Array, x: number) => {
-    let [lo, hi] = [0, n];
+  function above(array: Float64Array, x: number) {
+    let [lo, hi] = [0, array.length];
     while (lo < hi) {
       const mid = (lo + hi) >> 1;
       if (array[mid] > x) {
@@ -1028,7 +1041,7 @@ function disjointCells(
       }
     }
     return lo;
-  };
+  }
   return {
     meanOver(from: number, to: number) {
       const first = above(reach, from);
@@ -1043,7 +1056,7 @@ function disjointCells(
       if (flagged[last + 1] - flagged[first] > 0) {
         return Number.NaN;
       }
-      if (starts(first, last) < from || ends(first, last) > to) {
+      if (cut(first, last, from, to)) {
         return Number.NaN;
       }
       const part = (k: number) => {

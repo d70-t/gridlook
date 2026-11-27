@@ -1615,7 +1615,9 @@ async function rowReferencesOf(
       units: time.units,
       calendar: time.calendar,
     });
-    if (references?.some(Number.isFinite)) {
+    // Declared, if none of them can be read: a forecast of unknown runs, not
+    // an observation.
+    if (references) {
       return references;
     }
   }
@@ -3507,14 +3509,16 @@ async function resolveVariableContextNow(
       published.valid.some(
         (v, at) =>
           Number.isFinite(v) &&
+          // In seconds, whatever the axis' units: to the millisecond.
           Math.abs(
-            time.raw[at] + (scalarLead.value * scalarLead.seconds) / perUnit - v
-          ) >
-            1e-6 * perUnit
+            (time.raw[at] - v) * perUnit + scalarLead.value * scalarLead.seconds
+          ) > 1e-3
       )
     ) {
       time.clockProblem = `its published valid times disagree with its reference times plus the ${scalarLead.name} lead`;
-    } else if (published && !scalarLead) {
+    } else if (published) {
+      // Published valid times date the rows, with their own cells, whether or
+      // not a scalar lead (agreeing with them) is named too.
       time.valid = published.valid;
       if (published.bounds) {
         time.validBounds = published.bounds;

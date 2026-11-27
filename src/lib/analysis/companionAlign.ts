@@ -350,8 +350,12 @@ export function withCycles(
   }
   let joined = byCycles.get(cycles);
   if (!joined) {
+    // A declared run that is missing (a NaN reference) is no known run: the
+    // row pairs with nothing.
     joined = keys.map((key, at) =>
-      unknownCell(key) ? key : `${key}@${cycles[at]}`
+      unknownCell(key) || unknownCell(cycles[at])
+        ? UNKNOWN_CELL
+        : `${key}@${cycles[at]}`
     );
     byCycles.set(cycles, joined);
   }
@@ -549,6 +553,14 @@ export function alignTo(
   if (support) {
     return { reason: support };
   }
+  // Clocks that disagree (valid times besides reference times plus lead):
+  // which observation a row is, is not known.
+  const clock = [shown, other].find((r) => r.time?.clockProblem);
+  if (clock) {
+    return {
+      reason: `${clock === shown ? "this plot's time: " : ""}${clock.time!.clockProblem}`,
+    };
+  }
   // Layer statistics at one level: the same layer too, not only its centre.
   if (
     a?.bounds &&
@@ -568,12 +580,18 @@ export function alignTo(
   );
   const own = sampleKeys(shown, cells, layers);
   const theirs = sampleKeys(other, cells, layers);
+  const [mine, them] = [runAxis(shown), runAxis(other)];
   if (own?.by === "times" && theirs?.by === "times") {
-    const [mine, them] = [runAxis(shown), runAxis(other)];
     own.keys = withCycles(own.keys, mine!, them);
     theirs.keys = withCycles(theirs.keys, them!, mine);
   }
-  if (own && theirs && own.by === theirs.by) {
+  // Rows along the time axis of another shape (time × level), or its one time
+  // (a profile, a section): each of one run on both sides.
+  const runs = own?.by === "times" ? undefined : otherRuns(mine, them);
+  if (runs && !runs.some(Boolean)) {
+    return { reason: "it is of another forecast run than this plot" };
+  }
+  if (own && theirs && own.by === theirs.by && !runs?.includes(false)) {
     const index = matchIndex(own.keys, theirs.keys);
     let matched = 0;
     const values = Array.from(index, (at) => {
@@ -594,9 +612,27 @@ export function alignTo(
         };
   }
   const same = sameAxes(shown, other, layers);
-  return same
-    ? unknownOut(shown, other.values, same)
-    : { reason: "its times or levels differ from this plot's" };
+  if (!same) {
+    return { reason: "its times or levels differ from this plot's" };
+  }
+  // Rows of another run, missing: keys of an unknown time pair nothing.
+  if (runs) {
+    same.time = same.time.map((key, at) => (runs[at] ? key : UNKNOWN_CELL));
+  }
+  return unknownOut(shown, other.values, same);
+}
+
+/**
+ * Per row of the two time axes, whether both are of the same known run;
+ * undefined unless both say their runs (or the axes are of other lengths, which
+ * the shape check refuses).
+ */
+function otherRuns(a?: TClockAxis, b?: TClockAxis) {
+  if (!a || !b || !hasRuns(a) || !hasRuns(b) || a.raw.length !== b.raw.length) {
+    return undefined;
+  }
+  const [x, y] = [runKeys(a), runKeys(b)];
+  return x.map((key, at) => !unknownCell(key) && key === y[at]);
 }
 
 /**
@@ -664,7 +700,7 @@ function supportProblem(
 }
 
 export type TAxes = {
-  time?: TTime & { dimension: string; chunk?: number };
+  time?: TTime & { dimension: string; chunk?: number; clockProblem?: string };
   vertical?: {
     dimension: string;
     values: number[];
@@ -1077,6 +1113,33 @@ function indicesOf(keys: string[], wanted: Set<string>) {
   return found.sort((a, b) => a - b);
 }
 
+/**
+ * Whether two axes' rows are of the same known runs, by their numbers where
+ * both give them the same way (no key per row of a long axis); else by their
+ * run keys.
+ */
+function sameRuns(a: TClockAxis, b: TClockAxis) {
+  const same = a.units === b.units && a.calendar === b.calendar;
+  const equal = (x: number[], y: number[]) =>
+    x.length === y.length &&
+    x.every((v, at) => Number.isFinite(v) && v === y[at]);
+  if (
+    same &&
+    a.valid?.length === a.raw.length &&
+    b.valid?.length === b.raw.length
+  ) {
+    return equal(a.raw, b.raw);
+  }
+  if (same && a.references && b.references) {
+    return equal(a.references, b.references);
+  }
+  if (a.run && b.run && a.run.units === b.run.units) {
+    return Number.isFinite(a.run.value) && a.run.value === b.run.value;
+  }
+  const [x, y] = [runKeys(a), runKeys(b)];
+  return x.every((key, at) => !unknownCell(key) && key === y[at]);
+}
+
 /** Sets `next`'s times to the plot's on the partner's axis; or why not. */
 // eslint-disable-next-line max-lines-per-function
 function partnerTimes(
@@ -1086,6 +1149,21 @@ function partnerTimes(
   partner: TAxes
 ): string | undefined {
   if (own.time && partner.time) {
+    const clock = own.time.clockProblem ?? partner.time.clockProblem;
+    if (clock) {
+      return clock;
+    }
+    // Statistics over cells none of whose bounds could be read: which interval
+    // each covers is unknown, so none would pair after reading either.
+    const unread = [own.time, partner.time].find(
+      (t) =>
+        clockBoundsUnread(t) &&
+        !atInstants(t) &&
+        !physicalClock(t).bounds?.some(Number.isFinite)
+    );
+    if (unread) {
+      return clockBoundsUnread(unread);
+    }
     // By the clock the reads are matched by, and each row's run.
     const [mine, them] = [own.time, partner.time].map((t) => ({
       ...t,
@@ -1096,7 +1174,7 @@ function partnerTimes(
     // cell methods alone, before any partner field read.
     if (
       sameTimeAxis(mine, them) &&
-      (!runs || sameTimeAxis(own.time, partner.time))
+      (!runs || sameRuns(own.time, partner.time))
     ) {
       sameAxisTimes(next, query, partner.time.chunk ?? 1);
       const fixed = query.fixed[own.time.dimension];

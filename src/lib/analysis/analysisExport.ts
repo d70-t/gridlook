@@ -124,6 +124,9 @@ function seriesTable(result: TAnalysisResult, header: string): TResultTable {
   // A forecast along its reference times: those, its valid times and the lead,
   // each named.
   const forecast = forecastColumns(result);
+  // Valid times with each row's own initialization, or one for all: the run
+  // a row is of, named beside it.
+  const runOf = forecast ? undefined : runColumn(result);
   return {
     header: [
       "time_index",
@@ -137,6 +140,9 @@ function seriesTable(result: TAnalysisResult, header: string): TResultTable {
               : []),
           ]
         : [`time (${time.calendar ?? "raw"})`]),
+      ...(runOf
+        ? [`forecast_reference_time (${runOf.calendar ?? "raw"})`]
+        : []),
       header,
       "status",
       // A mean of sites: shares of sites, not of an area.
@@ -162,6 +168,7 @@ function seriesTable(result: TAnalysisResult, header: string): TResultTable {
             ...(forecast.value !== undefined ? [forecast.value] : []),
           ]
         : []),
+      ...(runOf ? [runOf.at(at)] : []),
       result.values[at],
       at >= unreadFrom
         ? VALUE_STATUS.UNREAD
@@ -184,6 +191,27 @@ function seriesTable(result: TAnalysisResult, header: string): TResultTable {
         : []),
     ],
   };
+}
+
+/** The initialization of each row of a valid-time axis, where it is known. */
+function runColumn(result: TAnalysisResult) {
+  const time = result.time;
+  const references = time?.references;
+  if (references?.length === time!.raw.length) {
+    return {
+      at: (at: number) => timeLabelOf(time, references[at]),
+      calendar: time!.calendar,
+    };
+  }
+  const scalar = result.referenceTime;
+  if (time && scalar) {
+    const label = timeLabelOf(
+      { units: scalar.units, calendar: scalar.calendar ?? time.calendar },
+      scalar.value
+    );
+    return { at: () => label, calendar: scalar.calendar ?? time.calendar };
+  }
+  return undefined;
 }
 
 /**

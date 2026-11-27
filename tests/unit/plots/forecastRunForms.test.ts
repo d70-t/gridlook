@@ -326,3 +326,22 @@ it("pairs wind components with each other before a third plotted variable", asyn
     }
   }
 });
+
+it("refuses a partner before reading when its cells' bounds cannot be read", async () => {
+  for (const hidden of [false, true]) {
+    const a = await fixture("u", 24, 0, "aux", hidden),
+      b = await fixture("v", 24, 0, "aux", hidden);
+    const store = new Map([...a, ...b]);
+    const key = "unread-" + ++id;
+    const [u, v] = await Promise.all(
+      ["u", "v"].map((n) => readStore(store, n, key))
+    );
+    const p = partnerQuery(
+      u.q,
+      u.description as never,
+      v.description as never,
+      "v"
+    );
+    expect("reason" in p, `hidden ${hidden}`).toBe(hidden);
+  }
+});

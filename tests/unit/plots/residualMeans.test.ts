@@ -61,30 +61,72 @@ it("withholds each day of a residual that only its whole determines", () => {
   expect(running(coarse, 3)[3]).toBeCloseTo(290);
 });
 
-it("builds no range tables for a series without residual groups", () => {
-  const n = 131_072;
-  const raw = Array.from({ length: n }, (_, i) => i + 0.5);
-  const F = Float64Array;
-  let bytes = 0;
-  try {
-    globalThis.Float64Array = new Proxy(F, {
-      construct(t, args, target) {
-        const made = Reflect.construct(t, args, target) as Float64Array;
-        bytes += made.byteLength;
-        return made;
-      },
-    }) as typeof Float64Array;
-    const out = runningMeanOverCells(
-      raw.map(() => 285),
-      raw,
-      raw.flatMap((t) => [t - 0.5, t + 0.5]),
-      7
-    );
-    expect(out?.[n / 2]).toBe(285);
-  } finally {
-    globalThis.Float64Array = F;
+it.each([false, true])(
+  "keeps range tables to the grouped cells; one coarse mean=%s",
+  (coarse) => {
+    const n = 131_072;
+    const raw = Array.from({ length: n }, (_, i) => i + 0.5);
+    const values = raw.map(() => 285);
+    const bounds = raw.flatMap((t) => [t - 0.5, t + 0.5]);
+    if (coarse) {
+      // Three central hours missing, their three-hour mean given.
+      values.fill(Number.NaN, n / 2 - 1, n / 2 + 2);
+      raw.push(n / 2 + 0.5);
+      values.push(285);
+      bounds.push(n / 2 - 1, n / 2 + 2);
+    }
+    const F = Float64Array;
+    let bytes = 0;
+    try {
+      globalThis.Float64Array = new Proxy(F, {
+        construct(t, args, target) {
+          const made = Reflect.construct(t, args, target) as Float64Array;
+          bytes += made.byteLength;
+          return made;
+        },
+      }) as typeof Float64Array;
+      const out = runningMeanOverCells(values, raw, bounds, 7);
+      expect(out?.[n / 4]).toBe(285);
+      expect(out?.[n / 2]).toBe(285);
+    } finally {
+      globalThis.Float64Array = F;
+    }
+    expect(bytes).toBeLessThan(8 * 2 ** 20);
   }
-  expect(bytes).toBeLessThan(8 * 2 ** 20);
+);
+
+it("keeps adjacent coarse means whole over missing days", () => {
+  // Nine missing days and three three-day means over them.
+  for (const measured of [0, 1, 2, 3]) {
+    const cells: TCell[] = [
+      ...Array.from({ length: 9 }, (_, i): TCell => [
+        i,
+        i + 1,
+        i < measured ? 270 + 10 * i : NaN,
+      ]),
+      [0, 3, 280],
+      [3, 6, 290],
+      [6, 9, 300],
+    ];
+    const daily = running(cells, 1).slice(0, 9);
+    // Only measured days are known one by one, and a single day the first
+    // block's mean leaves (three times 280 K less the other two).
+    const known = (i: number) =>
+      i < measured ? 270 + 10 * i : measured === 2 && i === 2 ? 290 : NaN;
+    daily.forEach((v, i) =>
+      expect(v, `${measured}: day ${i}`).toEqual(known(i))
+    );
+    // Each block's three days together are.
+    for (const [day, mean] of [
+      [1, 280],
+      [4, 290],
+      [7, 300],
+    ]) {
+      expect(running(cells, 3)[day], `${measured}: block ${day}`).toBeCloseTo(
+        mean
+      );
+    }
+  }
 });
 
 it("checks grouped residuals in a wide window without scanning them", () => {

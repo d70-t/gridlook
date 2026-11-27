@@ -1685,7 +1685,7 @@ async function windComponents(
       : undefined;
   };
   const epoch = publications;
-  const generation = windGenerations.get(owner) ?? 0;
+  const generation = tokenOf(windGenerations, owner);
   const sources = [pair.u, pair.v].map((variable) => sourceOf(variable));
   const [u, v] = await Promise.all(
     [pair.u, pair.v].map(async (variable, at) => {
@@ -1712,7 +1712,7 @@ async function windComponents(
   });
   // Kept only for a window still open.
   if (
-    (windGenerations.get(owner) ?? 0) === generation &&
+    windGenerations.get(owner) === generation &&
     !staleCompanions.has(owner) &&
     !publishedFor(epoch, queries[0]) &&
     !publishedFor(epoch, queries[1])
@@ -1809,27 +1809,42 @@ const windRead = new Map<
     sources: Record<string, string>;
   }
 >();
-/** Bumped as a window's companions are let go: a late read is not kept. */
-const windGenerations = new Map<string, number>();
+/**
+ * Per owner, a token of its companions' current reads, dropped as they are let
+ * go: a read that began under another token (or none now) is stale. Nothing is
+ * kept for a window once it is closed.
+ */
+const windGenerations = new Map<string, object>();
+/** Likewise for a piece loop: one let go starts no later piece. */
+const releases = new Map<string, object>();
+
+/** Owners with a token: what closed windows must not leave behind. */
+export function companionTokens() {
+  return windGenerations.size + releases.size;
+}
+
+/** The owner's current token, made if it has none. */
+function tokenOf(tokens: Map<string, object>, owner: string) {
+  let token = tokens.get(owner);
+  if (!token) {
+    token = {};
+    tokens.set(owner, token);
+  }
+  return token;
+}
 
 /** Unsubscribe a window's companions; the last subscriber stops a run. */
-/** How often each owner's companion reads were let go: a piece loop stops. */
-const releases = new Map<string, number>();
-
 function releaseCompanions(id: string, purpose?: TCompanionPurpose) {
   if (!purpose) {
     windRead.delete(`${id}:wind`);
-    windGenerations.set(
-      `${id}:wind`,
-      (windGenerations.get(`${id}:wind`) ?? 0) + 1
-    );
+    windGenerations.delete(`${id}:wind`);
     releaseCompanions(id, "wind");
     releaseCompanions(id, "members");
     releaseCompanions(id, "pair");
     return;
   }
   const owner = `${id}:${purpose}`;
-  releases.set(owner, (releases.get(owner) ?? 0) + 1);
+  releases.delete(owner);
   chunkPrices.delete(owner);
   // A load waiting for its Read ends here, unread.
   const gate = memberGates.get(owner);
@@ -1895,6 +1910,8 @@ function growingJoin() {
   let pending: TAnalysisResult[] = [];
   let rows = 0;
   let shown = -Infinity;
+  let held: (() => void) | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   return {
     add(result: TAnalysisResult) {
       pending.push(result);
@@ -1908,14 +1925,34 @@ function growingJoin() {
       }
       return joined;
     },
-    /** Whether a publication with `more` rows besides is due now. */
-    due(more = 0) {
-      const at = performance.now();
-      if (rows + more > WIND_REPORT_ROWS && at - shown < WIND_REPORT_MS) {
-        return false;
+    /**
+     * A publication with `more` rows besides: made now if due, else the latest
+     * one held for the end of the interval (a burst before the worker goes
+     * quiet still shows its last update).
+     */
+    offer(send: () => void, more = 0) {
+      const wait = shown + WIND_REPORT_MS - performance.now();
+      if (rows + more > WIND_REPORT_ROWS && wait > 0) {
+        held = send;
+        timer ??= setTimeout(() => {
+          timer = undefined;
+          const last = held;
+          held = undefined;
+          if (last) {
+            shown = performance.now();
+            last();
+          }
+        }, wait);
+        return;
       }
-      shown = at;
-      return true;
+      held = undefined;
+      shown = performance.now();
+      send();
+    },
+    /** No held publication sent any more (the result is in, or let go). */
+    stop() {
+      clearTimeout(timer);
+      [timer, held] = [undefined, undefined];
     },
   };
 }
@@ -2001,27 +2038,26 @@ export async function grownSegments(
             step,
             onPartial &&
               ((partial) => {
-                const rest = after(at + 1);
-                if (
-                  !head.due(
-                    partial.values.length + (rest[0]?.values.length ?? 0)
-                  )
-                ) {
-                  return;
-                }
-                const before = head.now();
-                onPartial({
-                  ...joinInOrder([
-                    ...(before ? [before] : []),
-                    partial,
-                    ...rest,
-                  ]),
-                  partial: partial.partial,
-                });
+                // The kept rows after it sliced only when shown.
+                head.offer(
+                  () => {
+                    const before = head.now();
+                    onPartial({
+                      ...joinInOrder([
+                        ...(before ? [before] : []),
+                        partial,
+                        ...after(at + 1),
+                      ]),
+                      partial: partial.partial,
+                    });
+                  },
+                  partial.values.length + keptFrom[at + 1]
+                );
               })
           );
     segments.push(segment);
     if (onPartial) {
+      head.stop();
       head.add(segment);
     }
   }
@@ -2090,10 +2126,11 @@ async function piecewiseResult(
   // result grown a piece at a time.
   const parts: TAnalysisResult[] = [];
   const done = growingJoin();
-  const released = releases.get(owner) ?? 0;
+  const released = tokenOf(releases, owner);
   for (const [k, q] of queries.entries()) {
     // Let go while a sibling kept the last piece alive: no later piece starts.
-    if ((releases.get(owner) ?? 0) !== released) {
+    if (releases.get(owner) !== released) {
+      done.stop();
       throw new DOMException("Aborted", "AbortError");
     }
     const part = await companionResult(
@@ -2101,44 +2138,45 @@ async function piecewiseResult(
       source,
       q,
       onPartial &&
-        ((partial) => {
-          if (!done.due(partial.values.length)) {
-            return;
-          }
-          const before = done.now();
-          onPartial({
-            ...(before ? joinInOrder([before, partial]) : partial),
-            partial: partial.partial && {
-              ...partial.partial,
-              done:
-                k * PIECE_SCALE +
-                Math.round(
-                  (PIECE_SCALE * partial.partial.done) /
-                    Math.max(1, partial.partial.total)
-                ),
-              total: queries.length * PIECE_SCALE,
-            },
-          });
-        })
-    );
+        ((partial) =>
+          done.offer(() => {
+            const before = done.now();
+            onPartial({
+              ...(before ? joinInOrder([before, partial]) : partial),
+              partial: partial.partial && {
+                ...partial.partial,
+                done:
+                  k * PIECE_SCALE +
+                  Math.round(
+                    (PIECE_SCALE * partial.partial.done) /
+                      Math.max(1, partial.partial.total)
+                  ),
+                total: queries.length * PIECE_SCALE,
+              },
+            });
+          }, partial.values.length))
+    ).finally(() => done.stop());
     parts.push(part);
     // Published as soon as it is in, a cached piece too: its pairs show while
     // the next piece is read.
     if (onPartial) {
       done.add(part);
-      if (k + 1 < queries.length && done.due()) {
-        const sofar = done.now()!;
-        onPartial({
-          ...sofar,
-          partial: {
-            done: (k + 1) * PIECE_SCALE,
-            total: queries.length * PIECE_SCALE,
-            readUntil: sofar.values.length,
-          },
+      if (k + 1 < queries.length) {
+        done.offer(() => {
+          const sofar = done.now()!;
+          onPartial({
+            ...sofar,
+            partial: {
+              done: (k + 1) * PIECE_SCALE,
+              total: queries.length * PIECE_SCALE,
+              readUntil: sofar.values.length,
+            },
+          });
         });
       }
     }
   }
+  done.stop();
   // Each piece as of now: one read before a publication of its dates is stale
   // even if it finished first.
   if (parts.some(isStale)) {

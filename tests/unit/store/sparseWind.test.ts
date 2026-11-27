@@ -299,3 +299,18 @@ it("shows cached sparse wind pieces while the next piece is read", async () => {
   await pending;
   expect(pairedDates(a)).toEqual([0, 1, 2, 3, 4, 5]);
 });
+
+it("keeps no companion bookkeeping for closed windows", async () => {
+  const { companionTokens } = await import("@/store/analysisStore.ts");
+  const dates = [0, 1, 100, 101];
+  const before = companionTokens();
+  for (let k = 0; k < 20; k++) {
+    const id = `closed-${k}`;
+    const a = sparseWind(id, dates, 53);
+    routePair(a, id);
+    a.setComputeMode("auto");
+    await a.loadWind(id);
+    a.close(id);
+  }
+  expect(companionTokens()).toBe(before);
+});

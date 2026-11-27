@@ -602,6 +602,8 @@ export class AnalysisRunner {
         // Each row's forecast run, in whichever form the source gives it.
         ...(time.references ? { references: time.references } : {}),
         ...(context.scalarReference ? { run: context.scalarReference } : {}),
+        // Clocks that disagree: partners are refused before reading.
+        ...(time.clockProblem ? { clockProblem: time.clockProblem } : {}),
         ...(context.cellMethods ? { cellMethods: context.cellMethods } : {}),
         ...(context.quantity ? { quantity: context.quantity } : {}),
         // Its own reads (stamps and bounds), said apart in Method.
