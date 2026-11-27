@@ -235,3 +235,123 @@ it("concurrent whole-file suffixes reserve their skip before the body", async ()
   expect(passed).toHaveLength(Math.floor(SKIPPED_BYTES_PER_FILE / size));
   expect(passed).toEqual(passed.map(() => [7]));
 });
+
+it("a whole-object suffix behind an HTTP content coding is asked as a suffix", async () => {
+  const seen: string[] = [];
+  const server = serve(seen);
+  const manifest = "https://data.example/refs.json";
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const request = input instanceof Request ? input : new Request(input);
+    if (request.url === manifest) {
+      return Response.json({ version: 1, refs: { w: [file] } });
+    }
+    // The coded body's length is not the object's.
+    return request.method === "HEAD"
+      ? new Response(null, {
+          status: 200,
+          headers: { "Content-Length": "12", "Content-Encoding": "gzip" },
+        })
+      : server(request);
+  });
+  const whole = await createReferenceStore("reference+" + manifest, {
+    fresh: true,
+  });
+  const end = await whole.getRange!("/w", { suffixLength: 4 });
+  expect(Array.from(end!)).toEqual([34, 35, 36, 37]);
+  expect(seen).toEqual(["GET bytes=-4"]);
+});
+
+/** A 200 body of `size` bytes (byte k is k mod 251) in `block`-byte pieces. */
+function streamed(size: number, block: number, headers: HeadersInit = {}) {
+  let sent = 0;
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      pull(controller) {
+        const piece = Uint8Array.from(
+          { length: Math.min(block, size - sent) },
+          (_, k) => (sent + k) % 251
+        );
+        controller.enqueue(piece);
+        sent += piece.length;
+        if (sent >= size) {
+          controller.close();
+        }
+      },
+    }),
+    { status: 200, headers }
+  );
+}
+
+it("a whole-file suffix keeps the last bytes across any block sizes", async () => {
+  resetSkippedBytes();
+  for (const [size, block, n] of [
+    [4096, 7, 1000],
+    [4096, 1000, 7],
+    [4096, 4096, 5000],
+    [300_000, 16_384, 200_000],
+  ]) {
+    const r = await exactSuffix(file, n, streamed(size, block));
+    const kept = Math.min(n, size);
+    expect(new Uint8Array(await r.arrayBuffer())).toEqual(
+      Uint8Array.from({ length: kept }, (_, k) => (size - kept + k) % 251)
+    );
+    expect(r.headers.get("Content-Range")).toBe(
+      `bytes ${size - kept}-${size - 1}/${size}`
+    );
+  }
+});
+
+it("a coded whole-file suffix is charged what decodes, not the coded length", async () => {
+  resetSkippedBytes();
+  const size = 60 * 2 ** 20;
+  const block = new Uint8Array(2 ** 20).fill(3);
+  const coded = () => {
+    let sent = 0;
+    return new Response(
+      new ReadableStream<Uint8Array>({
+        pull(controller) {
+          controller.enqueue(block);
+          sent += block.length;
+          if (sent >= size) {
+            controller.close();
+          }
+        },
+      }),
+      {
+        status: 200,
+        headers: { "Content-Length": "1052", "Content-Encoding": "gzip" },
+      }
+    );
+  };
+  // Four 60 MiB skips fit the 256 MiB allowance; the fifth does not.
+  for (let k = 0; k < 4; k++) {
+    await exactSuffix(file, 1, coded());
+  }
+  await expect(exactSuffix(file, 1, coded())).rejects.toThrow(/skipped/);
+});
+
+it("a whole-file suffix holds no more than the file it ends", async () => {
+  resetSkippedBytes();
+  const size = 64 * 2 ** 10;
+  const U8 = Uint8Array;
+  let allocated = 0;
+  let out: Response;
+  try {
+    globalThis.Uint8Array = new Proxy(U8, {
+      construct(target, args, newTarget) {
+        const made = Reflect.construct(target, args, newTarget) as Uint8Array;
+        allocated += typeof args[0] === "number" ? made.byteLength : 0;
+        return made;
+      },
+    }) as typeof Uint8Array;
+    out = await exactSuffix(
+      file,
+      32 * 2 ** 20,
+      streamed(size, 16_384, { "Content-Length": String(size) })
+    );
+  } finally {
+    globalThis.Uint8Array = U8;
+  }
+  expect((await out.arrayBuffer()).byteLength).toBe(size);
+  expect(allocated).toBeLessThan(4 * size);
+});

@@ -115,6 +115,12 @@ export async function planAnalysis(
       `The two components' cell coordinates and outlines need about ${mib(context.grid.geometryBytes + partner.grid.geometryBytes)} in memory together; plots use at most ${mib(MAX_WORKING_BYTES)}.`
     );
   }
+  // What a cold axis locator fetches before it answers: its sides' whole
+  // stored chunks and shard indexes, however few values they hold.
+  const locatorFetch =
+    context.grid.kind === ANALYSIS_GRID_KINDS.NATIVE
+      ? (context.grid.geometryBytesNow?.() ?? 0)
+      : 0;
   const geometryReads =
     (context.grid.kind === ANALYSIS_GRID_KINDS.NATIVE
       ? context.grid.geometryReadsNow()
@@ -179,14 +185,18 @@ export async function planAnalysis(
   const areaDecoded =
     (cornerReads && context.grid.kind === ANALYSIS_GRID_KINDS.NATIVE
       ? (context.grid.cornerAreas?.decodedNow() ?? 0)
-      : 0) + declared.bytes;
+      : 0) +
+    declared.bytes +
+    locatorFetch;
   // A cold locator that decodes much in few chunks is asked about too. A loaded
   // one costs nothing more.
   const locatorBytes =
     (context.grid.kind === ANALYSIS_GRID_KINDS.NATIVE &&
     !context.grid.geometryReady()
       ? context.grid.geometryBytes
-      : 0) + partnerGeometry.bytes;
+      : 0) +
+    partnerGeometry.bytes +
+    locatorFetch;
   if (
     !geometryConfirmed &&
     (areaReads > COLD_GEOMETRY_CONFIRM ||

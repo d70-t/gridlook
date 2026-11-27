@@ -23,10 +23,15 @@ export function axisSides(
     const a = before ?? (after !== undefined ? 2 * c - after : c);
     const b = after ?? (before !== undefined ? 2 * c - before : c);
     const [halfLow, halfHigh] = a <= b ? [a, b] : [b, a];
-    const known = [bounds?.[2 * k], bounds?.[2 * k + 1]]
-      .filter((v): v is number => v !== undefined && Number.isFinite(v))
-      .map((v) => (period ? v - period * Math.round((v - c) / period) : v));
-    if (known.length === 2) {
+    const known = [bounds?.[2 * k], bounds?.[2 * k + 1]].filter(
+      (v): v is number => v !== undefined && Number.isFinite(v)
+    );
+    if (known.length === 2 && period) {
+      [low[k], high[k]] = aroundCentre(known[0], known[1], c, period);
+    } else if (known.length === 1 && period) {
+      const v = known[0] - period * Math.round((known[0] - c) / period);
+      [low[k], high[k]] = v <= c ? [v, halfHigh] : [halfLow, v];
+    } else if (known.length === 2) {
       [low[k], high[k]] = known[0] <= known[1] ? known : [known[1], known[0]];
     } else if (known.length === 1) {
       [low[k], high[k]] =
@@ -36,6 +41,29 @@ export function axisSides(
     }
   }
   return { low, high, centres };
+}
+
+/**
+ * A periodic cell's [low, high] holding its centre: the published interval or,
+ * when that holds no turn of the centre, the rest of the circle (sides written
+ * as [290°, 30°] about 0°). Widths past half a turn are kept, up to a whole one.
+ */
+function aroundCentre(a: number, b: number, c: number, period: number) {
+  const [lo, hi] = a <= b ? [a, b] : [b, a];
+  const placed = (from: number, width: number) => {
+    const start = from + period * Math.floor((c - from) / period);
+    return c <= start + width ? [start, start + width] : undefined;
+  };
+  if (hi - lo >= period) {
+    return placed(lo, period)!;
+  }
+  return (
+    placed(lo, hi - lo) ??
+    placed(hi, period - (hi - lo)) ?? [
+      lo - period * Math.round((lo - c) / period),
+      hi - period * Math.round((hi - c) / period),
+    ]
+  );
 }
 
 /** The cell holding `v` (its nearest centre among several), or −1. */
@@ -90,4 +118,6 @@ export type TAxisLocator = {
   make: () => Promise<
     (lat: number, lon: number) => [number, number] | undefined
   >;
+  /** Stored bytes `make` still fetches (padded chunks, shard indexes). */
+  coldBytes?: () => number;
 };

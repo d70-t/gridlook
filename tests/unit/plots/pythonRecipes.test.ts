@@ -69,7 +69,7 @@ it("a remote NetCDF file is opened by byte ranges, a local one directly", () => 
   );
   expect(remote).toContain('# url = "https://x.org/data/file.nc"');
   expect(remote).toContain(
-    "#     ds = xr.open_dataset(io.BufferedReader(Ranges(url), 1 << 20), chunks={})"
+    "#     ds = xr.open_dataset(io.BufferedReader(source, 1 << 20), chunks={})"
   );
   const local = pythonScript(series({ ref: "data/file.nc" }), "p", "P");
   expect(local).toContain('# ds = xr.open_dataset("data/file.nc", chunks={})');
@@ -121,7 +121,7 @@ it("review of interim45: a remote NetCDF recipe reads the whole file when the se
   expect(script).toContain("#     ds = xr.open_dataset(whole)");
   expect(script).toContain("#     limit, total = 4 * 1024**3, 0");
   expect(script).toContain("# class Ranges(io.RawIOBase):");
-  expect(script).toContain("#         self.size = self.get(0, 0)[1]");
+  expect(script).toContain("#         _, self.size, self.tag = self.get(0, 0)");
   expect(script).toContain("tempfile.SpooledTemporaryFile");
   expect(script).not.toContain('b"".join');
 });

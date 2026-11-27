@@ -30,6 +30,8 @@ import {
   baseResult,
   columnKey,
   columnVertical,
+  copyPicker,
+  copyPickerBytes,
   estimateFor,
   JOBS_PER_BATCH,
   levelIndex,
@@ -55,8 +57,8 @@ import {
   readingParts,
   timeRange,
   verticalOf,
+  withCellCopies,
   type TPlannedAnalysis,
-  type TRegionSelection,
 } from "./operations.ts";
 import { REGION_KINDS, coverHealpixRegion } from "./regionCover.ts";
 import {
@@ -1667,11 +1669,9 @@ export async function planDistribution(
   if (level !== undefined) {
     runs[context.vertical!.axis] = [[level, level + 1]];
   }
-  const selection: TRegionSelection = await queryRegionSelection(
+  const selection = await withCellCopies(
     context,
-    query.geometry,
-    runs,
-    counters,
+    await queryRegionSelection(context, query.geometry, runs, counters, signal),
     signal
   );
   if (selection.storedCells > MAX_SELECTED_CELLS) {
@@ -1691,7 +1691,9 @@ export async function planDistribution(
       chunks,
       nbins,
       empty ? [empty] : [],
-      selection.storedCells * 16 + runSelectionBytes(selection.runs)
+      selection.storedCells * 16 +
+        runSelectionBytes(selection.runs) +
+        copyPickerBytes(selection, 1)
     ),
     // eslint-disable-next-line max-lines-per-function
     async execute(signal) {
@@ -1704,6 +1706,29 @@ export async function planDistribution(
         selection.positionOf && selection.storedCells <= MAX_FIELD_CELLS
           ? { lat: [] as number[], lon: [] as number[], values: [] as number[] }
           : undefined;
+      // One value of each repeated cell: its first valid copy.
+      const picked = copyPicker(selection, 1);
+      const take = (index: Float64Array, value: number, point: number) => {
+        if (mapped) {
+          const [lat, lon] = selection.positionOf!(index, point);
+          mapped.lat.push(lat);
+          mapped.lon.push(lon);
+          mapped.values.push(value);
+        }
+        // Only cells with an area count: a zero-area (or undefined) cell
+        // neither stretches the range nor counts as valid.
+        const weight = selection.weightOf(index, point);
+        if (
+          !Number.isNaN(value) &&
+          Number.isFinite(weight) &&
+          weight > 0 &&
+          n < values.length
+        ) {
+          values[n] = value;
+          weights[n] = weight;
+          n++;
+        }
+      };
       if (selection.storedCells > 0) {
         await visitRuns(
           read,
@@ -1711,24 +1736,8 @@ export async function planDistribution(
           context.codec,
           selection.runs,
           (_, index, value, point) => {
-            if (mapped) {
-              const [lat, lon] = selection.positionOf!(index, point);
-              mapped.lat.push(lat);
-              mapped.lon.push(lon);
-              mapped.values.push(value);
-            }
-            // Only cells with an area count: a zero-area (or undefined)
-            // cell neither stretches the range nor counts as valid.
-            const weight = selection.weightOf(index, point);
-            if (
-              !Number.isNaN(value) &&
-              Number.isFinite(weight) &&
-              weight > 0 &&
-              n < values.length
-            ) {
-              values[n] = value;
-              weights[n] = weight;
-              n++;
+            if (!picked?.hold(point, 0, value)) {
+              take(index, value, point);
             }
           },
           counters,
@@ -1736,6 +1745,8 @@ export async function planDistribution(
           undefined,
           selection.points
         );
+        const none = new Float64Array(0);
+        picked?.each((point, _, value) => take(none, value, point));
       }
       let low = Number.POSITIVE_INFINITY;
       let high = Number.NEGATIVE_INFINITY;

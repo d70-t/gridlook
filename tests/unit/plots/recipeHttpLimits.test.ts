@@ -163,7 +163,8 @@ it("interim48: the fallback's limit holds under python -O and only transport err
 
 // A server whose file is republished after the first reply: "same" keeps
 // it, "drop" stops naming its ETag, "swap" names another one and answers
-// 412 to an If-Match for the old one.
+// 412 to an If-Match for the old one, "weak" changes a weak ETag (no If-Match
+// pins it), "late" names one only from the second reply on.
 const REPUBLISH = String.raw`
 import io, sys, threading
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -174,7 +175,9 @@ class H(SimpleHTTPRequestHandler):
     def send_head(self):
         first = state["replies"] == 0
         state["replies"] += 1
-        tag = '"A"' if first or mode == "same" else ('"B"' if mode == "swap" else None)
+        tags = {"same": ('"A"', '"A"'), "drop": ('"A"', None), "swap": ('"A"', '"B"'),
+                "weak": ('W/"A"', 'W/"B"'), "late": (None, '"A"')}[mode]
+        tag = tags[0] if first else tags[1]
         wanted = self.headers.get("If-Match")
         if wanted and tag != wanted:
             self.send_response(412)
@@ -212,4 +215,75 @@ it("binds the recipe's later range reads to the first reply's validator", () => 
   expect(run("same")).toBe("read [1, 2, 3, 4]");
   expect(run("drop")).toBe("refused the file changed while it was read");
   expect(run("swap")).toBe("refused the file changed while it was read");
+  expect(run("weak")).toBe("refused the file changed while it was read");
+  expect(run("late")).toBe("refused the file changed while it was read");
+});
+
+// Serves a NetCDF-4 fixture by ranges, republished after the first reply
+// (another strong ETag; 412 to an If-Match for the first).
+const SWAP_DURING_OPEN = String.raw`
+import io, sys, threading, xarray as xr
+from pathlib import Path
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+data, block = Path(sys.argv[1]).read_bytes(), sys.argv[2]
+state, seen = {"replies": 0}, []
+class H(SimpleHTTPRequestHandler):
+    def log_message(self, *a): pass
+    def send_head(self):
+        tag = '"A"' if state["replies"] == 0 else '"B"'
+        state["replies"] += 1
+        rng, wanted = self.headers.get("Range"), self.headers.get("If-Match")
+        seen.append(rng or "whole")
+        if wanted and wanted != tag:
+            self.send_response(412)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return io.BytesIO(b"")
+        a, b = (int(x) for x in rng.split("=")[1].split("-")) if rng else (0, len(data) - 1)
+        self.send_response(206 if rng else 200)
+        if rng:
+            self.send_header("Content-Range", f"bytes {a}-{b}/{len(data)}")
+        self.send_header("ETag", tag)
+        self.send_header("Content-Length", str(b - a + 1))
+        self.end_headers()
+        return io.BytesIO(data[a:b + 1])
+s = ThreadingHTTPServer(("127.0.0.1", 0), H)
+threading.Thread(target=s.serve_forever, daemon=True).start()
+code = "\n".join(l.removeprefix("# ") for l in block.split("\n"))
+url = f"http://127.0.0.1:{s.server_port}/f.nc"
+try:
+    exec(code.replace(${JSON.stringify(JSON.stringify(URL))}, repr(url)), {"xr": xr})
+    print("opened")
+except RuntimeError as error:
+    print("refused", error)
+print("whole" in seen)
+sys.stdout.flush()
+import os; os._exit(0)
+`;
+
+it("refuses a file republished while the recipe opens it, without reading it whole", ({
+  skip,
+}) => {
+  const lines = exampleScript().split("\n");
+  const from = lines.findIndex((l) => l.startsWith("# import io, re"));
+  const to = lines.findIndex((l) => l.includes("ds = xr.open_dataset(whole"));
+  const block = lines.slice(from, to + 1).join("\n");
+  if (!HAS_READERS) {
+    skip();
+  }
+  const out = execFileSync(
+    "python3",
+    [
+      "-I",
+      "-c",
+      SWAP_DURING_OPEN,
+      path.join(FIXTURES, "remote-netcdf4.nc"),
+      block,
+    ],
+    { encoding: "utf8" }
+  );
+  expect(out.trim().split("\n")).toEqual([
+    "refused the file was republished while it was opened; open it again",
+    "False",
+  ]);
 });

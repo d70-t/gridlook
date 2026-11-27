@@ -911,11 +911,15 @@ function gridArrays(result: TAnalysisResult, name: string) {
       statusArray(
         "status",
         ["time", axisName],
-        // Unread rows first; then a sample outside the grid is "no stored
-        // cell" at every read time, not a missing value.
+        // A sample outside the grid is "no stored cell" at every time, read
+        // yet or not; a missing value elsewhere has its sample's reason.
         rowStatus(result, result.values, nt).map((code, at) =>
-          code === STATUS_FLAGS.MISSING && s && axisName === "distance"
-            ? sampleStatus(s.status[at % n]) || STATUS_FLAGS.MISSING
+          s && axisName === "distance"
+            ? s.status[at % n] === SAMPLE_STATUS.OUTSIDE
+              ? STATUS_FLAGS.NO_STORED_CELL
+              : code === STATUS_FLAGS.MISSING
+                ? sampleStatus(s.status[at % n]) || STATUS_FLAGS.MISSING
+                : code
             : code
         )
       ),

@@ -1756,6 +1756,42 @@ describe("export semantics (v8 review)", () => {
     ).toBe(STATUS_FLAGS.NO_STORED_CELL);
   });
 
+  it("an outside sample is 'no stored cell' at a date not read yet too", () => {
+    const r = results.distance;
+    const n = r.axis!.values.length;
+    const nt = r.values.length / n;
+    const stopped = {
+      ...r,
+      partial: { done: 1, total: nt, readUntil: 1 },
+      values: r.values.map((v, at) =>
+        at % n === 0 || at >= n ? Number.NaN : v
+      ),
+      samples: {
+        ...r.samples!,
+        status: r.samples!.status.map((s, k) =>
+          k === 0 ? ("no stored cell" as const) : s
+        ),
+      },
+    } as TAnalysisResult;
+    const codes = Array.from(
+      find(exportModel(stopped), "status")!.data as Int32Array
+    );
+    const table = resultTable(stopped);
+    const flag = table.header.indexOf("status");
+    for (let at = 0; at < codes.length; at++) {
+      const outside = at % n === 0;
+      const expected = outside
+        ? STATUS_FLAGS.NO_STORED_CELL
+        : at >= n
+          ? STATUS_FLAGS.NOT_READ
+          : codes[at];
+      expect(codes[at], `${at}`).toBe(expected);
+      expect(table.row(at)[flag], `${at}`).toBe(
+        outside ? "no stored cell" : at >= n ? "not read" : table.row(at)[flag]
+      );
+    }
+  });
+
   it("a computed altitude keeps its published datum; an unknown one has none", () => {
     const curtain = results.curtain;
     const ns = curtain.samples!.distances.length;
@@ -2983,7 +3019,7 @@ it("review of interim30 #39: the xarray example opens a source by Gridlook's own
   // By byte ranges, not as OPeNDAP.
   expect(netcdf).toContain('# url = "https://example.org/data"');
   expect(netcdf).toContain(
-    "xr.open_dataset(io.BufferedReader(Ranges(url), 1 << 20), chunks={})"
+    "xr.open_dataset(io.BufferedReader(source, 1 << 20), chunks={})"
   );
   // The address as written stays in the provenance; the open call has none.
   const open = netcdf

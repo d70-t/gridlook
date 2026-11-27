@@ -25,7 +25,8 @@ async function put(
 ) {
   const a = await zarr.create(zarr.root(s).resolve(name), {
     shape,
-    chunkShape: shape,
+    // The field in two column chunks: copies arrive in either order.
+    chunkShape: name === "v" ? [1, 8, 12] : shape,
     dimensionNames: dims,
     dtype: "float64",
     fillValue: NaN,
@@ -38,27 +39,40 @@ async function put(
   } as never);
 }
 
+type TMissing =
+  "copies" | "originals" | "area-copies" | "area-originals" | "conflict";
+
 /**
  * A 12-column curvilinear ring, 8 rows, with its first five columns
  * repeated after the last: 96 cells of unit area, 120 K in column 0 and
- * 0 K elsewhere (a 10 K mean). `missing` masks the field's values (not the
- * coordinates) in the repeated columns or in the originals.
+ * 0 K elsewhere (a 10 K mean). `missing` masks the field's or the area's
+ * values (not the coordinates) in the repeated columns or in the originals;
+ * "conflict" stores 240 K in column 0's copies. `slow` delays one of the
+ * field's two chunks.
  */
-async function areaMean(missing?: "copies" | "originals") {
+async function ring(missing?: TMissing, slow?: number) {
   const [n, ny, nx] = [12, 8, 17];
   const s: TStore = new Map();
   await zarr.create(zarr.root(s), { attributes: {} });
   const [lats, lons, temps]: number[][] = [[], [], []];
+  const copy = (i: number) => i >= n;
   for (let j = 0; j < ny; j++) {
     for (let i = 0; i < nx; i++) {
       const col = i % n;
       lats.push(-35 + 10 * j + 0.2 * Math.sin((2 * Math.PI * col) / n));
       lons.push(-165 + 30 * col + 0.2 * j);
       const masked =
-        (missing === "copies" && i >= n) || (missing === "originals" && i < 5);
-      temps.push(masked ? NaN : col === 0 ? 120 : 0);
+        (missing === "copies" && copy(i)) || (missing === "originals" && i < 5);
+      const hot = missing === "conflict" && copy(i) ? 240 : 120;
+      temps.push(masked ? NaN : col === 0 ? hot : 0);
     }
   }
+  const area = Array.from({ length: ny * nx }, (_, q) =>
+    (missing === "area-copies" && copy(q % nx)) ||
+    (missing === "area-originals" && q % nx < 5)
+      ? NaN
+      : 1
+  );
   await put(s, "time", [1], ["time"], [0], { units: "days since 2000-01-01" });
   await put(s, "lat", [ny, nx], ["y", "x"], lats, {
     standard_name: "latitude",
@@ -68,7 +82,7 @@ async function areaMean(missing?: "copies" | "originals") {
     standard_name: "longitude",
     units: "degrees_east",
   });
-  await put(s, "area", [ny, nx], ["y", "x"], Array(ny * nx).fill(1), {
+  await put(s, "area", [ny, nx], ["y", "x"], area, {
     standard_name: "cell_area",
     units: "m2",
   });
@@ -77,17 +91,25 @@ async function areaMean(missing?: "copies" | "originals") {
     coordinates: "lat lon",
     cell_measures: "area: area",
   });
+  const store = {
+    get: async (key: string) => {
+      if (key === `/v/c/0/0/${slow}`) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      return s.get(key);
+    },
+  };
   const c = (await resolveVariableContext(
     zarrAnalysisDatasetFromStore(
-      s as never,
+      store as never,
       "",
       ZARR_FORMAT.V3,
-      `copies-${missing}`
+      `copies-${missing}-${slow}`
     ),
     "v",
     new ByteLru(2 ** 20)
   )) as TVariableContext;
-  const query = {
+  const region = {
     kind: "region-series",
     version: 1,
     variable: "v",
@@ -96,14 +118,46 @@ async function areaMean(missing?: "copies" | "originals") {
     geometry: { kind: "box", west: -180, east: 180, south: -85, north: 85 },
     source: { ref: "local", versionStatus: "best-effort" },
   } as TAnalysisQuery;
-  const out = await (await planAnalysis(c, query, new ReadContext())).execute();
-  return [out.values[0], out.region!.validCells[0]];
+  const run = async (query: TAnalysisQuery) =>
+    await (await planAnalysis(c, query, new ReadContext())).execute();
+  return { c, region, run };
 }
 
-it("takes a repeated cell's value from whichever copy has it", async () => {
-  for (const missing of [undefined, "copies", "originals"] as const) {
-    const [mean, cells] = await areaMean(missing);
-    expect(mean, `${missing}`).toBeCloseTo(10);
-    expect(cells, `${missing}`).toBe(96);
+it("takes a repeated cell's value and area from whichever copy has it", async () => {
+  for (const missing of [
+    undefined,
+    "copies",
+    "originals",
+    "area-copies",
+    "area-originals",
+  ] as const) {
+    const { region, run } = await ring(missing);
+    const series = await run(region);
+    expect(series.values[0], `${missing}`).toBeCloseTo(10);
+    expect(series.region!.validCells[0], `${missing}`).toBe(96);
+    const spread = await run({
+      ...region,
+      kind: "distribution",
+      timeIndex: 0,
+    } as TAnalysisQuery);
+    expect(spread.histogram!.mean, `${missing}`).toBeCloseTo(10);
+    expect(spread.histogram!.validCells, `${missing}`).toBe(96);
+    const point = await run({
+      ...region,
+      kind: "point-series",
+      geometry: { kind: "point", lat: -5, lon: -164.4 },
+    } as TAnalysisQuery);
+    expect(point.values, `${missing}`).toEqual([120]);
   }
+});
+
+it("takes conflicting copies in the grid's order, in any read order", async () => {
+  const means: number[] = [];
+  for (const slow of [0, 1]) {
+    const { region, run } = await ring("conflict", slow);
+    means.push((await run(region)).values[0]);
+  }
+  // The kept cell is the one dropFrameDuplicates keeps: 240 K or 120 K.
+  expect([10, 20]).toContain(means[0]);
+  expect(means[1]).toBe(means[0]);
 });

@@ -18,7 +18,7 @@ const meta = JSON.stringify({
 
 afterEach(() => vi.unstubAllGlobals());
 
-async function read(kind: string, dimension: unknown) {
+async function read(kind: string, dimension: unknown, index = "i") {
   const manifest = `https://example.test/temperature-${kind}.json`;
   const data = "https://example.test/data/";
   const spec = {
@@ -32,7 +32,11 @@ async function read(kind: string, dimension: unknown) {
       "t/zarr.json": meta,
     },
     gen: [
-      { key: "t/c/{{i}}", url: `${data}{{i}}`, dimensions: { i: dimension } },
+      {
+        key: "t/c/{{i}}",
+        url: `${data}{{ ${index} }}`,
+        dimensions: { i: dimension },
+      },
     ],
   };
   vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
@@ -60,4 +64,19 @@ it("expands generated ranges in either direction, as Python's range", async () =
     45, 68,
   ]);
   expect(await read("explicit", [1, 0])).toEqual([45, 68]);
+});
+
+it("expands arithmetic in generated fields in either direction", async () => {
+  for (const index of ["i + 0", "(i * 3) // 3", "2 * i - i"]) {
+    expect(
+      await read("math", { start: 1, stop: -1, step: -1 }, index),
+      index
+    ).toEqual([45, 68]);
+  }
+});
+
+it("refuses a generator with a step of zero", async () => {
+  await expect(read("zero", { start: 1, stop: -1, step: 0 })).rejects.toThrow(
+    /step of 0/
+  );
 });

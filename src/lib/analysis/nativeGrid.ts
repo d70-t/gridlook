@@ -17,6 +17,7 @@ import {
 } from "./axisLocate.ts";
 import {
   chunkByteSize,
+  wholeIndexBytes,
   raceAbort,
   throwIfAborted,
   yieldIfBusy,
@@ -167,6 +168,8 @@ export type TNativeContext = {
   geometryReady: () => boolean;
   /** Coordinate chunks still to read before a locator can answer. */
   geometryReadsNow: () => number;
+  /** Stored bytes those reads fetch for an axis locator (its sides). */
+  geometryBytesNow?: () => number;
 };
 
 /**
@@ -1217,6 +1220,10 @@ async function rotatedCoordinates(
   ]);
   const cold = (array: TAnalysisArray | undefined) =>
     !array || isDecoded(dataset, array) ? 0 : chunkCount(array);
+  // What those reads fetch: whole declared chunks and their shard indexes.
+  const coldBytes = (array: TAnalysisArray | undefined) =>
+    cold(array) &&
+    cold(array) * chunkByteSize(array!) + wholeIndexBytes(array!);
   // Read when the coordinates are first needed (after admission), and counted
   // before.
   const lazy = (axis: TAnalysisArray, sides?: TAnalysisArray) => ({
@@ -1249,6 +1256,11 @@ async function rotatedCoordinates(
   };
   const locate: TAxisLocator = {
     dims: [rlat.dimensionNames[0], rlon.dimensionNames[0]],
+    coldBytes: () =>
+      coldBytes(rlat) +
+      coldBytes(latSides) +
+      coldBytes(rlon) +
+      coldBytes(lonSides),
     make: async () => {
       const [sy, sx] = await Promise.all([
         sidesOf(rlat, latSides),
@@ -2052,6 +2064,8 @@ function geometryLoader(
     geometryReady: () => geometryCache.get(key)?.bytes !== undefined,
     // Reads still to make: none while loaded or being loaded by another
     // plot; otherwise only arrays whose decoded values are not shared yet.
+    geometryBytesNow: () =>
+      geometryCache.has(key) ? 0 : (source.locate?.coldBytes?.() ?? 0),
     geometryReadsNow: () =>
       geometryCache.has(key)
         ? 0

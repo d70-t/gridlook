@@ -72,6 +72,11 @@ export type TAnalysisArray = {
    */
   coldReads?: () => number;
   /**
+   * Stored bytes those cold reads fetch: whole declared chunks (padding
+   * included) and the shard indexes in front of them.
+   */
+  coldBytes?: () => number;
+  /**
    * A computed array's largest single decoded stored chunk read to make
    * it, when its own chunk is not the stored one: the per-chunk limit.
    */
@@ -187,7 +192,7 @@ export function checkDeclaredChunk(
 }
 
 /** Shard index bytes reading `array` whole asks for. */
-function wholeIndexBytes(
+export function wholeIndexBytes(
   array: Pick<TAnalysisArray, "chunks" | "shape" | "shardIndex">
 ) {
   const index = array.shardIndex;

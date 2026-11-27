@@ -998,6 +998,10 @@ export async function locatePoint(
     }
     return {
       positions: nativePositions(grid, hit.cell),
+      // The cell's halo or fold copies: a value missing in it is theirs.
+      copies: (geometry.copies?.get(hit.cell) ?? []).map((copy) =>
+        nativePositions(grid, copy)
+      ),
       label: {
         id: nativeCellId(grid, context.dims, hit.cell),
         stored: true,
@@ -1123,7 +1127,18 @@ export async function planPointSeries(
   if (located.positions.length) {
     setSpatialRuns(context, runs, located.positions);
   }
-  const chunks = located.positions.length ? countChunks(context, runs) : 0;
+  // Each copy of the cell, read only where the ones before it are missing.
+  const copyRuns = ("copies" in located ? (located.copies ?? []) : []).map(
+    (positions) => {
+      const own = runs.map((r) => r.slice());
+      setSpatialRuns(context, own, positions);
+      return own;
+    }
+  );
+  const chunks = located.positions.length
+    ? countChunks(context, runs) +
+      copyRuns.reduce((n, r) => n + countChunks(context, r), 0)
+    : 0;
   const nt = stop - start;
   const layout = layoutNote(context, chunks, nt);
   return {
@@ -1152,23 +1167,36 @@ export async function planPointSeries(
         parts.length,
         POINT_LOOKAHEAD,
         signal,
-        (part, partSignal) => {
+        async (part, partSignal) => {
           // The spatial runs as they are (their chunk directory is built
           // once for every part); only the time run is the part's own.
-          const partRuns = runs.map((r, d) =>
-            d === timeAxis ? [parts[part]] : r
-          );
-          return visitRuns(
-            read,
-            context.array,
-            context.codec,
-            partRuns,
-            (_, index, value) => {
-              values[index[timeAxis] - start] = value;
-            },
-            counters,
-            partSignal
-          );
+          const [from, until] = parts[part];
+          const partOf = (list: TIndexRuns[]) =>
+            list.map((r, d) => (d === timeAxis ? [parts[part]] : r));
+          // Each copy fills only what the cell and earlier copies left
+          // missing, one after another, so the first valid one is used.
+          const visit = async (list: TIndexRuns[], fill: boolean) =>
+            visitRuns(
+              read,
+              context.array,
+              context.codec,
+              partOf(list),
+              (_, index, value) => {
+                const k = index[timeAxis] - start;
+                if (!fill || Number.isNaN(values[k])) {
+                  values[k] = value;
+                }
+              },
+              counters,
+              partSignal
+            );
+          await visit(runs, false);
+          for (const list of copyRuns) {
+            if (!values.slice(from - start, until - start).some(Number.isNaN)) {
+              break;
+            }
+            await visit(list, true);
+          }
         },
         async (part, publish) => {
           if (part + 1 < parts.length) {
@@ -1832,6 +1860,17 @@ async function nativeRegionSelection(
     equal || !cells.length
       ? undefined
       : await nativeAreas(grid, geometry, signal);
+  // A cell's area from the first of its copies that has one: a halo copy
+  // stands for the kept cell whose own area is missing.
+  const areaOf = (cell: number) => {
+    for (const c of [cell, ...(geometry.copies?.get(cell) ?? [])]) {
+      const w = areas?.[c] ?? 0;
+      if (Number.isFinite(w) && w > 0) {
+        return w;
+      }
+    }
+    return 0;
+  };
   const rank = grid.axes.length;
   const positions = new Float64Array(cells.length * rank);
   const weights = new Float64Array(cells.length);
@@ -1847,8 +1886,7 @@ async function nativeRegionSelection(
     );
     centres[2 * at] = geometry.lat[cell];
     centres[2 * at + 1] = geometry.lon[cell];
-    const w = equal ? 1 : (areas?.[cell] ?? 0);
-    weights[at] = Number.isFinite(w) && w > 0 ? w : 0;
+    weights[at] = equal ? 1 : areaOf(cell);
     unweighed += weights[at] ? 0 : 1;
     totalWeight += weights[at];
   });
@@ -1895,7 +1933,7 @@ export function emptyRegionNote(
  * in one copy is taken from another. Without copies, the selection as is.
  */
 // eslint-disable-next-line max-lines-per-function
-async function withCellCopies(
+export async function withCellCopies(
   context: TVariableContext,
   selection: TRegionSelection,
   signal?: AbortSignal
@@ -1955,37 +1993,78 @@ async function withCellCopies(
 }
 
 /**
- * Per execution: whether a repeated cell already gave a value at these
- * non-spatial indices (date, level, member). Copies are the same cell, so
- * the first finite one read counts.
+ * Each repeated cell's value at each step of a span: from its first copy,
+ * in the grid's order (the kept cell, then its copies), with a finite value.
+ * Copies are held until the span is read and handed on in cell order, so
+ * the order chunks arrive in does not change the answer.
  */
-function copyClaims(selection: TRegionSelection & { classOf?: Int32Array }) {
+export function copyPicker(
+  selection: TRegionSelection & { classOf?: Int32Array },
+  length: number
+) {
   const classOf = selection.classOf;
   if (!classOf) {
-    return () => false;
+    return undefined;
   }
-  const spatial = new Set(selection.points!.dims);
-  const seen = new Map<number, Set<string>>();
-  return (index: Float64Array, point: number) => {
-    const cls = classOf[point];
+  const slotOf = new Int32Array(classOf.length).fill(-1);
+  const rankOf = new Int32Array(classOf.length);
+  const primaries: number[] = [];
+  classOf.forEach((cls, point) => {
     if (cls < 0) {
-      return false;
+      return;
     }
-    let key = "";
-    for (let d = 0; d < index.length; d++) {
-      key += spatial.has(d) ? "" : `${index[d]},`;
+    if (cls === point) {
+      slotOf[point] = primaries.push(point) - 1;
     }
-    let done = seen.get(cls);
-    if (!done) {
-      done = new Set();
-      seen.set(cls, done);
+  });
+  // Copies follow their kept cell's slot, numbered in the order listed.
+  const listed = new Int32Array(primaries.length);
+  classOf.forEach((cls, point) => {
+    if (cls >= 0 && cls !== point) {
+      slotOf[point] = slotOf[cls];
+      rankOf[point] = ++listed[slotOf[cls]];
     }
-    if (done.has(key)) {
+  });
+  const best = new Float64Array(primaries.length * length).fill(Number.NaN);
+  const from = new Int32Array(primaries.length * length).fill(-1);
+  return {
+    /** Whether `point` is a copy of a repeated cell (held, not counted now). */
+    hold(point: number, k: number, value: number) {
+      const slot = slotOf[point];
+      if (slot < 0) {
+        return false;
+      }
+      const at = slot * length + k;
+      if (!Number.isNaN(value) && (from[at] < 0 || rankOf[point] < from[at])) {
+        best[at] = value;
+        from[at] = rankOf[point];
+      }
       return true;
-    }
-    done.add(key);
-    return false;
+    },
+    /** Each held cell's chosen value (NaN if none), by kept cell and step. */
+    each(take: (point: number, k: number, value: number) => void) {
+      primaries.forEach((point, slot) => {
+        for (let k = 0; k < length; k++) {
+          take(point, k, best[slot * length + k]);
+        }
+      });
+    },
   };
+}
+
+/** The bytes a copy picker holds over `length` steps, with their sums. */
+export function copyPickerBytes(
+  selection: TRegionSelection & { classOf?: Int32Array },
+  length: number
+) {
+  const classOf = selection.classOf;
+  if (!classOf) {
+    return 0;
+  }
+  let classes = 0;
+  classOf.forEach((cls, point) => (classes += cls === point ? 1 : 0));
+  // With the part's own sums they are folded through.
+  return classOf.length * 8 + classes * (4 + 12 * length) + SUMS_BYTES * length;
 }
 
 /** The cells of a region on any supported grid. */
@@ -2293,6 +2372,27 @@ function orderedFolder(
     live.bytes -= SUMS_BYTES * acc.sum.length;
   };
   return {
+    /** Sums over the whole span, folded after every chunk's. */
+    whole(add: (acc: TChunkSums) => void) {
+      const length = span[1] - span[0];
+      const acc = {
+        from: span[0],
+        sum: new Float64Array(length),
+        weight: new Float64Array(length),
+        count: new Float64Array(length),
+        mean: new Float64Array(length),
+        m2: new Float64Array(length),
+        min: new Float64Array(length).fill(Infinity),
+        max: new Float64Array(length).fill(-Infinity),
+      };
+      live.bytes += SUMS_BYTES * length;
+      counters.peakAccumulatorBytes = Math.max(
+        counters.peakAccumulatorBytes,
+        live.bytes
+      );
+      add(acc);
+      fold(acc);
+    },
     accumulator(ordinal: number, t: number) {
       let acc = filling.get(ordinal);
       if (!acc) {
@@ -2331,6 +2431,31 @@ function orderedFolder(
       }
     },
   };
+}
+
+/** One weighted value into a chunk's sums. */
+function addValue(acc: TChunkSums, k: number, value: number, w: number) {
+  addMoment(acc, k, value, w);
+  acc.sum[k] += w * value;
+  acc.weight[k] += w;
+  acc.count[k] += 1;
+  acc.min[k] = Math.min(acc.min[k], value);
+  acc.max[k] = Math.max(acc.max[k], value);
+}
+
+/** Repeated cells' chosen values, each weighed once. */
+function addPicked(
+  acc: TChunkSums,
+  picked: NonNullable<ReturnType<typeof copyPicker>>,
+  selection: TRegionSelection
+) {
+  const none = new Float64Array(0);
+  picked.each((point, k, value) => {
+    const w = selection.weightOf(none, point);
+    if (w > 0 && !Number.isNaN(value)) {
+      addValue(acc, k, value, w);
+    }
+  });
 }
 
 // eslint-disable-next-line max-lines-per-function
@@ -2420,7 +2545,9 @@ export async function planRegionSeries(
     runSelectionBytes(selection.runs) +
     // Accumulators (eight columns) and the published σ, min, max and time
     // besides the three values counted as output.
-    nt * (8 + 4) * 8;
+    nt * (8 + 4) * 8 +
+    // Repeated cells' values held while each part in flight is read.
+    REGION_LOOKAHEAD * copyPickerBytes(selection, partLength);
   return {
     estimate: {
       ...estimateFor(
@@ -2455,8 +2582,6 @@ export async function planRegionSeries(
     },
     // eslint-disable-next-line max-lines-per-function
     async execute(signal, hooks) {
-      // One value of each repeated cell per date, whichever copy has it.
-      const claimed = copyClaims(selection);
       const started = performance.now();
       const timeAxis = context.time!.axis;
       const totals = {
@@ -2500,34 +2625,34 @@ export async function planRegionSeries(
             live,
             counters
           );
+          // One value of each repeated cell per date: its first valid copy.
+          const [from, until] = parts[part];
+          const picked = copyPicker(selection, until - from);
           await visitRuns(
             read,
             visited,
             context.codec,
             partRuns,
             (ordinal, index, value, point) => {
-              if (Number.isNaN(value)) {
+              const t = index[timeAxis];
+              if (picked?.hold(point, t - from, value) || Number.isNaN(value)) {
                 return;
               }
               const w = selection.weightOf(index, point);
-              if (w === 0 || claimed(index, point)) {
+              if (w === 0) {
                 return;
               }
-              const t = index[timeAxis];
               const acc = folder.accumulator(ordinal, t);
-              const k = t - acc.from;
-              addMoment(acc, k, value, w);
-              acc.sum[k] += w * value;
-              acc.weight[k] += w;
-              acc.count[k] += 1;
-              acc.min[k] = Math.min(acc.min[k], value);
-              acc.max[k] = Math.max(acc.max[k], value);
+              addValue(acc, t - acc.from, value, w);
             },
             counters,
             partSignal,
             folder.done,
             selection.points
           );
+          if (picked) {
+            folder.whole((acc) => addPicked(acc, picked, selection));
+          }
         },
         async (part, publish) => {
           if (fromEnd) {

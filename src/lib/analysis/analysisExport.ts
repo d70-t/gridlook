@@ -348,11 +348,15 @@ function gridTable(result: TAnalysisResult, header: string): TResultTable {
         k,
         axis.values[k],
         result.values[at],
-        at >= unreadFrom
-          ? VALUE_STATUS.UNREAD
-          : Number.isNaN(result.values[at])
-            ? missingStatus(result, result.samples?.status[k])
-            : VALUE_STATUS.OK,
+        // A sample outside the grid has no stored cell at any time, read yet
+        // or not.
+        result.samples?.status[k] === SAMPLE_STATUS.OUTSIDE
+          ? SAMPLE_STATUS.OUTSIDE
+          : at >= unreadFrom
+            ? VALUE_STATUS.UNREAD
+            : Number.isNaN(result.values[at])
+              ? missingStatus(result, result.samples?.status[k])
+              : VALUE_STATUS.OK,
         ...(result.cellCoverage ? [result.cellCoverage[at]] : []),
         ...(forecast
           ? [

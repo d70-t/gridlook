@@ -293,9 +293,10 @@ export async function exactSuffix(
 }
 
 /**
- * The last `n` bytes of a whole-object reply, kept in an `n`-byte ring as the
- * body streams: never the whole object in memory, and what passes is charged to
- * the file's skipped tally.
+ * The last `n` bytes of a whole-object reply, kept in a ring as the body
+ * streams: never more than `n` bytes (nor more than the object) in memory, each
+ * block copied in at most two pieces, and what passes is charged to the file's
+ * skipped tally.
  */
 // eslint-disable-next-line max-lines-per-function
 async function lastBytes(
@@ -304,7 +305,11 @@ async function lastBytes(
   response: Response,
   asked: string
 ) {
-  const declared = declaredLength(response);
+  // Under a content coding (gzip) the length is the coded body's: the
+  // decoded object's is known only as it streams.
+  const coding = response.headers.get("Content-Encoding")?.trim().toLowerCase();
+  const declared =
+    coding && coding !== "identity" ? undefined : declaredLength(response);
   const whole = `${asked} with HTTP 200 (the whole file`;
   if (declared !== undefined && declared > WHOLE_OBJECT_PREFIX) {
     cancel(response);
@@ -322,9 +327,7 @@ async function lastBytes(
   }
   charge(url, reserved);
   let charged = reserved;
-  // The last n bytes so far, as one buffer: each block is copied in whole.
-  const tail = new Uint8Array(Math.max(1, n));
-  let filled = 0;
+  const ring = suffixRing(Math.min(n, declared ?? n));
   const reader = response.body!.getReader();
   let total = 0;
   try {
@@ -337,13 +340,7 @@ async function lastBytes(
       if (total > WHOLE_OBJECT_PREFIX) {
         throw new Error(`${whole}, past ${WHOLE_OBJECT_PREFIX} bytes).`);
       }
-      if (value.byteLength >= tail.length) {
-        tail.set(value.subarray(value.byteLength - tail.length));
-      } else {
-        tail.copyWithin(0, value.byteLength);
-        tail.set(value, tail.length - value.byteLength);
-      }
-      filled = Math.min(tail.length, filled + value.byteLength);
+      ring.add(value);
       const due = Math.max(0, total - n) - charged;
       if (declared === undefined && due > 0) {
         charge(url, due);
@@ -360,14 +357,52 @@ async function lastBytes(
     // What was skipped in the end: a shorter body gives back the rest.
     charge(url, Math.max(0, total - n) - charged);
   }
-  const kept = Math.min(n, total);
-  const out = tail.slice(tail.length - Math.min(filled, kept));
+  const out = ring.last(Math.min(n, total));
+  const kept = out.length;
   return new Response(out, {
     status: 206,
     headers: {
       "Content-Range": `bytes ${total - kept}-${total - 1}/${total}`,
     },
   });
+}
+
+/**
+ * The last `size` bytes added, in a buffer grown by doubling (a short body
+ * holds only itself) and then written round: each block in at most two copies.
+ */
+function suffixRing(size: number) {
+  let buffer = new Uint8Array(Math.min(Math.max(1, size), 64 * 2 ** 10));
+  let end = 0;
+  let filled = 0;
+  return {
+    add(block: Uint8Array) {
+      const keep = block.subarray(Math.max(0, block.length - size));
+      // Grown while the body is still shorter than the ring will be.
+      if (buffer.length < size && filled + keep.length > buffer.length) {
+        const grown = new Uint8Array(
+          Math.min(size, Math.max(2 * buffer.length, filled + keep.length))
+        );
+        grown.set(this.last(filled));
+        [buffer, end] = [grown, filled % grown.length];
+      }
+      const first = Math.min(keep.length, buffer.length - end);
+      buffer.set(keep.subarray(0, first), end);
+      buffer.set(keep.subarray(first), 0);
+      end = (end + keep.length) % buffer.length;
+      filled = Math.min(buffer.length, filled + keep.length);
+    },
+    /** The last `k` bytes added (at most what is held), as a new array. */
+    last(k: number) {
+      const count = Math.min(k, filled);
+      const out = new Uint8Array(count);
+      const start = (end - count + buffer.length) % buffer.length;
+      const first = Math.min(count, buffer.length - start);
+      out.set(buffer.subarray(start, start + first));
+      out.set(buffer.subarray(0, count - first), first);
+      return out;
+    },
+  };
 }
 
 /**

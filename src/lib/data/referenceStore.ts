@@ -64,6 +64,57 @@ function refsOf(spec: TReferenceSpec): Record<string, TReference> {
 }
 
 const TEMPLATE = /{{\s*([A-Za-z_][A-Za-z0-9_]*)\s*}}/g;
+/** Any `{{ … }}`: a generator's fields may be integer arithmetic. */
+const EXPRESSION = /{{([^{}]*)}}/g;
+
+/**
+ * Integer arithmetic over named values (`i * 4096 + 64`, `(i // 2) % 3`),
+ * as kerchunk generators write their fields; undefined if it is anything else.
+ */
+function arithmetic(text: string, scope: Record<string, string>) {
+  const tokens = text.match(/\/\/|[-+*/%()]|\d+|[A-Za-z_]\w*|\S/g) ?? [];
+  let at = 0;
+  const atom = (): number => {
+    const t = tokens[at++];
+    if (t === "(") {
+      const v = sum();
+      return tokens[at++] === ")" ? v : NaN;
+    }
+    if (t === "-") {
+      return -atom();
+    }
+    if (t !== undefined && /^\d+$/.test(t)) {
+      return Number(t);
+    }
+    return t !== undefined && t in scope && /^-?\d+$/.test(scope[t])
+      ? Number(scope[t])
+      : NaN;
+  };
+  const product = (): number => {
+    let v = atom();
+    while (["*", "/", "//", "%"].includes(tokens[at])) {
+      const [op, w] = [tokens[at++], atom()];
+      v =
+        op === "*"
+          ? v * w
+          : op === "/"
+            ? v / w
+            : op === "//"
+              ? Math.floor(v / w)
+              : v - w * Math.floor(v / w);
+    }
+    return v;
+  };
+  const sum = (): number => {
+    let v = product();
+    while (tokens[at] === "+" || tokens[at] === "-") {
+      v = tokens[at++] === "+" ? v + product() : v - product();
+    }
+    return v;
+  };
+  const v = sum();
+  return at === tokens.length && Number.isFinite(v) ? String(v) : undefined;
+}
 
 /**
  * Substitute plain `{{name}}` templates in the URLs. The generic template
@@ -130,10 +181,14 @@ function expandGen(spec: TReferenceSpec): TReferenceSpec {
       if (Array.isArray(d)) {
         return d;
       }
-      // Python's range(start, stop, step), descending too; a zero step
-      // names nothing.
+      // Python's range(start, stop, step), descending too.
       const out: number[] = [];
       const step = d.step ?? 1;
+      if (step === 0) {
+        throw new Error(
+          `The reference generator for ${raw.key} has a step of 0 along ${name}.`
+        );
+      }
       const more = (v: number) => (step > 0 ? v < d.stop : v > d.stop);
       for (
         let v = d.start ?? 0;
@@ -156,10 +211,15 @@ function expandGen(spec: TReferenceSpec): TReferenceSpec {
         rest = Math.floor(rest / values[d].length);
       }
       const fill = (text: string | number | undefined) => {
-        const out = String(text ?? "").replace(
-          TEMPLATE,
-          (match, name: string) => (name in scope ? scope[name] : match)
-        );
+        const out = String(text ?? "")
+          .replace(TEMPLATE, (match, name: string) =>
+            name in scope ? scope[name] : match
+          )
+          .replace(
+            EXPRESSION,
+            (match, expression: string) =>
+              arithmetic(expression, scope) ?? match
+          );
         return out.includes("{{") ? undefined : out;
       };
       const [key, url] = [fill(raw.key), fill(raw.url)];
@@ -266,9 +326,15 @@ async function fetchReferenced(
     asked = new Request(asked);
     asked.headers.delete("Range");
     // A store without HEAD (405) or without a length: no length given, so the
-    // reader asks for the suffix by GET.
+    // reader asks for the suffix by GET. So too with a content coding (gzip):
+    // the length is the coded body's, not the object's an index ends.
     const head = await storeRequests.fetch(asked, init);
-    if (!head.ok || head.headers.get("Content-Length") === null) {
+    const coding = head.headers.get("Content-Encoding")?.trim().toLowerCase();
+    if (
+      !head.ok ||
+      head.headers.get("Content-Length") === null ||
+      (coding && coding !== "identity")
+    ) {
       void head.body?.cancel().catch(() => undefined);
       return new Response(null, { status: 200 });
     }
