@@ -1613,9 +1613,33 @@ async function windComponents(
   const latest: (TAnalysisResult | undefined)[] = [undefined, undefined];
   const finished = [false, false];
   // Each component's share read, averaged: one not started counts 0, one
-  // finished 1.
+  // finished 1. Pairing walks the whole series: past WIND_REPORT_ROWS dates
+  // it is done at most once per WIND_REPORT_MS, updates meanwhile taken by
+  // one trailing report (65,536 dates take about 14 ms a pairing).
+  let reported = -Infinity;
+  let trailing: ReturnType<typeof setTimeout> | undefined;
+  let settled = false;
   const report = () => {
+    const wait = reported + WIND_REPORT_MS - performance.now();
+    if (
+      wait > 0 &&
+      latest[0] &&
+      latest[1] &&
+      shown.values.length > WIND_REPORT_ROWS
+    ) {
+      trailing ??= setTimeout(() => {
+        trailing = undefined;
+        if (!settled) {
+          report();
+        }
+      }, wait);
+      return;
+    }
     const [u, v] = latest;
+    // Only a pairing counts against the interval.
+    if (u && v) {
+      reported = performance.now();
+    }
     const share = latest.map((r, at) =>
       finished[at]
         ? 1
@@ -1669,7 +1693,11 @@ async function windComponents(
       report();
       return result;
     })
-  );
+  ).finally(() => {
+    // No report after the read is over, whichever way it ended.
+    settled = true;
+    clearTimeout(trailing);
+  });
   // Kept only for a window still open.
   if (
     (windGenerations.get(owner) ?? 0) === generation &&
@@ -1698,6 +1726,10 @@ async function windComponents(
  * touch and the shown ones did not, at the component's price a chunk. Undefined
  * when a component's price is not known yet.
  */
+/** The least time between two wind pairings of a long series while reading. */
+const WIND_REPORT_MS = 100;
+const WIND_REPORT_ROWS = 4096;
+
 export function overlayBytes(
   w: TPlotWindow,
   time: NonNullable<TAnalysisQuery["time"]>,
@@ -1710,8 +1742,12 @@ export function overlayBytes(
   let bytes = 0;
   for (const purpose of ["wind", "pair"] as const) {
     const companion = shownCompanions(w, purpose);
-    // Being read and not priced yet: unknown, said as such, not left out.
-    if (companion?.status === "loading" && !companion.quote?.length) {
+    // Being read, or waiting for approval, and not priced yet: unknown, said
+    // as such, not left out.
+    if (
+      (companion?.status === "loading" || companion?.status === "confirm") &&
+      !companion.quote?.length
+    ) {
       return undefined;
     }
     for (const part of companion?.quote ?? []) {
@@ -1839,7 +1875,7 @@ async function partnerResult(
  * read by `read` for each uncovered interval.
  */
 // eslint-disable-next-line max-lines-per-function
-async function grownSegments(
+export async function grownSegments(
   before: TAnalysisResult,
   old: TRange[],
   pieces: (TRange & { chunk?: number })[],
@@ -1882,20 +1918,32 @@ async function grownSegments(
     }
   }
   // The intervals not read yet, one after another. While they are read, the
-  // rows kept stay published with them.
+  // rows kept stay published with them: the rows before as one result grown
+  // a segment at a time, those after as one slice of the kept rows, so a
+  // partial costs one three-way join, not one of every segment.
   const segments: TAnalysisResult[] = [];
-  const kept = (from: number) =>
-    plan
-      .slice(from)
-      .filter((step): step is TAnalysisResult => "values" in step);
-  if (onPartial && plan.some((step) => !("values" in step))) {
-    const ready = kept(0);
-    if (ready.length) {
-      onPartial(joinInOrder(ready));
-    }
+  const keptSteps = plan.filter(
+    (step): step is TAnalysisResult => "values" in step
+  );
+  const keptRows = keptSteps.length ? joinInOrder(keptSteps) : undefined;
+  // Kept rows at or after each step of the plan.
+  const keptFrom: number[] = new Array(plan.length + 1).fill(0);
+  for (let at = plan.length - 1; at >= 0; at--) {
+    const step = plan[at];
+    keptFrom[at] =
+      keptFrom[at + 1] + ("values" in step ? step.values.length : 0);
   }
+  const total = keptRows?.values.length ?? 0;
+  const after = (at: number) =>
+    keptRows && keptFrom[at]
+      ? [rowsBetween(keptRows, total - keptFrom[at], total)]
+      : [];
+  if (onPartial && keptRows && plan.some((step) => !("values" in step))) {
+    onPartial(keptRows);
+  }
+  let head: TAnalysisResult | undefined;
   for (const [at, step] of plan.entries()) {
-    segments.push(
+    const segment =
       "values" in step
         ? step
         : await read(
@@ -1903,11 +1951,16 @@ async function grownSegments(
             onPartial &&
               ((partial) =>
                 onPartial({
-                  ...joinInOrder([...segments, partial, ...kept(at + 1)]),
+                  ...joinInOrder([
+                    ...(head ? [head] : []),
+                    partial,
+                    ...after(at + 1),
+                  ]),
                   partial: partial.partial,
                 }))
-          )
-    );
+          );
+    segments.push(segment);
+    head = onPartial ? (head ? joinInOrder([head, segment]) : segment) : head;
   }
   return segments;
 }
@@ -1969,31 +2022,34 @@ async function piecewiseResult(
       onPartial
     );
   }
-  // Progress over all pieces, not each piece's own from 0 again.
+  // Progress over all pieces, not each piece's own from 0 again; the pieces
+  // already read stay published with the one being read, joined as one
+  // result grown a piece at a time.
   const parts: TAnalysisResult[] = [];
+  let done: TAnalysisResult | undefined;
   for (const [k, q] of queries.entries()) {
-    parts.push(
-      await companionResult(
-        owner,
-        source,
-        q,
-        onPartial &&
-          ((partial) =>
-            onPartial({
-              ...partial,
-              partial: partial.partial && {
-                ...partial.partial,
-                done:
-                  k * PIECE_SCALE +
-                  Math.round(
-                    (PIECE_SCALE * partial.partial.done) /
-                      Math.max(1, partial.partial.total)
-                  ),
-                total: queries.length * PIECE_SCALE,
-              },
-            }))
-      )
+    const part = await companionResult(
+      owner,
+      source,
+      q,
+      onPartial &&
+        ((partial) =>
+          onPartial({
+            ...(done ? joinInOrder([done, partial]) : partial),
+            partial: partial.partial && {
+              ...partial.partial,
+              done:
+                k * PIECE_SCALE +
+                Math.round(
+                  (PIECE_SCALE * partial.partial.done) /
+                    Math.max(1, partial.partial.total)
+                ),
+              total: queries.length * PIECE_SCALE,
+            },
+          }))
     );
+    parts.push(part);
+    done = onPartial ? (done ? joinInOrder([done, part]) : part) : undefined;
   }
   // Each piece as of now: one read before a publication of its dates is stale
   // even if it finished first.
@@ -3886,14 +3942,12 @@ export const useAnalysisStore = defineStore("analysis", {
       const groups = groupsIn(span, chunk);
       const perGroup = decoded ? decoded / groups : undefined;
       const outputs = estimate?.outputValues ?? values;
-      // The dates a shared link showed, once, when they are the request's.
+      // The dates a shared link showed, once, when they are the request's:
+      // within its span, cut to its own runs (inRequest) when it has them.
       const shared = w.shownRange;
       w.shownRange = undefined;
       const range =
-        shared &&
-        shared.start >= span.start &&
-        shared.stop <= span.stop &&
-        !span.runs
+        shared && shared.start >= span.start && shared.stop <= span.stop
           ? shared
           : previewIn(span, w.anchor, chunk, perGroup, {
               perDate: outputs ? outputs / total : undefined,
