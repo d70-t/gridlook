@@ -60,5 +60,7 @@ describe.skipIf(process.env.GRIDLOOK_BENCH !== "1")("Mercator", () => {
       `Mercator 400k: per vertex ${median(before).toFixed(1)} ms, cached ${median(now).toFixed(1)} ms\n`
     );
     expect(median(now)).toBeLessThanOrEqual(median(before) * 1.05);
-  });
+    // Nine warmed pairs of 400,000 positions: the speed check is the
+    // comparison, so the run itself gets time a busy host needs.
+  }, 60_000);
 });
