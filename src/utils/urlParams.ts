@@ -32,9 +32,31 @@ const URL_PARAMETERS = {
   // "true" or "false" when the levels' colour range is not the variable's
   // default (shared, unless it sums over cells); absent otherwise
   LEVEL_SHARED: "levelshared",
+  // analysis plot windows, written by the analysis store
+  PLOTS: "plots",
 } as const;
 
 type TURLParameterValues = (typeof URL_PARAMETERS)[keyof typeof URL_PARAMETERS];
+
+/**
+ * The hash settings, each encoded on its own so a `+`, `%2B`, `&` or `::`
+ * inside a value (a variable name, a catalog URL's query) reads back as
+ * written. Slashes stay readable; comma and semicolon delimit the layers
+ * format and stay readable there.
+ */
+export function formatHashParams(params: URLSearchParams) {
+  return [...params.entries()]
+    .map((entry) => {
+      // A slash is safe in the hash and keeps paths readable (2/tas).
+      const encoded = new URLSearchParams([entry])
+        .toString()
+        .replace(/%2F/g, "/");
+      return entry[0] === URL_PARAMETERS.LAYERS
+        ? encoded.replace(/%2C/g, ",").replace(/%3B/g, ";")
+        : encoded;
+    })
+    .join("::");
+}
 
 export { URL_PARAMETERS };
 export type { TURLParameterValues };

@@ -139,3 +139,38 @@ it("keeps a negative dimension index while it still matches the slider", async (
     vi.unstubAllGlobals();
   }
 });
+
+it("keeps encoded characters of every other setting when one changes", async () => {
+  vi.useFakeTimers();
+  setActivePinia(createPinia());
+  const catalog = "https://example.test/cat.yaml?a=1&b=2%2B3";
+  const location = {
+    pathname: "/",
+    hash: `#https://example.test/data.zarr::varname=wind%2Bu::catalog=${encodeURIComponent(catalog)}`,
+  };
+  vi.stubGlobal("location", location);
+  vi.stubGlobal("document", { location });
+  vi.stubGlobal("history", {
+    replaceState: (_state: unknown, _title: string, url: string) => {
+      location.hash = url.slice(url.indexOf("#"));
+    },
+  });
+  const store = useGlobeControlStore();
+  const scope = effectScope();
+  scope.run(useUrlSync);
+  try {
+    store.colormap = "magma" as never;
+    await nextTick();
+    vi.advanceTimersByTime(100);
+    const params = new URLSearchParams(
+      location.hash.substring(1).split("::").slice(1).join("&")
+    );
+    expect(params.get("colormap")).toBe("magma");
+    expect(params.get("varname")).toBe("wind+u");
+    expect(params.get("catalog")).toBe(catalog);
+  } finally {
+    scope.stop();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  }
+});

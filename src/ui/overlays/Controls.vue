@@ -230,6 +230,15 @@ watch(
   }
 );
 
+// Plots follow the map's limits only while Custom is chosen.
+watch(
+  pickedBoundsMode,
+  (mode) => {
+    store.customBoundsActive = mode === BOUND_MODES.USER;
+  },
+  { immediate: true }
+);
+
 watch(currentBounds, (bounds) => {
   if (bounds) {
     store.updateBounds(bounds as TBounds);

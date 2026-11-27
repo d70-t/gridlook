@@ -167,6 +167,7 @@ it("updates the distance scale with the picker disabled and clears it on mouse l
   vi.mocked(useEventListener).mockClear();
   const { grid, scope, camera } = setupRegionalScene({ flat: true });
   const store = useGlobeControlStore();
+  store.showDistanceScale = true;
   grid.canvas.value = {
     getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
   } as HTMLCanvasElement;
@@ -193,6 +194,11 @@ it("updates the distance scale with the picker disabled and clears it on mouse l
     initial.distanceMeters / initial.widthPx / 2
   );
   leave();
+  expect(store.distanceScale).toBeNull();
+  // Off: pointer moves and redraws measure nothing.
+  store.showDistanceScale = false;
+  move({ clientX: 420, clientY: 310 } as MouseEvent);
+  grid.redraw();
   expect(store.distanceScale).toBeNull();
   scope.stop();
 });

@@ -35,3 +35,22 @@ it("adds toasts and removes them after their duration", () => {
 
   expect(toasts.value).toEqual([]);
 });
+
+it("carries one action, such as Undo, for the toast's button", () => {
+  const run = vi.fn();
+  const toastId = addToast("P6 closed.", {
+    duration: 5000,
+    action: { label: "Undo", run },
+    compact: true,
+  });
+  const [toast] = toasts.value;
+  expect(toast).toMatchObject({
+    id: toastId,
+    action: { label: "Undo" },
+    compact: true,
+  });
+  toast!.action!.run();
+  expect(run).toHaveBeenCalledOnce();
+  vi.advanceTimersByTime(5000);
+  expect(toasts.value).toEqual([]);
+});

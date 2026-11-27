@@ -45,6 +45,25 @@ export function isAzimuthalProjectionType(type: TProjectionType) {
   );
 }
 
+/**
+ * Whether an azimuthal map shows a place: within the angle it is clipped at
+ * (the renderer's, AZIMUTHAL_CLIP_ANGLE). Its inverse answers beyond that too,
+ * where nothing is drawn.
+ */
+export function withinAzimuthalClip(
+  center: TProjectionCenter,
+  lat: number,
+  lon: number
+) {
+  const r = Math.PI / 180;
+  const cos =
+    Math.sin(center.lat * r) * Math.sin(lat * r) +
+    Math.cos(center.lat * r) *
+      Math.cos(lat * r) *
+      Math.cos((lon - center.lon) * r);
+  return Math.acos(Math.max(-1, Math.min(1, cos))) <= AZIMUTHAL_CLIP_ANGLE * r;
+}
+
 export class ProjectionHelper {
   readonly type: TProjectionType;
   readonly isFlat: boolean;
@@ -68,6 +87,12 @@ export class ProjectionHelper {
     // We still keep a d3 projection for CPU-side geometry work:
     // flat mask clipping, bounds, and initial vertex positions before shaders run.
     this.d3Projection = this.createD3ProjectionInstance();
+    const angles = this.d3Projection?.rotate() ?? [0, 0, 0];
+    this.mercatorRotation =
+      this.type === PROJECTION_TYPES.MERCATOR &&
+      ((angles[1] ?? 0) !== 0 || (angles[2] ?? 0) !== 0)
+        ? d3.geoRotation(angles as [number, number, number])
+        : undefined;
   }
 
   private createAzimuthalProjectionInstance(): d3.GeoProjection | null {
@@ -176,19 +201,37 @@ export class ProjectionHelper {
     return [x, y, z];
   }
 
+  /**
+   * The map's rotation for Mercator clamping, built once with the projection
+   * (its centre is fixed for this helper); none when it only turns longitudes
+   * (latitudes are clamped as they are).
+   */
+  private mercatorRotation?: d3.GeoRotation;
+
   private projectMercator(
     lat: number,
     lon: number,
     radius: number
   ): [number, number, number] {
-    const safeLat = Math.max(
-      -MERCATOR_LAT_LIMIT,
-      Math.min(MERCATOR_LAT_LIMIT, lat)
-    );
-    const projected = this.d3Projection?.([
+    // Clamped in the rotated frame, as the shader clamps. The rotation is built
+    // once with the helper, and inverted only for a place that needs clamping.
+    const point: [number, number] = [
       ProjectionHelper.normalizeLongitude(lon),
-      safeLat,
-    ]);
+      lat,
+    ];
+    const clamp = (value: number) =>
+      Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, value));
+    const rotation = this.mercatorRotation;
+    let safe = point;
+    if (!rotation) {
+      safe = [point[0], clamp(lat)];
+    } else {
+      const [rLon, rLat] = rotation(point);
+      if (Math.abs(rLat) > MERCATOR_LAT_LIMIT) {
+        safe = rotation.invert([rLon, clamp(rLat)]) as [number, number];
+      }
+    }
+    const projected = this.d3Projection?.(safe);
     if (!projected) {
       return [0, 0, 0];
     }

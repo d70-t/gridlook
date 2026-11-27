@@ -9,17 +9,28 @@ export const ToastType = {
 
 export type TToastType = (typeof ToastType)[keyof typeof ToastType];
 
+/** One button on the toast (e.g. Undo); using it closes the toast. */
+type TToastAction = { label: string; run: () => void };
+
 type TToast = {
   id: number;
   summary: string;
   detail?: string;
   type: TToastType;
+  action?: TToastAction;
+  /** A one-line notice: small, no large icon. */
+  compact?: boolean;
+  /** A picture of the gesture instead of the type's icon. */
+  icon?: "right-click";
 };
 
 type TAddToastOptions = {
   detail?: string;
   duration?: number;
   type?: TToastType;
+  action?: TToastAction;
+  compact?: boolean;
+  icon?: "right-click";
 };
 
 type TUseToast = {
@@ -40,6 +51,15 @@ export function useToast(): TUseToast {
 
     if (options.detail !== undefined) {
       toast.detail = options.detail;
+    }
+    if (options.action) {
+      toast.action = options.action;
+    }
+    if (options.compact) {
+      toast.compact = true;
+    }
+    if (options.icon) {
+      toast.icon = options.icon;
     }
 
     toasts.value.push(toast);

@@ -1,6 +1,15 @@
-import { HttpStorage, IcechunkStore } from "icechunk-js";
+import {
+  HttpStorage,
+  IcechunkStore,
+  NotFoundError,
+  type ByteRange,
+  type RequestOptions,
+  type Storage,
+} from "icechunk-js";
 import * as zarr from "zarrita";
 
+import { askedRange, exactRange } from "@/lib/data/rangeResponse.ts";
+import { storeRequests } from "@/lib/data/requestGate.ts";
 import { SOURCE_TYPE_PREFIX } from "@/lib/data/sourceType.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 import { ZARR_FORMAT } from "@/lib/types/GlobeTypes.ts";
@@ -72,22 +81,102 @@ export function withStoreXsrfToken(
     : withXsrfToken(storePath, cookie, pageHref);
 }
 
+/**
+ * Icechunk's objects and virtual chunks through this context's request gate, as
+ * direct Zarr's are. A byte range of an HTTP object is read here, through the
+ * same check as a reference's: one byte of a 4 MiB object from a server
+ * ignoring Range read all 4 MiB, and a reply naming other bytes is refused.
+ */
+function gatedStorage(inner: Storage, http?: THttpObjects): Storage {
+  // The storage itself beneath (its URL and options stay readable).
+  return Object.assign(Object.create(inner) as Storage, {
+    getObject: (path: string, range?: ByteRange, options?: RequestOptions) =>
+      range && http
+        ? rangeOf(http, path, range, options)
+        : storeRequests.run(
+            () => inner.getObject(path, range, options),
+            options?.signal
+          ),
+    exists: (path: string, options?: RequestOptions) =>
+      storeRequests.run(() => inner.exists(path, options), options?.signal),
+  });
+}
+
+/** How the repository's objects are requested (as HttpStorage does). */
+type THttpObjects = {
+  url: string;
+  headers?: Record<string, string>;
+  credentials?: RequestCredentials;
+  cache?: RequestCache;
+};
+
+/** Bytes range.start..range.end-1 of an HTTP storage object. */
+async function rangeOf(
+  http: THttpObjects,
+  path: string,
+  range: ByteRange,
+  options?: RequestOptions
+) {
+  const url = `${http.url.replace(/\/$/, "")}/${path.replace(/^\//, "")}`;
+  const response = await storeRequests.fetch(
+    new Request(url, {
+      headers: {
+        ...http.headers,
+        Range: `bytes=${range.start}-${range.end - 1}`,
+      },
+      credentials: http.credentials,
+      cache: options?.cache ?? http.cache,
+      signal: options?.signal,
+    })
+  );
+  if (response.status === 404) {
+    void response.body?.cancel().catch(() => undefined);
+    throw new NotFoundError(path);
+  }
+  if (response.status !== 200 && response.status !== 206) {
+    void response.body?.cancel().catch(() => undefined);
+    throw new Error(
+      `HTTP ${response.status} ${response.statusText} for ${url}`
+    );
+  }
+  const exact = await exactRange(url, range.start, range.end - 1, response);
+  return new Uint8Array(await exact.arrayBuffer());
+}
+
 export async function createIcechunkStore(
-  storePath: string
+  storePath: string,
+  /** Plots: objects past the browser cache (see referenceStore's fetchFresh). */
+  { fresh = false }: { fresh?: boolean } = {}
 ): Promise<TIcechunkStore> {
   // icechunk-js joins paths onto the repo URL, so a Jupyter `_xsrf` token
   // can't stay in its query; it goes in a header instead. Virtual chunks are
   // fetched separately and don't get it.
   const { url, token } = splitXsrfToken(parseStorePath(storePath).url);
   const { headers, withCredentials } = ZarrDataManager.getRequestSettings();
+  const http: THttpObjects = {
+    url,
+    headers: token
+      ? { ...headers, "X-XSRFToken": decodeURIComponent(token) }
+      : headers,
+    credentials: withCredentials ? "include" : undefined,
+    ...(fresh ? { cache: "no-store" as const } : {}),
+  };
   return await IcechunkStore.open(
-    new HttpStorage(url, {
-      headers: token
-        ? { ...headers, "X-XSRFToken": decodeURIComponent(token) }
-        : headers,
-      credentials: withCredentials ? "include" : undefined,
-    }),
+    gatedStorage(new HttpStorage(url, http), http),
     {
+      fetchClient: {
+        fetch: async (url: string, init?: RequestInit) => {
+          const request = new Request(url, init);
+          const response = await storeRequests.fetch(
+            request,
+            fresh ? { cache: "no-store" } : undefined
+          );
+          const range = askedRange(request.headers.get("Range"));
+          return range
+            ? exactRange(url, range.start, range.end, response)
+            : response;
+        },
+      },
       withRangeCoalescing: (store, options) =>
         zarr.withRangeCoalescing(store, {
           ...options,

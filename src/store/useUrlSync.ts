@@ -4,6 +4,7 @@ import { watch } from "vue";
 
 import { resolveDimensionIndex } from "../lib/data/dimensionHandling.ts";
 import {
+  formatHashParams,
   URL_PARAMETERS,
   type TURLParameterValues,
 } from "../utils/urlParams.ts";
@@ -186,9 +187,7 @@ export function useUrlSync() {
         "#" +
         resource +
         "::" +
-        Object.entries(Object.fromEntries(params))
-          .map(([k, v]) => `${k}=${v}`)
-          .join("::")
+        formatHashParams(params)
     );
   }
 

@@ -47,6 +47,7 @@ Mouse behavior depends on the current projection.
 - Left drag rotates the globe
 - Mouse wheel zooms
 - Right drag pans the camera target
+- Right-click without dragging, or <kbd>Shift</kbd>+<kbd>F10</kbd> on the focused map, opens the [plots](plots.md) menu
 
 If `Data Picker` is enabled, moving the pointer over the canvas also shows the value under the cursor.
 
@@ -55,6 +56,7 @@ If `Data Picker` is enabled, moving the pointer over the canvas also shows the v
 - Left drag pans the map
 - Mouse wheel zooms
 - Right drag changes the projection center
+- Right-click without dragging, or <kbd>Shift</kbd>+<kbd>F10</kbd> on the focused map, opens the [plots](plots.md) menu
 
 For flat projections, the projection center can also be adjusted numerically in the side panel.
 

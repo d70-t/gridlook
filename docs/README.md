@@ -19,6 +19,8 @@ stores, Icechunk repositories, Kerchunk reference files and NetCDF files.
   controls.
 - [Supported grid types](grid-types.md) — grid families, automatic detection,
   and alternative renderers.
+- [Plots](plots.md) — time series, area means, vertical profiles and
+  cross-sections in floating windows; supported grids and definitions.
 - [URL parameters](url-parameters.md) — view settings stored in the URL.
 - [JupyterLab / JupyterHub](../jupyter/README.md) — `pip install jupyter-gridlook`
   serves the viewer inside a Jupyter server, adds a **Gridlook** launcher card
