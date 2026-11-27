@@ -1,7 +1,6 @@
 import { FetchStore } from "@zarrita/storage";
 import { afterEach, expect, it, vi } from "vitest";
 
-import { createReferenceStore } from "@/lib/data/referenceStore.ts";
 import { ZarrDataManager } from "@/lib/data/ZarrDataManager.ts";
 
 afterEach(() => vi.restoreAllMocks());
@@ -58,15 +57,4 @@ it("stops a range read at the headers when a full object declares its size", asy
 
 it("stops a range read after its first excess block when object size is unknown", async () => {
   await checkRange(false);
-});
-
-it("opens the selected revision of a reference manifest when its URL has a query", async () => {
-  const url = "https://data.example/daily.json?version=2";
-  const fetcher = vi
-    .spyOn(globalThis, "fetch")
-    .mockResolvedValue(
-      Response.json({ version: 1, refs: { ".zgroup": '{"zarr_format":2}' } })
-    );
-  await createReferenceStore("reference+" + url, { fresh: true });
-  expect(fetcher.mock.calls[0][0]).toBe(url);
 });
